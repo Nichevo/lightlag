@@ -1,0 +1,14 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <!-- The Godot game: screens, drawing and input only. Game rules live in src/Lightlag.Sim. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <RootNamespace>Lightlag.Game</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../src/Lightlag.Sim/Lightlag.Sim.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,256 @@
+using Godot;
+using Lightlag.Sim;
+using Lightlag.Sim.Core;
+using Lightlag.Sim.Logging;
+using Lightlag.Sim.Save;
+using FileAccess = Godot.FileAccess;
+
+namespace Lightlag.Game;
+
+/// <summary>
+/// The app root. Sets up logging and crash reporting before anything else, then swaps between the
+/// title screen and the game screen. F8 (player report) works on every screen.
+/// </summary>
+public partial class Main : Node
+{
+    public static Main Instance { get; private set; } = null!;
+
+    public BuildInfo Build { get; private set; } = BuildInfo.Dev;
+    public DataPaths Paths { get; private set; } = null!;
+    public GameLog Log { get; private set; } = null!;
+
+    /// <summary>The game being played, if any. Crash and F8 reports include it.</summary>
+    public Simulation? Sim { get; set; }
+
+    private Node? _screen;
+    private CanvasLayer _overlay = null!;
+    private ReportDialog? _report;
+    private bool _crashing;
+
+    public override void _Ready()
+    {
+        Instance = this;
+        Build = LoadBuild();
+        Paths = new DataPaths(ResolveDataDir()).EnsureCreated();
+        GameLog.PruneOldFiles(Paths.Logs, keep: 30);
+        Log = new GameLog(Build, System.IO.Path.Combine(Paths.Logs, $"lightlag_{DateTime.UtcNow:yyyyMMdd_HHmmss}.jsonl"));
+        if (OS.HasFeature("editor")) Log.Echo = (_, line) => GD.Print(line);
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            Crash(e.ExceptionObject as Exception ?? new Exception($"{e.ExceptionObject}"), "unhandled exception");
+        TaskScheduler.UnobservedTaskException += (_, e) => Log.Error("game", "Background task failed", new { error = e.Exception.ToString() });
+        OS.AddLogger(new GodotLogBridge(Log));
+
+        Log.Info("game", "Lightlag started", new
+        {
+            build = Build.ToString(),
+            godot = (string)Engine.GetVersionInfo()["string"],
+            os = OS.GetName() + " " + OS.GetVersion(),
+            dataDir = Paths.Root,
+        });
+
+        _overlay = new CanvasLayer { Layer = 100 };
+        AddChild(_overlay);
+        if (OS.GetCmdlineUserArgs().Contains("--smoke-test"))
+        {
+            CallDeferred(MethodName.RunSmokeTest);
+            return;
+        }
+        ShowTitle();
+    }
+
+    // ---- Screens ---------------------------------------------------------------------------
+
+    public void ShowTitle()
+    {
+        Sim = null;
+        SetScreen(new TitleScreen());
+    }
+
+    public void StartNewGame(ulong? seed = null)
+    {
+        var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
+        RunGuarded("starting a new game", () =>
+        {
+            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build);
+            SetScreen(new GameScreen());
+        });
+    }
+
+    public void LoadGame(string path)
+    {
+        RunGuarded($"loading {System.IO.Path.GetFileName(path)}", () =>
+        {
+            Sim = Simulation.FromSave(SaveGame.Load(path), Log, Build);
+            SetScreen(new GameScreen());
+            Toast($"Loaded {System.IO.Path.GetFileNameWithoutExtension(path)}");
+        });
+    }
+
+    private void SetScreen(Node screen)
+    {
+        _screen?.QueueFree();
+        _screen = screen;
+        AddChild(screen);
+        MoveChild(_overlay, -1);
+    }
+
+    // ---- Reports and crashes ---------------------------------------------------------------
+
+    public override void _Input(InputEvent e)
+    {
+        if (e is InputEventKey { Pressed: true, Echo: false, Keycode: Key.F8 } && _report == null)
+        {
+            GetViewport().SetInputAsHandled();
+            OpenReport();
+        }
+    }
+
+    private void OpenReport()
+    {
+        // Grab the screen before the dialog covers it.
+        var shot = GetViewport().GetTexture().GetImage();
+        var screenName = _screen?.GetType().Name ?? "none";
+        var wasPaused = GetTree().Paused;
+        GetTree().Paused = true;
+        _report = new ReportDialog();
+        _report.Finished += note =>
+        {
+            if (note != null)
+            {
+                try
+                {
+                    var dir = Reports.WritePlayerReport(Paths, Log, Sim, note, screenName);
+                    shot.SavePng(System.IO.Path.Combine(dir, "screenshot.png"));
+                    Toast("Report saved. Thanks!", dir);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("report", "Could not write player report", new { error = ex.ToString() });
+                    Toast("Could not save the report (see log)");
+                }
+            }
+            _report?.QueueFree();
+            _report = null;
+            GetTree().Paused = wasPaused;
+        };
+        _overlay.AddChild(_report);
+    }
+
+    /// <summary>Runs an action; if it throws, writes a crash report instead of losing the error.</summary>
+    public bool RunGuarded(string what, Action action)
+    {
+        try
+        {
+            action();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Crash(ex, what);
+            return false;
+        }
+    }
+
+    /// <summary>Writes a crash report and shows it. Play stops; the player can go back to the title.</summary>
+    public void Crash(Exception error, string where)
+    {
+        if (_crashing) return; // a crash while handling a crash: the first report is the useful one
+        _crashing = true;
+        try
+        {
+            var dir = Reports.WriteCrash(Paths, Log, Sim, error, where);
+            CallDeferred(MethodName.ShowCrashPanel, dir, $"{error.GetType().Name}: {error.Message}");
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"Crash report failed: {ex}");
+        }
+        finally
+        {
+            _crashing = false;
+        }
+    }
+
+    private void ShowCrashPanel(string folder, string message)
+    {
+        GetTree().Paused = true;
+        var panel = new CrashPanel(folder, message);
+        panel.BackToTitle += () =>
+        {
+            panel.QueueFree();
+            GetTree().Paused = false;
+            ShowTitle();
+        };
+        _overlay.AddChild(panel);
+    }
+
+    public void Toast(string text, string? folderToOpen = null) => _overlay.AddChild(new Toast(text, folderToOpen));
+
+    public void Quit(int exitCode = 0)
+    {
+        OnClosing();
+        GetTree().Quit(exitCode);
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what == NotificationWMCloseRequest) OnClosing();
+    }
+
+    private bool _closed;
+
+    private void OnClosing()
+    {
+        if (_closed) return;
+        _closed = true;
+        if (Sim != null) RunGuarded("autosave on quit", () => SaveSlots.WriteAutosave(Paths, Sim));
+        Log.Info("game", "Lightlag closed");
+        Log.Dispose();
+    }
+
+    /// <summary>
+    /// CI runs the exported game with --smoke-test: play 30 game days, write an F8-style report,
+    /// check the files exist, then quit with exit code 0 (ok) or 1 (failed).
+    /// </summary>
+    private void RunSmokeTest()
+    {
+        var ok = RunGuarded("smoke test", () =>
+        {
+            StartNewGame(12345);
+            Sim!.RuleCheckEveryTicks = 1;
+            Sim.StrictRules = true;
+            var pilot = new TestPilot(12345);
+            for (var i = 0; i < 30 * GameTime.TicksPerDay; i++) { pilot.Act(Sim); Sim.Step(); }
+            var dir = Reports.WritePlayerReport(Paths, Log, Sim, "smoke test", "smoke");
+            foreach (var f in new[] { "README.md", "save.json", "replay.json", "log-tail.jsonl" })
+                if (!File.Exists(System.IO.Path.Combine(dir, f))) throw new FileNotFoundException($"smoke test report is missing {f}");
+            Log.Info("game", "Smoke test passed", new { day = Sim.World.Day, hash = Sim.StateHash() });
+        });
+        GD.Print(ok ? "SMOKE TEST PASSED" : "SMOKE TEST FAILED");
+        Quit(ok ? 0 : 1);
+    }
+
+    // ---- Startup helpers -------------------------------------------------------------------
+
+    /// <summary>The data folder: --data-dir=PATH (the launcher passes it), else Godot's user folder.</summary>
+    private static string ResolveDataDir()
+    {
+        foreach (var arg in OS.GetCmdlineUserArgs())
+            if (arg.StartsWith("--data-dir="))
+                return arg["--data-dir=".Length..].Trim('"');
+        return System.IO.Path.Combine(OS.GetUserDataDir(), "data");
+    }
+
+    /// <summary>CI writes build_info.json into the game and next to the .exe.</summary>
+    private static BuildInfo LoadBuild()
+    {
+        try
+        {
+            if (FileAccess.FileExists("res://build_info.json"))
+                return BuildInfo.FromJson(FileAccess.GetFileAsString("res://build_info.json"));
+        }
+        catch (Exception) { }
+        return BuildInfo.Load(System.IO.Path.GetDirectoryName(OS.GetExecutablePath()) ?? ".");
+    }
+}
