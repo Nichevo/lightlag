@@ -110,16 +110,31 @@ public partial class GameScreen : Node2D
             if (b.Kind != BodyKind.Moon || _scale > 0.05)
                 DrawString(_font, at + new Vector2(r + 4, 4), b.Name, HorizontalAlignment.Left, -1, 13, Ui.Dim);
         }
+        // Orders given while paused only reach the simulation on its next tick; show them now anyway.
+        var orders = PendingDestinations();
         foreach (var s in w.Ships)
         {
             if (!s.Position.IsFinite) continue;
             var at = ToScreen(s.Position);
             var color = s.Side == Side.Player ? Ui.Player : Ui.Rival;
-            if (s.Destination is Vec2 d) DrawDashedLine(at, ToScreen(d), new Color(color, 0.5f), 1, 6);
+            var dest = orders.TryGetValue(s.Id, out var pending) ? pending : s.Destination;
+            if (dest is Vec2 d) DrawDashedLine(at, ToScreen(d), new Color(color, 0.5f), 1, 6);
             DrawColoredPolygon(new[] { at + new Vector2(0, -7), at + new Vector2(6, 5), at + new Vector2(-6, 5) }, color);
             if (s.Id == _selected) DrawArc(at, 12, 0, Mathf.Tau, 32, color, 1.5f, true);
             DrawString(_font, at + new Vector2(9, -6), s.Name, HorizontalAlignment.Left, -1, 12, color);
         }
+    }
+
+    /// <summary>Where queued (not yet applied) orders will send each ship; null means a stop order.</summary>
+    private Dictionary<int, Vec2?> PendingDestinations()
+    {
+        var result = new Dictionary<int, Vec2?>();
+        foreach (var c in Sim.PendingCommands)
+        {
+            if (c is MoveShipCommand m) result[m.ShipId] = new Vec2(m.X, m.Y);
+            else if (c is StopShipCommand st) result[st.ShipId] = null;
+        }
+        return result;
     }
 
     // ---- Input ----------------------------------------------------------------------------
