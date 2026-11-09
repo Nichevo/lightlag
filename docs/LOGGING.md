@@ -78,11 +78,12 @@ Rules that keep replays exact:
 - Never use `System.Random`, `DateTime.Now` or anything else outside the seed inside the simulation.
 - Never change the world from the UI; issue a command.
 - Never iterate a `HashSet` or `Dictionary` where the order changes the result.
-- Replays are exact on the same machine and build. Across machines the floating-point maths may
-  differ slightly; that is fine for debugging but means saves, not replays, are what to share.
+- Never call `Math.Sin`, `Math.Cos`, `Math.Pow` and friends in the simulation: they come from the
+  operating system and differ in the last digit between Windows and Linux. Use `DetMath`. A test
+  fails if one creeps in. With that, a replay recorded on one machine plays back exactly on another.
 
 ## Saves
 
 Saves are JSON (`data/saves/`) and include the replay so far. F5 quick save, F9 quick load, an
-autosave every 10 game days and on quit (the last 5 are kept). Saves are written to a temp file
+autosave every 5 minutes of unpaused play and on quit (the last 5 are kept). Saves are written to a temp file
 first, so a crash mid-save never corrupts one.

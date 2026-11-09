@@ -67,7 +67,7 @@ public static class Scenarios
                     Id = w.NextId++,
                     Name = $"{cls.Short}-{(group.Side == Side.Player ? "" : "R")}{counters[key]}",
                     Side = group.Side, ClassId = cls.Id, MaxSpeed = cls.MaxSpeedMmPerHour,
-                    Position = near.Position + new Vec2(Math.Cos(angle), Math.Sin(angle)) * dist,
+                    Position = near.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * dist,
                 });
             }
         }

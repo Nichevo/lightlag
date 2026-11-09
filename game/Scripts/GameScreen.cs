@@ -22,7 +22,7 @@ public partial class GameScreen : Node2D
     /// <summary>Game hours per real second at 1x, 2x, 4x, 8x. At 1x a game day takes 4 seconds.</summary>
     public static readonly double[] Speeds = { 6, 12, 24, 48 };
     public static readonly string[] SpeedNames = { "1x", "2x", "4x", "8x" };
-    private const int AutosaveEveryDays = 10;
+    private const double AutosaveEverySeconds = 300; // real time spent playing (not paused)
 
     private Main _main = null!;
     private readonly MapCamera _camera = new();
@@ -34,7 +34,7 @@ public partial class GameScreen : Node2D
     private int? _follow;
     private bool _dragging;
     private bool _dragMoved;
-    private int _lastAutosaveDay;
+    private double _sinceAutosave;
     private Hud _hud = null!;
 
     private Simulation Sim => _main.Sim!;
@@ -47,7 +47,6 @@ public partial class GameScreen : Node2D
     {
         _main = Main.Instance;
         _camera.ScreenSize = GetViewportRect().Size;
-        _lastAutosaveDay = Sim.World.Day;
 
         _map = new MapView { Sim = Sim, Camera = _camera };
         AddChild(_map);
@@ -83,10 +82,11 @@ public partial class GameScreen : Node2D
                 return;
             }
             _map.Blend = Math.Clamp(_accum, 0, 1);
+            _sinceAutosave += delta;
         }
-        if (Sim.World.Day - _lastAutosaveDay >= AutosaveEveryDays)
+        if (_sinceAutosave >= AutosaveEverySeconds)
         {
-            _lastAutosaveDay = Sim.World.Day;
+            _sinceAutosave = 0;
             _main.RunGuarded("autosave", () => SaveSlots.WriteAutosave(_main.Paths, Sim));
         }
 
