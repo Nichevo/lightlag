@@ -14,6 +14,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SplitFleetCommand), "splitFleet")]
 [JsonDerivedType(typeof(MergeFleetsCommand), "mergeFleets")]
 [JsonDerivedType(typeof(SetStanceCommand), "setStance")]
+[JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
+[JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
@@ -44,6 +46,7 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
             return;
         }
         fleet.Flight = plan.Flight;
+        fleet.JoinFleetId = null;
         var target = Request.TargetBodyId is int b ? world.FindBody(b)?.Name : plan.Flight.Target.ToString();
         sim.Log.Info("fleet", $"{fleet.Name} plans a flight to {target}", new
         {
@@ -59,6 +62,7 @@ public sealed record StopFleetCommand(int FleetId) : GameCommand
     {
         if (GetFleet(world, sim, FleetId, "Stop order") is not Fleet fleet) return;
         fleet.Flight = null;
+        fleet.JoinFleetId = null;
         if (fleet.Velocity.Length < 1e-9) return;
         if (FlightPlanner.BrakeToStop(world, fleet) is Flight brake)
         {
@@ -120,7 +124,11 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.OrbitRadius = fleet.OrbitRadius;
         created.OrbitAngle = fleet.OrbitAngle;
         created.Flight = fleet.Flight?.Copy();
+        created.Stance = fleet.Stance;
+        created.Facing = fleet.Facing;
+        created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
         Fleets.Arrange(world, fleet);
+        Fleets.SetApart(world, created);
         sim.Log.Info("fleet", $"{created.Name} splits from {fleet.Name}", new { fleetId = fleet.Id, newFleetId = created.Id, ShipIds, Source });
     }
 }
@@ -137,14 +145,111 @@ public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCom
             sim.Log.Warn("fleet", $"Cannot merge {other.Name} into {fleet.Name}: {problem}", new { FleetId, OtherFleetId, Source });
             return;
         }
-        foreach (var s in world.ShipsOf(other).ToList())
-        {
-            fleet.ShipIds.Add(s.Id);
-            s.FleetId = fleet.Id;
-        }
-        world.Fleets.Remove(other);
-        Fleets.Arrange(world, fleet);
+        Fleets.Absorb(world, fleet, other);
         sim.Log.Info("fleet", $"{other.Name} merges into {fleet.Name}", new { FleetId, OtherFleetId, Source });
+    }
+}
+
+/// <summary>
+/// "Fast ships go ahead": the ships faster than the fleet's slowest split off and fly the same order at
+/// their own pace, then wait at the destination and join the slower ships when they arrive.
+/// </summary>
+public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : GameCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Send-ahead order") is not Fleet fleet) return;
+        if (Request.Arrival != ArrivalStyle.Brake)
+        {
+            sim.Log.Warn("fleet", "Fast ships can only go ahead on a flight that brakes at the end", new { FleetId, Source });
+            return;
+        }
+        var ships = world.ShipsOf(fleet).ToList();
+        var slowest = ships.Count == 0 ? 0 : ships.Min(Fleets.ShipSpeed);
+        var fast = ships.Where(s => Fleets.ShipSpeed(s) > slowest * 1.0001).ToList();
+        if (fast.Count == 0 || fast.Count == ships.Count)
+        {
+            new PlanFlightCommand(FleetId, Request) { Source = Source }.Apply(world, sim);
+            return;
+        }
+
+        fleet.ShipIds.RemoveAll(id => fast.Any(s => s.Id == id));
+        var ahead = Fleets.Create(world, fleet.Side, fast, fleet.Position);
+        ahead.Velocity = fleet.Velocity;
+        ahead.Hold = fleet.Hold;
+        ahead.OrbitBodyId = fleet.OrbitBodyId;
+        ahead.OrbitRadius = fleet.OrbitRadius;
+        ahead.OrbitAngle = fleet.OrbitAngle;
+        ahead.Stance = fleet.Stance;
+        ahead.Facing = fleet.Facing;
+        ahead.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
+        Fleets.Arrange(world, fleet);
+
+        var slowPlan = FlightPlanner.Plan(world, fleet, Request);
+        var fastPlan = FlightPlanner.Plan(world, ahead, Request);
+        if (!slowPlan.Ok || slowPlan.Flight == null || !fastPlan.Ok || fastPlan.Flight == null)
+        {
+            // Put things back as they were.
+            Fleets.Absorb(world, fleet, ahead);
+            world.FleetNumbers[(int)fleet.Side]--;
+            sim.Log.Warn("fleet", $"{fleet.Name} cannot send its fast ships ahead: {slowPlan.Problem ?? fastPlan.Problem}", new { FleetId, Request, Source });
+            return;
+        }
+        fleet.Flight = slowPlan.Flight;
+        fleet.JoinFleetId = null;
+        ahead.Flight = fastPlan.Flight;
+        ahead.JoinFleetId = fleet.Id;
+        sim.Log.Info("fleet", $"{ahead.Name} goes ahead of {fleet.Name}", new
+        {
+            FleetId, aheadFleetId = ahead.Id, Request, slowArrive = slowPlan.Flight.ArriveHour, fastArrive = fastPlan.Flight.ArriveHour, Source,
+        });
+    }
+}
+
+/// <summary>
+/// Bring fleets together into one: those already close join now; the others fly to it (to its
+/// destination if it is flying) and join when they get there.
+/// </summary>
+public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, double SpeedFraction) : GameCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Gather order") is not Fleet into) return;
+        foreach (var otherId in OtherFleetIds.Distinct())
+        {
+            if (world.FindFleet(otherId) is not Fleet other || other.Id == into.Id || other.Side != into.Side) continue;
+            if (Fleets.CanJoin(other, into))
+            {
+                Fleets.Absorb(world, into, other);
+                sim.Log.Info("fleet", $"{other.Name} merges into {into.Name}", new { FleetId, otherFleetId = otherId, Source });
+                continue;
+            }
+            if (Meeting(world, into) is not FlightRequest request)
+            {
+                sim.Log.Warn("fleet", $"{into.Name} is drifting on; stop it before gathering", new { FleetId, Source });
+                return;
+            }
+            var plan = FlightPlanner.Plan(world, other, request);
+            if (!plan.Ok || plan.Flight == null)
+            {
+                sim.Log.Warn("fleet", $"{other.Name} cannot reach {into.Name}: {plan.Problem}", new { FleetId, otherFleetId = otherId, Source });
+                continue;
+            }
+            other.Flight = plan.Flight;
+            other.JoinFleetId = into.Id;
+            sim.Log.Info("fleet", $"{other.Name} flies to join {into.Name}", new { FleetId, otherFleetId = otherId, plan.Flight.ArriveHour, Source });
+        }
+    }
+
+    /// <summary>Where to meet the fleet: where it is flying to, the body it circles, or the point where it waits.</summary>
+    private FlightRequest? Meeting(World world, Fleet into)
+    {
+        if (into.Flight is Flight f && f.TargetFleetId == null && f.Arrival == ArrivalStyle.Brake)
+            return new FlightRequest(f.TargetBodyId, f.Target, SpeedFraction, ArrivalStyle.Brake, f.HoldAfter, world.Tick);
+        if (into.Flight != null || into.Velocity.Length > 1e-9) return null;
+        if (into.Hold == HoldStyle.Orbit && into.OrbitBodyId is int body && world.FindBody(body) is Body b)
+            return new FlightRequest(b.Id, b.Position, SpeedFraction, ArrivalStyle.Brake, HoldStyle.Orbit, world.Tick);
+        return new FlightRequest(null, into.Position, SpeedFraction, ArrivalStyle.Brake, HoldStyle.Drift, world.Tick);
     }
 }
 

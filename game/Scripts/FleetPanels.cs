@@ -47,10 +47,10 @@ public partial class FleetPanel : PanelContainer
         _buttons = new HBoxContainer();
         _buttons.AddThemeConstantOverride("separation", 4);
         _orbit = Ui.SmallButton("Orbit", () => _screen.OrderHold(HoldStyle.Orbit), "Orbit the nearest planet or moon (O)");
-        _drift = Ui.SmallButton("Drift", () => _screen.OrderHold(HoldStyle.Drift), "Engines cold: stay put (D)");
-        _stop = Ui.SmallButton("Stop", () => _screen.OrderStop(), "Cancel the flight and brake to a stop (S)");
+        _drift = Ui.SmallButton("Drift", () => _screen.OrderHold(HoldStyle.Drift), "Engines cold: stay put (G)");
+        _stop = Ui.SmallButton("Stop", () => _screen.OrderStop(), "Cancel the flight and brake to a stop (X)");
         _split = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet");
-        _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one");
+        _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one (M). To merge fleets further apart, drag a box round them and Gather");
         foreach (var b in new[] { _orbit, _drift, _stop, _split, _merge }) _buttons.AddChild(b);
         box.AddChild(_buttons);
 
@@ -79,6 +79,22 @@ public partial class FleetPanel : PanelContainer
         _screen.OrderStance(stance ?? _fleet.Stance, retreat ?? _fleet.RetreatWhenDamaged);
     }
 
+    private int? _tickOnly;
+
+    /// <summary>Tick just this ship (picked from the fleet list), ready to split off.</summary>
+    public void TickOnly(int shipId)
+    {
+        _tickOnly = shipId;
+        ApplyTick();
+    }
+
+    private void ApplyTick()
+    {
+        if (_tickOnly is not int id || !_rows.ContainsKey(id)) return;
+        foreach (var (shipId, row) in _rows) row.Box.ButtonPressed = shipId == id;
+        _tickOnly = null;
+    }
+
     private List<int> Checked() => _rows.Where(r => r.Value.Box.ButtonPressed).Select(r => r.Key).ToList();
 
     public void Refresh(Simulation sim, Fleet f)
@@ -90,11 +106,10 @@ public partial class FleetPanel : PanelContainer
         var perf = FleetPerformance.Of(w, f);
         _title.Text = f.Name + (mine ? "" : "  (rival)");
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
-        _status.Text = string.Join("\n", new[]
-        {
-            Doing(w, f),
-            $"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change",
-        });
+        var lines = new List<string> { Doing(w, f), Motion(w, f) };
+        if (f.JoinFleetId is int join && w.FindFleet(join) is Fleet into) lines.Add($"Joins {into.Name} when both are stopped together");
+        if (mine) lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change");
+        _status.Text = string.Join("\n", lines);
 
         // Rebuild the ship rows only when the fleet's ships change.
         var key = string.Join(",", f.ShipIds) + (mine ? "m" : "r");
@@ -116,6 +131,7 @@ public partial class FleetPanel : PanelContainer
                 _rows[s.Id] = (check, supplies);
             }
         }
+        ApplyTick();
         foreach (var s in ships)
         {
             if (!_rows.TryGetValue(s.Id, out var row)) continue;
@@ -145,6 +161,20 @@ public partial class FleetPanel : PanelContainer
         _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
     }
 
+    /// <summary>Speed, and for a fleet near an enemy how fast the gap is closing.</summary>
+    public static string Motion(World w, Fleet f)
+    {
+        var text = f.Velocity.Length > 1e-6 ? $"Speed {Format.Speed(f.Velocity.Length)}" : "Stopped";
+        var enemy = Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm * 1.5);
+        if (enemy == null) return text;
+        var gap = enemy.Position - f.Position;
+        var d = gap.Length;
+        if (d < 1e-9) return text;
+        var closing = -Vec2.Dot(gap, enemy.Velocity - f.Velocity) / d;
+        var how = closing > 1e-6 ? $"closing at {Format.Speed(closing)}" : closing < -1e-6 ? $"pulling apart at {Format.Speed(-closing)}" : "holding distance";
+        return $"{text} · {enemy.Name} {d * 1000:#,0} km away, {how}";
+    }
+
     public static string Doing(World w, Fleet f)
     {
         string? Name(int? id) => id is int b ? w.FindBody(b)?.Name : null;
@@ -169,6 +199,55 @@ public partial class FleetPanel : PanelContainer
     }
 }
 
+/// <summary>Several of your fleets picked at once: what they are, and one button to gather them into one.</summary>
+public partial class GroupPanel : PanelContainer
+{
+    private readonly GameScreen _screen;
+    private Label _title = null!;
+    private Label _list = null!;
+    private Button _gather = null!;
+
+    public GroupPanel() : this(null!) { }
+    public GroupPanel(GameScreen screen) => _screen = screen;
+
+    public override void _Ready()
+    {
+        Ui.StylePanel(this, 14);
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(330, 0) };
+        box.AddThemeConstantOverride("separation", 6);
+        AddChild(box);
+        _title = Ui.Label("", 17, Ui.Player);
+        box.AddChild(_title);
+        _list = Ui.Label("", 14, Ui.Dim);
+        _list.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _list.CustomMinimumSize = new Vector2(330, 0);
+        box.AddChild(_list);
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 4);
+        _gather = Ui.SmallButton("Gather", () => _screen.OrderGather(), "Merge them all into the largest; fleets further off fly there first (M)");
+        _gather.CustomMinimumSize = new Vector2(110, 32);
+        row.AddChild(_gather);
+        var clear = Ui.SmallButton("Clear", () => _screen.Select(null), "Unpick them");
+        clear.CustomMinimumSize = new Vector2(80, 32);
+        row.AddChild(clear);
+        box.AddChild(row);
+    }
+
+    public void Refresh(Simulation sim, IReadOnlyList<Fleet> group)
+    {
+        var w = sim.World;
+        var into = group[0];
+        _title.Text = $"{group.Count} fleets picked";
+        _gather.Text = $"Gather into {into.Name}";
+        _list.Text = string.Join("\n", group.Select(f =>
+        {
+            var where = f == into ? "the others join it" : Fleets.CanJoin(f, into) ? "close by: merges at once"
+                : $"{Format.Distance(Vec2.Distance(f.Position, into.Position))} away: flies there, then merges";
+            return $"{f.Name} ({f.ShipIds.Count} ships): {where}";
+        }));
+    }
+}
+
 /// <summary>
 /// The route planner: pick Direct or Wait, how fast to fly (faster burns more fuel), and how to
 /// arrive, and see when the fleet leaves and arrives and what it costs before sending it.
@@ -178,6 +257,8 @@ public partial class PlannerPanel : PanelContainer
     private readonly GameScreen _screen;
     private Label _title = null!;
     private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
+    private Button _together = null!, _ahead = null!;
+    private HBoxContainer _shipsRow = null!;
     private HSlider _speed = null!;
     private Label _speedLabel = null!;
     private Label _result = null!;
@@ -227,6 +308,10 @@ public partial class PlannerPanel : PanelContainer
         _orbit = Choice("Orbit", "Circle the planet or moon on arrival", () => s.Hold = HoldStyle.Orbit);
         _drift = Choice("Drift", "Sit with engines cold on arrival", () => s.Hold = HoldStyle.Drift);
         box.AddChild(Row("Then", _orbit, _drift));
+        _together = Choice("Together", "The whole fleet flies at the pace of its slowest ship", () => s.FastAhead = false);
+        _ahead = Choice("Fast ahead", "Faster ships fly at their own pace, wait at the target and rejoin when the slow ones arrive", () => s.FastAhead = true);
+        _shipsRow = Row("Ships", _together, _ahead);
+        box.AddChild(_shipsRow);
 
         _result = Ui.Label("", 14);
         _result.AutowrapMode = TextServer.AutowrapMode.WordSmart;
@@ -288,6 +373,10 @@ public partial class PlannerPanel : PanelContainer
         if (p.TargetFleetId != null) _title.Text = $"Attack: {fleet?.Name} on {p.TargetName}";
         Mark(_orbit, canOrbit && s.Hold == HoldStyle.Orbit, canOrbit);
         Mark(_drift, !canOrbit || s.Hold == HoldStyle.Drift, canOrbit);
+        var canAhead = fleet != null && _screen.HasFastShips(fleet) && s.Arrival == ArrivalStyle.Brake;
+        _shipsRow.Visible = fleet != null && _screen.HasFastShips(fleet);
+        Mark(_together, !canAhead || !s.FastAhead, canAhead);
+        Mark(_ahead, canAhead && s.FastAhead, canAhead);
         _updating = true;
         _speed.Value = s.Speed * 100;
         _updating = false;
@@ -310,6 +399,7 @@ public partial class PlannerPanel : PanelContainer
             $"Trip: {Format.Hours(f.ArriveHour - f.DepartHour)} · arrive {GameTime.Format(f.ArriveHour)}",
             $"Fuel: {Format.Speed(plan.DeltaV)} of speed change, {plan.FuelShare:P0} of what the fleet has",
         };
+        if (canAhead && s.FastAhead) lines.Add("Fast ships go ahead, wait there and rejoin; times above are for the slowest ship");
         if (!plan.Ok) lines.Add(plan.Problem ?? "Cannot fly this");
         _result.Text = string.Join("\n", lines);
         _result.AddThemeColorOverride("font_color", plan.Ok ? Ui.Text : Ui.Danger);

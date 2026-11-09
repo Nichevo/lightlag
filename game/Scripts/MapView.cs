@@ -18,6 +18,18 @@ public partial class MapView : Node2D
     public int? SelectedId;
     public int? HoverId;
 
+    /// <summary>Fleets picked together (box or Shift+click), drawn with a ring each.</summary>
+    public IReadOnlyCollection<int> GroupIds = Array.Empty<int>();
+
+    /// <summary>The box being dragged out to pick fleets, in screen pixels.</summary>
+    public Rect2? SelectionBox;
+
+    /// <summary>Which way each fleet's ships are drawn pointing; turns towards the fleet's facing over time.</summary>
+    private readonly Dictionary<int, double> _shownFacing = new();
+
+    /// <summary>How fast ship icons swing round to a new facing, in radians per real second.</summary>
+    private const double TurnRate = 5;
+
     /// <summary>The game hour being drawn (between the last step and the current one).</summary>
     public double DrawHour;
 
@@ -46,12 +58,25 @@ public partial class MapView : Node2D
         foreach (var m in Sim.World.Missiles) _prevMissile[m.Id] = m.Position;
     }
 
+    /// <summary>Swing each fleet's drawn facing towards its real one, so a flip to brake is seen as a turn.</summary>
+    public void TurnShips(double delta)
+    {
+        foreach (var f in Sim.World.Fleets)
+        {
+            if (!_shownFacing.TryGetValue(f.Id, out var shown)) { _shownFacing[f.Id] = f.Facing; continue; }
+            var diff = Math.IEEERemainder(f.Facing - shown, Math.Tau);
+            var step = TurnRate * delta;
+            _shownFacing[f.Id] = Math.Abs(diff) <= step ? f.Facing : shown + Math.Sign(diff) * step;
+        }
+    }
+
     /// <summary>Forget the previous tick (after loading, so nothing blends from the old game).</summary>
     public void ResetBlend()
     {
         _prevAngle.Clear();
         _prevShip.Clear();
         _prevFleet.Clear();
+        _shownFacing.Clear();
         Blend = 1;
     }
 
@@ -151,6 +176,11 @@ public partial class MapView : Node2D
         if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf) DrawRanges(sf);
         foreach (var f in w.Fleets) DrawFleet(f);
         DrawMissiles();
+        if (SelectionBox is Rect2 box)
+        {
+            DrawRect(box, new Color(Ui.Player, 0.08f));
+            DrawRect(box, new Color(Ui.Player, 0.7f), false, 1);
+        }
     }
 
     /// <summary>Weapon reach of the selected fleet: railguns, missiles and contact.</summary>
@@ -166,11 +196,12 @@ public partial class MapView : Node2D
             var r = (float)(mm * Camera.Scale);
             if (r < 12 || r > 5000) return;
             DrawArc(at, r, 0, Mathf.Tau, 96, new Color(color, alpha), 1, true);
-            DrawString(_font, at + new Vector2(4, -r - 3), label, HorizontalAlignment.Left, -1, 11, new Color(color, alpha + 0.2f));
+            DrawString(_font, at + new Vector2(6, -r - 4), label, HorizontalAlignment.Left, -1, 13, new Color(color, alpha + 0.45f));
         }
-        Ring(c.ContactRangeMm, 0.12f, "contact");
-        if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.18f, "missiles");
-        if (ships.Any(s => GameData.ShipClass(s.ClassId).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.25f, "railguns");
+        string Km(double mm) => $"{mm * 1000:#,0} km";
+        Ring(c.ContactRangeMm, 0.12f, $"Contact {Km(c.ContactRangeMm)}: battle time starts");
+        if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.2f, $"Missile launch {Km(c.Missile.LaunchRangeMm)}");
+        if (ships.Any(s => GameData.ShipClass(s.ClassId).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.28f, $"Railguns {Km(c.Railgun.RangeMm)}");
     }
 
     private void DrawMissiles()
@@ -316,7 +347,7 @@ public partial class MapView : Node2D
         var at = Camera.ToScreen(world);
         if (!Camera.OnScreen(at, 400)) return;
         var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
-        var heading = Heading(f);
+        var heading = (float)(_shownFacing.TryGetValue(f.Id, out var shown) ? shown : f.Facing);
         var apart = ShipsApart;
         var ships = Sim.World.ShipsOf(f).ToList();
         var drawnShips = apart ? ships : ships.Take(1).ToList();
@@ -328,27 +359,33 @@ public partial class MapView : Node2D
             if (apart && (Camera.Scale > 0.05 || f.Id == SelectedId))
                 DrawString(_font, p + new Vector2(12, -8), s.Name, HorizontalAlignment.Left, -1, 12, color);
         }
+        if (apart && SpeedTag(f) is { Length: > 0 } tag)
+            DrawString(_font, at + new Vector2(12, 22), $"{f.Name}{tag}", HorizontalAlignment.Left, -1, 12, color);
         if (!apart)
         {
             // Zoomed out: the fleet is one icon with a count.
-            var label = ships.Count > 1 ? $"{f.Name} ({ships.Count})" : $"{f.Name}: {ships.FirstOrDefault()?.Name}";
+            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count})" : $"{f.Name}: {ships.FirstOrDefault()?.Name}") + SpeedTag(f);
             if (ships.Count > 1) DrawString(_font, at + new Vector2(-4, 16), ships.Count.ToString(), HorizontalAlignment.Left, -1, 11, color);
             if (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
         }
-        if (f.Id == SelectedId)
+        if (f.Id == SelectedId || GroupIds.Contains(f.Id))
         {
             var radius = apart ? (float)(Fleets.FormationSpacing * 1.6 * Camera.Scale) + 14 : 14f;
             DrawArc(at, radius, 0, Mathf.Tau, 48, color, 1.5f, true);
         }
     }
 
-    private static float Heading(Fleet f)
+    /// <summary>" · 12 km/s" for a moving fleet in contact with an enemy (or selected), else "".</summary>
+    private string SpeedTag(Fleet f)
     {
-        if (f.Velocity.Length > 1e-6) return (float)Math.Atan2(f.Velocity.Y, f.Velocity.X);
-        if (f.Flight is Flight fl) { var d = fl.Target - f.Position; return (float)Math.Atan2(d.Y, d.X); }
-        return 0;
+        var speed = f.Velocity.Length;
+        if (speed < 1e-6) return f.Id == SelectedId || InContact(f) ? " · stopped" : "";
+        return f.Id == SelectedId || InContact(f) || f.InFlight ? $" · {Format.Speed(speed)}" : "";
     }
+
+    private bool InContact(Fleet f) =>
+        Sim.World.Fleets.Any(o => o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= GameData.Combat.ContactRangeMm);
 
     private void DrawShipIcon(Vector2 at, Ship s, Color color, float heading)
     {
@@ -414,8 +451,14 @@ public partial class MapView : Node2D
     {
         foreach (var c in Sim.PendingCommands)
         {
-            if (c is PlanFlightCommand pf && Sim.World.FindFleet(pf.FleetId) is Fleet f
-                && FlightPlanner.Plan(Sim.World, f, pf.Request) is { Ok: true, Flight: Flight flight })
+            var (fleetId, request) = c switch
+            {
+                PlanFlightCommand pf => (pf.FleetId, pf.Request),
+                SendAheadCommand sa => (sa.FleetId, sa.Request),
+                _ => (0, (FlightRequest?)null),
+            };
+            if (request != null && Sim.World.FindFleet(fleetId) is Fleet f
+                && FlightPlanner.Plan(Sim.World, f, request) is { Ok: true, Flight: Flight flight })
                 yield return (f, flight);
         }
     }

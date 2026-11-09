@@ -56,6 +56,10 @@ public sealed class RuleBook
         .Add("fleet-orbit-body-exists", w => w.Fleets.Where(f => f.OrbitBodyId is int b && w.FindBody(b) == null)
             .Select(f => $"fleet {f.Id} {f.Name} orbits missing body {f.OrbitBodyId}"))
         .Add("fleets-hold-their-ships", FleetsHoldTheirShips)
+        .Add("fleet-joins-own-side", w => w.Fleets.Where(f => f.JoinFleetId is int j
+                && (j == f.Id || w.FindFleet(j) is Fleet other && other.Side != f.Side))
+            .Select(f => $"fleet {f.Id} {f.Name} is set to join fleet {f.JoinFleetId}"))
+        .Add("fleets-not-empty", w => w.Fleets.Where(f => f.ShipIds.Count == 0).Select(f => $"fleet {f.Id} {f.Name} has no ships"))
         .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.TryGetValue(s.ClassId, out var c)
                 && !(s.Supplies >= 0 && s.Supplies <= c.Supplies + 1e-6))
             .Select(s => $"ship {s.Id} {s.Name} has {s.Supplies} supplies"))

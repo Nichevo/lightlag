@@ -10,10 +10,12 @@ namespace Lightlag.Game;
 /// It never changes the world directly; fleet orders go through commands.
 ///
 ///   Wheel              zoom at the cursor             Left click      select a fleet or body
-///   Middle/right drag  pan                            Double-click    follow it (F follows the selection)
+///   Middle/right drag  pan (also WASD / arrows)       Double-click    follow it (F follows the selection)
+///   Left drag          box: pick several fleets       Shift+click     add or remove a fleet from the pick
+///   Tab                next fleet of yours            M               merge, or gather the picked fleets
 ///   Right click        plan a route there             Shift+right     go there now with the last settings
 ///   Enter              fly the planned route          Esc             cancel the plan (else back to title)
-///   O / D / S          orbit / drift / stop           Home            show the whole system
+///   O / G / X          orbit / drift / stop           Home            show the whole system
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
 ///   F5 / F9            quick save / quick load        F8              report a problem
@@ -42,6 +44,12 @@ public partial class GameScreen : Node2D
     private double _lastStepHours = 1;
     private int _lastBattleSeen;
     private int _lastReportShown;
+    private readonly List<int> _group = new();
+    private Vector2? _leftDown;
+    private bool _boxing;
+
+    /// <summary>Map panning with the keyboard, in screen pixels per real second (Shift for faster).</summary>
+    private const float KeyPanSpeed = 900;
 
     /// <summary>Battle time runs this much slower than normal time at the same speed setting.</summary>
     public const double BattleSlowdown = 1.0 / 360;
@@ -121,6 +129,8 @@ public partial class GameScreen : Node2D
             _main.RunGuarded("autosave", () => SaveSlots.WriteAutosave(_main.Paths, Sim));
         }
 
+        KeyboardPan(delta);
+        _map.TurnShips(delta);
         _map.UpdatePositions();
         if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
         _camera.Update(delta, _follow is int id ? _map.DrawnPosition(id) : null);
@@ -128,6 +138,9 @@ public partial class GameScreen : Node2D
         UpdatePlanner(delta);
         _map.HoverId = _map.HitTest(GetViewport().GetMousePosition());
         _map.SelectedId = _selected;
+        _group.RemoveAll(g => Sim.World.FindFleet(g) == null);
+        if (_group.Count == 1) { var only = _group[0]; _group.Clear(); _selected = only; }
+        _map.GroupIds = _group;
         _map.Preview = Planner?.Plan;
         _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
         _map.QueueRedraw();
@@ -188,6 +201,57 @@ public partial class GameScreen : Node2D
         if (id is int shipId && Sim.World.FindShip(shipId) is Ship ship) id = ship.FleetId;
         if (id != _selected) Planner = null;
         _selected = id;
+        _group.Clear();
+    }
+
+    /// <summary>Several of your fleets picked at once (two or more), largest first; empty otherwise.</summary>
+    public IReadOnlyList<Fleet> Group => _group.Count < 2 ? Array.Empty<Fleet>()
+        : _group.Select(id => Sim.World.FindFleet(id)).OfType<Fleet>()
+            .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).ToList();
+
+    /// <summary>Pick these fleets together (only yours count).</summary>
+    public void SelectGroup(IEnumerable<int> fleetIds)
+    {
+        var mine = fleetIds.Where(id => Sim.World.FindFleet(id) is { Side: Side.Player }).Distinct().ToList();
+        Planner = null;
+        _group.Clear();
+        if (mine.Count == 0) { _selected = null; return; }
+        if (mine.Count == 1) { _selected = mine[0]; return; }
+        _group.AddRange(mine);
+        _selected = null;
+    }
+
+    /// <summary>Shift+click: add a fleet to the pick, or take it out.</summary>
+    private void ToggleInGroup(int fleetId)
+    {
+        if (Sim.World.FindFleet(fleetId) is not { Side: Side.Player }) { Select(fleetId); return; }
+        var picked = _group.Count > 0 ? new List<int>(_group) : _selected is int s && Sim.World.FindFleet(s) is { Side: Side.Player } ? new List<int> { s } : new List<int>();
+        if (!picked.Remove(fleetId)) picked.Add(fleetId);
+        SelectGroup(picked);
+    }
+
+    /// <summary>Select a fleet from the fleet list and centre on it.</summary>
+    public void PickFleet(int fleetId)
+    {
+        Select(fleetId);
+        if (Sim.World.FindFleet(fleetId) != null) Follow(fleetId, zoom: false);
+    }
+
+    /// <summary>Select a ship from the fleet list: its fleet is selected and the ship ticked, ready to split off.</summary>
+    public void PickShip(int shipId)
+    {
+        if (Sim.World.FindShip(shipId) is not Ship ship) return;
+        PickFleet(ship.FleetId);
+        _hud.TickShip(shipId);
+    }
+
+    /// <summary>Tab: the next of your fleets.</summary>
+    public void NextFleet(int step)
+    {
+        var mine = Sim.World.Fleets.Where(f => f.Side == Side.Player).Select(f => f.Id).ToList();
+        if (mine.Count == 0) return;
+        var at = _selected is int id ? mine.IndexOf(id) : -1;
+        PickFleet(mine[((at + step) % mine.Count + mine.Count) % mine.Count]);
     }
 
     public Body? SelectedBody => _selected is int id ? Sim.World.FindBody(id) : null;
@@ -246,7 +310,26 @@ public partial class GameScreen : Node2D
 
     public void OrderMerge()
     {
+        if (Group.Count >= 2) { OrderGather(); return; }
         if (MyFleet is Fleet f && MergeCandidate() is Fleet other) Sim.Issue(new MergeFleetsCommand(f.Id, other.Id));
+    }
+
+    /// <summary>Merge the picked fleets into the largest: close ones at once, the rest fly to it first.</summary>
+    public void OrderGather()
+    {
+        var group = Group;
+        if (group.Count < 2) return;
+        var into = group[0];
+        Sim.Issue(new GatherFleetsCommand(into.Id, group.Skip(1).Select(f => f.Id).ToList(), Settings.Speed));
+        _main.Toast($"Gathering {group.Count} fleets into {into.Name}");
+        Select(into.Id);
+    }
+
+    /// <summary>Does this fleet have ships faster than its slowest (so some could go ahead)?</summary>
+    public bool HasFastShips(Fleet f)
+    {
+        var speeds = Sim.World.ShipsOf(f).Select(Fleets.ShipSpeed).ToList();
+        return speeds.Count > 1 && speeds.Max() > speeds.Min() * 1.0001;
     }
 
     // ---- Route planner ----------------------------------------------------------------------
@@ -277,7 +360,11 @@ public partial class GameScreen : Node2D
     {
         if (Planner is not PlannerState p || p.Plan is not { Ok: true, Flight: Flight flight }) return;
         var depart = Settings.Route == RouteKind.Wait ? Math.Max(Sim.World.Tick, (long)Math.Round(flight.DepartHour)) : Sim.World.Tick;
-        Sim.Issue(new PlanFlightCommand(p.FleetId, Request(p) with { DepartTick = depart }));
+        var request = Request(p) with { DepartTick = depart };
+        if (Settings.FastAhead && Settings.Arrival == ArrivalStyle.Brake && Sim.World.FindFleet(p.FleetId) is Fleet f && HasFastShips(f))
+            Sim.Issue(new SendAheadCommand(p.FleetId, request));
+        else
+            Sim.Issue(new PlanFlightCommand(p.FleetId, request));
         Planner = null;
     }
 
@@ -316,10 +403,30 @@ public partial class GameScreen : Node2D
                     _camera.Pan(motion.Relative);
                 }
                 break;
-            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click:
-                var hit = _map.HitTest(click.Position);
-                if (click.DoubleClick && hit is int id) Follow(id, zoom: true);
-                else Select(hit);
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left } left:
+                if (left.Pressed)
+                {
+                    var hit = _map.HitTest(left.Position);
+                    if (left.DoubleClick && hit is int id) { Follow(id, zoom: true); _leftDown = null; break; }
+                    _leftDown = left.Position;
+                    _boxing = false;
+                }
+                else if (_leftDown is Vector2 down)
+                {
+                    _leftDown = null;
+                    _map.SelectionBox = null;
+                    if (_boxing) { SelectGroup(FleetsInBox(BoxFrom(down, left.Position))); break; }
+                    var hit = _map.HitTest(down);
+                    if (left.ShiftPressed && hit is int fid && Sim.World.FindFleet(fid) != null) ToggleInGroup(fid);
+                    else Select(hit);
+                }
+                break;
+            case InputEventMouseMotion boxMotion when _leftDown is Vector2 start:
+                if (_boxing || boxMotion.Position.DistanceTo(start) > 6)
+                {
+                    _boxing = true;
+                    _map.SelectionBox = BoxFrom(start, boxMotion.Position);
+                }
                 break;
             case InputEventKey { Pressed: true, Echo: false } key:
                 OnKey(key);
@@ -359,8 +466,10 @@ public partial class GameScreen : Node2D
             case Key.F when _selected is int id: Follow(id, zoom: !key.ShiftPressed); break;
             case Key.Enter or Key.KpEnter: ConfirmPlan(); break;
             case Key.O: OrderHold(HoldStyle.Orbit); break;
-            case Key.D: OrderHold(HoldStyle.Drift); break;
-            case Key.S: OrderStop(); break;
+            case Key.G: OrderHold(HoldStyle.Drift); break;
+            case Key.X: OrderStop(); break;
+            case Key.M: OrderMerge(); break;
+            case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
@@ -391,6 +500,37 @@ public partial class GameScreen : Node2D
         }
     }
 
+    private static Rect2 BoxFrom(Vector2 a, Vector2 b) => new Rect2(a, Vector2.Zero).Expand(b);
+
+    /// <summary>Your fleets with any ship inside the box (or the fleets themselves when zoomed out).</summary>
+    private List<int> FleetsInBox(Rect2 box)
+    {
+        var found = new List<int>();
+        foreach (var f in Sim.World.Fleets.Where(f => f.Side == Side.Player))
+        {
+            var points = Sim.World.ShipsOf(f).Select(s => _map.DrawnPosition(s.Id)).Append(_map.DrawnPosition(f.Id));
+            if (points.Any(p => p is Vec2 v && v.IsFinite && box.HasPoint(_camera.ToScreen(v)))) found.Add(f.Id);
+        }
+        return found;
+    }
+
+    /// <summary>WASD or the arrow keys pan the map (not while typing in a text box).</summary>
+    private void KeyboardPan(double delta)
+    {
+        if (GetViewport().GuiGetFocusOwner() is LineEdit or TextEdit) return;
+        if (Input.IsKeyPressed(Key.Ctrl) || Input.IsKeyPressed(Key.Alt)) return;
+        var dir = Vector2.Zero;
+        if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) dir.Y -= 1;
+        if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) dir.Y += 1;
+        if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) dir.X -= 1;
+        if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) dir.X += 1;
+        if (dir == Vector2.Zero) return;
+        var speed = KeyPanSpeed * (Input.IsKeyPressed(Key.Shift) ? 2.5f : 1f);
+        _follow = null;
+        // Pan moves the map with the mouse; keys move the view, so the map goes the other way.
+        _camera.Pan(-dir.Normalized() * speed * (float)delta);
+    }
+
     /// <summary>Right click: plan a route to the body under the cursor, or to that point in space.</summary>
     private void OrderMove(Vector2 at, bool goNow)
     {
@@ -416,6 +556,7 @@ public sealed class PlanSettings
     public double Speed = 0.7;
     public ArrivalStyle Arrival = ArrivalStyle.Brake;
     public HoldStyle Hold = HoldStyle.Orbit;
+    public bool FastAhead;
 }
 
 /// <summary>A route being planned: which fleet, where to, and the latest answer from the planner.</summary>

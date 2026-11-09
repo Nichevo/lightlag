@@ -292,6 +292,27 @@ public partial class Main : Node
                 await Shoot(name);
             }
 
+            // A change of course mid-flight: the planner shows the curving turn onto the new heading.
+            game.Select(fleet.Id);
+            game.Follow(fleet.Id, false);
+            game.Camera.FitRadius(0.5 * Physics.MmPerAu, instant: true);
+            game.StartPlanning(Key("cinder"), Vec2.Zero);
+            game.Replan();
+            await Shoot("14-course-change");
+            game.CancelPlanning();
+
+            // A split at home: the new fleet sits a little ahead on the orbit; both picked with a box.
+            StartNewGame(8);
+            var home = (GameScreen)_screen!;
+            var homeFleet = Sim!.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+            Sim.Issue(new SplitFleetCommand(homeFleet.Id, new List<int> { homeFleet.ShipIds[0] }));
+            Sim.Step();
+            home.TogglePause();
+            home.Follow(Key("verdant"), true);
+            home.Camera.SetScale(home.Camera.TargetScale, instant: true);
+            home.SelectGroup(Sim.World.Fleets.Where(f => f.Side == Lightlag.Sim.Core.Side.Player).Select(f => f.Id));
+            await Shoot("15-split-and-pick");
+
             // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
             StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 150), 7);
             var battle = (GameScreen)_screen!;

@@ -29,6 +29,9 @@ public sealed class Fleet
 
     public HoldStyle Hold { get; set; } = HoldStyle.Drift;
 
+    /// <summary>Which way the ships point (radians): along their last thrust, so braking ships face backwards.</summary>
+    public double Facing { get; set; }
+
     /// <summary>When holding in orbit: the body, how far out, and where on the circle.</summary>
     public int? OrbitBodyId { get; set; }
     public double OrbitRadius { get; set; }
@@ -46,6 +49,9 @@ public sealed class Fleet
 
     /// <summary>Closing in on an enemy, or braking after a fight (moved by velocity, outside any flight plan).</summary>
     public bool Maneuvering { get; set; }
+
+    /// <summary>Join this fleet once both are stopped together (after "fast ships go ahead" or "gather").</summary>
+    public int? JoinFleetId { get; set; }
 
     public bool InFlight => Flight != null;
 }
@@ -136,6 +142,13 @@ public static class Fleets
     /// <summary>Orbits take at least this long, so a circling fleet moves smoothly at hour steps.</summary>
     public const double MinOrbitHours = 72;
 
+    /// <summary>How far a split-off fleet moves away, so the two are not drawn on top of each other.</summary>
+    public const double SplitGap = 300; // Mm, well inside merge distance
+    /// <summary>The same with enemies close by, so a split never steps out of a fight.</summary>
+    public const double CloseSplitGap = 10; // Mm
+    /// <summary>In orbit the split-off fleet moves ahead along the circle, by this much at most.</summary>
+    public const double MaxSplitAngle = Math.PI / 4; // 45 degrees
+
     public static Fleet Create(World w, Side side, IEnumerable<Ship> ships, Vec2 position)
     {
         var number = ++w.FleetNumbers[(int)side];
@@ -213,6 +226,9 @@ public static class Fleets
         return Math.Max(reach, OrbitRadiusFor(b) * 1.5);
     }
 
+    /// <summary>A ship's own top speed (half with its engines knocked out).</summary>
+    public static double ShipSpeed(Ship s) => s.MaxSpeed * (s.Disabled == Module.Engines ? 0.5 : 1.0);
+
     /// <summary>Why two fleets cannot merge, or null if they can.</summary>
     public static string? CanMerge(Fleet a, Fleet b)
     {
@@ -222,6 +238,65 @@ public static class Fleets
         if (a.Velocity.Length > 1e-9 || b.Velocity.Length > 1e-9) return "both must be stopped";
         if (Vec2.Distance(a.Position, b.Position) > MergeDistance) return "they are too far apart";
         return null;
+    }
+
+    /// <summary>
+    /// Can this fleet join that one now? Same side, both stopped, and close together, or both circling
+    /// the same body.
+    /// </summary>
+    public static bool CanJoin(Fleet f, Fleet into)
+    {
+        if (f.Id == into.Id || f.Side != into.Side) return false;
+        if (Moving(f) || Moving(into)) return false;
+        if (f.Hold == HoldStyle.Orbit && into.Hold == HoldStyle.Orbit && f.OrbitBodyId != null && f.OrbitBodyId == into.OrbitBodyId) return true;
+        return Vec2.Distance(f.Position, into.Position) <= MergeDistance;
+    }
+
+    private static bool Moving(Fleet f) => (f.InFlight && f.Flight!.Started) || f.Velocity.Length > 1e-9;
+
+    /// <summary>Moves all of the other fleet's ships into this one and removes the other fleet.</summary>
+    public static void Absorb(World w, Fleet into, Fleet other)
+    {
+        foreach (var s in w.ShipsOf(other).ToList())
+        {
+            into.ShipIds.Add(s.Id);
+            s.FleetId = into.Id;
+        }
+        other.ShipIds.Clear();
+        w.Fleets.Remove(other);
+        foreach (var f in w.Fleets)
+            if (f.JoinFleetId == other.Id) f.JoinFleetId = f.Id == into.Id ? null : into.Id;
+        Arrange(w, into);
+    }
+
+    /// <summary>
+    /// Moves a just-split fleet a little away from where it split off: ahead along its orbit, or
+    /// sideways to its course. Only a short way when enemies are near.
+    /// </summary>
+    public static void SetApart(World w, Fleet f)
+    {
+        var nearEnemy = w.Fleets.Any(o => o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= GameData.Combat.ContactRangeMm * 2);
+        var gap = nearEnemy ? CloseSplitGap : SplitGap;
+        if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int id && w.FindBody(id) is Body body && f.OrbitRadius > 0)
+        {
+            // A waiting flight still leaves from where the fleet it split from would have been.
+            f.OrbitAngle += Math.Min(MaxSplitAngle, gap / f.OrbitRadius);
+            if (f.OrbitAngle >= Math.PI * 2) f.OrbitAngle -= Math.PI * 2;
+            f.Position = FlightPlanner.PredictBody(w, body, w.Hour) + new Vec2(DetMath.Cos(f.OrbitAngle), DetMath.Sin(f.OrbitAngle)) * f.OrbitRadius;
+        }
+        else
+        {
+            var speed = f.Velocity.Length;
+            var side = speed > 1e-9 ? new Vec2(-f.Velocity.Y / speed, f.Velocity.X / speed) : new Vec2(0, -1);
+            var by = side * gap;
+            f.Position += by;
+            if (f.Flight is Flight flight)
+            {
+                flight.Legs = flight.Legs.Select(l => l.Shifted(by)).ToList();
+                if (flight.TargetBodyId == null && flight.TargetFleetId == null) flight.Target += by;
+            }
+        }
+        Arrange(w, f);
     }
 
     /// <summary>Starts circling a body from where the fleet is now.</summary>

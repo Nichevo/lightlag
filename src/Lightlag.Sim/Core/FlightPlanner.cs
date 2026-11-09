@@ -40,6 +40,40 @@ public static class FlightPlanner
         var legs = new List<FlightLeg>();
         double dv = 0;
 
+        Body? body = null;
+        if (req.TargetBodyId is int bodyId)
+        {
+            body = w.FindBody(bodyId);
+            if (body == null) return FlightPlan.Fail("That target no longer exists", perf.DeltaVLeft);
+        }
+
+        Fleet? enemy = null;
+        if (req.TargetFleetId is int fleetId)
+        {
+            enemy = w.FindFleet(fleetId);
+            if (enemy == null) return FlightPlan.Fail("That fleet is gone", perf.DeltaVLeft);
+            body = null;
+        }
+
+        var standoffFor = body != null ? Fleets.OrbitRadiusFor(body)
+            : enemy != null && req.Arrival == ArrivalStyle.Brake ? GameData.Combat.EngageRangeMm * 0.75 : 0;
+        Vec2 AimFrom(Vec2 from, double hour)
+        {
+            if (body == null && enemy == null) return req.Point;
+            var p = body != null ? PredictBody(w, body, hour) : Combat.PredictFleet(w, enemy!, hour);
+            var away = (from - p).Normalized();
+            if (away == Vec2.Zero) away = new Vec2(1, 0);
+            return p + away * standoffFor;
+        }
+
+        // A fleet already moving and told to go now swings round onto the new course in one curving burn.
+        if (fleet.Velocity.Length > 1e-9 && req.DepartTick <= now + 1e-9)
+        {
+            var cruiseNow = Math.Clamp(req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
+            if (Redirect(fleet.Position, fleet.Velocity, now, perf.Accel, cruiseNow, req.Arrival, AimFrom) is { } turn)
+                return Finish(w, req, body, enemy, perf, turn.Legs, turn.Aim, turn.Speed, now, turn.DeltaV);
+        }
+
         // A fleet still moving (after a fast pass, or mid-flight) first brakes to a stop.
         var ready = now;
         Vec2? restPoint = null;
@@ -58,21 +92,6 @@ public static class FlightPlanner
         var p0 = restPoint ?? PredictHoldPosition(w, fleet, depart);
         var cruise = Math.Clamp(req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
         var a = perf.Accel;
-
-        Body? body = null;
-        if (req.TargetBodyId is int bodyId)
-        {
-            body = w.FindBody(bodyId);
-            if (body == null) return FlightPlan.Fail("That target no longer exists", perf.DeltaVLeft);
-        }
-
-        Fleet? enemy = null;
-        if (req.TargetFleetId is int fleetId)
-        {
-            enemy = w.FindFleet(fleetId);
-            if (enemy == null) return FlightPlan.Fail("That fleet is gone", perf.DeltaVLeft);
-            body = null;
-        }
 
         Vec2 aim;
         if (body == null && enemy == null)
@@ -147,6 +166,12 @@ public static class FlightPlanner
             dv += profile.DeltaV;
         }
 
+        return Finish(w, req, body, enemy, perf, legs, aim, profile.Peak, depart, dv);
+    }
+
+    private static FlightPlan Finish(World w, FlightRequest req, Body? body, Fleet? enemy, FleetPerformance perf,
+        List<FlightLeg> legs, Vec2 aim, double cruise, double depart, double dv)
+    {
         var flight = new Flight
         {
             TargetBodyId = body?.Id,
@@ -156,15 +181,79 @@ public static class FlightPlanner
             Arrival = req.Arrival,
             HoldAfter = req.Arrival == ArrivalStyle.FastPass || body == null ? HoldStyle.Drift : req.HoldAfter,
             SpeedFraction = Math.Clamp(req.SpeedFraction, MinSpeedFraction, 1.0),
-            CruiseSpeed = profile.Peak,
+            CruiseSpeed = cruise,
             DepartHour = depart,
-            ArriveHour = t,
+            ArriveHour = legs.Count > 0 ? legs[^1].End : depart,
             DeltaV = dv,
             Legs = legs,
         };
         if (dv > perf.DeltaVLeft + 1e-9)
             return new FlightPlan(false, "Not enough supplies for this trip: fly slower or refill at home", flight, dv, perf.DeltaVLeft);
         return new FlightPlan(true, null, flight, dv, perf.DeltaVLeft);
+    }
+
+    private sealed record Turn(List<FlightLeg> Legs, Vec2 Aim, double Speed, double DeltaV);
+
+    /// <summary>
+    /// Plans a curving change of course for a moving fleet: one burn that turns its velocity straight
+    /// at the target (at cruise speed), then coast and, if braking, a brake to arrive at rest. Null
+    /// when that does not work out (too close to brake in time, or it never settles), and the fleet
+    /// brakes to a stop first instead.
+    /// </summary>
+    private static Turn? Redirect(Vec2 p, Vec2 v, double now, double a, double cruise, ArrivalStyle arrival, Func<Vec2, double, Vec2> aimFrom)
+    {
+        var speed = cruise;
+        var aim = aimFrom(p, now);
+        for (var outer = 0; outer < 40; outer++)
+        {
+            // Pick the direction so that, where the turn ends, the fleet points straight at the aim point.
+            var dir = (aim - p).Normalized();
+            if (dir == Vec2.Zero) return null;
+            Vec2 p1 = p, vd = dir * speed;
+            double t1 = 0;
+            for (var i = 0; i < 30; i++)
+            {
+                vd = dir * speed;
+                t1 = (vd - v).Length / a;
+                p1 = p + (v + vd) * (0.5 * t1);
+                var next = (aim - p1).Normalized();
+                if (next == Vec2.Zero) return null;
+                dir = next;
+            }
+            vd = dir * speed;
+            t1 = (vd - v).Length / a;
+            p1 = p + (v + vd) * (0.5 * t1);
+            var d = Vec2.Distance(aim, p1);
+            if (Vec2.Dot(aim - p1, vd) <= 0) return null;
+
+            var brakeDist = arrival == ArrivalStyle.Brake ? speed * speed / (2 * a) : 0;
+            if (d < brakeDist)
+            {
+                // Too close to stop at this speed: go slower and try again.
+                speed = Math.Sqrt(2 * a * d) * 0.9;
+                if (speed < cruise * 0.05) return null;
+                continue;
+            }
+            var coast = (d - brakeDist) / speed;
+            var brake = arrival == ArrivalStyle.Brake ? speed / a : 0;
+            var arrive = now + t1 + coast + brake;
+            var newAim = aimFrom(p1, arrive);
+            if (Vec2.Distance(newAim, aim) > 1e-4)
+            {
+                aim = newAim;
+                continue;
+            }
+
+            var legs = new List<FlightLeg>();
+            var turn = new FlightLeg(now, now + t1, p, v, t1 > 0 ? (vd - v) * (1 / t1) : Vec2.Zero);
+            if (t1 > 0) legs.Add(turn);
+            var t = now + t1;
+            if (coast > 0) { legs.Add(new FlightLeg(t, t + coast, p1, vd, Vec2.Zero)); t += coast; }
+            if (brake > 0) legs.Add(new FlightLeg(t, t + brake, p1 + vd * coast, vd, dir * -a));
+            if (legs.Count == 0) return null;
+            return new Turn(legs, aim, speed, (vd - v).Length + (arrival == ArrivalStyle.Brake ? speed : 0));
+        }
+        return null;
     }
 
     /// <summary>A flight that only brakes a moving fleet to a stop where it is heading. Null if it is not moving or lacks the fuel.</summary>

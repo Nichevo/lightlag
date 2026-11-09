@@ -91,6 +91,7 @@ public sealed class Simulation
         }
 
         var t0 = World.Hour;
+        var velocities = World.Fleets.Select(f => (f, f.Velocity)).ToList();
         InBattleTime = World.Sub != 0 || Combat.BattlePossible(World);
         if (InBattleTime)
         {
@@ -112,8 +113,10 @@ public sealed class Simulation
             UpdateBodyPositions(World);
             MoveFleets(t0, World.Hour);
         }
+        UpdateFacing(velocities);
         World.Random = Rng.Save();
         if (World.Sub != 0) return;
+        JoinFleets();
 
         if (World.Tick % GameTime.TicksPerDay == 0)
             Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));
@@ -228,6 +231,37 @@ public sealed class Simulation
                 f.Position += f.Velocity * dt;
             }
             foreach (var s in World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+        }
+    }
+
+    /// <summary>
+    /// Ships point their engines where the thrust goes: a fleet that changed velocity this step faces
+    /// along that change (so it flips round to brake). Coasting or holding keeps the last facing.
+    /// </summary>
+    private static void UpdateFacing(List<(Fleet Fleet, Vec2 Velocity)> before)
+    {
+        foreach (var (f, v0) in before)
+        {
+            var dv = f.Velocity - v0;
+            if (dv.Length > 1e-6) f.Facing = DetMath.Atan2(dv.Y, dv.X);
+        }
+    }
+
+    /// <summary>Fleets told to join another do so once both are stopped together.</summary>
+    private void JoinFleets()
+    {
+        foreach (var f in World.Fleets.Where(f => f.JoinFleetId != null).ToList())
+        {
+            // An earlier join this hour may have removed this fleet or changed its target.
+            if (!World.Fleets.Contains(f) || f.JoinFleetId is not int joinId) continue;
+            if (World.FindFleet(joinId) is not Fleet into || into.Side != f.Side || into.Id == f.Id)
+            {
+                f.JoinFleetId = null;
+                continue;
+            }
+            if (!Fleets.CanJoin(f, into)) continue;
+            Fleets.Absorb(World, into, f);
+            Log.Info("fleet", $"{f.Name} joins {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
         }
     }
 
