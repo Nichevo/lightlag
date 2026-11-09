@@ -296,6 +296,7 @@ public partial class Main : Node
             game.Select(fleet.Id);
             game.Follow(fleet.Id, false);
             game.Camera.FitRadius(0.5 * Physics.MmPerAu, instant: true);
+            game.Settings.Route = RouteKind.Direct;
             game.StartPlanning(Key("cinder"), Vec2.Zero);
             game.Replan();
             await Shoot("14-course-change");
