@@ -36,9 +36,32 @@ public sealed record BeltData(string Id, string Name, string Parent, double Inne
 
 public sealed record StartShipsData([property: JsonPropertyName("class")] string Class, Side Side, string Near, int Count);
 
-public sealed record ShipClass(string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, string Role);
+/// <summary>
+/// A ship class. Speed in Mm per hour, acceleration in Mm per hour per hour. Supplies are the one stock
+/// of fuel and ammunition; every 1 Mm/h of speed gained or lost burns suppliesPerDeltaV of it.
+/// </summary>
+public sealed record ShipClass(
+    string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, double AccelMmPerHour2,
+    double Supplies, double SuppliesPerDeltaV, double Armour, double Evasion, int Railguns, int PointDefence,
+    int Missiles, double Cost, string Role)
+{
+    /// <summary>Total speed change a full load of supplies buys.</summary>
+    public double FullDeltaV => Supplies / SuppliesPerDeltaV;
+}
 
-public sealed record ShipClassFile(List<ShipClass> Classes);
+public sealed record RailgunData(double RangeMm, double ReloadSeconds, double Accuracy, double Damage, double SuppliesPerShot);
+
+public sealed record MissileData(double LaunchRangeMm, int Salvo, double SalvoReloadSeconds, double AccelMmPerHour2,
+    double DeltaV, double Damage, double LifetimeHours, double HitRadiusMm);
+
+public sealed record PointDefenceData(double RangeMm, double ShotSeconds, double KillChance, double Brain2KillFactor);
+
+/// <summary>Combat numbers shared by every ship. See ship-classes.json for units.</summary>
+public sealed record CombatData(
+    double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
+    double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay);
+
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -46,9 +69,11 @@ public sealed record ShipClassFile(List<ShipClass> Classes);
 /// </summary>
 public static class GameData
 {
+    private static readonly Lazy<ShipClassFile> _file = new(LoadShipClassFile);
     private static readonly Lazy<IReadOnlyDictionary<string, ShipClass>> _classes = new(LoadShipClasses);
 
     public static IReadOnlyDictionary<string, ShipClass> ShipClasses => _classes.Value;
+    public static CombatData Combat => _file.Value.Combat;
 
     public static ShipClass ShipClass(string id) =>
         ShipClasses.TryGetValue(id, out var c) ? c : throw new InvalidDataException($"Unknown ship class '{id}'");
@@ -69,14 +94,24 @@ public static class GameData
         return data;
     }
 
-    private static IReadOnlyDictionary<string, ShipClass> LoadShipClasses()
+    private static ShipClassFile LoadShipClassFile()
     {
         var file = Json.Deserialize<ShipClassFile>(ReadText("ship-classes.json"));
+        if (file.Combat == null) throw new InvalidDataException("ship-classes.json: the combat section is missing");
+        return file;
+    }
+
+    private static IReadOnlyDictionary<string, ShipClass> LoadShipClasses()
+    {
+        var file = _file.Value;
         var dict = new Dictionary<string, ShipClass>();
         foreach (var c in file.Classes)
         {
             if (!dict.TryAdd(c.Id, c)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' is listed twice");
             if (!(c.MaxSpeedMmPerHour > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs a speed above 0");
+            if (!(c.AccelMmPerHour2 > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs an acceleration above 0");
+            if (!(c.Supplies > 0 && c.SuppliesPerDeltaV > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs supplies and suppliesPerDeltaV above 0");
+            if (!(c.Armour > 0) || c.Evasion is < 0 or >= 1) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs armour above 0 and evasion from 0 to below 1");
         }
         return dict;
     }

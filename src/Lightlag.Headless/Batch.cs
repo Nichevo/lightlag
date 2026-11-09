@@ -81,11 +81,7 @@ public static class Batch
             sim.RuleCheckEveryTicks = 1;
             var pilot = new TestPilot(seed);
             var end = (long)days * GameTime.TicksPerDay;
-            while (sim.World.Tick < end)
-            {
-                pilot.Act(sim);
-                sim.Step();
-            }
+            pilot.PlayUntil(sim, end);
             log.Info("game", $"Game finished at {GameTime.Format(sim.World.Tick)}", new { hash = sim.StateHash() });
             return new GameResult(index, seed, "ok", sim.World.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null);

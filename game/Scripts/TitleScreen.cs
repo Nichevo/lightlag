@@ -4,7 +4,7 @@ using Lightlag.Sim.Save;
 
 namespace Lightlag.Game;
 
-/// <summary>Title screen: Continue, new test game, battle sandbox (comes in M3), folders, and the build version.</summary>
+/// <summary>Title screen: Continue, new test game, battle sandbox, folders, and the build version.</summary>
 public partial class TitleScreen : Control
 {
     public override void _Ready()
@@ -15,7 +15,7 @@ public partial class TitleScreen : Control
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 14);
         col.AddChild(Ui.Label("LIGHTLAG", 64, Ui.Player));
-        col.AddChild(Ui.Label("Milestone 0 build: foundations", 16, Ui.Dim));
+        col.AddChild(Ui.Label("Milestones 2 and 3: fleets fly, first battles", 16, Ui.Dim));
         col.AddChild(new Control { CustomMinimumSize = new Vector2(0, 24) });
 
         var latest = SaveSlots.Latest(main.Paths);
@@ -24,9 +24,7 @@ public partial class TitleScreen : Control
         cont.Disabled = latest == null;
         col.AddChild(cont);
         col.AddChild(Ui.Button("New test game", () => main.StartNewGame()));
-        var sandbox = Ui.Button("Battle sandbox (coming in M3)", () => { });
-        sandbox.Disabled = true;
-        col.AddChild(sandbox);
+        col.AddChild(Ui.Button("Battle sandbox", () => main.ShowSandboxSetup()));
         col.AddChild(Ui.Button("Open reports folder", () => OS.ShellOpen(main.Paths.Root), 16));
         col.AddChild(Ui.Button("Quit", () => main.Quit(), 16));
         col.AddChild(new Control { CustomMinimumSize = new Vector2(0, 16) });

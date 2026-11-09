@@ -5,7 +5,7 @@
 `.github/workflows/build.yml` runs on every push and pull request:
 
 1. Simulation tests.
-2. A 20-game headless batch with strict rule checks.
+2. A 20-game headless batch with strict rule checks, and a one-pass battle sweep.
 3. Installs Godot 4.7.2 (.NET) and builds the game.
 4. Smoke test: runs the real game headless with `--smoke-test` (plays 30 days, writes a report, quits).
 5. Exports the Windows build and bundles the headless runner and the launcher scripts into a zip.
@@ -35,7 +35,9 @@ builds\current\headless\Lightlag.Headless.exe nightly --data-dir data
 
 which plays up to 200 games of 365 days each (stopping after 6 hours) with rule checks every tick.
 Results go to `data\nightly\<time>_nightly\` (summary, log, a crash report per failed game), and the
-summary is copied to `data\nightly\latest-summary.md`. Until the rival AI exists, a "test pilot"
+summary is copied to `data\nightly\latest-summary.md`. After that a battle sweep fights every fleet mix
+with every approach and missile brain in the sandbox and writes `data\nightly\latest-battles.md` (win rates)
+and a `battles.csv`. Until the rival AI exists, a "test pilot"
 sends ships around at random so there is something to simulate.
 
 Target: under a minute per headless game, so a night covers hundreds of games.

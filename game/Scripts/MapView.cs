@@ -5,7 +5,7 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// Draws the system: orbits, belt, star, planets, moons and ships. Read-only: it never changes the
+/// Draws the system: orbits, belt, star, planets, moons, fleets and their routes. Read-only: it never changes the
 /// simulation. Between simulation ticks (one game hour) it blends from the previous tick to the
 /// current one, so motion looks smooth at every speed.
 /// </summary>
@@ -18,11 +18,19 @@ public partial class MapView : Node2D
     public int? SelectedId;
     public int? HoverId;
 
+    /// <summary>The game hour being drawn (between the last step and the current one).</summary>
+    public double DrawHour;
+
+    /// <summary>The route the planner is showing, if any.</summary>
+    public FlightPlan? Preview;
+
     /// <summary>0..1: how far between the previous tick and the current one to draw.</summary>
     public double Blend = 1;
 
     private readonly Dictionary<int, double> _prevAngle = new();
     private readonly Dictionary<int, Vec2> _prevShip = new();
+    private readonly Dictionary<int, Vec2> _prevFleet = new();
+    private readonly Dictionary<int, Vec2> _prevMissile = new();
     private readonly Dictionary<int, Vec2> _drawn = new();
     private Font _font = null!;
 
@@ -33,6 +41,9 @@ public partial class MapView : Node2D
     {
         foreach (var b in Sim.World.Bodies) _prevAngle[b.Id] = b.Angle;
         foreach (var s in Sim.World.Ships) _prevShip[s.Id] = s.Position;
+        foreach (var f in Sim.World.Fleets) _prevFleet[f.Id] = f.Position;
+        _prevMissile.Clear();
+        foreach (var m in Sim.World.Missiles) _prevMissile[m.Id] = m.Position;
     }
 
     /// <summary>Forget the previous tick (after loading, so nothing blends from the old game).</summary>
@@ -40,10 +51,11 @@ public partial class MapView : Node2D
     {
         _prevAngle.Clear();
         _prevShip.Clear();
+        _prevFleet.Clear();
         Blend = 1;
     }
 
-    /// <summary>Where a body or ship is drawn this frame (blended), in world units.</summary>
+    /// <summary>Where a body, ship or fleet is drawn this frame (blended), in world units.</summary>
     public Vec2? DrawnPosition(int id) => _drawn.TryGetValue(id, out var p) ? p : null;
 
     public double ScreenRadius(Body b) => Math.Max(MinRadius(b), b.Radius * Camera.Scale);
@@ -88,6 +100,13 @@ public partial class MapView : Node2D
                 p = prev + (p - prev) * t;
             _drawn[s.Id] = p;
         }
+        foreach (var f in w.Fleets)
+        {
+            var p = f.Position;
+            if (_prevFleet.TryGetValue(f.Id, out var prev) && prev.IsFinite && p.IsFinite && Vec2.Distance(prev, p) < 1e7)
+                p = prev + (p - prev) * t;
+            _drawn[f.Id] = p;
+        }
     }
 
     public override void _Draw()
@@ -125,8 +144,49 @@ public partial class MapView : Node2D
             if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
         }
 
-        var orders = PendingDestinations();
-        foreach (var s in w.Ships) DrawShip(s, orders);
+        foreach (var f in w.Fleets) DrawRoute(f, f.Flight, false);
+        foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
+        if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
+            DrawRoute(pf, preview, true, Preview.Ok);
+        if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf) DrawRanges(sf);
+        foreach (var f in w.Fleets) DrawFleet(f);
+        DrawMissiles();
+    }
+
+    /// <summary>Weapon reach of the selected fleet: railguns, missiles and contact.</summary>
+    private void DrawRanges(Fleet f)
+    {
+        if (!_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) return;
+        var at = Camera.ToScreen(p);
+        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var c = GameData.Combat;
+        var ships = Sim.World.ShipsOf(f).ToList();
+        void Ring(double mm, float alpha, string label)
+        {
+            var r = (float)(mm * Camera.Scale);
+            if (r < 12 || r > 5000) return;
+            DrawArc(at, r, 0, Mathf.Tau, 96, new Color(color, alpha), 1, true);
+            DrawString(_font, at + new Vector2(4, -r - 3), label, HorizontalAlignment.Left, -1, 11, new Color(color, alpha + 0.2f));
+        }
+        Ring(c.ContactRangeMm, 0.12f, "contact");
+        if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.18f, "missiles");
+        if (ships.Any(s => GameData.ShipClass(s.ClassId).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.25f, "railguns");
+    }
+
+    private void DrawMissiles()
+    {
+        foreach (var m in Sim.World.Missiles)
+        {
+            var p = m.Position;
+            if (_prevMissile.TryGetValue(m.Id, out var prev)) p = prev + (p - prev) * Blend;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 20)) continue;
+            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            // A short tail pointing back along its path relative to the target, so salvos read as streaks.
+            var tail = Camera.ToScreen(p - m.Velocity.Normalized() * (12 / Camera.Scale));
+            DrawLine(tail, at, new Color(color, 0.5f), 1.2f, true);
+            DrawCircle(at, 2f, color.Lightened(0.4f));
+        }
     }
 
     // ---- Pieces ---------------------------------------------------------------------------
@@ -179,7 +239,7 @@ public partial class MapView : Node2D
         var scale = Camera.Scale;
         if ((belt.OuterRadius - belt.InnerRadius) * scale < 3) return;
         var center = _drawn[parent.Id];
-        var hours = Sim.World.Tick + Blend - 1;
+        var hours = DrawHour;
         var color = new Color(belt.Color);
         var size = (float)Math.Clamp(0.4 + scale * 2, 0.8, 2.0);
         for (var i = 0; i < BeltDots; i++)
@@ -247,22 +307,55 @@ public partial class MapView : Node2D
             DrawArc(at, r + Math.Max(0.8f, r * 0.04f), 0, Mathf.Tau, 64, new Color(new Color(atm), 0.55f), Math.Max(1, r * 0.06f), true);
     }
 
-    private void DrawShip(Ship s, Dictionary<int, Vec2?> orders)
+    /// <summary>Is the formation spread out enough on screen to draw each ship on its own?</summary>
+    private bool ShipsApart => Fleets.FormationSpacing * Camera.Scale >= 22;
+
+    private void DrawFleet(Fleet f)
     {
-        var world = _drawn[s.Id];
-        if (!world.IsFinite) return;
+        if (!_drawn.TryGetValue(f.Id, out var world) || !world.IsFinite) return;
         var at = Camera.ToScreen(world);
         if (!Camera.OnScreen(at, 400)) return;
-        var color = s.Side == Side.Player ? Ui.Player : Ui.Rival;
-        var dest = orders.TryGetValue(s.Id, out var pending) ? pending : s.Destination;
-        var heading = 0f;
-        if (dest is Vec2 d)
+        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var heading = Heading(f);
+        var apart = ShipsApart;
+        var ships = Sim.World.ShipsOf(f).ToList();
+        var drawnShips = apart ? ships : ships.Take(1).ToList();
+        for (var i = 0; i < drawnShips.Count; i++)
         {
-            var ds = Camera.ToScreen(d);
-            DrawDashedLine(at, ds, new Color(color, 0.45f), 1, 6);
-            DrawArc(ds, 4, 0, Mathf.Tau, 16, new Color(color, 0.6f), 1, true);
-            heading = (ds - at).Angle();
+            var s = drawnShips[i];
+            var p = apart ? Camera.ToScreen(_drawn.TryGetValue(s.Id, out var sp) ? sp : world) : at;
+            DrawShipIcon(p, s, color, heading);
+            if (apart && (Camera.Scale > 0.05 || f.Id == SelectedId))
+                DrawString(_font, p + new Vector2(12, -8), s.Name, HorizontalAlignment.Left, -1, 12, color);
         }
+        if (!apart)
+        {
+            // Zoomed out: the fleet is one icon with a count.
+            var label = ships.Count > 1 ? $"{f.Name} ({ships.Count})" : $"{f.Name}: {ships.FirstOrDefault()?.Name}";
+            if (ships.Count > 1) DrawString(_font, at + new Vector2(-4, 16), ships.Count.ToString(), HorizontalAlignment.Left, -1, 11, color);
+            if (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
+                DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
+        }
+        if (f.Id == SelectedId)
+        {
+            var radius = apart ? (float)(Fleets.FormationSpacing * 1.6 * Camera.Scale) + 14 : 14f;
+            DrawArc(at, radius, 0, Mathf.Tau, 48, color, 1.5f, true);
+        }
+    }
+
+    private static float Heading(Fleet f)
+    {
+        if (f.Velocity.Length > 1e-6) return (float)Math.Atan2(f.Velocity.Y, f.Velocity.X);
+        if (f.Flight is Flight fl) { var d = fl.Target - f.Position; return (float)Math.Atan2(d.Y, d.X); }
+        return 0;
+    }
+
+    private void DrawShipIcon(Vector2 at, Ship s, Color color, float heading)
+    {
+        // Damaged ships darken; a ship with a part knocked out gets a red mark.
+        var share = (float)(s.Armour / GameData.ShipClass(s.ClassId).Armour);
+        color = color.Lerp(new Color(0.35f, 0.35f, 0.4f), Math.Clamp(1 - share, 0, 1) * 0.7f);
+        if (s.Disabled != null) DrawCircle(at + new Vector2(0, -10), 2.5f, Ui.Danger);
         var shape = ShipIcons.For(GameData.ShipClasses.TryGetValue(s.ClassId, out var cls) ? cls.Icon : "frigate");
         var pts = new Vector2[shape.Length];
         for (var i = 0; i < shape.Length; i++) pts[i] = at + shape[i].Rotated(heading);
@@ -271,42 +364,87 @@ public partial class MapView : Node2D
         pts.CopyTo(outline, 0);
         outline[^1] = pts[0];
         DrawPolyline(outline, color.Darkened(0.5f), 1, true);
-        if (s.Id == SelectedId) DrawArc(at, 14, 0, Mathf.Tau, 32, color, 1.5f, true);
-        if (s.Id == SelectedId || s.Id == HoverId || Camera.Scale > 0.05)
-            DrawString(_font, at + new Vector2(12, -8), s.Name, HorizontalAlignment.Left, -1, 12, color);
+    }
+
+    /// <summary>
+    /// A flight's path: bright where the engines burn, faint where it coasts, a ring where it ends and
+    /// (for a planet) a faint ghost of where the planet will be by then.
+    /// </summary>
+    private void DrawRoute(Fleet f, Flight? flight, bool preview, bool ok = true)
+    {
+        if (flight == null || flight.Legs.Count == 0) return;
+        var baseColor = !ok ? Ui.Danger : f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var alpha = preview ? 0.9f : f.Id == SelectedId ? 0.6f : 0.35f;
+        var now = DrawHour;
+        if (!flight.Started && _drawn.TryGetValue(f.Id, out var here))
+        {
+            // Still waiting to leave: a dotted line from here to the departure point.
+            DrawDashedLine(Camera.ToScreen(here), Camera.ToScreen(flight.Legs[0].P0), new Color(baseColor, alpha * 0.6f), 1, 3);
+        }
+        foreach (var leg in flight.Legs)
+        {
+            if (leg.End <= now) continue;
+            var from = Math.Max(leg.Start, now);
+            const int n = 24;
+            var pts = new Vector2[n + 1];
+            for (var i = 0; i <= n; i++) pts[i] = Camera.ToScreen(leg.PositionAt(from + (leg.End - from) * i / n));
+            DrawPolyline(pts, new Color(baseColor, leg.IsBurn ? alpha : alpha * 0.55f), leg.IsBurn ? 2.5f : 1.2f, true);
+        }
+        var end = Camera.ToScreen(flight.Target);
+        DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);
+        if (flight.Arrival == ArrivalStyle.FastPass)
+        {
+            // Carries on past the target.
+            var last = flight.Legs[^1];
+            var v = last.VelocityAt(last.End);
+            if (v.Length > 1e-9)
+                DrawDashedLine(end, Camera.ToScreen(flight.Target + v * 24 * 3), new Color(baseColor, alpha * 0.4f), 1, 6);
+        }
+        if (flight.TargetBodyId is int bodyId && Sim.World.FindBody(bodyId) is Body body)
+        {
+            var ghost = Camera.ToScreen(FlightPlanner.PredictBody(Sim.World, body, flight.ArriveHour));
+            DrawArc(ghost, (float)ScreenRadius(body) + 3, 0, Mathf.Tau, 24, new Color(baseColor, alpha * 0.5f), 1, true);
+        }
+        if (preview || f.Id == SelectedId)
+            DrawString(_font, end + new Vector2(8, 16), GameTime.Format((long)flight.ArriveHour), HorizontalAlignment.Left, -1, 12, new Color(baseColor, alpha));
     }
 
     /// <summary>Orders given while paused only reach the simulation on its next tick; show them now anyway.</summary>
-    private Dictionary<int, Vec2?> PendingDestinations()
+    private IEnumerable<(Fleet, Flight)> PendingFlights()
     {
-        var result = new Dictionary<int, Vec2?>();
         foreach (var c in Sim.PendingCommands)
         {
-            if (c is MoveShipCommand m) result[m.ShipId] = new Vec2(m.X, m.Y);
-            else if (c is StopShipCommand st) result[st.ShipId] = null;
+            if (c is PlanFlightCommand pf && Sim.World.FindFleet(pf.FleetId) is Fleet f
+                && FlightPlanner.Plan(Sim.World, f, pf.Request) is { Ok: true, Flight: Flight flight })
+                yield return (f, flight);
         }
-        return result;
     }
 
-    /// <summary>The ship or body under a screen point, ships first.</summary>
+    /// <summary>The fleet or body under a screen point, fleets first. Clicking any ship picks its fleet.</summary>
     public int? HitTest(Vector2 screen)
     {
         int? best = null;
         var bestD = 14f;
         foreach (var s in Sim.World.Ships)
         {
-            if (!_drawn.TryGetValue(s.Id, out var p) || !p.IsFinite) continue;
+            if (!_drawn.TryGetValue(s.FleetId, out var fp) || !fp.IsFinite) continue;
+            var p = ShipsApart && _drawn.TryGetValue(s.Id, out var sp) ? sp : fp;
             var d = Camera.ToScreen(p).DistanceTo(screen);
-            if (d < bestD) { bestD = d; best = s.Id; }
+            if (d < bestD) { bestD = d; best = s.FleetId; }
         }
-        if (best != null) return best;
+        return best ?? HitTestBody(screen);
+    }
+
+    /// <summary>The body under a screen point (the smallest, so a moon wins over its planet).</summary>
+    public int? HitTestBody(Vector2 screen)
+    {
+        int? best = null;
         var bestBody = double.MaxValue;
         foreach (var b in Sim.World.Bodies)
         {
             if (!IsVisible(b)) continue;
             var d = Camera.ToScreen(_drawn[b.Id]).DistanceTo(screen);
             var r = ScreenRadius(b) + 6;
-            // Prefer the smallest thing under the cursor (a moon over its planet).
             if (d <= r && r < bestBody) { bestBody = r; best = b.Id; }
         }
         return best;

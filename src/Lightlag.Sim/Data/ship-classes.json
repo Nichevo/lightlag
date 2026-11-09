@@ -1,9 +1,25 @@
 {
-  "_comment": "Ship classes. Only flight speed matters until M2/M3 add engines, fuel and weapons. Speeds are in Mm per hour.",
+  "_comment": "Ship classes and combat numbers. Speeds in Mm per hour (600 Mm/h is about 167 km/s), acceleration in Mm per hour per hour (25 is about 0.2 g), ranges in Mm (1 Mm = 1000 km). Supplies are the one stock of fuel and ammo; each 1 Mm/h of speed gained or lost burns suppliesPerDeltaV, each railgun shot burns suppliesPerShot. Missiles are counted on their own and reloaded at home.",
   "classes": [
-    { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate", "maxSpeedMmPerHour": 600,
-      "role": "Fast and cheap. Railgun and point defence." },
-    { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer", "maxSpeedMmPerHour": 400,
-      "role": "Long range, slower. Missile racks and point defence." }
-  ]
+    { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate",
+      "maxSpeedMmPerHour": 600, "accelMmPerHour2": 25, "supplies": 60, "suppliesPerDeltaV": 0.025,
+      "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 40,
+      "role": "Fast and cheap, short legs. Railgun pair and point defence: strong up close." },
+    { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer",
+      "maxSpeedMmPerHour": 400, "accelMmPerHour2": 12, "supplies": 160, "suppliesPerDeltaV": 0.025,
+      "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 80,
+      "role": "Long range, slower. Missile racks (4 salvos of 4) and point defence." }
+  ],
+  "combat": {
+    "contactRangeMm": 100,
+    "engageRangeMm": 4,
+    "railgun": { "rangeMm": 8, "reloadSeconds": 30, "accuracy": 0.6, "damage": 10, "suppliesPerShot": 0.05 },
+    "missile": { "launchRangeMm": 60, "salvo": 4, "salvoReloadSeconds": 360, "accelMmPerHour2": 1500, "deltaV": 600,
+                 "damage": 50, "lifetimeHours": 1.0, "hitRadiusMm": 0.3 },
+    "pointDefence": { "rangeMm": 30, "shotSeconds": 10, "killChance": 0.006, "brain2KillFactor": 0.7 },
+    "brain2DodgeFactor": 0.5,
+    "moduleHitChance": 0.15,
+    "retreatBelowArmour": 0.5,
+    "repairPerDay": 0.1
+  }
 }

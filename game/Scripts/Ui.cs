@@ -32,13 +32,27 @@ public static class Ui
     public static PanelContainer Panel(Control content, int padding = 24)
     {
         var p = new PanelContainer();
+        StylePanel(p, padding);
+        p.AddChild(content);
+        return p;
+    }
+
+    public static void StylePanel(PanelContainer p, int padding)
+    {
         var box = new StyleBoxFlat { BgColor = PanelBg, BorderColor = new Color(Player, 0.4f) };
         box.SetBorderWidthAll(1);
         box.SetCornerRadiusAll(6);
         box.SetContentMarginAll(padding);
         p.AddThemeStyleboxOverride("panel", box);
-        p.AddChild(content);
-        return p;
+    }
+
+    /// <summary>A compact button for HUD bars and panels. Keyboard focus is off so keys keep driving the map.</summary>
+    public static Button SmallButton(string text, Action pressed, string tip)
+    {
+        var b = new Button { Text = text, TooltipText = tip, CustomMinimumSize = new Vector2(44, 32), FocusMode = Control.FocusModeEnum.None };
+        b.AddThemeFontSizeOverride("font_size", 15);
+        b.Pressed += () => Main.Instance.RunGuarded($"button '{text}'", pressed);
+        return b;
     }
 
     /// <summary>A full-screen layer that centres one child.</summary>
@@ -68,7 +82,8 @@ public partial class Toast : Control
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.CenterTop);
+        // Centred at the top of the window (worked out from the window, so it never slides off the left edge).
+        Position = new Vector2(GetViewportRect().Size.X / 2, 0);
         var label = Ui.Label(_folder != null ? $"{_text}  (click to open)" : _text, 18);
         var panel = Ui.Panel(label, 12);
         panel.Position = new Vector2(-250, 24);
