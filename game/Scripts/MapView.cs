@@ -21,6 +21,9 @@ public partial class MapView : Node2D
     /// <summary>Fleets picked together (box or Shift+click), drawn with a ring each.</summary>
     public IReadOnlyCollection<int> GroupIds = Array.Empty<int>();
 
+    /// <summary>Waypoints of the route being planned (drawn as numbered diamonds you can drag).</summary>
+    public IReadOnlyList<WaypointDraft>? PlannerWaypoints;
+
     /// <summary>Debug (F7): draw every fleet, seen or not, and enemy routes.</summary>
     public bool RevealAll;
 
@@ -176,6 +179,7 @@ public partial class MapView : Node2D
         foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
         if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
             DrawRoute(pf, preview, true, Preview.Ok);
+        DrawPlannerWaypoints();
         if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
         DrawLastSeen();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
@@ -392,6 +396,36 @@ public partial class MapView : Node2D
         }
     }
 
+    private void DrawPlannerWaypoints()
+    {
+        if (PlannerWaypoints == null) return;
+        for (var i = 0; i < PlannerWaypoints.Count; i++)
+        {
+            var wp = PlannerWaypoints[i];
+            var at = Camera.ToScreen(wp.Point);
+            DrawDiamond(at, 8, Ui.Player, wp.Stop);
+            var label = $"{i + 1}" + (wp.Stop ? " stop" + (wp.WaitHours > 0 ? $", wait {wp.WaitHours:0} h" : "") : "")
+                        + (wp.Speed is double sp ? $" · {sp:P0} speed" : "");
+            DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 13, Ui.Player);
+        }
+    }
+
+    private void DrawDiamond(Vector2 at, float r, Color color, bool filled)
+    {
+        var pts = new[] { at + new Vector2(0, -r), at + new Vector2(r, 0), at + new Vector2(0, r), at + new Vector2(-r, 0), at + new Vector2(0, -r) };
+        if (filled) DrawColoredPolygon(pts[..4], new Color(color, 0.6f));
+        DrawPolyline(pts, color, 1.5f, true);
+    }
+
+    /// <summary>The planner waypoint under a screen point, if any.</summary>
+    public int? HitTestWaypoint(Vector2 screen)
+    {
+        if (PlannerWaypoints == null) return null;
+        for (var i = PlannerWaypoints.Count - 1; i >= 0; i--)
+            if (Camera.ToScreen(PlannerWaypoints[i].Point).DistanceTo(screen) <= 12) return i;
+        return null;
+    }
+
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
     public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
 
@@ -471,6 +505,8 @@ public partial class MapView : Node2D
         }
         var end = Camera.ToScreen(flight.Target);
         DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);
+        if (!preview)
+            foreach (var wp in flight.Waypoints) DrawDiamond(Camera.ToScreen(wp), 5, new Color(baseColor, alpha), false);
         if (flight.Arrival == ArrivalStyle.FastPass)
         {
             // Carries on past the target.

@@ -9,7 +9,15 @@ public sealed record FlightRequest(
     HoldStyle HoldAfter,
     long DepartTick,
     RouteKind Route = RouteKind.Direct,
-    int? TargetFleetId = null);
+    int? TargetFleetId = null,
+    List<Waypoint>? Waypoints = null);
+
+/// <summary>
+/// A point the route goes through on the way. The fleet flies through it and turns towards the next
+/// point, or brakes to a stop there (and can wait). SpeedFraction sets the pace of the stretch that
+/// ends here (null: the route's speed); a slow stretch is a long cold coast.
+/// </summary>
+public sealed record Waypoint(Vec2 Point, bool Stop = false, double? SpeedFraction = null, double WaitHours = 0);
 
 /// <summary>The planner's answer: the flight, what it costs, or why it cannot be flown.</summary>
 public sealed record FlightPlan(bool Ok, string? Problem, Flight? Flight, double DeltaV, double DeltaVLeft)
@@ -66,6 +74,9 @@ public static class FlightPlanner
             if (away == Vec2.Zero) away = new Vec2(1, 0);
             return p + away * standoffFor;
         }
+
+        if (req.Waypoints is { Count: > 0 })
+            return PlanWaypoints(w, fleet, req, perf, body, enemy, AimFrom);
 
         // A fleet already moving and told to go now swings round onto the new course in one curving burn.
         if (fleet.Velocity.Length > 1e-9 && req.DepartTick <= now + 1e-9)
@@ -194,6 +205,120 @@ public static class FlightPlanner
     }
 
     private sealed record Turn(List<FlightLeg> Legs, Vec2 Aim, double Speed, double DeltaV);
+
+    /// <summary>One stretch of a route: the legs, where it ended up aiming, and the state at its end.</summary>
+    private sealed record StretchPlan(List<FlightLeg> Legs, Vec2 Aim, double DeltaV, Vec2 EndP, Vec2 EndV, double EndT);
+
+    /// <summary>A route through waypoints: each stretch is planned from where and how fast the last one ended.</summary>
+    private static FlightPlan PlanWaypoints(World w, Fleet fleet, FlightRequest req, FleetPerformance perf, Body? body, Fleet? enemy,
+        Func<Vec2, double, Vec2> aimFrom)
+    {
+        var now = w.Hour;
+        var a = perf.Accel;
+        Vec2 p, v;
+        double t;
+        if (fleet.Velocity.Length > 1e-9) { p = fleet.Position; v = fleet.Velocity; t = now; }
+        else { t = Math.Max(now, req.DepartTick); p = PredictHoldPosition(w, fleet, t); v = Vec2.Zero; }
+        var depart = t;
+        var legs = new List<FlightLeg>();
+        double dv = 0;
+        double Speed(double? fraction) => Math.Clamp(fraction ?? req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
+
+        var points = req.Waypoints!;
+        for (var i = 0; i < points.Count; i++)
+        {
+            var wp = points[i];
+            var stretch = Stretch(p, v, t, a, Speed(wp.SpeedFraction), wp.Stop ? ArrivalStyle.Brake : ArrivalStyle.FastPass, (_, _) => wp.Point);
+            if (stretch == null) return FlightPlan.Fail($"Cannot reach waypoint {i + 1}", perf.DeltaVLeft);
+            legs.AddRange(stretch.Legs);
+            dv += stretch.DeltaV;
+            (p, v, t) = (stretch.EndP, stretch.EndV, stretch.EndT);
+            if (wp.Stop && wp.WaitHours > 0)
+            {
+                legs.Add(new FlightLeg(t, t + wp.WaitHours, p, Vec2.Zero, Vec2.Zero));
+                t += wp.WaitHours;
+            }
+        }
+        var cruise = Speed(null);
+        var last = Stretch(p, v, t, a, cruise, req.Arrival, aimFrom);
+        if (last == null) return FlightPlan.Fail("Cannot reach the target from the last waypoint", perf.DeltaVLeft);
+        legs.AddRange(last.Legs);
+        dv += last.DeltaV;
+        var plan = Finish(w, req, body, enemy, perf, legs, last.Aim, cruise, depart, dv);
+        plan.Flight?.Waypoints.AddRange(points.Select(x => x.Point));
+        return plan;
+    }
+
+    /// <summary>
+    /// Fly from a point at a velocity to a (possibly moving) aim point: a curving burn if already
+    /// moving, otherwise burn, coast and (when braking) brake, timed to meet the target where it will be.
+    /// </summary>
+    private static StretchPlan? Stretch(Vec2 p, Vec2 v, double t, double a, double cruise, ArrivalStyle arrival, Func<Vec2, double, Vec2> aimFrom)
+    {
+        var legs = new List<FlightLeg>();
+        double dv = 0;
+        if (v.Length > 1e-9)
+        {
+            if (Redirect(p, v, t, a, cruise, arrival, aimFrom) is { } turn)
+                return Ended(turn.Legs, turn.Aim, turn.DeltaV, p, v, t);
+            // Cannot curve onto it (too close to stop in time, say): brake to a stop first.
+            var tb = v.Length / a;
+            var brake = new FlightLeg(t, t + tb, p, v, v.Normalized() * -a);
+            legs.Add(brake);
+            dv += v.Length;
+            p = brake.PositionAt(brake.End);
+            v = Vec2.Zero;
+            t = brake.End;
+        }
+
+        double Gap(double hour) => t + Profile(Vec2.Distance(aimFrom(p, hour), p), cruise, a, arrival).Total - hour;
+        var lo = t;
+        var hi = t;
+        if (Gap(lo) > 0)
+        {
+            hi = lo + 12;
+            while (Gap(hi) > 0)
+            {
+                lo = hi;
+                hi += 12;
+                if (hi - t > MaxSearchHours) return null;
+            }
+            for (var i = 0; i < 60; i++)
+            {
+                var mid = (lo + hi) / 2;
+                if (Gap(mid) > 0) lo = mid; else hi = mid;
+            }
+        }
+        var aim = aimFrom(p, hi);
+        var distance = Vec2.Distance(aim, p);
+        var profile = Profile(distance, cruise, a, arrival);
+        if (distance > 1e-9)
+        {
+            var dir = (aim - p).Normalized();
+            var burn = new FlightLeg(t, t + profile.AccelHours, p, Vec2.Zero, dir * a);
+            legs.Add(burn);
+            var s = burn.End;
+            var q = burn.PositionAt(s);
+            var vel = burn.VelocityAt(s);
+            if (profile.CoastHours > 0)
+            {
+                var coast = new FlightLeg(s, s + profile.CoastHours, q, vel, Vec2.Zero);
+                legs.Add(coast);
+                s = coast.End;
+                q = coast.PositionAt(s);
+            }
+            if (arrival == ArrivalStyle.Brake) legs.Add(new FlightLeg(s, s + profile.AccelHours, q, vel, dir * -a));
+            dv += profile.DeltaV;
+        }
+        return Ended(legs, aim, dv, p, v, t);
+    }
+
+    private static StretchPlan Ended(List<FlightLeg> legs, Vec2 aim, double dv, Vec2 p, Vec2 v, double t)
+    {
+        if (legs.Count == 0) return new StretchPlan(legs, aim, dv, p, v, t);
+        var last = legs[^1];
+        return new StretchPlan(legs, aim, dv, last.PositionAt(last.End), last.VelocityAt(last.End), last.End);
+    }
 
     /// <summary>
     /// Plans a curving change of course for a moving fleet: one burn that turns its velocity straight

@@ -295,6 +295,9 @@ public partial class PlannerPanel : PanelContainer
     private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
     private Button _together = null!, _ahead = null!;
     private HBoxContainer _shipsRow = null!;
+    private VBoxContainer _waypointBox = null!;
+    private readonly List<(Button Through, Button Stop, Label Speed, Label Wait, HBoxContainer WaitRow)> _waypointRows = new();
+    private PlannerState? _rowsFor;
     private HSlider _speed = null!;
     private Label _speedLabel = null!;
     private Label _result = null!;
@@ -348,6 +351,11 @@ public partial class PlannerPanel : PanelContainer
         _ahead = Choice("Fast ahead", "Faster ships fly at their own pace, wait at the target and rejoin when the slow ones arrive", () => s.FastAhead = true);
         _shipsRow = Row("Ships", _together, _ahead);
         box.AddChild(_shipsRow);
+        var hint = Ui.Label("Waypoints: Ctrl+right-click the map to add, drag to move", 13, Ui.Dim);
+        box.AddChild(hint);
+        _waypointBox = new VBoxContainer();
+        _waypointBox.AddThemeConstantOverride("separation", 2);
+        box.AddChild(_waypointBox);
 
         _result = Ui.Label("", 14);
         _result.AutowrapMode = TextServer.AutowrapMode.WordSmart;
@@ -394,8 +402,68 @@ public partial class PlannerPanel : PanelContainer
         b.Modulate = on ? Ui.Player : new Color(1, 1, 1, 0.7f);
     }
 
+    /// <summary>One row per waypoint: fly through or stop (and wait), the speed of the stretch to it, and remove.</summary>
+    private void RefreshWaypoints(PlannerState p)
+    {
+        if (_rowsFor != p || _waypointRows.Count != p.Waypoints.Count)
+        {
+            _rowsFor = p;
+            foreach (var c in _waypointBox.GetChildren()) c.QueueFree();
+            _waypointRows.Clear();
+            for (var i = 0; i < p.Waypoints.Count; i++)
+            {
+                var index = i;
+                WaypointDraft Wp() => p.Waypoints[index];
+                var row = new HBoxContainer();
+                row.AddThemeConstantOverride("separation", 3);
+                var n = Ui.Label($"{i + 1}", 14, Ui.Player);
+                n.CustomMinimumSize = new Vector2(16, 0);
+                row.AddChild(n);
+                Button Small(string text, string tip, Action act)
+                {
+                    var b = Ui.SmallButton(text, () => { act(); _screen.Replan(); }, tip);
+                    b.CustomMinimumSize = new Vector2(28, 28);
+                    return b;
+                }
+                var through = Small("Through", "Fly through this point and turn towards the next", () => Wp().Stop = false);
+                var stop = Small("Stop", "Brake to a stop here (and wait, if you like)", () => Wp().Stop = true);
+                row.AddChild(through);
+                row.AddChild(stop);
+                var speed = Ui.Label("", 13, Ui.Dim);
+                speed.CustomMinimumSize = new Vector2(64, 0);
+                speed.HorizontalAlignment = HorizontalAlignment.Center;
+                double Pace() => Wp().Speed ?? _screen.Settings.Speed;
+                row.AddChild(Small("−", "Slower to this point (a slow stretch is a long cold coast)", () => Wp().Speed = Math.Max(FlightPlanner.MinSpeedFraction, Math.Round(Pace() * 10 - 1) / 10)));
+                row.AddChild(speed);
+                row.AddChild(Small("+", "Faster to this point", () => Wp().Speed = Math.Min(1, Math.Round(Pace() * 10 + 1) / 10)));
+                var waitRow = new HBoxContainer();
+                var wait = Ui.Label("", 13, Ui.Dim);
+                wait.CustomMinimumSize = new Vector2(60, 0);
+                wait.HorizontalAlignment = HorizontalAlignment.Center;
+                waitRow.AddChild(Small("−", "Wait less here", () => Wp().WaitHours = Math.Max(0, Wp().WaitHours - 6)));
+                waitRow.AddChild(wait);
+                waitRow.AddChild(Small("+", "Wait longer here", () => Wp().WaitHours += 6));
+                row.AddChild(waitRow);
+                row.AddChild(Small("✕", "Remove this waypoint", () => _screen.RemoveWaypoint(index)));
+                _waypointBox.AddChild(row);
+                _waypointRows.Add((through, stop, speed, wait, waitRow));
+            }
+        }
+        for (var i = 0; i < _waypointRows.Count; i++)
+        {
+            var wp = p.Waypoints[i];
+            var row = _waypointRows[i];
+            Mark(row.Through, !wp.Stop);
+            Mark(row.Stop, wp.Stop);
+            row.Speed.Text = wp.Speed is double s ? $"{s:P0}" : "route";
+            row.WaitRow.Visible = wp.Stop;
+            row.Wait.Text = $"wait {wp.WaitHours:0} h";
+        }
+    }
+
     public void Refresh(Simulation sim, PlannerState p)
     {
+        RefreshWaypoints(p);
         var s = _screen.Settings;
         var w = sim.World;
         var fleet = w.FindFleet(p.FleetId);

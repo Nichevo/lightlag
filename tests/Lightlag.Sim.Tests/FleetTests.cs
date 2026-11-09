@@ -392,4 +392,60 @@ public class FleetTests
         Assert.Equal(sim.World.Hour, plan.Flight!.DepartHour);
         Assert.True(plan.Flight.Legs[0].VelocityAt(plan.Flight.Legs[0].End).Length > 1e-6);
     }
+
+    private static void AssertContinuous(Flight f)
+    {
+        for (var i = 1; i < f.Legs.Count; i++)
+        {
+            var prev = f.Legs[i - 1];
+            var next = f.Legs[i];
+            Assert.Equal(prev.End, next.Start, 6);
+            Assert.True(Vec2.Distance(prev.PositionAt(prev.End), next.P0) < 1e-3, $"leg {i} jumps");
+            Assert.True(Vec2.Distance(prev.VelocityAt(prev.End), next.V0) < 1e-3, $"leg {i} changes speed instantly");
+        }
+    }
+
+    [Fact]
+    public void A_route_flies_through_its_waypoints()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        var side = fleet.Position + new Vec2(0, 20000);
+        var request = To(vela) with { Waypoints = new List<Waypoint> { new(side) } };
+        var plan = FlightPlanner.Plan(sim.World, fleet, request);
+        Assert.True(plan.Ok, plan.Problem);
+        AssertContinuous(plan.Flight!);
+        var closest = Enumerable.Range(0, 2000).Select(k => plan.Flight.DepartHour + (plan.Flight.ArriveHour - plan.Flight.DepartHour) * k / 2000.0)
+            .Min(h => Vec2.Distance(FlightPlanner.FlightState(plan.Flight, h)!.Value.Position, side));
+        Assert.True(closest < 50, $"passed {closest} Mm from the waypoint");
+
+        sim.Issue(new PlanFlightCommand(fleet.Id, request));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(vela.Id, fleet.OrbitBodyId);
+    }
+
+    [Fact]
+    public void A_stop_waypoint_halts_and_waits_and_a_slow_stretch_coasts_cold()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        var stop = fleet.Position + new Vec2(15000, 0);
+        var request = To(vela) with
+        {
+            Waypoints = new List<Waypoint> { new(stop, Stop: true, WaitHours: 10), new(stop + new Vec2(0, 15000), SpeedFraction: 0.2) },
+        };
+        var plan = FlightPlanner.Plan(sim.World, fleet, request);
+        Assert.True(plan.Ok, plan.Problem);
+        var f = plan.Flight!;
+        AssertContinuous(f);
+        // A 10-hour leg parked at the stop.
+        Assert.Contains(f.Legs, l => !l.IsBurn && l.V0.Length < 1e-9 && Math.Abs(l.End - l.Start - 10) < 1e-6
+                                     && Vec2.Distance(l.P0, stop) < 1e-3);
+        // The slow stretch coasts at a fifth of top speed.
+        var top = FleetPerformance.Of(sim.World, fleet).MaxSpeed;
+        Assert.Contains(f.Legs, l => !l.IsBurn && Math.Abs(l.V0.Length - top * 0.2) < 1e-6);
+        Assert.Equal(2, f.Waypoints.Count);
+    }
 }

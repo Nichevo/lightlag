@@ -17,6 +17,7 @@ namespace Lightlag.Game;
 ///   Enter              fly the planned route          Esc             cancel the plan (else back to title)
 ///   O / G / X          orbit / drift / stop           Home            show the whole system
 ///   P                  pause when enemies are spotted F7              debug: show every fleet
+///   Ctrl+right click   add a waypoint to the route    Drag a waypoint move it (the route replans live)
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
 ///   F5 / F9            quick save / quick load        F8              report a problem
@@ -48,6 +49,7 @@ public partial class GameScreen : Node2D
     private readonly List<int> _group = new();
     private Vector2? _leftDown;
     private bool _boxing;
+    private int? _draggingWaypoint;
     private readonly HashSet<(int, double)> _spotted = new();
 
     /// <summary>Pause the game when an enemy fleet comes into sight.</summary>
@@ -152,6 +154,7 @@ public partial class GameScreen : Node2D
         if (_group.Count == 1) { var only = _group[0]; _group.Clear(); _selected = only; }
         _map.GroupIds = _group;
         _map.Preview = Planner?.Plan;
+        _map.PlannerWaypoints = Planner?.Waypoints;
         _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
         _map.QueueRedraw();
         _hud.Refresh();
@@ -364,7 +367,9 @@ public partial class GameScreen : Node2D
         if (MyFleet is not Fleet f) return;
         var name = bodyId is int b && Sim.World.FindBody(b) is Body body ? body.Name : "this point";
         if (enemyFleetId is int e && Sim.World.FindFleet(e) is Fleet enemy) { name = enemy.Name; bodyId = null; }
+        var keep = Planner?.FleetId == f.Id ? Planner.Waypoints : null; // a new target keeps the waypoints
         Planner = new PlannerState(f.Id, bodyId, point, name) { TargetFleetId = enemyFleetId };
+        if (keep != null) Planner.Waypoints.AddRange(keep);
         Replan();
     }
 
@@ -379,7 +384,23 @@ public partial class GameScreen : Node2D
     }
 
     private FlightRequest Request(PlannerState p) =>
-        new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId);
+        new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId,
+            p.Waypoints.Count > 0 ? p.Waypoints.Select(d => new Waypoint(d.Point, d.Stop, d.Speed, d.Stop ? d.WaitHours : 0)).ToList() : null);
+
+    /// <summary>Add a waypoint to the route being planned (it goes just before the target).</summary>
+    public void AddWaypoint(Vec2 at)
+    {
+        if (Planner == null) return;
+        Planner.Waypoints.Add(new WaypointDraft { Point = at });
+        Replan();
+    }
+
+    public void RemoveWaypoint(int index)
+    {
+        if (Planner == null || index < 0 || index >= Planner.Waypoints.Count) return;
+        Planner.Waypoints.RemoveAt(index);
+        Replan();
+    }
 
     public void ConfirmPlan()
     {
@@ -412,6 +433,11 @@ public partial class GameScreen : Node2D
                 var steps = wheel.ButtonIndex == MouseButton.WheelUp ? 1 : -1;
                 _camera.ZoomAt(_follow != null ? _camera.ScreenCenter : wheel.Position, steps * (wheel.ShiftPressed ? 3 : 1));
                 break;
+            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Right, CtrlPressed: true } addWaypoint when Planner != null:
+                AddWaypoint(_camera.ToWorld(addWaypoint.Position));
+                break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Right, CtrlPressed: true } when Planner != null:
+                break; // the release of a Ctrl+right click
             case InputEventMouseButton { ButtonIndex: MouseButton.Middle or MouseButton.Right } mb:
                 if (mb.Pressed) { _dragging = true; _dragMoved = false; }
                 else
@@ -428,7 +454,20 @@ public partial class GameScreen : Node2D
                     _camera.Pan(motion.Relative);
                 }
                 break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } when _draggingWaypoint != null:
+                _draggingWaypoint = null;
+                Replan();
+                break;
+            case InputEventMouseMotion waypointMotion when _draggingWaypoint is int wi && Planner != null && wi < Planner.Waypoints.Count:
+                Planner.Waypoints[wi].Point = _camera.ToWorld(waypointMotion.Position);
+                Replan();
+                break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Left } left:
+                if (left.Pressed && Planner != null && _map.HitTestWaypoint(left.Position) is int grabbed)
+                {
+                    _draggingWaypoint = grabbed;
+                    break;
+                }
                 if (left.Pressed)
                 {
                     var hit = _map.HitTest(left.Position);
@@ -597,4 +636,14 @@ public sealed class PlannerState(int fleetId, int? targetBodyId, Vec2 point, str
     public string TargetName { get; } = targetName;
     public int? TargetFleetId { get; init; }
     public FlightPlan? Plan { get; set; }
+    public List<WaypointDraft> Waypoints { get; } = new();
+}
+
+/// <summary>A waypoint being set up in the planner (becomes a sim Waypoint when the route is sent).</summary>
+public sealed class WaypointDraft
+{
+    public Vec2 Point;
+    public bool Stop;
+    public double? Speed;     // null: the route's speed
+    public double WaitHours;
 }

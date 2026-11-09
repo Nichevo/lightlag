@@ -83,12 +83,16 @@ public sealed class Flight
     public bool Started { get; set; }
     public List<FlightLeg> Legs { get; set; } = new();
 
+    /// <summary>Points the route was asked to pass through (for drawing).</summary>
+    public List<Vec2> Waypoints { get; set; } = new();
+
     public double EndHour => Legs.Count > 0 ? Legs[^1].End : ArriveHour;
 
     public Flight Copy()
     {
         var f = (Flight)MemberwiseClone();
         f.Legs = new List<FlightLeg>(Legs);
+        f.Waypoints = new List<Vec2>(Waypoints);
         return f;
     }
 }

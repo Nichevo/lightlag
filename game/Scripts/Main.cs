@@ -300,6 +300,20 @@ public partial class Main : Node
             game.StartPlanning(Key("cinder"), Vec2.Zero);
             game.Replan();
             await Shoot("14-course-change");
+
+            // The same route with waypoints: through one point, then stop and wait at another.
+            var from = fleet.Position;
+            var to = Sim.World.Bodies.First(b => b.Key == "cinder").Position;
+            game.AddWaypoint(from + (to - from) * 0.35 + new Vec2(-(to - from).Y, (to - from).X) * 0.25);
+            game.AddWaypoint(from + (to - from) * 0.7);
+            game.Planner!.Waypoints[1].Stop = true;
+            game.Planner.Waypoints[1].WaitHours = 12;
+            game.Planner.Waypoints[1].Speed = 0.3;
+            game.Replan();
+            game.ShowWholeSystem(); // stops following the fleet
+            game.Camera.Center = from + (to - from) * 0.5;
+            game.Camera.FitRadius(Vec2.Distance(from, to) * 0.7, instant: true);
+            await Shoot("16-waypoints");
             game.CancelPlanning();
 
             // A split at home: the new fleet sits a little ahead on the orbit; both picked with a box.
