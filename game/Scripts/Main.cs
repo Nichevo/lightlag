@@ -56,6 +56,11 @@ public partial class Main : Node
             CallDeferred(MethodName.RunSmokeTest);
             return;
         }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--screenshots=")) is string shots)
+        {
+            _ = TakeScreenshots(shots["--screenshots=".Length..].Trim('"'));
+            return;
+        }
         ShowTitle();
     }
 
@@ -207,6 +212,52 @@ public partial class Main : Node
         if (Sim != null) RunGuarded("autosave on quit", () => SaveSlots.WriteAutosave(Paths, Sim));
         Log.Info("game", "Lightlag closed");
         Log.Dispose();
+    }
+
+    /// <summary>
+    /// CI runs the game under a virtual screen with --screenshots=DIR to photograph a set of map views,
+    /// so changes to how the map looks can be checked without a person at the PC.
+    /// </summary>
+    private async Task TakeScreenshots(string dir)
+    {
+        var ok = true;
+        try
+        {
+            Directory.CreateDirectory(dir);
+            StartNewGame(7);
+            var game = (GameScreen)_screen!;
+            Sim!.StepMany(3 * GameTime.TicksPerDay);
+            game.TogglePause();
+            int Key(string key) => Sim.World.Bodies.First(b => b.Key == key).Id;
+            var firstShip = Sim.World.Ships.First(s => s.Side == Lightlag.Sim.Core.Side.Player);
+            Sim.Issue(new MoveShipCommand(firstShip.Id, 0, 0));
+            var views = new (string Name, Action Setup)[]
+            {
+                ("1-inner-system", () => { }),
+                ("2-whole-system", () => game.ShowWholeSystem()),
+                ("3-verdant-and-pale", () => { game.Follow(Key("verdant"), true); game.Select(Key("pale")); }),
+                ("4-tamber-moons", () => game.Follow(Key("tamber"), true)),
+                ("5-rust-moons", () => game.Follow(Key("rust"), true)),
+                ("6-flint-close", () => { game.Follow(Key("flint"), true); game.Select(Key("flint")); }),
+                ("7-ships", () => { game.Follow(firstShip.Id, false); game.Camera.SetScale(0.02); game.Select(firstShip.Id); }),
+            };
+            foreach (var (name, setup) in views)
+            {
+                setup();
+                game.Camera.SetScale(game.Camera.TargetScale, instant: true);
+                for (var i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                var image = GetViewport().GetTexture().GetImage();
+                image.SavePng(System.IO.Path.Combine(dir, name + ".png"));
+                Log.Info("game", $"Screenshot {name}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ok = false;
+            Crash(ex, "taking screenshots");
+        }
+        GD.Print(ok ? "SCREENSHOTS DONE" : "SCREENSHOTS FAILED");
+        Quit(ok ? 0 : 1);
     }
 
     /// <summary>

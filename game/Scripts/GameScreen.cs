@@ -6,121 +6,136 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The map. Draws the simulation and turns input into commands; it never changes the world directly.
+/// The game screen: runs the clock, turns input into commands and hosts the map and the HUD.
+/// It never changes the world directly; ship orders go through commands.
 ///
-///   Mouse wheel        zoom at the cursor            Left click      select one of your ships
-///   Middle/right drag  pan                           Right click     send the selected ship there
-///   Space              pause / resume                1 2 3 4         game speed
-///   F5 / F9            quick save / quick load       F8              report a problem
+///   Wheel              zoom at the cursor             Left click      select a ship or body
+///   Middle/right drag  pan                            Double-click    follow it (F follows the selection)
+///   Right click        send the selected ship there   Home            show the whole system
+///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
+///   F5 / F9            quick save / quick load        F8              report a problem
 ///   Esc                autosave and back to title
-///   Ctrl+Shift+F12     test crash (checks crash reports)   Ctrl+Shift+F11  break a rule on purpose
+///   Ctrl+Shift+F12     test crash                     Ctrl+Shift+F11  break a rule on purpose
 /// </summary>
 public partial class GameScreen : Node2D
 {
-    // Ticks (game hours) per real second at each speed.
-    private static readonly double[] Speeds = { 4, 24, 96, 480 };
+    /// <summary>Game hours per real second at 1x, 2x, 4x, 8x. At 1x a game day takes 4 seconds.</summary>
+    public static readonly double[] Speeds = { 6, 12, 24, 48 };
+    public static readonly string[] SpeedNames = { "1x", "2x", "4x", "8x" };
     private const int AutosaveEveryDays = 10;
 
     private Main _main = null!;
-    private double _scale = 0.002;       // pixels per Mm
-    private Vector2 _offset;             // screen position of the sun
+    private readonly MapCamera _camera = new();
+    private MapView _map = null!;
     private double _accum;
     private int _speed;
     private bool _paused;
     private int? _selected;
+    private int? _follow;
     private bool _dragging;
     private bool _dragMoved;
-    private Label _hud = null!;
     private int _lastAutosaveDay;
-    private Font _font = null!;
+    private Hud _hud = null!;
 
     private Simulation Sim => _main.Sim!;
+    public MapCamera Camera => _camera;
+    public MapView Map => _map;
+    public bool Paused => _paused;
+    public int SpeedIndex => _speed;
 
     public override void _Ready()
     {
         _main = Main.Instance;
-        _font = ThemeDB.FallbackFont;
-        _offset = GetViewportRect().Size / 2;
+        _camera.ScreenSize = GetViewportRect().Size;
         _lastAutosaveDay = Sim.World.Day;
 
-        var layer = new CanvasLayer();
-        _hud = Ui.Label("", 15);
-        _hud.Position = new Vector2(16, 12);
-        layer.AddChild(_hud);
-        var help = Ui.Label("Wheel zoom · drag pan · click select · right-click move · Space pause · 1-4 speed · F5/F9 save/load · F8 report · Esc title", 13, Ui.Dim);
-        help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 12);
-        help.GrowVertical = Control.GrowDirection.Begin;
-        layer.AddChild(help);
-        AddChild(layer);
+        _map = new MapView { Sim = Sim, Camera = _camera };
+        AddChild(_map);
+
+        // Start on the home planet's neighbourhood: the inner system.
+        _camera.Center = Vec2.Zero;
+        _camera.FitRadius(1.8 * Physics.MmPerAu, instant: true);
+
+        _hud = new Hud(this);
+        AddChild(_hud);
+        _map.UpdatePositions();
     }
 
     public override void _Process(double delta)
     {
         if (_main.Sim == null) return;
+        _camera.ScreenSize = GetViewportRect().Size;
         if (!_paused)
         {
             _accum += delta * Speeds[_speed];
-            var steps = Math.Min((int)_accum, 2000); // never freeze the screen catching up
+            var steps = Math.Min((int)_accum, 500); // never freeze the screen catching up
             _accum -= steps;
-            if (steps > 0 && !_main.RunGuarded("running the simulation", () => Sim.StepMany(steps)))
+            if (steps > 0 && !_main.RunGuarded("running the simulation", () =>
+                {
+                    for (var i = 0; i < steps; i++)
+                    {
+                        _map.BeforeStep();
+                        Sim.Step();
+                    }
+                }))
             {
                 _paused = true;
                 return;
             }
+            _map.Blend = Math.Clamp(_accum, 0, 1);
         }
         if (Sim.World.Day - _lastAutosaveDay >= AutosaveEveryDays)
         {
             _lastAutosaveDay = Sim.World.Day;
             _main.RunGuarded("autosave", () => SaveSlots.WriteAutosave(_main.Paths, Sim));
         }
-        _hud.Text = $"{GameTime.Format(Sim.World.Tick)}    {(_paused ? "PAUSED" : $"speed {_speed + 1}")}    seed {Sim.World.Seed}    build {_main.Build}"
-                    + (Sim.RuleViolations > 0 ? $"    rule failures: {Sim.RuleViolations}" : "");
-        QueueRedraw();
+
+        _map.UpdatePositions();
+        if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
+        _camera.Update(delta, _follow is int id ? _map.DrawnPosition(id) : null);
+        _map.HoverId = _map.HitTest(GetViewport().GetMousePosition());
+        _map.SelectedId = _selected;
+        _map.QueueRedraw();
+        _hud.Refresh();
     }
 
-    // ---- Drawing --------------------------------------------------------------------------
+    // ---- Commands the HUD can call --------------------------------------------------------
 
-    private Vector2 ToScreen(Vec2 p) => _offset + new Vector2((float)(p.X * _scale), (float)(p.Y * _scale));
-    private Vec2 ToWorld(Vector2 s) => new((s.X - _offset.X) / _scale, (s.Y - _offset.Y) / _scale);
-
-    public override void _Draw()
+    public void SetSpeed(int index)
     {
-        if (_main.Sim == null) return;
-        var w = Sim.World;
-        foreach (var b in w.Bodies)
-        {
-            if (b.ParentId is int pid && w.FindBody(pid) is { } parent)
-            {
-                var r = (float)(b.OrbitRadius * _scale);
-                if (r > 6) DrawArc(ToScreen(parent.Position), r, 0, Mathf.Tau, 256, Ui.Orbit, 1, true);
-            }
-        }
-        foreach (var b in w.Bodies)
-        {
-            var at = ToScreen(b.Position);
-            var color = b.Kind switch
-            {
-                BodyKind.Star => new Color("ffd27a"),
-                BodyKind.Moon => new Color("9aa3ad"),
-                _ => new Color("6f9fd8"),
-            };
-            var minR = b.Kind == BodyKind.Star ? 9f : b.Kind == BodyKind.Moon ? 2.5f : 5f;
-            var r = Math.Max(minR, (float)(b.Radius * _scale));
-            DrawCircle(at, r, color);
-            if (b.Kind != BodyKind.Moon || _scale > 0.05)
-                DrawString(_font, at + new Vector2(r + 4, 4), b.Name, HorizontalAlignment.Left, -1, 13, Ui.Dim);
-        }
-        foreach (var s in w.Ships)
-        {
-            if (!s.Position.IsFinite) continue;
-            var at = ToScreen(s.Position);
-            var color = s.Side == Side.Player ? Ui.Player : Ui.Rival;
-            if (s.Destination is Vec2 d) DrawDashedLine(at, ToScreen(d), new Color(color, 0.5f), 1, 6);
-            DrawColoredPolygon(new[] { at + new Vector2(0, -7), at + new Vector2(6, 5), at + new Vector2(-6, 5) }, color);
-            if (s.Id == _selected) DrawArc(at, 12, 0, Mathf.Tau, 32, color, 1.5f, true);
-            DrawString(_font, at + new Vector2(9, -6), s.Name, HorizontalAlignment.Left, -1, 12, color);
-        }
+        _speed = Math.Clamp(index, 0, Speeds.Length - 1);
+        _paused = false;
     }
+
+    public void TogglePause() => _paused = !_paused;
+
+    public void ShowWholeSystem()
+    {
+        _follow = null;
+        _camera.Center = Vec2.Zero;
+        var furthest = Sim.World.Bodies.Where(b => b.Kind == BodyKind.Planet).Select(b => b.OrbitRadius).DefaultIfEmpty(1).Max();
+        _camera.FitRadius(furthest * 1.05);
+    }
+
+    /// <summary>Centre on a body or ship and keep it centred. Zooms in to a sensible size for a body.</summary>
+    public void Follow(int id, bool zoom)
+    {
+        _follow = id;
+        if (!zoom) return;
+        var body = Sim.World.FindBody(id);
+        if (body == null) return;
+        var moons = Sim.World.Bodies.Where(m => m.ParentId == body.Id).Select(m => m.OrbitRadius).DefaultIfEmpty(0).Max();
+        // A planet with moons: show the moon system. Otherwise: show the body itself, nicely large.
+        if (body.Kind == BodyKind.Star) _camera.FitRadius(1.8 * Physics.MmPerAu);
+        else if (moons > 0) _camera.FitRadius(moons * 1.15);
+        else _camera.SetScale(60 / body.Radius);
+    }
+
+    public void Select(int? id) => _selected = id;
+
+    public Body? SelectedBody => _selected is int id ? Sim.World.FindBody(id) : null;
+    public Ship? SelectedShip => _selected is int id ? Sim.World.FindShip(id) : null;
+    public bool IsFollowing(int id) => _follow == id;
 
     // ---- Input ----------------------------------------------------------------------------
 
@@ -129,7 +144,8 @@ public partial class GameScreen : Node2D
         switch (e)
         {
             case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.WheelUp or MouseButton.WheelDown } wheel:
-                Zoom(wheel.Position, wheel.ButtonIndex == MouseButton.WheelUp ? 1.25 : 0.8);
+                var steps = wheel.ButtonIndex == MouseButton.WheelUp ? 1 : -1;
+                _camera.ZoomAt(_follow != null ? _camera.ScreenCenter : wheel.Position, steps * (wheel.ShiftPressed ? 3 : 1));
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Middle or MouseButton.Right } mb:
                 if (mb.Pressed) { _dragging = true; _dragMoved = false; }
@@ -140,11 +156,17 @@ public partial class GameScreen : Node2D
                 }
                 break;
             case InputEventMouseMotion motion when _dragging:
-                _offset += motion.Relative;
-                if (motion.Relative.Length() > 2) _dragMoved = true;
+                if (motion.Relative.Length() > 1 || _dragMoved)
+                {
+                    _dragMoved = true;
+                    _follow = null;
+                    _camera.Pan(motion.Relative);
+                }
                 break;
             case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click:
-                Select(click.Position);
+                var hit = _map.HitTest(click.Position);
+                if (click.DoubleClick && hit is int id) Follow(id, zoom: true);
+                else _selected = hit;
                 break;
             case InputEventKey { Pressed: true, Echo: false } key:
                 OnKey(key);
@@ -165,6 +187,7 @@ public partial class GameScreen : Node2D
         {
             _main.Log.Warn("ui", "Rule break requested from the keyboard");
             Sim.Issue(new DebugBreakRuleCommand());
+            _map.BeforeStep();
             Sim.Step();
             Sim.CheckRules();
             _main.Toast($"Rule checks found {Sim.RuleViolations} failure(s); see the log");
@@ -172,11 +195,15 @@ public partial class GameScreen : Node2D
         }
         switch (key.Keycode)
         {
-            case Key.Space: _paused = !_paused; break;
-            case Key.Key1: _speed = 0; _paused = false; break;
-            case Key.Key2: _speed = 1; _paused = false; break;
-            case Key.Key3: _speed = 2; _paused = false; break;
-            case Key.Key4: _speed = 3; _paused = false; break;
+            case Key.Space: TogglePause(); break;
+            case Key.Key1: SetSpeed(0); break;
+            case Key.Key2: SetSpeed(1); break;
+            case Key.Key3: SetSpeed(2); break;
+            case Key.Key4: SetSpeed(3); break;
+            case Key.Equal or Key.KpAdd: SetSpeed(_speed + 1); break;
+            case Key.Minus or Key.KpSubtract: SetSpeed(_speed - 1); break;
+            case Key.Home or Key.H: ShowWholeSystem(); break;
+            case Key.F when _selected is int id: Follow(id, zoom: !key.ShiftPressed); break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
                 _main.Log.Info("save", "Quick save");
@@ -194,30 +221,10 @@ public partial class GameScreen : Node2D
         }
     }
 
-    private void Zoom(Vector2 at, double factor)
-    {
-        var before = ToWorld(at);
-        _scale = Math.Clamp(_scale * factor, 0.0002, 2.0);
-        var after = ToScreen(before);
-        _offset += at - after;
-    }
-
-    private void Select(Vector2 at)
-    {
-        _selected = null;
-        var best = 14f;
-        foreach (var s in Sim.World.Ships)
-        {
-            if (s.Side != Side.Player || !s.Position.IsFinite) continue;
-            var d = ToScreen(s.Position).DistanceTo(at);
-            if (d < best) { best = d; _selected = s.Id; }
-        }
-    }
-
     private void OrderMove(Vector2 at)
     {
-        if (_selected is not int id) return;
-        var p = ToWorld(at);
-        Sim.Issue(new MoveShipCommand(id, p.X, p.Y));
+        if (SelectedShip is not { Side: Side.Player } ship) return;
+        var p = _camera.ToWorld(at);
+        Sim.Issue(new MoveShipCommand(ship.Id, p.X, p.Y));
     }
 }

@@ -1,0 +1,9 @@
+{
+  "_comment": "Ship classes. Only flight speed matters until M2/M3 add engines, fuel and weapons. Speeds are in Mm per hour.",
+  "classes": [
+    { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate", "maxSpeedMmPerHour": 600,
+      "role": "Fast and cheap. Railgun and point defence." },
+    { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer", "maxSpeedMmPerHour": 400,
+      "role": "Long range, slower. Missile racks and point defence." }
+  ]
+}

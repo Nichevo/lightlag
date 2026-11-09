@@ -89,6 +89,23 @@ jobs:
           godot/godot --headless --path game -- --smoke-test --data-dir="$PWD/smoke-data" | tee smoke.log
           grep -q "SMOKE TEST PASSED" smoke.log
 
+      - name: Screenshots of the map (virtual screen)
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri > /dev/null
+          xvfb-run -a -s "-screen 0 1600x900x24" godot/godot --path game --rendering-driver opengl3 \
+            --rendering-method gl_compatibility --resolution 1600x900 -- --screenshots="$PWD/screenshots" \
+            --data-dir="$PWD/shot-data" | tee shots.log
+          grep -q "SCREENSHOTS DONE" shots.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Export Windows build
         run: |
           mkdir -p build/windows
