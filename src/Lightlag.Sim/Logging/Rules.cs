@@ -53,8 +53,12 @@ public sealed class RuleBook
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)
-        .Add("ship-hold-body-exists", w => w.Ships.Where(s => s.HoldBodyId is int b && w.FindBody(b) == null)
-            .Select(s => $"ship {s.Id} {s.Name} keeps station with missing body {s.HoldBodyId}"))
+        .Add("fleet-orbit-body-exists", w => w.Fleets.Where(f => f.OrbitBodyId is int b && w.FindBody(b) == null)
+            .Select(f => $"fleet {f.Id} {f.Name} orbits missing body {f.OrbitBodyId}"))
+        .Add("fleets-hold-their-ships", FleetsHoldTheirShips)
+        .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.TryGetValue(s.ClassId, out var c)
+                && !(s.Supplies >= 0 && s.Supplies <= c.Supplies + 1e-6))
+            .Select(s => $"ship {s.Id} {s.Name} has {s.Supplies} supplies"))
         .Add("ship-class-known", w => w.Ships.Where(s => !GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => $"ship {s.Id} {s.Name} has unknown class '{s.ClassId}'"))
         .Add("ship-speed-sane", w => w.Ships.Where(s => !(s.MaxSpeed > 0 && double.IsFinite(s.MaxSpeed)))
@@ -67,16 +71,36 @@ public sealed class RuleBook
         foreach (var s in w.Ships)
         {
             if (!s.Position.IsFinite) yield return $"ship {s.Id} {s.Name} is at {s.Position}";
-            if (s.Destination is { IsFinite: false } d) yield return $"ship {s.Id} {s.Name} is heading to {d}";
         }
+        foreach (var f in w.Fleets)
+        {
+            if (!f.Position.IsFinite || !f.Velocity.IsFinite) yield return $"fleet {f.Id} {f.Name} is at {f.Position} moving {f.Velocity}";
+            if (f.Flight is { } fl && fl.Legs.Any(l => !l.P0.IsFinite || !l.V0.IsFinite || !l.A.IsFinite || !double.IsFinite(l.End)))
+                yield return $"fleet {f.Id} {f.Name} has a flight plan with bad numbers";
+        }
+    }
+
+    private static IEnumerable<string> FleetsHoldTheirShips(World w)
+    {
+        foreach (var f in w.Fleets)
+        {
+            if (f.ShipIds.Count == 0) yield return $"fleet {f.Id} {f.Name} has no ships";
+            foreach (var id in f.ShipIds)
+                if (w.FindShip(id) is not Ship s) yield return $"fleet {f.Id} {f.Name} lists missing ship {id}";
+                else if (s.FleetId != f.Id) yield return $"fleet {f.Id} {f.Name} lists ship {s.Name}, which thinks it is in fleet {s.FleetId}";
+                else if (s.Side != f.Side) yield return $"fleet {f.Id} {f.Name} has ship {s.Name} from the other side";
+        }
+        foreach (var s in w.Ships)
+            if (w.Fleets.Count(f => f.ShipIds.Contains(s.Id)) != 1)
+                yield return $"ship {s.Id} {s.Name} is in {w.Fleets.Count(f => f.ShipIds.Contains(s.Id))} fleets";
     }
 
     private static IEnumerable<string> IdsUnique(World w)
     {
-        var ids = w.Bodies.Select(b => b.Id).Concat(w.Ships.Select(s => s.Id));
+        var ids = w.Bodies.Select(b => b.Id).Concat(w.Ships.Select(s => s.Id)).Concat(w.Fleets.Select(f => f.Id)).ToList();
         foreach (var g in ids.GroupBy(i => i).Where(g => g.Count() > 1))
             yield return $"id {g.Key} is used {g.Count()} times";
-        var max = w.Bodies.Select(b => b.Id).Concat(w.Ships.Select(s => s.Id)).DefaultIfEmpty(0).Max();
+        var max = ids.DefaultIfEmpty(0).Max();
         if (w.NextId <= max) yield return $"next id {w.NextId} is not above the highest id {max}";
     }
 

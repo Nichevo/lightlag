@@ -85,7 +85,7 @@ public sealed class Simulation
 
         World.Tick++;
         UpdateBodyPositions(World);
-        MoveShips();
+        MoveFleets();
         World.Random = Rng.Save();
 
         if (World.Tick % GameTime.TicksPerDay == 0)
@@ -157,55 +157,80 @@ public sealed class Simulation
         }
     }
 
-    private void MoveShips()
+    /// <summary>Supplies a fleet in orbit at its own home world gets back each day, as a share of a full load.</summary>
+    public const double RefillPerDay = 0.1;
+
+    private void MoveFleets()
     {
-        foreach (var s in World.Ships)
+        double now = World.Tick;
+        foreach (var f in World.Fleets)
         {
-            if (s.Destination is not Vec2 dest)
+            if (f.Flight is Flight flight && FlightPlanner.FlightState(flight, now) is { } state)
             {
-                if (s.HoldBodyId is int hold && World.FindBody(hold) is Body body)
-                    s.Position = body.Position + s.HoldOffset;
-                continue;
+                if (!flight.Started)
+                {
+                    flight.Started = true;
+                    Fleets.EnterDrift(f);
+                    Log.Info("fleet", $"{f.Name} departs", new { fleetId = f.Id, flight.TargetBodyId });
+                }
+                BurnFuel(f, FlightPlanner.DeltaVBetween(flight, now - GameTime.HoursPerTick, now));
+                f.Position = state.Position;
+                f.Velocity = state.Velocity;
+                if (now >= flight.EndHour) Arrive(f, flight);
             }
-            s.HoldBodyId = null;
-            var toGo = dest - s.Position;
-            var step = s.MaxSpeed * GameTime.HoursPerTick;
-            if (toGo.Length <= step)
+            else if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int bodyId && World.FindBody(bodyId) is Body body)
             {
-                s.Position = dest;
-                s.Destination = null;
-                KeepStationNearby(World, s);
-                var near = s.HoldBodyId is int h ? World.FindBody(h)?.Name : null;
-                Log.Info("sim", near != null ? $"{s.Name} arrived near {near}" : $"{s.Name} arrived", new { shipId = s.Id, at = dest, near });
+                f.OrbitAngle += 2 * Math.PI * GameTime.HoursPerTick / Fleets.OrbitPeriodHours(body, f.OrbitRadius);
+                if (f.OrbitAngle >= Math.PI * 2) f.OrbitAngle -= Math.PI * 2;
+                f.Position = body.Position + new Vec2(DetMath.Cos(f.OrbitAngle), DetMath.Sin(f.OrbitAngle)) * f.OrbitRadius;
+                f.Velocity = Vec2.Zero;
+                if (body.Owner == f.Side) Refill(f);
             }
             else
             {
-                s.Position += toGo.Normalized() * step;
+                f.Position += f.Velocity * GameTime.HoursPerTick;
             }
+            foreach (var s in World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
         }
     }
 
-    /// <summary>
-    /// If the ship is close to a body (inside a planet's moon system or within 3,000,000 km of it,
-    /// or right next to a moon), it keeps station with the nearest such body from now on.
-    /// </summary>
-    public static void KeepStationNearby(World world, Ship ship)
+    private void Arrive(Fleet f, Flight flight)
     {
-        Body? best = null;
-        var bestDist = double.MaxValue;
-        foreach (var b in world.Bodies)
+        f.Flight = null;
+        var body = flight.TargetBodyId is int id ? World.FindBody(id) : null;
+        if (flight.Arrival == ArrivalStyle.Brake)
         {
-            if (b.Kind == BodyKind.Star) continue;
-            // Planets: their moon system, or 3,000,000 km. Moons: a small zone close in.
-            var reach = b.Kind == BodyKind.Moon ? Math.Max(b.Radius * 20, b.OrbitRadius * 0.1) : 3000.0;
-            foreach (var m in world.Bodies)
-                if (m.ParentId == b.Id) reach = Math.Max(reach, m.OrbitRadius * 1.2);
-            var d = Vec2.Distance(ship.Position, b.Position);
-            // Prefer the closest body that is in reach (a moon over its planet when right next to it).
-            if (d <= reach && d < bestDist) { best = b; bestDist = d; }
+            f.Velocity = Vec2.Zero;
+            if (flight.HoldAfter == HoldStyle.Orbit && (body ?? Fleets.OrbitableNear(World, f.Position)) is Body orbit)
+            {
+                // The flight ended part way through the last hour; keep the spot it reached relative to the body.
+                f.Position = orbit.Position + (f.Position - FlightPlanner.PredictBody(World, orbit, flight.EndHour));
+                Fleets.EnterOrbit(f, orbit);
+            }
+            else
+                Fleets.EnterDrift(f);
         }
-        ship.HoldBodyId = best?.Id;
-        ship.HoldOffset = best != null ? ship.Position - best.Position : Vec2.Zero;
+        else
+        {
+            Fleets.EnterDrift(f);
+        }
+        var where = body != null ? (flight.Arrival == ArrivalStyle.FastPass ? $"passes {body.Name}" : $"arrives at {body.Name}") : "arrives";
+        Log.Info("fleet", $"{f.Name} {where}", new { fleetId = f.Id, at = f.Position, hold = f.Hold, speed = f.Velocity.Length });
     }
 
+    private void BurnFuel(Fleet f, double deltaV)
+    {
+        if (deltaV <= 0) return;
+        foreach (var s in World.ShipsOf(f))
+            s.Supplies = Math.Max(0, s.Supplies - deltaV * GameData.ShipClass(s.ClassId).SuppliesPerDeltaV);
+    }
+
+    private void Refill(Fleet f)
+    {
+        foreach (var s in World.ShipsOf(f))
+        {
+            var max = GameData.ShipClass(s.ClassId).Supplies;
+            s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * GameTime.HoursPerTick / 24);
+        }
+    }
 }

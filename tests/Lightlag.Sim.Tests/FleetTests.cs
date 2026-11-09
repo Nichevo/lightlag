@@ -1,0 +1,265 @@
+using Lightlag.Sim.Core;
+using Lightlag.Sim.Logging;
+using Xunit;
+
+namespace Lightlag.Sim.Tests;
+
+public class FleetTests
+{
+    private static Simulation NewGame(ulong seed = 8)
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        return sim;
+    }
+
+    private static Fleet PlayerFleet(Simulation sim) => sim.World.Fleets.First(f => f.Side == Side.Player);
+    private static Body BodyNamed(Simulation sim, string key) => sim.World.Bodies.Single(b => b.Key == key);
+
+    private static FlightRequest To(Body b, double speed = 1, ArrivalStyle arrival = ArrivalStyle.Brake, HoldStyle hold = HoldStyle.Orbit) =>
+        new(b.Id, b.Position, speed, arrival, hold, 0);
+
+    private static void StepUntilArrived(Simulation sim, Fleet f, int maxDays = 400)
+    {
+        for (var i = 0; i < maxDays * GameTime.TicksPerDay && (f.InFlight || sim.PendingCommands.Count > 0); i++) sim.Step();
+        Assert.False(f.InFlight, "fleet never arrived");
+    }
+
+    [Fact]
+    public void Each_side_starts_with_one_fleet_in_orbit_at_home()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        Assert.Equal(3, fleet.ShipIds.Count);
+        Assert.Equal(HoldStyle.Orbit, fleet.Hold);
+        Assert.Equal(Side.Player, BodyNamed(sim, "verdant").Owner);
+        Assert.Equal(2, sim.World.Fleets.Count);
+    }
+
+    [Fact]
+    public void Fleets_in_orbit_circle_their_planet()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var home = BodyNamed(sim, "verdant");
+        var angle = fleet.OrbitAngle;
+        sim.StepMany(30);
+        Assert.InRange(Vec2.Distance(fleet.Position, home.Position), fleet.OrbitRadius - 1e-6, fleet.OrbitRadius + 1e-6);
+        Assert.NotEqual(angle, fleet.OrbitAngle);
+        // A full circle takes a few days.
+        var period = Fleets.OrbitPeriodHours(home, fleet.OrbitRadius);
+        Assert.InRange(period, 72, 24 * 10);
+    }
+
+    [Fact]
+    public void A_fleet_flies_at_the_pace_of_its_slowest_ship()
+    {
+        var sim = NewGame();
+        var perf = FleetPerformance.Of(sim.World, PlayerFleet(sim));
+        Assert.Equal(GameData.ShipClass("missile-destroyer").MaxSpeedMmPerHour, perf.MaxSpeed);
+        Assert.Equal(GameData.ShipClass("missile-destroyer").AccelMmPerHour2, perf.Accel);
+    }
+
+    [Fact]
+    public void Flying_to_a_planet_ends_in_orbit_there_on_time()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var rust = BodyNamed(sim, "rust");
+        var plan = FlightPlanner.Plan(sim.World, fleet, To(rust));
+        Assert.True(plan.Ok, plan.Problem);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(rust)));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(HoldStyle.Orbit, fleet.Hold);
+        Assert.Equal(rust.Id, fleet.OrbitBodyId);
+        Assert.InRange(fleet.OrbitRadius, Fleets.OrbitRadiusFor(rust) * 0.95, Fleets.OrbitRadiusFor(rust) * 1.05);
+        Assert.InRange((double)sim.World.Tick, plan.Flight!.ArriveHour, plan.Flight.ArriveHour + 2);
+        Assert.All(sim.World.ShipsOf(fleet), s => Assert.True(s.Supplies < GameData.ShipClass(s.ClassId).Supplies));
+    }
+
+    [Fact]
+    public void Faster_flights_arrive_sooner_and_burn_more_fuel()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var target = BodyNamed(sim, "vela");
+        var slow = FlightPlanner.Plan(sim.World, fleet, To(target, 0.4));
+        var fast = FlightPlanner.Plan(sim.World, fleet, To(target, 1.0));
+        Assert.True(fast.Flight!.ArriveHour < slow.Flight!.ArriveHour);
+        Assert.True(fast.DeltaV > slow.DeltaV);
+    }
+
+    [Fact]
+    public void A_fast_pass_is_cheaper_and_leaves_the_fleet_drifting_on()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var target = BodyNamed(sim, "vela");
+        var brake = FlightPlanner.Plan(sim.World, fleet, To(target));
+        var pass = FlightPlanner.Plan(sim.World, fleet, To(target, arrival: ArrivalStyle.FastPass));
+        Assert.True(pass.DeltaV < brake.DeltaV);
+        Assert.True(pass.Flight!.ArriveHour < brake.Flight!.ArriveHour);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(target, arrival: ArrivalStyle.FastPass)));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(HoldStyle.Drift, fleet.Hold);
+        Assert.True(fleet.Velocity.Length > 100);
+        var at = fleet.Position;
+        sim.StepMany(10);
+        Assert.True(Vec2.Distance(at, fleet.Position) > 1000);
+    }
+
+    [Fact]
+    public void Stopping_a_moving_fleet_brakes_it()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "tamber"))));
+        sim.StepMany(3 * GameTime.TicksPerDay);
+        Assert.True(fleet.Velocity.Length > 0);
+        sim.Issue(new StopFleetCommand(fleet.Id));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(0, fleet.Velocity.Length, 9);
+        var at = fleet.Position;
+        sim.StepMany(24);
+        Assert.Equal(at, fleet.Position);
+    }
+
+    [Fact]
+    public void Fleets_cannot_fly_further_than_their_supplies()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        foreach (var s in sim.World.ShipsOf(fleet)) s.Supplies = 1;
+        var plan = FlightPlanner.Plan(sim.World, fleet, To(BodyNamed(sim, "tamber")));
+        Assert.False(plan.Ok);
+        Assert.Contains("supplies", plan.Problem);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "tamber"))));
+        sim.Step();
+        Assert.False(fleet.InFlight);
+    }
+
+    [Fact]
+    public void Fleets_refill_in_orbit_at_home()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        foreach (var s in sim.World.ShipsOf(fleet)) s.Supplies = 1;
+        sim.StepMany(10 * GameTime.TicksPerDay);
+        Assert.All(sim.World.ShipsOf(fleet), s => Assert.Equal(GameData.ShipClass(s.ClassId).Supplies, s.Supplies, 6));
+    }
+
+    [Fact]
+    public void Waiting_never_makes_the_trip_longer()
+    {
+        var sim = NewGame(21);
+        var fleet = PlayerFleet(sim);
+        foreach (var key in new[] { "cinder", "vela", "rust", "tamber" })
+        {
+            var req = To(BodyNamed(sim, key), 0.6);
+            var direct = FlightPlanner.Plan(sim.World, fleet, req);
+            var wait = FlightPlanner.PlanWait(sim.World, fleet, req);
+            Assert.True(wait.Flight!.ArriveHour - wait.Flight.DepartHour <= direct.Flight!.ArriveHour - direct.Flight.DepartHour + 1e-6);
+            Assert.True(wait.Flight.DepartHour >= direct.Flight.DepartHour);
+        }
+    }
+
+    [Fact]
+    public void A_waiting_fleet_stays_in_orbit_until_it_leaves()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var req = To(BodyNamed(sim, "rust")) with { DepartTick = 5 * GameTime.TicksPerDay };
+        sim.Issue(new PlanFlightCommand(fleet.Id, req));
+        sim.StepMany(4 * GameTime.TicksPerDay);
+        Assert.Equal(HoldStyle.Orbit, fleet.Hold);
+        Assert.False(fleet.Flight!.Started);
+        sim.StepMany(2 * GameTime.TicksPerDay);
+        Assert.True(fleet.Flight!.Started);
+    }
+
+    [Fact]
+    public void Fleets_split_and_merge_again()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var leaving = fleet.ShipIds[0];
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { leaving }));
+        sim.Step();
+        var created = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        Assert.Equal(new[] { leaving }, created.ShipIds);
+        Assert.Equal(2, fleet.ShipIds.Count);
+        Assert.Equal(HoldStyle.Orbit, created.Hold);
+        Assert.Equal("Fleet 2", created.Name);
+
+        sim.Issue(new MergeFleetsCommand(fleet.Id, created.Id));
+        sim.Step();
+        Assert.Equal(3, fleet.ShipIds.Count);
+        Assert.Null(sim.World.FindFleet(created.Id));
+        Assert.Equal(fleet.Id, sim.World.FindShip(leaving)!.FleetId);
+    }
+
+    [Fact]
+    public void Far_apart_fleets_cannot_merge()
+    {
+        var sim = NewGame();
+        var player = PlayerFleet(sim);
+        var rival = sim.World.Fleets.First(f => f.Side == Side.Rival);
+        Assert.NotNull(Fleets.CanMerge(player, rival));
+        sim.Issue(new MergeFleetsCommand(player.Id, rival.Id));
+        sim.Step();
+        Assert.Equal(2, sim.World.Fleets.Count);
+    }
+
+    [Fact]
+    public void A_drifting_fleet_can_be_put_into_orbit()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new SetHoldCommand(fleet.Id, HoldStyle.Drift));
+        sim.StepMany(5);
+        Assert.Equal(HoldStyle.Drift, fleet.Hold);
+        sim.Issue(new SetHoldCommand(fleet.Id, HoldStyle.Orbit));
+        sim.Step();
+        Assert.Equal(HoldStyle.Orbit, fleet.Hold);
+        Assert.Equal(BodyNamed(sim, "verdant").Id, fleet.OrbitBodyId);
+    }
+
+    [Fact]
+    public void Flying_to_a_point_stops_there()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var spot = new Vec2(0, 2.0 * Physics.MmPerAu);
+        sim.Issue(new PlanFlightCommand(fleet.Id, new FlightRequest(null, spot, 1, ArrivalStyle.Brake, HoldStyle.Orbit, 0)));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(HoldStyle.Drift, fleet.Hold);
+        Assert.True(Vec2.Distance(spot, fleet.Position) < 1e-3);
+    }
+
+    [Fact]
+    public void Ships_keep_their_place_in_formation()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "vela"))));
+        sim.StepMany(50);
+        var offsets = sim.World.ShipsOf(fleet).Select(s => s.Position - fleet.Position).ToList();
+        Assert.Equal(3, offsets.Distinct().Count());
+        Assert.All(offsets, o => Assert.True(o.Length <= 2 * Fleets.FormationSpacing));
+    }
+
+    [Fact]
+    public void Deterministic_maths_matches_the_system_library()
+    {
+        for (var i = -20; i <= 20; i++)
+        {
+            var y = i * 0.37;
+            Assert.InRange(DetMath.Atan2(y, 1.3) - Math.Atan2(y, 1.3), -1e-14, 1e-14);
+            Assert.InRange(DetMath.Atan2(1.1, y) - Math.Atan2(1.1, y), -1e-14, 1e-14);
+            Assert.InRange(DetMath.Atan2(-y, -2) - Math.Atan2(-y, -2), -1e-14, 1e-14);
+        }
+        foreach (var v in new[] { 0.001, 0.5, 2, 27, 677_000, 2.15e8 })
+            Assert.InRange(DetMath.Cbrt(v) / Math.Cbrt(v), 1 - 1e-14, 1 + 1e-14);
+    }
+}

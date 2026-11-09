@@ -12,13 +12,20 @@ public sealed class World
     public RandomState Random { get; set; } = new(0, 1);
     public List<Body> Bodies { get; set; } = new();
     public List<Ship> Ships { get; set; } = new();
+    public List<Fleet> Fleets { get; set; } = new();
     public List<Belt> Belts { get; set; } = new();
     public int NextId { get; set; } = 1;
+
+    /// <summary>How many fleets each side has numbered so far, so new fleets get fresh numbers.</summary>
+    public int[] FleetNumbers { get; set; } = new int[2];
 
     public int Day => GameTime.DayOf(Tick);
 
     public Body? FindBody(int id) => Bodies.Find(b => b.Id == id);
     public Ship? FindShip(int id) => Ships.Find(s => s.Id == id);
+    public Fleet? FindFleet(int id) => Fleets.Find(f => f.Id == id);
+    public IEnumerable<Ship> ShipsOf(Fleet f) => f.ShipIds.Select(FindShip).OfType<Ship>();
+    public Fleet? FleetOf(Ship s) => FindFleet(s.FleetId);
 }
 
 public enum BodyKind { Star, Planet, Moon, Station }
@@ -40,6 +47,9 @@ public sealed class Body
     public double Angle { get; set; }            // radians, where it is on its orbit now
     public double Radius { get; set; }           // Mm, the body's own size
     public Vec2 Position { get; set; }
+
+    /// <summary>The side whose home this is: fleets in orbit here refill their supplies.</summary>
+    public Side? Owner { get; set; }
 }
 
 /// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>
@@ -55,21 +65,22 @@ public sealed class Belt
 
 public enum Side { Player, Rival }
 
-/// <summary>Placeholder ship: it can be ordered to fly to a point. Real flight comes in M2.</summary>
+/// <summary>
+/// One ship. Ships always fly in a fleet (a lone ship is a fleet of one); the fleet does the flying
+/// and each ship sits at its place in the fleet's loose formation.
+/// </summary>
 public sealed class Ship
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public Side Side { get; set; }
     public string ClassId { get; set; } = "";
+    public int FleetId { get; set; }
     public Vec2 Position { get; set; }
-    public Vec2? Destination { get; set; }
-
-    /// <summary>
-    /// When idle near a body, the ship keeps station with it (moves along as it orbits) at this
-    /// offset. Proper orbit and drift holds come with flight in M2.
-    /// </summary>
-    public int? HoldBodyId { get; set; }
-    public Vec2 HoldOffset { get; set; }
+    public Vec2 FormationOffset { get; set; }
     public double MaxSpeed { get; set; }         // Mm per hour
+    public double Accel { get; set; }            // Mm per hour per hour
+
+    /// <summary>The ship's one stock of fuel and (from M3) ammunition.</summary>
+    public double Supplies { get; set; }
 }

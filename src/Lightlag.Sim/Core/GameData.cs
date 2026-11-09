@@ -36,7 +36,17 @@ public sealed record BeltData(string Id, string Name, string Parent, double Inne
 
 public sealed record StartShipsData([property: JsonPropertyName("class")] string Class, Side Side, string Near, int Count);
 
-public sealed record ShipClass(string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, string Role);
+/// <summary>
+/// A ship class. Speed in Mm per hour, acceleration in Mm per hour per hour. Supplies are the one stock
+/// of fuel and ammunition; every 1 Mm/h of speed gained or lost burns suppliesPerDeltaV of it.
+/// </summary>
+public sealed record ShipClass(
+    string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, double AccelMmPerHour2,
+    double Supplies, double SuppliesPerDeltaV, string Role)
+{
+    /// <summary>Total speed change a full load of supplies buys.</summary>
+    public double FullDeltaV => Supplies / SuppliesPerDeltaV;
+}
 
 public sealed record ShipClassFile(List<ShipClass> Classes);
 
@@ -77,6 +87,8 @@ public static class GameData
         {
             if (!dict.TryAdd(c.Id, c)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' is listed twice");
             if (!(c.MaxSpeedMmPerHour > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs a speed above 0");
+            if (!(c.AccelMmPerHour2 > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs an acceleration above 0");
+            if (!(c.Supplies > 0 && c.SuppliesPerDeltaV > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs supplies and suppliesPerDeltaV above 0");
         }
         return dict;
     }
