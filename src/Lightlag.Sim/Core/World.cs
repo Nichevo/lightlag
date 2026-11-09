@@ -64,5 +64,12 @@ public sealed class Ship
     public string ClassId { get; set; } = "";
     public Vec2 Position { get; set; }
     public Vec2? Destination { get; set; }
+
+    /// <summary>
+    /// When idle near a body, the ship keeps station with it (moves along as it orbits) at this
+    /// offset. Proper orbit and drift holds come with flight in M2.
+    /// </summary>
+    public int? HoldBodyId { get; set; }
+    public Vec2 HoldOffset { get; set; }
     public double MaxSpeed { get; set; }         // Mm per hour
 }

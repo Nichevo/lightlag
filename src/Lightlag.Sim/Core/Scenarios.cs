@@ -62,13 +62,16 @@ public static class Scenarios
                 // Somewhere in high orbit around the start body, a few thousand km out.
                 var angle = rng.Range(0, Math.PI * 2);
                 var dist = near.Radius * 3 + rng.Range(0.0, 2000.0);
-                w.Ships.Add(new Ship
+                var ship = new Ship
                 {
                     Id = w.NextId++,
                     Name = $"{cls.Short}-{(group.Side == Side.Player ? "" : "R")}{counters[key]}",
                     Side = group.Side, ClassId = cls.Id, MaxSpeed = cls.MaxSpeedMmPerHour,
                     Position = near.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * dist,
-                });
+                    HoldBodyId = near.Id,
+                };
+                ship.HoldOffset = ship.Position - near.Position;
+                w.Ships.Add(ship);
             }
         }
         return w;

@@ -58,6 +58,45 @@ public class GameDataTests
     }
 
     [Fact]
+    public void Idle_ships_keep_station_with_their_planet()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var home = sim.World.Bodies.Single(b => b.Key == "verdant");
+        var ship = sim.World.Ships.First(s => s.Side == Side.Player);
+        var offset = ship.Position - home.Position;
+        sim.StepMany(30 * GameTime.TicksPerDay);   // Verdant moves about 77 million km
+        Assert.True(Vec2.Distance(ship.Position - home.Position, offset) < 1e-6);
+    }
+
+    [Fact]
+    public void Ships_that_arrive_near_a_body_keep_station_with_it()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var rust = sim.World.Bodies.Single(b => b.Key == "rust");
+        var ship = sim.World.Ships.First(s => s.Side == Side.Rival);
+        var target = rust.Position + new Vec2(1500, 0);
+        sim.Issue(new MoveShipCommand(ship.Id, target.X, target.Y));
+        sim.StepMany(10);
+        Assert.Equal(rust.Id, ship.HoldBodyId);
+        var offset = ship.Position - rust.Position;
+        sim.StepMany(48);
+        Assert.True(Vec2.Distance(ship.Position - rust.Position, offset) < 1e-6);
+    }
+
+    [Fact]
+    public void Ships_in_open_space_stay_put()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var ship = sim.World.Ships.First();
+        var spot = new Vec2(0, 2.7 * Physics.MmPerAu * 0.5);
+        ship.Position = spot + new Vec2(100, 0);
+        sim.Issue(new MoveShipCommand(ship.Id, spot.X, spot.Y));
+        sim.StepMany(5);
+        Assert.Null(ship.HoldBodyId);
+        Assert.Equal(spot, ship.Position);
+    }
+
+    [Fact]
     public void Bad_data_fails_with_a_clear_message()
     {
         var bad = new SystemData("bad", new()

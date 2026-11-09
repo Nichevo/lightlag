@@ -134,8 +134,9 @@ public partial class MapView : Node2D
     private bool ShowLabel(Body b) => b.Kind switch
     {
         BodyKind.Star => true,
-        BodyKind.Moon => b.OrbitRadius * Camera.Scale >= 30 || b.Id == SelectedId,
-        _ => true,
+        BodyKind.Moon => b.OrbitRadius * Camera.Scale >= 30 || b.Id == SelectedId || b.Id == HoverId,
+        // Inner planets bunch up around the star when zoomed out: label them once there is room.
+        _ => b.OrbitRadius * Camera.Scale >= 40 || b.Id == SelectedId || b.Id == HoverId,
     };
 
     /// <summary>

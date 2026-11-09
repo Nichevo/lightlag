@@ -243,6 +243,7 @@ public partial class Main : Node
             };
             foreach (var (name, setup) in views)
             {
+                game.Select(null);
                 setup();
                 game.Camera.SetScale(game.Camera.TargetScale, instant: true);
                 for (var i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
