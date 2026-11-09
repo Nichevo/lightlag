@@ -205,7 +205,7 @@ public static class FlightPlanner
     {
         var speed = cruise;
         var aim = aimFrom(p, now);
-        for (var outer = 0; outer < 40; outer++)
+        for (var outer = 0; outer < 300; outer++)
         {
             // Pick the direction so that, where the turn ends, the fleet points straight at the aim point.
             var dir = (aim - p).Normalized();
@@ -239,9 +239,10 @@ public static class FlightPlanner
             var brake = arrival == ArrivalStyle.Brake ? speed / a : 0;
             var arrive = now + t1 + coast + brake;
             var newAim = aimFrom(p1, arrive);
-            if (Vec2.Distance(newAim, aim) > 1e-4)
+            if (Vec2.Distance(newAim, aim) > 1e-3)
             {
-                aim = newAim;
+                // Damped: a moving target makes plain repeats overshoot back and forth.
+                aim = aim + (newAim - aim) * 0.6;
                 continue;
             }
 

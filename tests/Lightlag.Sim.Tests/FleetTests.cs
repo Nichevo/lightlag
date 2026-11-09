@@ -377,4 +377,19 @@ public class FleetTests
         heading = DetMath.Atan2(fleet.Velocity.Y, fleet.Velocity.X);
         Assert.InRange(Math.Abs(Math.IEEERemainder(fleet.Facing - heading, 2 * Math.PI)), Math.PI - 0.05, Math.PI);
     }
+
+    [Fact]
+    public void A_turn_towards_a_fast_inner_planet_still_curves()
+    {
+        // Heading out to Vela, then turned back towards Cinder, which moves fast: the plan must settle.
+        var sim = NewGame(7);
+        sim.StepMany(3 * GameTime.TicksPerDay);
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "vela"), 0.7) with { DepartTick = sim.World.Tick }));
+        sim.StepMany(30);
+        var plan = FlightPlanner.Plan(sim.World, fleet, To(BodyNamed(sim, "cinder"), 0.7) with { DepartTick = sim.World.Tick });
+        Assert.True(plan.Ok, plan.Problem);
+        Assert.Equal(sim.World.Hour, plan.Flight!.DepartHour);
+        Assert.True(plan.Flight.Legs[0].VelocityAt(plan.Flight.Legs[0].End).Length > 1e-6);
+    }
 }
