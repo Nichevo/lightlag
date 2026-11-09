@@ -15,7 +15,7 @@ public partial class TitleScreen : Control
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 14);
         col.AddChild(Ui.Label("LIGHTLAG", 64, Ui.Player));
-        col.AddChild(Ui.Label("Milestone 4: hide and seek (sensors, signatures, last-seen marks)", 16, Ui.Dim));
+        col.AddChild(Ui.Label("Milestone 5: the loop (Industry, shipyard, research, claims, winning)", 16, Ui.Dim));
         col.AddChild(new Control { CustomMinimumSize = new Vector2(0, 24) });
 
         var latest = SaveSlots.Latest(main.Paths);

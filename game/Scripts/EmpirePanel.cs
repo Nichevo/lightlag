@@ -1,0 +1,233 @@
+using Godot;
+using Lightlag.Sim.Core;
+using Side = Lightlag.Sim.Core.Side;
+
+namespace Lightlag.Game;
+
+/// <summary>
+/// The empire panel (E): Industry, the shipyard and its build queue, the research list and planet
+/// claims. Buttons issue commands; the panel rebuilds its buttons only when the queues change, and
+/// updates the numbers every frame.
+/// </summary>
+public partial class EmpirePanel : PanelContainer
+{
+    private readonly GameScreen _screen;
+    private VBoxContainer _box = null!;
+    private string _shape = "";
+    private readonly List<(Label Label, Func<World, string> Text)> _live = new();
+
+    public EmpirePanel() : this(null!) { }
+    public EmpirePanel(GameScreen screen) => _screen = screen;
+
+    public override void _Ready()
+    {
+        Ui.StylePanel(this, 14);
+        _box = new VBoxContainer { CustomMinimumSize = new Vector2(380, 0) };
+        _box.AddThemeConstantOverride("separation", 4);
+        AddChild(_box);
+    }
+
+    public void Refresh(Simulation sim)
+    {
+        var w = sim.World;
+        var shape = Shape(w);
+        if (shape != _shape)
+        {
+            _shape = shape;
+            Rebuild(w);
+        }
+        foreach (var (label, text) in _live) label.Text = text(w);
+    }
+
+    /// <summary>Everything that changes which buttons and rows exist.</summary>
+    private static string Shape(World w) =>
+        string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}"))
+        + "|" + string.Join(",", Economy.Of(w, Side.Player).Researched)
+        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner;
+
+    private void Rebuild(World w)
+    {
+        foreach (var c in _box.GetChildren()) c.QueueFree();
+        _live.Clear();
+
+        Heading("Empire");
+        Live(14, Ui.Text, w2 =>
+        {
+            var me = Economy.Of(w2, Side.Player);
+            return $"Industry {me.Industry:0} · +{Economy.IncomePerDay(w2, Side.Player):0.#} a day";
+        });
+        Live(13, Ui.Dim, PlanetsLine);
+
+        // Shipyard and build queue.
+        Heading("Shipyard");
+        Live(13, Ui.Dim, w2 => Economy.ShipyardOf(w2, Side.Player) is Body yard
+            ? $"At {yard.Name} · armour {yard.ShipyardArmour / GameData.Economy.Shipyard.Armour * 100:0} %"
+              + (yard.LastBombardedHour is double h && w2.Hour - h <= 24 ? " · UNDER ATTACK" : "")
+            : "Destroyed");
+        if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null)
+        {
+            var row = Row();
+            foreach (var cls in GameData.ShipClasses.Values)
+            {
+                var id = cls.Id;
+                var days = cls.Cost / GameData.Economy.BuildIndustryPerDay;
+                var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.Queue(OrderKind.Ship, id),
+                    $"Build a {cls.Name}: {cls.Cost:0} Industry, {days:0.#} days. {cls.Role}");
+                b.CustomMinimumSize = new Vector2(180, 30);
+                row.AddChild(b);
+            }
+        }
+        var ships = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship).ToList();
+        if (ships.Count == 0) Live(13, Ui.Dim, _ => "Nothing being built");
+        for (var i = 0; i < ships.Count; i++) OrderRow(ships[i], i == 0);
+
+        // Research.
+        Heading("Research");
+        var queued = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research).ToList();
+        for (var i = 0; i < queued.Count; i++) OrderRow(queued[i], i == 0);
+        foreach (var r in GameData.Economy.Research)
+        {
+            if (queued.Any(o => o.Key == r.Id)) continue;
+            if (Tech.Has(w, Side.Player, r.Id))
+            {
+                var done = Ui.Label($"Done: {r.Name}. {r.Effect}", 12, new Color(Ui.Player, 0.75f));
+                done.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+                done.CustomMinimumSize = new Vector2(380, 0);
+                _box.AddChild(done);
+                continue;
+            }
+            if (w.Winner != null) continue;
+            var id = r.Id;
+            var row = Row();
+            var b = Ui.SmallButton($"{r.Name}", () => _screen.Queue(OrderKind.Research, id), $"{r.Effect}. {r.Cost:0} Industry, {r.Days:0} days.");
+            b.CustomMinimumSize = new Vector2(190, 28);
+            row.AddChild(b);
+            var info = Ui.Label($"{r.Cost:0} · {r.Days:0} d · {r.Effect}", 11, Ui.Dim);
+            info.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            info.CustomMinimumSize = new Vector2(185, 0);
+            row.AddChild(info);
+        }
+
+        // Claims under way.
+        Heading("Claims");
+        Live(13, Ui.Dim, ClaimsText);
+    }
+
+    private void OrderRow(WorkOrder order, bool first)
+    {
+        var row = Row();
+        var id = order.Id;
+        var label = Ui.Label("", 13, first ? Ui.Text : Ui.Dim);
+        label.CustomMinimumSize = new Vector2(330, 0);
+        row.AddChild(label);
+        _live.Add((label, w => w.Orders.Find(o => o.Id == id) is WorkOrder o ? OrderText(w, o, first) : ""));
+        var cancel = Ui.SmallButton("✕", () => _screen.CancelOrder(id), "Cancel (a started order gives its Industry back)");
+        cancel.CustomMinimumSize = new Vector2(32, 26);
+        row.AddChild(cancel);
+    }
+
+    private static string OrderText(World w, WorkOrder o, bool first)
+    {
+        var name = Economy.NameOf(o);
+        if (o.Paid) return $"{name}: {Format.Hours(o.HoursLeft)} left ({(1 - o.HoursLeft / o.TotalHours) * 100:0} %)";
+        if (!first) return $"{name}: queued";
+        var cost = Economy.CostOf(o);
+        var have = Economy.Of(w, Side.Player).Industry;
+        var income = Economy.IncomePerDay(w, Side.Player);
+        var wait = income > 0 ? $", about {Format.Hours((cost - have) / income * 24)}" : "";
+        return $"{name}: waiting for {cost:0} Industry{wait}";
+    }
+
+    private static string PlanetsLine(World w)
+    {
+        var total = Economy.Claimable(w).Count();
+        var mine = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
+        var theirs = Economy.Claimable(w).Count(b => b.Owner == Side.Rival);
+        var line = $"Planets held: you {mine}, rival {theirs}, of {total}. Hold more than {total / 2} for {GameData.Economy.HoldToWinDays:0} days to win.";
+        foreach (var side in new[] { Side.Player, Side.Rival })
+            if (Economy.Of(w, side).MajoritySinceHour is double since)
+                line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + GameData.Economy.HoldToWinDays * 24)} if nothing changes.";
+        return line;
+    }
+
+    private static string ClaimsText(World w)
+    {
+        var need = GameData.Economy.ClaimDays * 24;
+        var lines = w.Bodies.Where(b => b.ClaimSide != null).Select(b =>
+            $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {need / 24:0} days").ToList();
+        return lines.Count > 0 ? string.Join("\n", lines)
+            : $"Hold orbit at a planet or moon for {need / 24:0} days, with no enemy in orbit, to claim it.";
+    }
+
+    private void Heading(string text)
+    {
+        var l = Ui.Label(text, 15, Ui.Player);
+        _box.AddChild(l);
+    }
+
+    private void Live(int size, Color color, Func<World, string> text)
+    {
+        var l = Ui.Label("", size, color);
+        l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        l.CustomMinimumSize = new Vector2(380, 0);
+        _box.AddChild(l);
+        _live.Add((l, text));
+    }
+
+    private HBoxContainer Row()
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 6);
+        _box.AddChild(row);
+        return row;
+    }
+}
+
+/// <summary>Shown once when the game is won or lost.</summary>
+public partial class EndPanel : PanelContainer
+{
+    private readonly GameScreen _screen;
+    private Label _title = null!;
+    private Label _text = null!;
+
+    public EndPanel() : this(null!) { }
+    public EndPanel(GameScreen screen) => _screen = screen;
+
+    public override void _Ready()
+    {
+        Ui.StylePanel(this, 24);
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(460, 0) };
+        box.AddThemeConstantOverride("separation", 12);
+        AddChild(box);
+        _title = Ui.Label("", 30);
+        _title.HorizontalAlignment = HorizontalAlignment.Center;
+        box.AddChild(_title);
+        _text = Ui.Label("", 16);
+        _text.HorizontalAlignment = HorizontalAlignment.Center;
+        _text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _text.CustomMinimumSize = new Vector2(460, 0);
+        box.AddChild(_text);
+        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        row.AddThemeConstantOverride("separation", 12);
+        var look = Ui.SmallButton("Keep looking", () => _screen.CloseEnd(), "Close this and look around the map");
+        look.CustomMinimumSize = new Vector2(150, 40);
+        row.AddChild(look);
+        var title = Ui.SmallButton("Title screen", () => Main.Instance.ShowTitle(), "Back to the title screen");
+        title.CustomMinimumSize = new Vector2(150, 40);
+        row.AddChild(title);
+        box.AddChild(row);
+    }
+
+    public void Refresh(World w)
+    {
+        var won = w.Winner == Side.Player;
+        _title.Text = won ? "Victory" : "Defeat";
+        _title.AddThemeColorOverride("font_color", won ? Ui.Player : Ui.Rival);
+        var who = won ? "You" : "The rival";
+        var mine = w.Ships.Count(s => s.Side == Side.Player);
+        var theirs = w.Ships.Count(s => s.Side == Side.Rival);
+        _text.Text = $"{who} {w.WinReason} on {GameTime.Format(w.WinHour ?? w.Hour)}.\n"
+                     + $"Ships left: you {mine}, rival {theirs}. Planets: you {w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0)}, "
+                     + $"rival {w.Bodies.Count(b => b.Owner == Side.Rival && b.Industry > 0)}.";
+    }
+}

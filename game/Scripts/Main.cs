@@ -328,6 +328,31 @@ public partial class Main : Node
             home.SelectGroup(Sim.World.Fleets.Where(f => f.Side == Lightlag.Sim.Core.Side.Player).Select(f => f.Id));
             await Shoot("15-split-and-pick");
 
+            // The empire panel a few days in: a frigate building, research under way, a claim on Pale.
+            StartNewGame(8);
+            var empire = (GameScreen)_screen!;
+            Sim!.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "gun-frigate"));
+            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "missile-destroyer"));
+            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Research, Tech.QuietDrives));
+            Sim.StepMany(3 * 24);
+            var pale = Sim.World.Bodies.Single(b => b.Key == "pale");
+            pale.ClaimSide = Lightlag.Sim.Core.Side.Player;
+            pale.ClaimHours = 4 * 24;
+            empire.TogglePause();
+            empire.ShowEmpire = true;
+            empire.Follow(Key("verdant"), true);
+            empire.Camera.SetScale(empire.Camera.TargetScale * 0.03, instant: true);
+            await Shoot("17-empire");
+
+            // The end of a game: the rival shipyard is gone.
+            var rust = Sim.World.Bodies.Single(b => b.Key == "rust");
+            rust.Shipyard = false;
+            rust.ShipyardArmour = 0;
+            Sim.Step();
+            empire.ShowEmpire = false;
+            empire.OpenEnd();
+            await Shoot("18-victory");
+
             // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
             StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 150), 7);
             var battle = (GameScreen)_screen!;

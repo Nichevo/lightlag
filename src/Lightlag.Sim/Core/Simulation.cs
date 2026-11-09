@@ -84,12 +84,7 @@ public sealed class Simulation
     /// </summary>
     public void Step()
     {
-        while (_pending.Count > 0)
-        {
-            var command = _pending.Dequeue();
-            Replay.Commands.Add(new RecordedCommand(World.Tick, command, World.Sub));
-            command.Apply(World, this);
-        }
+        ApplyPending();
 
         var t0 = World.Hour;
         var velocities = World.Fleets.Select(f => (f, f.Velocity)).ToList();
@@ -130,6 +125,20 @@ public sealed class Simulation
 
         if (RuleCheckEveryTicks > 0 && World.Tick % RuleCheckEveryTicks == 0)
             CheckRules();
+    }
+
+    /// <summary>
+    /// Applies queued commands now instead of at the next step (so a paused game shows their effect).
+    /// Replays the same: nothing happens between this and the start of the next step.
+    /// </summary>
+    public void ApplyPending()
+    {
+        while (_pending.Count > 0)
+        {
+            var command = _pending.Dequeue();
+            Replay.Commands.Add(new RecordedCommand(World.Tick, command, World.Sub));
+            command.Apply(World, this);
+        }
     }
 
     /// <summary>How much game time the next step will probably take (for the screen's clock; the step itself decides).</summary>
