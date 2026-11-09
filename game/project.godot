@@ -1,0 +1,23 @@
+; Godot project file. Open this folder (game/) in the Godot 4.7 .NET editor.
+
+config_version=5
+
+[application]
+
+config/name="Lightlag"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#", "Forward Plus")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[dotnet]
+
+project/assembly_name="Lightlag"
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.02, 0.03, 0.05, 1)
