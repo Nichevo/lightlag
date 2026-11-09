@@ -19,6 +19,10 @@ public partial class Hud : CanvasLayer
     private PlannerPanel _plannerPanel = null!;
     private ReportPanel _reportPanel = null!;
     private Label _battle = null!;
+    private MenuButton _fleets = null!;
+    private readonly List<Action> _fleetMenuActions = new();
+    private GroupPanel _groupPanel = null!;
+    private Button _pauseOnContact = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -45,6 +49,16 @@ public partial class Hud : CanvasLayer
         }
         bar.AddChild(new Control { CustomMinimumSize = new Vector2(12, 0), MouseFilter = Control.MouseFilterEnum.Ignore });
         bar.AddChild(SmallButton("System", () => _screen.ShowWholeSystem(), "Show the whole system (Home)"));
+        _fleets = new MenuButton { Text = "Fleets ▾", TooltipText = "Pick a fleet or a ship (Tab: next fleet)", FocusMode = Control.FocusModeEnum.None, Flat = false };
+        _fleets.CustomMinimumSize = new Vector2(80, 32);
+        _fleets.AddThemeFontSizeOverride("font_size", 15);
+        var popup = _fleets.GetPopup();
+        popup.AddThemeFontSizeOverride("font_size", 15);
+        _fleets.AboutToPopup += FillFleetMenu;
+        popup.IdPressed += id => { if (id >= 0 && id < _fleetMenuActions.Count) Main.Instance.RunGuarded("fleet list", _fleetMenuActions[(int)id]); };
+        bar.AddChild(_fleets);
+        _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
+        bar.AddChild(_pauseOnContact);
         AddChild(bar);
 
         _status = Ui.Label("", 13, Ui.Dim);
@@ -55,10 +69,11 @@ public partial class Hud : CanvasLayer
 
         _scaleBar = new ScaleBar { Camera = _screen.Camera };
         _scaleBar.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
-        _scaleBar.Position += new Vector2(0, -40);
+        _scaleBar.Position += new Vector2(0, -60);
         AddChild(_scaleBar);
 
-        var help = Ui.Label("Wheel zoom · drag pan · click select · double-click follow · right-click plan route or attack (Shift: go now) · Enter go · O orbit · D drift · S stop · R combat report · Space pause · 1-4 speed · Home · F8 report", 12, Ui.Dim);
+        var help = Ui.Label("Wheel zoom · WASD, arrows or right-drag pan · click select · drag a box or Shift+click to pick several · Tab next fleet · double-click follow\n"
+            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · X stop · M merge or gather · R report · P pause on contact · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -77,8 +92,14 @@ public partial class Hud : CanvasLayer
         _fleetPanel.GrowVertical = Control.GrowDirection.Begin;
         AddChild(_fleetPanel);
 
+        _groupPanel = new GroupPanel(_screen);
+        _groupPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomRight, Control.LayoutPresetMode.KeepSize, 16);
+        _groupPanel.GrowHorizontal = Control.GrowDirection.Begin;
+        _groupPanel.GrowVertical = Control.GrowDirection.Begin;
+        AddChild(_groupPanel);
+
         _battle = Ui.Label("", 18, Ui.Danger);
-        _battle.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.KeepSize, 60);
+        _battle.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.KeepSize, 100);
         _battle.HorizontalAlignment = HorizontalAlignment.Center;
         _battle.GrowHorizontal = Control.GrowDirection.Both;
         AddChild(_battle);
@@ -104,10 +125,12 @@ public partial class Hud : CanvasLayer
         var sim = Main.Instance.Sim;
         if (sim == null) return;
         _date.Text = _screen.InBattle ? GameTime.Format(sim.World.Hour) : GameTime.Format(sim.World.Tick);
-        _battle.Text = _screen.InBattle ? $"BATTLE TIME  ·  {sim.World.Missiles.Count} missiles in flight" : "";
+        _battle.Text = (_screen.InBattle ? $"BATTLE TIME  ·  {sim.World.Missiles.Count} missiles in flight" : "")
+                       + (_screen.RevealAll ? (_screen.InBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
         _reportPanel.Visible = _screen.Report != null;
         if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
         _pause.Modulate = _screen.Paused ? Ui.Rival : Colors.White;
+        _pauseOnContact.Modulate = _screen.PauseOnContact ? Ui.Player : new Color(1, 1, 1, 0.6f);
         for (var i = 0; i < _speedButtons.Count; i++)
             _speedButtons[i].Modulate = !_screen.Paused && i == _screen.SpeedIndex ? Ui.Player : new Color(1, 1, 1, 0.75f);
         _status.Text = $"seed {sim.World.Seed} · build {Main.Instance.Build}"
@@ -118,12 +141,53 @@ public partial class Hud : CanvasLayer
         var fleet = _screen.SelectedFleet;
         _fleetPanel.Visible = fleet != null;
         if (fleet != null) _fleetPanel.Refresh(sim, fleet);
+        var group = _screen.Group;
+        _groupPanel.Visible = group.Count >= 2;
+        if (group.Count >= 2) _groupPanel.Refresh(sim, group);
         _plannerPanel.Visible = _screen.Planner != null;
         if (_screen.Planner != null) _plannerPanel.Refresh(sim, _screen.Planner);
 
-        var text = fleet == null ? Describe(sim) : null;
+        var text = fleet == null && group.Count < 2 ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
+    }
+
+    public void TickShip(int shipId) => _fleetPanel.TickOnly(shipId);
+
+    /// <summary>The fleet list: your fleets with their ships, then the rival fleets.</summary>
+    private void FillFleetMenu()
+    {
+        var sim = Main.Instance.Sim;
+        var popup = _fleets.GetPopup();
+        popup.Clear();
+        _fleetMenuActions.Clear();
+        if (sim == null) return;
+        var w = sim.World;
+        void Item(string text, Action act)
+        {
+            popup.AddItem(text, _fleetMenuActions.Count);
+            _fleetMenuActions.Add(act);
+        }
+        var mine = w.Fleets.Where(f => f.Side == Side.Player).ToList();
+        if (mine.Count == 0) popup.AddSeparator("No fleets");
+        foreach (var f in mine)
+        {
+            var id = f.Id;
+            Item($"{f.Name} ({f.ShipIds.Count}) · {FleetPanel.Doing(w, f)}", () => _screen.PickFleet(id));
+            foreach (var s in w.ShipsOf(f))
+            {
+                var shipId = s.Id;
+                Item($"      {s.Name}  {GameData.ShipClass(s.ClassId).Name}", () => _screen.PickShip(shipId));
+            }
+        }
+        var rivals = w.Sightings.Where(s => s.SeenBy == Side.Player && w.FindFleet(s.FleetId) != null).OrderByDescending(s => s.Visible).ToList();
+        if (rivals.Count > 0) popup.AddSeparator("Rival fleets you know of");
+        foreach (var s in rivals)
+        {
+            var id = s.FleetId;
+            var when = s.Visible ? "in sight" : $"last seen {Format.Hours(w.Hour - s.Hour)} ago";
+            Item($"{s.Name} ({s.Ships}) · {when}", () => _screen.Select(id));
+        }
     }
 
     private string? Describe(Simulation sim)

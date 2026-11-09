@@ -263,4 +263,189 @@ public class FleetTests
         foreach (var v in new[] { 0.001, 0.5, 2, 27, 677_000, 2.15e8 })
             Assert.InRange(DetMath.Cbrt(v) / Math.Cbrt(v), 1 - 1e-14, 1 + 1e-14);
     }
+
+    [Fact]
+    public void A_split_off_fleet_moves_a_little_apart()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0] }));
+        sim.Step();
+        var created = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        var gap = Vec2.Distance(fleet.Position, created.Position);
+        Assert.InRange(gap, 30, Fleets.SplitGap + 1);
+        Assert.Equal(HoldStyle.Orbit, created.Hold);
+        Assert.Null(Fleets.CanMerge(fleet, created));
+    }
+
+    [Fact]
+    public void Fast_ships_go_ahead_and_join_up_on_arrival()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var all = fleet.ShipIds.ToList();
+        var vela = BodyNamed(sim, "vela");
+        sim.Issue(new SendAheadCommand(fleet.Id, To(vela)));
+        sim.Step();
+        var ahead = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        Assert.Equal(fleet.Id, ahead.JoinFleetId);
+        Assert.True(ahead.Flight!.ArriveHour < fleet.Flight!.ArriveHour, "the fast ships should arrive first");
+
+        StepUntilArrived(sim, ahead);
+        Assert.NotNull(sim.World.FindFleet(ahead.Id)); // waits for the slow ships
+        StepUntilArrived(sim, fleet);
+        sim.Step();
+        Assert.Null(sim.World.FindFleet(ahead.Id));
+        Assert.Equal(all.OrderBy(x => x), fleet.ShipIds.OrderBy(x => x));
+        Assert.Equal(vela.Id, fleet.OrbitBodyId);
+    }
+
+    [Fact]
+    public void Gathered_fleets_fly_together_and_merge()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0] }));
+        sim.Step();
+        var other = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        sim.Issue(new PlanFlightCommand(other.Id, To(vela)));
+        StepUntilArrived(sim, other);
+
+        sim.Issue(new GatherFleetsCommand(fleet.Id, new List<int> { other.Id }, 1));
+        sim.Step();
+        Assert.Equal(fleet.Id, other.JoinFleetId);
+        StepUntilArrived(sim, other);
+        sim.Step();
+        Assert.Null(sim.World.FindFleet(other.Id));
+        Assert.Equal(3, fleet.ShipIds.Count);
+    }
+
+    [Fact]
+    public void Fleets_close_together_gather_at_once()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0], fleet.ShipIds[1] }));
+        sim.Step();
+        var other = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        sim.Issue(new GatherFleetsCommand(other.Id, new List<int> { fleet.Id }, 1));
+        sim.Step();
+        Assert.Null(sim.World.FindFleet(fleet.Id));
+        Assert.Equal(3, other.ShipIds.Count);
+    }
+
+    [Fact]
+    public void A_moving_fleet_curves_onto_a_new_course_without_stopping()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "vela"))));
+        sim.StepMany(48);
+        Assert.True(fleet.Velocity.Length > 1, "should be under way");
+
+        var cinder = BodyNamed(sim, "cinder");
+        var request = To(cinder) with { DepartTick = sim.World.Tick };
+        var plan = FlightPlanner.Plan(sim.World, fleet, request);
+        Assert.True(plan.Ok, plan.Problem);
+        // No leg ends at rest except the last: the fleet never stops on the way.
+        foreach (var leg in plan.Flight!.Legs.Take(plan.Flight.Legs.Count - 1))
+            Assert.True(leg.VelocityAt(leg.End).Length > 1e-6);
+        // Cheaper than braking to a stop and starting again.
+        Assert.True(plan.DeltaV < fleet.Velocity.Length + 2 * plan.Flight.CruiseSpeed);
+
+        sim.Issue(new PlanFlightCommand(fleet.Id, request));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(cinder.Id, fleet.OrbitBodyId);
+        Assert.InRange(Vec2.Distance(fleet.Position, cinder.Position), 0, Fleets.OrbitRadiusFor(cinder) * 1.1);
+    }
+
+    [Fact]
+    public void Ships_face_their_thrust_and_flip_to_brake()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "vela"))));
+        sim.StepMany(2);
+        var heading = DetMath.Atan2(fleet.Velocity.Y, fleet.Velocity.X);
+        Assert.InRange(Math.Abs(Math.IEEERemainder(fleet.Facing - heading, 2 * Math.PI)), 0, 0.05);
+
+        // Last hours of the flight: braking, so the ships face backwards.
+        var brake = fleet.Flight!.Legs[^1];
+        while (sim.World.Hour < brake.Start + 2) sim.Step();
+        Assert.True(fleet.InFlight);
+        heading = DetMath.Atan2(fleet.Velocity.Y, fleet.Velocity.X);
+        Assert.InRange(Math.Abs(Math.IEEERemainder(fleet.Facing - heading, 2 * Math.PI)), Math.PI - 0.05, Math.PI);
+    }
+
+    [Fact]
+    public void A_turn_towards_a_fast_inner_planet_still_curves()
+    {
+        // Heading out to Vela, then turned back towards Cinder, which moves fast: the plan must settle.
+        var sim = NewGame(7);
+        sim.StepMany(3 * GameTime.TicksPerDay);
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(BodyNamed(sim, "vela"), 0.7) with { DepartTick = sim.World.Tick }));
+        sim.StepMany(30);
+        var plan = FlightPlanner.Plan(sim.World, fleet, To(BodyNamed(sim, "cinder"), 0.7) with { DepartTick = sim.World.Tick });
+        Assert.True(plan.Ok, plan.Problem);
+        Assert.Equal(sim.World.Hour, plan.Flight!.DepartHour);
+        Assert.True(plan.Flight.Legs[0].VelocityAt(plan.Flight.Legs[0].End).Length > 1e-6);
+    }
+
+    private static void AssertContinuous(Flight f)
+    {
+        for (var i = 1; i < f.Legs.Count; i++)
+        {
+            var prev = f.Legs[i - 1];
+            var next = f.Legs[i];
+            Assert.Equal(prev.End, next.Start, 6);
+            Assert.True(Vec2.Distance(prev.PositionAt(prev.End), next.P0) < 1e-3, $"leg {i} jumps");
+            Assert.True(Vec2.Distance(prev.VelocityAt(prev.End), next.V0) < 1e-3, $"leg {i} changes speed instantly");
+        }
+    }
+
+    [Fact]
+    public void A_route_flies_through_its_waypoints()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        var side = fleet.Position + new Vec2(0, 20000);
+        var request = To(vela) with { Waypoints = new List<Waypoint> { new(side) } };
+        var plan = FlightPlanner.Plan(sim.World, fleet, request);
+        Assert.True(plan.Ok, plan.Problem);
+        AssertContinuous(plan.Flight!);
+        var closest = Enumerable.Range(0, 2000).Select(k => plan.Flight.DepartHour + (plan.Flight.ArriveHour - plan.Flight.DepartHour) * k / 2000.0)
+            .Min(h => Vec2.Distance(FlightPlanner.FlightState(plan.Flight, h)!.Value.Position, side));
+        Assert.True(closest < 50, $"passed {closest} Mm from the waypoint");
+
+        sim.Issue(new PlanFlightCommand(fleet.Id, request));
+        StepUntilArrived(sim, fleet);
+        Assert.Equal(vela.Id, fleet.OrbitBodyId);
+    }
+
+    [Fact]
+    public void A_stop_waypoint_halts_and_waits_and_a_slow_stretch_coasts_cold()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        var stop = fleet.Position + new Vec2(15000, 0);
+        var request = To(vela) with
+        {
+            Waypoints = new List<Waypoint> { new(stop, Stop: true, WaitHours: 10), new(stop + new Vec2(0, 15000), SpeedFraction: 0.2) },
+        };
+        var plan = FlightPlanner.Plan(sim.World, fleet, request);
+        Assert.True(plan.Ok, plan.Problem);
+        var f = plan.Flight!;
+        AssertContinuous(f);
+        // A 10-hour leg parked at the stop.
+        Assert.Contains(f.Legs, l => !l.IsBurn && l.V0.Length < 1e-9 && Math.Abs(l.End - l.Start - 10) < 1e-6
+                                     && Vec2.Distance(l.P0, stop) < 1e-3);
+        // The slow stretch coasts at a fifth of top speed.
+        var top = FleetPerformance.Of(sim.World, fleet).MaxSpeed;
+        Assert.Contains(f.Legs, l => !l.IsBurn && Math.Abs(l.V0.Length - top * 0.2) < 1e-6);
+        Assert.Equal(2, f.Waypoints.Count);
+    }
 }

@@ -37,7 +37,8 @@ which plays up to 200 games of 365 days each (stopping after 6 hours) with rule 
 Results go to `data\nightly\<time>_nightly\` (summary, log, a crash report per failed game), and the
 summary is copied to `data\nightly\latest-summary.md`. After that a battle sweep fights every fleet mix
 with every approach and missile brain in the sandbox and writes `data\nightly\latest-battles.md` (win rates)
-and a `battles.csv`. Until the rival AI exists, a "test pilot"
+and a `battles.csv`. Its last section is the ambush sweep: drifting in cold against burning in, from
+near and far, to answer "is hiding worth its slowness?". Until the rival AI exists, a "test pilot"
 sends ships around at random so there is something to simulate.
 
 Target: under a minute per headless game, so a night covers hundreds of games.

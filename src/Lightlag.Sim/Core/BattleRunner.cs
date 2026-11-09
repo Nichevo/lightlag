@@ -3,7 +3,11 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>How the player's fleet comes at the enemy in a sandbox battle.</summary>
-public enum Approach { BrakeSlow, BrakeFast, FastPass, Defend }
+/// <summary>
+/// How the player's fleet comes at the enemy in a sandbox battle. ColdDrift is the ambush: a short burn
+/// at the start, then a long cold coast in, so the enemy loses track of it until it is close.
+/// </summary>
+public enum Approach { BrakeSlow, BrakeFast, FastPass, ColdDrift, Defend }
 
 /// <summary>The result of one sandbox battle.</summary>
 public sealed record BattleOutcome(
@@ -18,12 +22,12 @@ public static class BattleRunner
 {
     public const double StartDistanceMm = 300;
 
-    public static BattleOutcome Run(SandboxSetup setup, Approach approach, ulong seed, GameLog log, int maxHours = 72)
+    public static BattleOutcome Run(SandboxSetup setup, Approach approach, ulong seed, GameLog log, int maxHours = 72, double distanceMm = StartDistanceMm)
     {
         var defend = approach == Approach.Defend;
         setup = setup with
         {
-            DistanceMm = StartDistanceMm,
+            DistanceMm = distanceMm,
             PlayerStance = Stance.Engage,
             RivalStance = defend ? Stance.Engage : Stance.Hold,
         };
@@ -40,12 +44,15 @@ public static class BattleRunner
         {
             Approach.BrakeSlow => (0.4, ArrivalStyle.Brake),
             Approach.FastPass => (1.0, ArrivalStyle.FastPass),
+            Approach.ColdDrift => (FlightPlanner.MinSpeedFraction, ArrivalStyle.FastPass),
             _ => (1.0, ArrivalStyle.Brake),
         };
         sim.Issue(new PlanFlightCommand(attacker.Id,
             new FlightRequest(null, target.Position, speed, arrival, HoldStyle.Drift, 0, TargetFleetId: target.Id)) { Source = "battle-runner" });
 
-        var end = w.Tick + maxHours;
+        // A slow cold drift takes longer to arrive.
+        var trip = sim.PendingCommands.OfType<PlanFlightCommand>().Select(c => FlightPlanner.Plan(w, attacker, c.Request).Flight?.ArriveHour ?? 0).DefaultIfEmpty(0).Max();
+        var end = w.Tick + Math.Max(maxHours, (int)Math.Ceiling(trip - w.Hour) + 24);
         var fought = false;
         while (w.Tick < end || w.Sub != 0)
         {

@@ -58,6 +58,29 @@ public static class BattleSweep
             }
         }
 
+        // Ambush sweep (M4): is hiding worth its slowness? Cold drift against burning in, from near and far.
+        var ambush = new List<AmbushRow>();
+        foreach (var distance in AmbushDistances)
+        foreach (var approach in AmbushApproaches)
+        foreach (var pm in Mixes)
+        foreach (var rm in Mixes)
+        for (var i = 0; i < repeats; i++)
+        {
+            var s = seed + 100000 + (ulong)ambush.Count + (ulong)crashes;
+            var setup = new SandboxSetup(pm.Frigates, pm.Destroyers, rm.Frigates, rm.Destroyers);
+            using var log = GameLog.Memory(build);
+            log.MinLevel = LogLevel.Warn;
+            try
+            {
+                ambush.Add(new AmbushRow(approach, distance, pm.Name, BattleRunner.Run(setup, approach, s, log, distanceMm: distance)));
+            }
+            catch (Exception ex)
+            {
+                crashes++;
+                Console.WriteLine($"Ambush battle crashed: {pm.Name} vs {rm.Name}, {approach} from {distance} Mm, seed {s}: {ex.Message}");
+            }
+        }
+
         var csv = new StringBuilder("player,rival,approach,playerBrain,rivalBrain,seed,winner,playerLost,rivalLost,playerDamage,rivalDamage,hours,playerMissiles,rivalMissiles,shotDown,railHits\n");
         foreach (var r in rows)
             csv.AppendLine(string.Join(",", r.Player, r.Rival, r.Approach, r.PlayerBrain, r.RivalBrain, r.Seed, r.O.Winner,
@@ -65,7 +88,7 @@ public static class BattleSweep
                 r.O.PlayerMissiles, r.O.RivalMissiles, r.O.ShotDown, r.O.RailHits));
         File.WriteAllText(Path.Combine(runDir, "battles.csv"), csv.ToString());
 
-        var md = Summarise(build, rows, crashes, timer.Elapsed);
+        var md = Summarise(build, rows, crashes, timer.Elapsed) + SummariseAmbush(ambush);
         File.WriteAllText(Path.Combine(runDir, "summary.md"), md);
         File.WriteAllText(Path.Combine(data.Nightly, "latest-battles.md"), md);
         Console.WriteLine(md);
@@ -74,6 +97,34 @@ public static class BattleSweep
     }
 
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    public static readonly double[] AmbushDistances = { 300, 3000 };
+    public static readonly Approach[] AmbushApproaches = { Approach.BrakeFast, Approach.FastPass, Approach.ColdDrift };
+
+    private sealed record AmbushRow(Approach Approach, double Distance, string PlayerMix, BattleOutcome O);
+
+    private static string SummariseAmbush(List<AmbushRow> rows)
+    {
+        string Rate(IEnumerable<AmbushRow> list)
+        {
+            var l = list.ToList();
+            if (l.Count == 0) return "-";
+            var hours = l.Average(r => r.O.Hours);
+            return $"{l.Count(r => r.O.Winner == "player") * 100 / l.Count}% / {l.Count(r => r.O.Winner == "rival") * 100 / l.Count}%";
+        }
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("## Ambush: approach against start distance (all mixes, brain 1)");
+        sb.AppendLine();
+        sb.AppendLine("| | " + string.Join(" | ", AmbushDistances.Select(d => $"{d * 1000:#,0} km")) + " |");
+        sb.AppendLine("|---|" + string.Concat(AmbushDistances.Select(_ => "---|")));
+        foreach (var a in AmbushApproaches)
+            sb.AppendLine($"| **{a}** | " + string.Join(" | ", AmbushDistances.Select(d => Rate(rows.Where(r => r.Approach == a && r.Distance == d)))) + " |");
+        sb.AppendLine();
+        foreach (var pm in Mixes)
+            sb.AppendLine($"- {pm.Name} attacking: " + string.Join(", ", AmbushApproaches.Select(a => $"{a} {Rate(rows.Where(r => r.Approach == a && r.PlayerMix == pm.Name))}")));
+        return sb.ToString();
+    }
 
     private sealed record Row(string Player, string Rival, Approach Approach, int PlayerBrain, int RivalBrain, ulong Seed, BattleOutcome O);
 
