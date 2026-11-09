@@ -183,7 +183,8 @@ public partial class MapView : Node2D
                 DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
                 name += $" · claiming {share * 100:0} %";
             }
-            DrawString(_font, at + new Vector2(r + 5, 5), name, HorizontalAlignment.Left, -1, b.Kind == BodyKind.Moon ? 12 : 14, color);
+            var gap = b.ClaimSide != null ? 14 : 5; // clear of the claim ring
+            DrawString(_font, at + new Vector2(r + gap, 5), name, HorizontalAlignment.Left, -1, b.Kind == BodyKind.Moon ? 12 : 14, color);
             if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
         }
 
