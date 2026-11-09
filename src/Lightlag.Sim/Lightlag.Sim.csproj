@@ -8,4 +8,8 @@
     <LangVersion>12</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Game data ships inside the simulation so the game, the headless runner and the tests all read the same files. -->
+    <EmbeddedResource Include="Data/*.json" LogicalName="Lightlag.Data.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

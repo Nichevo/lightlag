@@ -12,6 +12,7 @@ public sealed class World
     public RandomState Random { get; set; } = new(0, 1);
     public List<Body> Bodies { get; set; } = new();
     public List<Ship> Ships { get; set; } = new();
+    public List<Belt> Belts { get; set; } = new();
     public int NextId { get; set; } = 1;
 
     public int Day => GameTime.DayOf(Tick);
@@ -26,8 +27,13 @@ public enum BodyKind { Star, Planet, Moon, Station }
 public sealed class Body
 {
     public int Id { get; set; }
+    public string Key { get; set; } = "";        // the id in the data file, e.g. "verdant"
     public string Name { get; set; } = "";
     public BodyKind Kind { get; set; }
+    public string Type { get; set; } = "";       // rocky, terran, gas, ice... (looks and, later, resources)
+    public string Color { get; set; } = "ffffff";
+    public string? Atmosphere { get; set; }      // rim colour, if it has an atmosphere
+    public double Gm { get; set; }               // gravitational parameter, Mm^3 per hour^2
     public int? ParentId { get; set; }
     public double OrbitRadius { get; set; }      // Mm
     public double OrbitPeriodDays { get; set; }
@@ -36,14 +42,26 @@ public sealed class Body
     public Vec2 Position { get; set; }
 }
 
+/// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>
+public sealed class Belt
+{
+    public string Key { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int ParentId { get; set; }
+    public double InnerRadius { get; set; }      // Mm
+    public double OuterRadius { get; set; }      // Mm
+    public string Color { get; set; } = "888888";
+}
+
 public enum Side { Player, Rival }
 
-/// <summary>Placeholder ship for M0: it can be ordered to fly to a point. Real flight comes in M2.</summary>
+/// <summary>Placeholder ship: it can be ordered to fly to a point. Real flight comes in M2.</summary>
 public sealed class Ship
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public Side Side { get; set; }
+    public string ClassId { get; set; } = "";
     public Vec2 Position { get; set; }
     public Vec2? Destination { get; set; }
     public double MaxSpeed { get; set; }         // Mm per hour

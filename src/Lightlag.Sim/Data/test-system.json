@@ -1,0 +1,37 @@
+{
+  "_comment": "The hand-made test system. Distances: orbitAu (astronomical units) or orbitMm (megametres, 1000 km). Sizes: radiusMm. Masses: massSun or massEarth. Orbit periods are worked out from the parent's mass. Bodies must list parents before their moons. Colours are hex. Names are placeholders.",
+  "name": "test-system",
+  "bodies": [
+    { "id": "hesper", "name": "Hesper", "kind": "star", "type": "star", "massSun": 1.0, "radiusMm": 696, "color": "ffd27a" },
+
+    { "id": "cinder", "name": "Cinder", "kind": "planet", "type": "rocky", "parent": "hesper", "orbitAu": 0.39, "massEarth": 0.055, "radiusMm": 2.44, "color": "9c8f84" },
+    { "id": "vela", "name": "Vela", "kind": "planet", "type": "cloudy", "parent": "hesper", "orbitAu": 0.72, "massEarth": 0.815, "radiusMm": 6.05, "color": "d9c48f", "atmosphere": "f0e2b0" },
+
+    { "id": "verdant", "name": "Verdant", "kind": "planet", "type": "terran", "parent": "hesper", "orbitAu": 1.0, "massEarth": 1.0, "radiusMm": 6.37, "color": "4f86c6", "atmosphere": "9fd0ff" },
+    { "id": "pale", "name": "Pale", "kind": "moon", "type": "rocky", "parent": "verdant", "orbitMm": 384.4, "massEarth": 0.0123, "radiusMm": 1.74, "color": "a7aab0" },
+
+    { "id": "rust", "name": "Rust", "kind": "planet", "type": "desert", "parent": "hesper", "orbitAu": 1.52, "massEarth": 0.107, "radiusMm": 3.39, "color": "c1663b", "atmosphere": "e8a07c" },
+    { "id": "flint", "name": "Flint", "kind": "moon", "type": "rocky", "parent": "rust", "orbitMm": 9.38, "massEarth": 0.0000018, "radiusMm": 0.011, "color": "8a7f76" },
+    { "id": "grit", "name": "Grit", "kind": "moon", "type": "rocky", "parent": "rust", "orbitMm": 23.46, "massEarth": 0.00000025, "radiusMm": 0.006, "color": "8f8780" },
+
+    { "id": "tamber", "name": "Tamber", "kind": "planet", "type": "gas", "parent": "hesper", "orbitAu": 5.2, "massEarth": 317.8, "radiusMm": 69.9, "color": "c9a27a", "atmosphere": "f2d6b3" },
+    { "id": "brim", "name": "Brim", "kind": "moon", "type": "volcanic", "parent": "tamber", "orbitMm": 421.7, "massEarth": 0.015, "radiusMm": 1.82, "color": "d8c25a" },
+    { "id": "glass", "name": "Glass", "kind": "moon", "type": "ice", "parent": "tamber", "orbitMm": 671.0, "massEarth": 0.008, "radiusMm": 1.56, "color": "d6d9dc" },
+    { "id": "hollow", "name": "Hollow", "kind": "moon", "type": "ice", "parent": "tamber", "orbitMm": 1070.4, "massEarth": 0.025, "radiusMm": 2.63, "color": "a59f94" },
+    { "id": "shade", "name": "Shade", "kind": "moon", "type": "ice", "parent": "tamber", "orbitMm": 1882.7, "massEarth": 0.018, "radiusMm": 2.41, "color": "6e6a66" },
+
+    { "id": "coldwell", "name": "Coldwell", "kind": "planet", "type": "gas", "parent": "hesper", "orbitAu": 9.5, "massEarth": 95.2, "radiusMm": 58.2, "color": "d8c08f", "atmosphere": "efe0bd" },
+    { "id": "mire", "name": "Mire", "kind": "moon", "type": "hazy", "parent": "coldwell", "orbitMm": 1221.9, "massEarth": 0.0225, "radiusMm": 2.57, "color": "c9933d", "atmosphere": "e0b46a" },
+
+    { "id": "azure", "name": "Azure", "kind": "planet", "type": "ice-giant", "parent": "hesper", "orbitAu": 19.2, "massEarth": 14.5, "radiusMm": 25.4, "color": "8fd3df", "atmosphere": "c4eef5" }
+  ],
+  "belts": [
+    { "id": "scatter", "name": "The Scatter", "parent": "hesper", "innerAu": 2.2, "outerAu": 3.2, "color": "8a8170" }
+  ],
+  "ships": [
+    { "class": "gun-frigate", "side": "player", "near": "verdant", "count": 2 },
+    { "class": "missile-destroyer", "side": "player", "near": "verdant", "count": 1 },
+    { "class": "gun-frigate", "side": "rival", "near": "rust", "count": 2 },
+    { "class": "missile-destroyer", "side": "rival", "near": "rust", "count": 1 }
+  ]
+}

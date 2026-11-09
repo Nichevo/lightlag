@@ -1,8 +1,9 @@
 namespace Lightlag.Sim.Core;
 
 /// <summary>
-/// Hand-made test maps. Starts always have some randomness (planet positions, ship spread) taken
-/// from the seed, so knowing one game's replay does not tell you the next game.
+/// Builds a new game from a system data file. Starts always have some randomness (where each body is
+/// on its orbit, how ships are spread) taken from the seed, so one game's replay does not tell you
+/// the next game.
 /// </summary>
 public static class Scenarios
 {
@@ -10,55 +11,66 @@ public static class Scenarios
 
     public static IReadOnlyList<string> All { get; } = new[] { TestSystem };
 
-    public static World Create(string name, ulong seed, SimRandom rng) => name switch
+    public static World Create(string name, ulong seed, SimRandom rng)
     {
-        TestSystem => CreateTestSystem(seed, rng),
-        _ => throw new ArgumentException($"Unknown scenario '{name}'. Known: {string.Join(", ", All)}"),
-    };
+        if (!All.Contains(name)) throw new ArgumentException($"Unknown scenario '{name}'. Known: {string.Join(", ", All)}");
+        return FromData(GameData.LoadSystem(name + ".json"), seed, rng);
+    }
 
-    private static World CreateTestSystem(ulong seed, SimRandom rng)
+    public static World FromData(SystemData data, ulong seed, SimRandom rng)
     {
-        var w = new World { Scenario = TestSystem, Seed = seed };
-        int Id() => w.NextId++;
+        var w = new World { Scenario = data.Name, Seed = seed };
+        var ids = new Dictionary<string, Body>();
 
-        var sun = new Body { Id = Id(), Name = "Sol", Kind = BodyKind.Star, Radius = 696 };
-        w.Bodies.Add(sun);
-
-        Body Planet(string name, double orbitMm, double periodDays, double radius, Body parent, BodyKind kind = BodyKind.Planet)
+        foreach (var d in data.Bodies)
         {
+            var parent = d.Parent != null ? ids[d.Parent] : null;
+            var radius = d.OrbitRadiusMm;
             var b = new Body
             {
-                Id = Id(), Name = name, Kind = kind, ParentId = parent.Id,
-                OrbitRadius = orbitMm, OrbitPeriodDays = periodDays, Radius = radius,
-                Angle = rng.Range(0, Math.PI * 2),
+                Id = w.NextId++, Key = d.Id, Name = d.Name, Kind = d.Kind, Type = d.Type,
+                Color = d.Color, Atmosphere = d.Atmosphere, Gm = d.Gm, Radius = d.RadiusMm,
+                ParentId = parent?.Id,
+                OrbitRadius = parent != null ? radius : 0,
+                OrbitPeriodDays = parent != null ? Physics.OrbitPeriodHours(radius, parent.Gm) / 24 : 0,
+                Angle = parent != null ? rng.Range(0, Math.PI * 2) : 0,
             };
+            ids[d.Id] = b;
             w.Bodies.Add(b);
-            return b;
         }
 
-        Planet("Cinder", 58_000, 88, 2.4, sun);
-        var home = Planet("Verdant", 150_000, 365, 6.4, sun);
-        Planet("Pale", 384, 27.3, 1.7, home, BodyKind.Moon);
-        var rival = Planet("Rust", 228_000, 687, 3.4, sun);
-        Planet("Tethys", 778_000, 4333, 70, sun);
+        foreach (var belt in data.Belts ?? new())
+        {
+            w.Belts.Add(new Belt
+            {
+                Key = belt.Id, Name = belt.Name, ParentId = ids[belt.Parent].Id, Color = belt.Color,
+                InnerRadius = belt.InnerAu * Physics.MmPerAu, OuterRadius = belt.OuterAu * Physics.MmPerAu,
+            });
+        }
 
         Simulation.UpdateBodyPositions(w);
 
-        void Ships(Body near, Side side, string prefix)
+        var counters = new Dictionary<string, int>();
+        foreach (var group in data.Ships ?? new())
         {
-            for (var i = 0; i < 2; i++)
+            var cls = GameData.ShipClass(group.Class);
+            var near = ids[group.Near];
+            for (var i = 0; i < group.Count; i++)
             {
-                var offset = new Vec2(rng.Range(-2000.0, 2000.0), rng.Range(-2000.0, 2000.0));
+                var key = $"{group.Side}:{cls.Id}";
+                counters[key] = counters.GetValueOrDefault(key) + 1;
+                // Somewhere in high orbit around the start body, a few thousand km out.
+                var angle = rng.Range(0, Math.PI * 2);
+                var dist = near.Radius * 3 + rng.Range(0.0, 2000.0);
                 w.Ships.Add(new Ship
                 {
-                    Id = Id(), Name = $"{prefix} {i + 1}", Side = side,
-                    Position = near.Position + offset, MaxSpeed = 500,
+                    Id = w.NextId++,
+                    Name = $"{cls.Short}-{(group.Side == Side.Player ? "" : "R")}{counters[key]}",
+                    Side = group.Side, ClassId = cls.Id, MaxSpeed = cls.MaxSpeedMmPerHour,
+                    Position = near.Position + new Vec2(Math.Cos(angle), Math.Sin(angle)) * dist,
                 });
             }
         }
-
-        Ships(home, Side.Player, "Frigate");
-        Ships(rival, Side.Rival, "Raider");
         return w;
     }
 }
