@@ -82,7 +82,8 @@ public partial class Toast : Control
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.CenterTop);
+        // Centred at the top of the window (worked out from the window, so it never slides off the left edge).
+        Position = new Vector2(GetViewportRect().Size.X / 2, 0);
         var label = Ui.Label(_folder != null ? $"{_text}  (click to open)" : _text, 18);
         var panel = Ui.Panel(label, 12);
         panel.Position = new Vector2(-250, 24);
