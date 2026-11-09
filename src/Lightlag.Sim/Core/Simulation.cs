@@ -153,7 +153,7 @@ public sealed class Simulation
                 b.Angle += Math.PI * 2 * GameTime.HoursPerTick / (b.OrbitPeriodDays * 24);
                 if (b.Angle >= Math.PI * 2) b.Angle -= Math.PI * 2;
             }
-            b.Position = parent.Position + new Vec2(Math.Cos(b.Angle), Math.Sin(b.Angle)) * b.OrbitRadius;
+            b.Position = parent.Position + new Vec2(DetMath.Cos(b.Angle), DetMath.Sin(b.Angle)) * b.OrbitRadius;
         }
     }
 

@@ -5,7 +5,8 @@
 - The simulation (`src/Lightlag.Sim`) must never reference Godot. Godot code in `game/` only draws,
   reads input and issues commands.
 - Determinism: all randomness from `SimRandom`; all world changes through `GameCommand`s; no
-  wall-clock time in the simulation. `dotnet test` includes replay checks.
+  wall-clock time in the simulation; trig and powers via `DetMath`, never `Math.Sin` etc.
+  (they differ between Windows and Linux). `dotnet test` includes replay checks.
 - Add a rule to `RuleBook.Default()` when a bug could have been caught by a state check.
 - Log with an area and a short message; put details in the `data` object, not in the message.
 - Scope is frozen to the first-playable plan (milestones M0-M7); new ideas go to the design doc's
