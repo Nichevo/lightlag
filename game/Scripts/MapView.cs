@@ -21,6 +21,9 @@ public partial class MapView : Node2D
     /// <summary>Fleets picked together (box or Shift+click), drawn with a ring each.</summary>
     public IReadOnlyCollection<int> GroupIds = Array.Empty<int>();
 
+    /// <summary>Debug (F7): draw every fleet, seen or not, and enemy routes.</summary>
+    public bool RevealAll;
+
     /// <summary>The box being dragged out to pick fleets, in screen pixels.</summary>
     public Rect2? SelectionBox;
 
@@ -169,12 +172,13 @@ public partial class MapView : Node2D
             if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
         }
 
-        foreach (var f in w.Fleets) DrawRoute(f, f.Flight, false);
+        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player || RevealAll)) DrawRoute(f, f.Flight, false);
         foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
         if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
             DrawRoute(pf, preview, true, Preview.Ok);
-        if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf) DrawRanges(sf);
-        foreach (var f in w.Fleets) DrawFleet(f);
+        if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
+        DrawLastSeen();
+        foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
         DrawMissiles();
         if (SelectionBox is Rect2 box)
         {
@@ -202,6 +206,18 @@ public partial class MapView : Node2D
         Ring(c.ContactRangeMm, 0.12f, $"Contact {Km(c.ContactRangeMm)}: battle time starts");
         if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.2f, $"Missile launch {Km(c.Missile.LaunchRangeMm)}");
         if (ships.Any(s => GameData.ShipClass(s.ClassId).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.28f, $"Railguns {Km(c.Railgun.RangeMm)}");
+        if (f.Side == Side.Player)
+        {
+            // How far this fleet's sensors pick up a single cold frigate.
+            var cold = GameData.ShipClasses.Values.Min(k => k.SignatureSize) * GameData.Sensors.Cold;
+            var sees = Sensors.Range(Sensors.SensorOf(Sim.World, f), cold);
+            var r = (float)(sees * Camera.Scale);
+            if (r >= 12 && r <= 5000)
+            {
+                DrawArc(at, r, 0, Mathf.Tau, 96, new Color(Ui.Text, 0.12f), 1, true);
+                DrawString(_font, at + new Vector2(6, r + 14), $"Sees a cold frigate {Km(sees)}", HorizontalAlignment.Left, -1, 13, new Color(Ui.Text, 0.45f));
+            }
+        }
     }
 
     private void DrawMissiles()
@@ -376,6 +392,32 @@ public partial class MapView : Node2D
         }
     }
 
+    /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
+    public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
+
+    /// <summary>Enemy fleets out of sight: a faint mark where they were last seen, and a dashed guess of where they went.</summary>
+    private void DrawLastSeen()
+    {
+        var w = Sim.World;
+        foreach (var s in w.Sightings)
+        {
+            if (s.SeenBy != Side.Player || s.Visible) continue;
+            if (RevealAll && w.FindFleet(s.FleetId) != null) continue;
+            var at = Camera.ToScreen(s.Position);
+            var guess = Camera.ToScreen(s.Guess(DrawHour));
+            if (!Camera.OnScreen(at, 300) && !Camera.OnScreen(guess, 300)) continue;
+            var color = new Color(Ui.Rival, 0.45f);
+            if (at.DistanceTo(guess) > 4) DrawDashedLine(at, guess, new Color(Ui.Rival, 0.3f), 1, 5);
+            DrawArc(at, 9, 0, Mathf.Tau, 20, color, 1.2f, true);
+            DrawLine(at + new Vector2(-5, -5), at + new Vector2(5, 5), color, 1.2f);
+            DrawLine(at + new Vector2(-5, 5), at + new Vector2(5, -5), color, 1.2f);
+            var ago = Format.Hours(Math.Max(0, DrawHour - s.Hour));
+            if (s.FleetId == SelectedId || s.FleetId == HoverId || Camera.Scale > 0.01)
+                DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships}): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
+            if (s.FleetId == SelectedId) DrawArc(at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
+        }
+    }
+
     /// <summary>" · 12 km/s" for a moving fleet in contact with an enemy (or selected), else "".</summary>
     private string SpeedTag(Fleet f)
     {
@@ -470,10 +512,17 @@ public partial class MapView : Node2D
         var bestD = 14f;
         foreach (var s in Sim.World.Ships)
         {
+            if (Sim.World.FleetOf(s) is not Fleet owner || !Shown(owner)) continue;
             if (!_drawn.TryGetValue(s.FleetId, out var fp) || !fp.IsFinite) continue;
             var p = ShipsApart && _drawn.TryGetValue(s.Id, out var sp) ? sp : fp;
             var d = Camera.ToScreen(p).DistanceTo(screen);
             if (d < bestD) { bestD = d; best = s.FleetId; }
+        }
+        foreach (var sight in Sim.World.Sightings)
+        {
+            if (sight.SeenBy != Side.Player || sight.Visible) continue;
+            var d = Camera.ToScreen(sight.Position).DistanceTo(screen);
+            if (d < bestD) { bestD = d; best = sight.FleetId; }
         }
         return best ?? HitTestBody(screen);
     }

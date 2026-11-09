@@ -106,10 +106,29 @@ public partial class FleetPanel : PanelContainer
         var perf = FleetPerformance.Of(w, f);
         _title.Text = f.Name + (mine ? "" : "  (rival)");
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
-        var lines = new List<string> { Doing(w, f), Motion(w, f) };
-        if (f.JoinFleetId is int join && w.FindFleet(join) is Fleet into) lines.Add($"Joins {into.Name} when both are stopped together");
-        if (mine) lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change");
+        var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f);
+        var lines = new List<string>();
+        if (mine)
+        {
+            lines.Add(Doing(w, f));
+            lines.Add(Motion(w, f));
+            if (f.JoinFleetId is int join && w.FindFleet(join) is Fleet into) lines.Add($"Joins {into.Name} when both are stopped together");
+            lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change");
+            lines.Add(SignatureLine(w, f));
+        }
+        else if (Sensors.Find(w, Side.Player, f.Id) is Sighting sighting || _screen.RevealAll)
+        {
+            sighting = Sensors.Find(w, Side.Player, f.Id);
+            if (seen) lines.Add($"In sight: {StateText(Sensors.StateOf(f))} · {Motion(w, f)}");
+            else if (sighting != null)
+            {
+                lines.Add($"Out of sight. Last seen {Format.Hours(w.Hour - sighting.Hour)} ago, {StateText(sighting.State)}, at {Format.Speed(sighting.Velocity.Length)}");
+                lines.Add("The dashed line is a guess at where it went if it kept going");
+            }
+            if (_screen.RevealAll) lines.Add($"(debug) {Doing(w, f)}");
+        }
         _status.Text = string.Join("\n", lines);
+        _shipList.Visible = seen;
 
         // Rebuild the ship rows only when the fleet's ships change.
         var key = string.Join(",", f.ShipIds) + (mine ? "m" : "r");
@@ -159,6 +178,23 @@ public partial class FleetPanel : PanelContainer
         var candidate = _screen.MergeCandidate();
         _merge.Disabled = candidate == null;
         _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
+    }
+
+    public static string StateText(SignatureState state) => state switch
+    {
+        SignatureState.Burn => "engines burning",
+        SignatureState.Orbit => "holding orbit",
+        _ => "running cold",
+    };
+
+    /// <summary>How visible the fleet is right now: what it is doing, and from how far enemy ships could see it.</summary>
+    public static string SignatureLine(World w, Fleet f)
+    {
+        var sig = Sensors.Signature(w, f);
+        var frigate = Sensors.Range(GameData.ShipClass("gun-frigate").SensorMm, sig);
+        var destroyer = Sensors.Range(GameData.ShipClass("missile-destroyer").SensorMm, sig);
+        string Km(double mm) => mm >= Physics.MmPerAu * 0.05 ? Format.Distance(mm) : $"{mm * 1000:#,0} km";
+        return $"Signature: {StateText(Sensors.StateOf(f))}. Enemy frigates see it from {Km(frigate)}, destroyers from {Km(destroyer)}";
     }
 
     /// <summary>Speed, and for a fleet near an enemy how fast the gap is closing.</summary>

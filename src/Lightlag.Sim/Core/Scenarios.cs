@@ -38,6 +38,12 @@ public static class Scenarios
         var jitter = new Vec2(0, rng.Range(-2.0, 2.0));
         AddSandboxFleet(w, Side.Player, setup.PlayerFrigates, setup.PlayerDestroyers, center + new Vec2(-half, 0), setup.PlayerStance);
         AddSandboxFleet(w, Side.Rival, setup.RivalFrigates, setup.RivalDestroyers, center + new Vec2(half, 0) + jitter, setup.RivalStance);
+
+        // Both sides start knowing where the other fleet is (scouted before the battle), but not whether
+        // it can still be seen: that is up to the sensors from here on.
+        foreach (var f in w.Fleets)
+            foreach (var other in w.Fleets.Where(o => o.Side != f.Side))
+                if (setup.RivalKnowsWhere || f.Side == Side.Player) Sensors.Reveal(w, f.Side, other);
         return w;
     }
 
@@ -142,4 +148,4 @@ public static class Scenarios
 public sealed record SandboxSetup(
     int PlayerFrigates = 3, int PlayerDestroyers = 1, int RivalFrigates = 2, int RivalDestroyers = 2,
     int PlayerBrain = 1, int RivalBrain = 1, Stance PlayerStance = Stance.Engage, Stance RivalStance = Stance.Hold,
-    double DistanceMm = 150);
+    double DistanceMm = 150, bool RivalKnowsWhere = true);

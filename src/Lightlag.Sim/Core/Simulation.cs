@@ -55,6 +55,7 @@ public sealed class Simulation
         if (sandbox != null) scenario = Scenarios.BattleSandbox;
         var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox };
         var sim = new Simulation(world, rng, log, build, replay);
+        Sensors.Update(sim);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
         log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox });
         return sim;
@@ -105,6 +106,8 @@ public sealed class Simulation
             var t1 = World.Hour;
             Combat.Steer(this, t0, t1);
             MoveFleets(t0, t1);
+            UpdateFacing(velocities);
+            Sensors.Update(this);
             Combat.Fire(this, t0, t1);
         }
         else
@@ -112,8 +115,9 @@ public sealed class Simulation
             World.Tick++;
             UpdateBodyPositions(World);
             MoveFleets(t0, World.Hour);
+            UpdateFacing(velocities);
+            Sensors.Update(this);
         }
-        UpdateFacing(velocities);
         World.Random = Rng.Save();
         if (World.Sub != 0) return;
         JoinFleets();
@@ -243,7 +247,8 @@ public sealed class Simulation
         foreach (var (f, v0) in before)
         {
             var dv = f.Velocity - v0;
-            if (dv.Length > 1e-6) f.Facing = DetMath.Atan2(dv.Y, dv.X);
+            f.Thrusting = dv.Length > 1e-6;
+            if (f.Thrusting) f.Facing = DetMath.Atan2(dv.Y, dv.X);
         }
     }
 

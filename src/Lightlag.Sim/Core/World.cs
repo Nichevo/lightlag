@@ -22,6 +22,9 @@ public sealed class World
     public List<Missile> Missiles { get; set; } = new();
     public List<Battle> Battles { get; set; } = new();
 
+    /// <summary>What each side knows about the other's fleets (see Sensors).</summary>
+    public List<Sighting> Sightings { get; set; } = new();
+
     /// <summary>Missile guidance level per side (1 or 2). Research raises it later.</summary>
     public int[] MissileBrain { get; set; } = { 1, 1 };
     public List<Belt> Belts { get; set; } = new();

@@ -43,7 +43,7 @@ public sealed record StartShipsData([property: JsonPropertyName("class")] string
 public sealed record ShipClass(
     string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, double AccelMmPerHour2,
     double Supplies, double SuppliesPerDeltaV, double Armour, double Evasion, int Railguns, int PointDefence,
-    int Missiles, double Cost, string Role)
+    int Missiles, double Cost, string Role, double SensorMm, double SignatureSize)
 {
     /// <summary>Total speed change a full load of supplies buys.</summary>
     public double FullDeltaV => Supplies / SuppliesPerDeltaV;
@@ -61,7 +61,10 @@ public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
     double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay);
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat);
+/// <summary>Detection numbers (passive sensors). See ship-classes.json for what each means.</summary>
+public sealed record SensorData(double Cold, double Orbit, double Burn, double ExtraShip, double PlanetSensorMm, double ForgetAfterHours);
+
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -74,6 +77,7 @@ public static class GameData
 
     public static IReadOnlyDictionary<string, ShipClass> ShipClasses => _classes.Value;
     public static CombatData Combat => _file.Value.Combat;
+    public static SensorData Sensors => _file.Value.Sensors;
 
     public static ShipClass ShipClass(string id) =>
         ShipClasses.TryGetValue(id, out var c) ? c : throw new InvalidDataException($"Unknown ship class '{id}'");
@@ -98,6 +102,7 @@ public static class GameData
     {
         var file = Json.Deserialize<ShipClassFile>(ReadText("ship-classes.json"));
         if (file.Combat == null) throw new InvalidDataException("ship-classes.json: the combat section is missing");
+        if (file.Sensors == null) throw new InvalidDataException("ship-classes.json: the sensors section is missing");
         return file;
     }
 
@@ -112,6 +117,7 @@ public static class GameData
             if (!(c.AccelMmPerHour2 > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs an acceleration above 0");
             if (!(c.Supplies > 0 && c.SuppliesPerDeltaV > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs supplies and suppliesPerDeltaV above 0");
             if (!(c.Armour > 0) || c.Evasion is < 0 or >= 1) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs armour above 0 and evasion from 0 to below 1");
+            if (!(c.SensorMm > 0 && c.SignatureSize > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs sensorMm and signatureSize above 0");
         }
         return dict;
     }

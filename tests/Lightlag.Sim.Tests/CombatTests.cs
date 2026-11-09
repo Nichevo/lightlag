@@ -49,7 +49,7 @@ public class CombatTests
     public void Destroyers_fire_missiles_and_point_defence_shoots_some_down()
     {
         var sim = Sandbox(new SandboxSetup(PlayerFrigates: 4, PlayerDestroyers: 0, RivalFrigates: 0, RivalDestroyers: 2,
-            PlayerStance: Stance.Hold, DistanceMm: 55));
+            PlayerStance: Stance.Hold, DistanceMm: 45)); // inside the range where cold ships are seen
         var battle = Fight(sim);
         var rival = battle.For(Side.Rival);
         Assert.True(rival.MissilesFired > 0);
@@ -121,9 +121,9 @@ public class CombatTests
         var sim = Sandbox(new SandboxSetup(PlayerFrigates: 1, PlayerDestroyers: 0, RivalFrigates: 0, RivalDestroyers: 0, DistanceMm: 60));
         var player = FleetOf(sim, Side.Player);
         var ship = sim.World.ShipsOf(player).First();
-        // Put a rival in contact and knock the frigate down to a third of its armour.
+        // Put a rival in sight and knock the frigate down to a third of its armour.
         sim = Sandbox(new SandboxSetup(PlayerFrigates: 1, PlayerDestroyers: 0, RivalFrigates: 1, RivalDestroyers: 0,
-            RivalStance: Stance.Hold, DistanceMm: 60));
+            RivalStance: Stance.Hold, DistanceMm: 25));
         player = FleetOf(sim, Side.Player);
         ship = sim.World.ShipsOf(player).First();
         ship.Armour = 30;

@@ -32,6 +32,9 @@ public sealed class Fleet
     /// <summary>Which way the ships point (radians): along their last thrust, so braking ships face backwards.</summary>
     public double Facing { get; set; }
 
+    /// <summary>Main engines fired during the last step (lights the fleet up on enemy sensors).</summary>
+    public bool Thrusting { get; set; }
+
     /// <summary>When holding in orbit: the body, how far out, and where on the circle.</summary>
     public int? OrbitBodyId { get; set; }
     public double OrbitRadius { get; set; }

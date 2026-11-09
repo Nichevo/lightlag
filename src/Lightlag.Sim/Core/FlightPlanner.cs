@@ -52,6 +52,7 @@ public static class FlightPlanner
         {
             enemy = w.FindFleet(fleetId);
             if (enemy == null) return FlightPlan.Fail("That fleet is gone", perf.DeltaVLeft);
+            if (Sensors.Predict(w, fleet.Side, enemy.Id, now) == null) return FlightPlan.Fail("That fleet has not been seen", perf.DeltaVLeft);
             body = null;
         }
 
@@ -60,7 +61,7 @@ public static class FlightPlanner
         Vec2 AimFrom(Vec2 from, double hour)
         {
             if (body == null && enemy == null) return req.Point;
-            var p = body != null ? PredictBody(w, body, hour) : Combat.PredictFleet(w, enemy!, hour);
+            var p = body != null ? PredictBody(w, body, hour) : Sensors.Predict(w, fleet.Side, enemy!.Id, hour)!.Value;
             var away = (from - p).Normalized();
             if (away == Vec2.Zero) away = new Vec2(1, 0);
             return p + away * standoffFor;
@@ -106,7 +107,7 @@ public static class FlightPlanner
             var targetName = body?.Name ?? enemy!.Name;
             Vec2 AimAt(double hour)
             {
-                var p = body != null ? PredictBody(w, body, hour) : Combat.PredictFleet(w, enemy!, hour);
+                var p = body != null ? PredictBody(w, body, hour) : Sensors.Predict(w, fleet.Side, enemy!.Id, hour)!.Value;
                 var away = (p0 - p).Normalized();
                 if (away == Vec2.Zero) away = new Vec2(1, 0);
                 return p + away * standoff;

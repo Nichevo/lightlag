@@ -380,9 +380,12 @@ public static class Combat
     {
         var w = sim.World;
         var inContact = new List<(Fleet A, Fleet B)>();
+        // Contact needs someone to see someone: a fleet that slips in cold is not in the battle until spotted.
         foreach (var a in w.Fleets.Where(f => f.Side == Side.Player))
             foreach (var b in w.Fleets.Where(f => f.Side != Side.Player))
-                if (Vec2.Distance(a.Position, b.Position) <= C.ContactRangeMm) inContact.Add((a, b));
+                if (Vec2.Distance(a.Position, b.Position) <= C.ContactRangeMm
+                    && (Sensors.Sees(w, a.Side, b) || Sensors.Sees(w, b.Side, a)))
+                    inContact.Add((a, b));
 
         var battle = w.ActiveBattle;
         if (battle == null && inContact.Count > 0)
@@ -420,13 +423,14 @@ public static class Combat
 
     public static Side Other(Side s) => s == Side.Player ? Side.Rival : Side.Player;
 
+    /// <summary>The nearest enemy fleet this fleet's side can see, within range.</summary>
     public static Fleet? NearestEnemyFleet(World w, Fleet f, double range)
     {
         Fleet? best = null;
         var bestD = range;
         foreach (var o in w.Fleets)
         {
-            if (o.Side == f.Side) continue;
+            if (o.Side == f.Side || !Sensors.Sees(w, f.Side, o)) continue;
             var d = Vec2.Distance(o.Position, f.Position);
             if (d <= bestD) { best = o; bestD = d; }
         }
@@ -436,13 +440,15 @@ public static class Combat
     private static Ship? NearestEnemyShip(World w, Ship ship, double range) =>
         NearestShipOfSide(w, Other(ship.Side), ship.Position, range);
 
+    /// <summary>The nearest ship of a side that the other side can see, within range.</summary>
     private static Ship? NearestShipOfSide(World w, Side side, Vec2 at, double range)
     {
         Ship? best = null;
         var bestD = range;
+        var seen = w.Fleets.Where(f => f.Side == side && Sensors.Sees(w, Other(side), f)).Select(f => f.Id).ToHashSet();
         foreach (var s in w.Ships)
         {
-            if (s.Side != side) continue;
+            if (s.Side != side || !seen.Contains(s.FleetId)) continue;
             var d = Vec2.Distance(s.Position, at);
             if (d <= bestD) { best = s; bestD = d; }
         }

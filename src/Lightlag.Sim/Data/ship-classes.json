@@ -4,10 +4,12 @@
     { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate",
       "maxSpeedMmPerHour": 600, "accelMmPerHour2": 25, "supplies": 60, "suppliesPerDeltaV": 0.025,
       "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 40,
+      "sensorMm": 30, "signatureSize": 1.0,
       "role": "Fast and cheap, short legs. Railgun pair and point defence: strong up close." },
     { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer",
       "maxSpeedMmPerHour": 400, "accelMmPerHour2": 12, "supplies": 160, "suppliesPerDeltaV": 0.025,
       "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 80,
+      "sensorMm": 40, "signatureSize": 2.0,
       "role": "Long range, slower. Missile racks (4 salvos of 4) and point defence." }
   ],
   "combat": {
@@ -21,5 +23,14 @@
     "moduleHitChance": 0.15,
     "retreatBelowArmour": 0.5,
     "repairPerDay": 0.1
+  },
+  "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters) or burn (main engines firing). Planets block the line of sight. Your home planet's sensors use planetSensorMm. Sightings no longer updated are forgotten after forgetAfterHours.",
+  "sensors": {
+    "cold": 1,
+    "orbit": 3,
+    "burn": 1000000,
+    "extraShip": 0.25,
+    "planetSensorMm": 150,
+    "forgetAfterHours": 720
   }
 }

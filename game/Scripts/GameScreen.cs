@@ -16,6 +16,7 @@ namespace Lightlag.Game;
 ///   Right click        plan a route there             Shift+right     go there now with the last settings
 ///   Enter              fly the planned route          Esc             cancel the plan (else back to title)
 ///   O / G / X          orbit / drift / stop           Home            show the whole system
+///   P                  pause when enemies are spotted F7              debug: show every fleet
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
 ///   F5 / F9            quick save / quick load        F8              report a problem
@@ -47,6 +48,14 @@ public partial class GameScreen : Node2D
     private readonly List<int> _group = new();
     private Vector2? _leftDown;
     private bool _boxing;
+    private readonly HashSet<(int, double)> _spotted = new();
+
+    /// <summary>Pause the game when an enemy fleet comes into sight.</summary>
+    public bool PauseOnContact { get; set; } = true;
+
+    /// <summary>Debug view (F7): every fleet is drawn, seen or not.</summary>
+    public bool RevealAll { get; private set; }
+    public void ToggleRevealAll() { RevealAll = !RevealAll; _map.RevealAll = RevealAll; }
 
     /// <summary>Map panning with the keyboard, in screen pixels per real second (Shift for faster).</summary>
     private const float KeyPanSpeed = 900;
@@ -122,6 +131,7 @@ public partial class GameScreen : Node2D
             _map.Blend = Math.Clamp(_accum, 0, 1);
             _sinceAutosave += delta;
             WatchBattles();
+            WatchSightings();
         }
         if (_sinceAutosave >= AutosaveEverySeconds)
         {
@@ -275,6 +285,21 @@ public partial class GameScreen : Node2D
         {
             _lastReportShown = last.Id;
             Report = last;
+        }
+    }
+
+    /// <summary>A new enemy fleet in sight: say so, and pause if asked to.</summary>
+    private void WatchSightings()
+    {
+        var w = Sim.World;
+        foreach (var s in w.Sightings)
+        {
+            if (s.SeenBy != Side.Player || !s.Visible || !_spotted.Add((s.FleetId, s.SpottedHour))) continue;
+            if (s.SpottedHour < w.Hour - 1) continue; // already in sight when the game was loaded
+            var nearest = w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => Vec2.Distance(f.Position, s.Position)).FirstOrDefault();
+            var where = nearest != null ? $", {Vec2.Distance(nearest.Position, s.Position) * 1000:#,0} km from {nearest.Name}" : "";
+            _main.Toast($"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}" + (PauseOnContact ? ". Paused." : ""));
+            if (PauseOnContact) _paused = true;
         }
     }
 
@@ -470,6 +495,8 @@ public partial class GameScreen : Node2D
             case Key.X: OrderStop(); break;
             case Key.M: OrderMerge(); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
+            case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
+            case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
@@ -538,7 +565,9 @@ public partial class GameScreen : Node2D
         // An enemy fleet under the cursor: attack it.
         if (_map.HitTest(at) is int hit && Sim.World.FindFleet(hit) is Fleet enemy && enemy.Side != Side.Player)
         {
-            StartPlanning(null, enemy.Position, enemy.Id);
+            // Aim at where it is thought to be: in sight, or guessed from the last sighting.
+            var guess = Sensors.Predict(Sim.World, Side.Player, enemy.Id, Sim.World.Hour) ?? enemy.Position;
+            StartPlanning(null, guess, enemy.Id);
             if (goNow) ConfirmPlan();
             return;
         }
