@@ -18,6 +18,9 @@ public partial class MapView : Node2D
     public int? SelectedId;
     public int? HoverId;
 
+    /// <summary>The game hour being drawn (between the last step and the current one).</summary>
+    public double DrawHour;
+
     /// <summary>The route the planner is showing, if any.</summary>
     public FlightPlan? Preview;
 
@@ -27,6 +30,7 @@ public partial class MapView : Node2D
     private readonly Dictionary<int, double> _prevAngle = new();
     private readonly Dictionary<int, Vec2> _prevShip = new();
     private readonly Dictionary<int, Vec2> _prevFleet = new();
+    private readonly Dictionary<int, Vec2> _prevMissile = new();
     private readonly Dictionary<int, Vec2> _drawn = new();
     private Font _font = null!;
 
@@ -38,6 +42,8 @@ public partial class MapView : Node2D
         foreach (var b in Sim.World.Bodies) _prevAngle[b.Id] = b.Angle;
         foreach (var s in Sim.World.Ships) _prevShip[s.Id] = s.Position;
         foreach (var f in Sim.World.Fleets) _prevFleet[f.Id] = f.Position;
+        _prevMissile.Clear();
+        foreach (var m in Sim.World.Missiles) _prevMissile[m.Id] = m.Position;
     }
 
     /// <summary>Forget the previous tick (after loading, so nothing blends from the old game).</summary>
@@ -142,7 +148,45 @@ public partial class MapView : Node2D
         foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
         if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
             DrawRoute(pf, preview, true, Preview.Ok);
+        if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf) DrawRanges(sf);
         foreach (var f in w.Fleets) DrawFleet(f);
+        DrawMissiles();
+    }
+
+    /// <summary>Weapon reach of the selected fleet: railguns, missiles and contact.</summary>
+    private void DrawRanges(Fleet f)
+    {
+        if (!_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) return;
+        var at = Camera.ToScreen(p);
+        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var c = GameData.Combat;
+        var ships = Sim.World.ShipsOf(f).ToList();
+        void Ring(double mm, float alpha, string label)
+        {
+            var r = (float)(mm * Camera.Scale);
+            if (r < 12 || r > 5000) return;
+            DrawArc(at, r, 0, Mathf.Tau, 96, new Color(color, alpha), 1, true);
+            DrawString(_font, at + new Vector2(4, -r - 3), label, HorizontalAlignment.Left, -1, 11, new Color(color, alpha + 0.2f));
+        }
+        Ring(c.ContactRangeMm, 0.12f, "contact");
+        if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.18f, "missiles");
+        if (ships.Any(s => GameData.ShipClass(s.ClassId).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.25f, "railguns");
+    }
+
+    private void DrawMissiles()
+    {
+        foreach (var m in Sim.World.Missiles)
+        {
+            var p = m.Position;
+            if (_prevMissile.TryGetValue(m.Id, out var prev)) p = prev + (p - prev) * Blend;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 20)) continue;
+            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            // A short tail pointing back along its path relative to the target, so salvos read as streaks.
+            var tail = Camera.ToScreen(p - m.Velocity.Normalized() * (12 / Camera.Scale));
+            DrawLine(tail, at, new Color(color, 0.5f), 1.2f, true);
+            DrawCircle(at, 2f, color.Lightened(0.4f));
+        }
     }
 
     // ---- Pieces ---------------------------------------------------------------------------
@@ -195,7 +239,7 @@ public partial class MapView : Node2D
         var scale = Camera.Scale;
         if ((belt.OuterRadius - belt.InnerRadius) * scale < 3) return;
         var center = _drawn[parent.Id];
-        var hours = Sim.World.Tick + Blend - 1;
+        var hours = DrawHour;
         var color = new Color(belt.Color);
         var size = (float)Math.Clamp(0.4 + scale * 2, 0.8, 2.0);
         for (var i = 0; i < BeltDots; i++)
@@ -308,6 +352,10 @@ public partial class MapView : Node2D
 
     private void DrawShipIcon(Vector2 at, Ship s, Color color, float heading)
     {
+        // Damaged ships darken; a ship with a part knocked out gets a red mark.
+        var share = (float)(s.Armour / GameData.ShipClass(s.ClassId).Armour);
+        color = color.Lerp(new Color(0.35f, 0.35f, 0.4f), Math.Clamp(1 - share, 0, 1) * 0.7f);
+        if (s.Disabled != null) DrawCircle(at + new Vector2(0, -10), 2.5f, Ui.Danger);
         var shape = ShipIcons.For(GameData.ShipClasses.TryGetValue(s.ClassId, out var cls) ? cls.Icon : "frigate");
         var pts = new Vector2[shape.Length];
         for (var i = 0; i < shape.Length; i++) pts[i] = at + shape[i].Rotated(heading);
@@ -327,7 +375,7 @@ public partial class MapView : Node2D
         if (flight == null || flight.Legs.Count == 0) return;
         var baseColor = !ok ? Ui.Danger : f.Side == Side.Player ? Ui.Player : Ui.Rival;
         var alpha = preview ? 0.9f : f.Id == SelectedId ? 0.6f : 0.35f;
-        var now = Sim.World.Tick + Blend - 1;
+        var now = DrawHour;
         if (!flight.Started && _drawn.TryGetValue(f.Id, out var here))
         {
             // Still waiting to leave: a dotted line from here to the departure point.

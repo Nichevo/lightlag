@@ -13,6 +13,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetHoldCommand), "setHold")]
 [JsonDerivedType(typeof(SplitFleetCommand), "splitFleet")]
 [JsonDerivedType(typeof(MergeFleetsCommand), "mergeFleets")]
+[JsonDerivedType(typeof(SetStanceCommand), "setStance")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
@@ -144,6 +145,18 @@ public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCom
         world.Fleets.Remove(other);
         Fleets.Arrange(world, fleet);
         sim.Log.Info("fleet", $"{other.Name} merges into {fleet.Name}", new { FleetId, OtherFleetId, Source });
+    }
+}
+
+/// <summary>Set a fleet's standing orders: engage or hold, and whether to retreat when badly damaged.</summary>
+public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWhenDamaged) : GameCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Standing orders") is not Fleet fleet) return;
+        fleet.Stance = Stance;
+        fleet.RetreatWhenDamaged = RetreatWhenDamaged;
+        sim.Log.Info("fleet", $"{fleet.Name} standing orders: {Stance}" + (RetreatWhenDamaged ? ", retreat when damaged" : ""), new { FleetId, Stance, RetreatWhenDamaged, Source });
     }
 }
 

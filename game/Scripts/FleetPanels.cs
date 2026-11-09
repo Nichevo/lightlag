@@ -20,6 +20,10 @@ public partial class FleetPanel : PanelContainer
     private Button _orbit = null!;
     private Button _drift = null!;
     private Button _stop = null!;
+    private Button _engage = null!;
+    private Button _hold = null!;
+    private CheckBox _retreat = null!;
+    private HBoxContainer _orders = null!;
     private readonly Dictionary<int, (CheckBox Box, Label Supplies)> _rows = new();
     private string _shipKey = "";
 
@@ -49,6 +53,30 @@ public partial class FleetPanel : PanelContainer
         _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one");
         foreach (var b in new[] { _orbit, _drift, _stop, _split, _merge }) _buttons.AddChild(b);
         box.AddChild(_buttons);
+
+        // Standing orders: what the fleet does when enemies come into contact.
+        _orders = new HBoxContainer();
+        _orders.AddThemeConstantOverride("separation", 4);
+        var label = Ui.Label("In contact", 13, Ui.Dim);
+        label.CustomMinimumSize = new Vector2(70, 0);
+        _orders.AddChild(label);
+        _engage = Ui.SmallButton("Engage", () => SetStance(Stance.Engage, null), "Close to railgun range and fire");
+        _hold = Ui.SmallButton("Hold", () => SetStance(Stance.Hold, null), "Keep course; fire at whatever comes in range");
+        _retreat = new CheckBox { Text = "Retreat when damaged", FocusMode = FocusModeEnum.None, TooltipText = "Fly home when the fleet's armour falls below half" };
+        _retreat.AddThemeFontSizeOverride("font_size", 13);
+        _retreat.Pressed += () => SetStance(null, _retreat.ButtonPressed);
+        _orders.AddChild(_engage);
+        _orders.AddChild(_hold);
+        _orders.AddChild(_retreat);
+        box.AddChild(_orders);
+    }
+
+    private Fleet? _fleet;
+
+    private void SetStance(Stance? stance, bool? retreat)
+    {
+        if (_fleet == null) return;
+        _screen.OrderStance(stance ?? _fleet.Stance, retreat ?? _fleet.RetreatWhenDamaged);
     }
 
     private List<int> Checked() => _rows.Where(r => r.Value.Box.ButtonPressed).Select(r => r.Key).ToList();
@@ -56,6 +84,7 @@ public partial class FleetPanel : PanelContainer
     public void Refresh(Simulation sim, Fleet f)
     {
         var w = sim.World;
+        _fleet = f;
         var mine = f.Side == Side.Player;
         var ships = w.ShipsOf(f).ToList();
         var perf = FleetPerformance.Of(w, f);
@@ -90,12 +119,21 @@ public partial class FleetPanel : PanelContainer
         foreach (var s in ships)
         {
             if (!_rows.TryGetValue(s.Id, out var row)) continue;
-            var share = s.Supplies / GameData.ShipClass(s.ClassId).Supplies;
-            row.Supplies.Text = $"supplies {share:P0}";
-            row.Supplies.AddThemeColorOverride("font_color", share < 0.2 ? Ui.Danger : Ui.Dim);
+            var cls = GameData.ShipClass(s.ClassId);
+            var share = s.Supplies / cls.Supplies;
+            var armour = s.Armour / cls.Armour;
+            var bits = new List<string> { $"armour {armour:P0}", $"supplies {share:P0}" };
+            if (cls.Missiles > 0) bits.Add($"{s.Missiles} missiles");
+            if (s.Disabled is Module m) bits.Add($"{Combat.ModuleName(m)} out");
+            row.Supplies.Text = string.Join(" · ", bits);
+            row.Supplies.AddThemeColorOverride("font_color", share < 0.2 || armour < 0.5 || s.Disabled != null ? Ui.Danger : Ui.Dim);
         }
 
         _buttons.Visible = mine;
+        _orders.Visible = mine;
+        _engage.Modulate = f.Stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        _hold.Modulate = f.Stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
         var flying = f.Flight is { Started: true } || f.Velocity.Length > 1e-9;
         var picked = Checked().Count;
         _orbit.Disabled = flying || (f.Hold == HoldStyle.Orbit && f.Flight == null);
@@ -110,13 +148,18 @@ public partial class FleetPanel : PanelContainer
     public static string Doing(World w, Fleet f)
     {
         string? Name(int? id) => id is int b ? w.FindBody(b)?.Name : null;
+        if (f.Retreating && f.Flight != null) return $"Retreating home, arrives {GameTime.Format(f.Flight.ArriveHour)}";
+        if (f.Maneuvering)
+            return Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm) is Fleet e
+                ? $"Closing on {e.Name}, {Vec2.Distance(e.Position, f.Position) * 1000:#,0} km away"
+                : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
         if (f.Flight is Flight fl)
         {
-            var to = Name(fl.TargetBodyId) ?? "a point in space";
+            var to = Name(fl.TargetBodyId) ?? (fl.TargetFleetId is int tf ? w.FindFleet(tf)?.Name : null) ?? "a point in space";
             var verb = fl.Arrival == ArrivalStyle.FastPass ? "passes" : "reaches";
-            var arrive = GameTime.Format((long)fl.ArriveHour);
+            var arrive = GameTime.Format(fl.ArriveHour);
             if (!fl.Started)
-                return $"Leaves for {to} on {GameTime.Format((long)fl.DepartHour)}, {verb} it {arrive}";
+                return $"Leaves for {to} on {GameTime.Format(fl.DepartHour)}, {verb} it {arrive}";
             if (fl.TargetBodyId == null && fl.Legs.Count == 1) return $"Braking to a stop at {Format.Speed(f.Velocity.Length)}";
             return $"Flying to {to} at {Format.Speed(f.Velocity.Length)}, {verb} it {arrive}";
         }
@@ -236,11 +279,13 @@ public partial class PlannerPanel : PanelContainer
         var w = sim.World;
         var fleet = w.FindFleet(p.FleetId);
         _title.Text = $"Route: {fleet?.Name} to {p.TargetName}";
+        _title.AddThemeColorOverride("font_color", p.TargetFleetId != null ? Ui.Danger : Ui.Player);
         Mark(_direct, s.Route == RouteKind.Direct);
         Mark(_wait, s.Route == RouteKind.Wait);
         Mark(_brake, s.Arrival == ArrivalStyle.Brake);
         Mark(_pass, s.Arrival == ArrivalStyle.FastPass);
         var canOrbit = s.Arrival == ArrivalStyle.Brake && p.TargetBodyId != null;
+        if (p.TargetFleetId != null) _title.Text = $"Attack: {fleet?.Name} on {p.TargetName}";
         Mark(_orbit, canOrbit && s.Hold == HoldStyle.Orbit, canOrbit);
         Mark(_drift, !canOrbit || s.Hold == HoldStyle.Drift, canOrbit);
         _updating = true;
@@ -257,16 +302,67 @@ public partial class PlannerPanel : PanelContainer
             _result.AddThemeColorOverride("font_color", Ui.Danger);
             return;
         }
-        var now = (double)w.Tick;
+        var now = w.Hour;
         var waitDays = (f.DepartHour - now) / 24;
         var lines = new List<string>
         {
-            waitDays < 0.05 ? "Leave: now" : $"Leave: {GameTime.Format((long)f.DepartHour)} (in {Format.Hours(f.DepartHour - now)})",
-            $"Trip: {Format.Hours(f.ArriveHour - f.DepartHour)} · arrive {GameTime.Format((long)f.ArriveHour)}",
+            waitDays < 0.05 ? "Leave: now" : $"Leave: {GameTime.Format(f.DepartHour)} (in {Format.Hours(f.DepartHour - now)})",
+            $"Trip: {Format.Hours(f.ArriveHour - f.DepartHour)} · arrive {GameTime.Format(f.ArriveHour)}",
             $"Fuel: {Format.Speed(plan.DeltaV)} of speed change, {plan.FuelShare:P0} of what the fleet has",
         };
         if (!plan.Ok) lines.Add(plan.Problem ?? "Cannot fly this");
         _result.Text = string.Join("\n", lines);
         _result.AddThemeColorOverride("font_color", plan.Ok ? Ui.Text : Ui.Danger);
+    }
+}
+
+/// <summary>
+/// The combat report: for each side, shots and hits, missiles fired and what became of them (hit, shot
+/// down by point defence, dodged, ran dry), damage done, parts knocked out and ships lost.
+/// </summary>
+public partial class ReportPanel : PanelContainer
+{
+    private readonly GameScreen _screen;
+    private Label _title = null!;
+    private Label _body = null!;
+
+    public ReportPanel() : this(null!) { }
+    public ReportPanel(GameScreen screen) => _screen = screen;
+
+    public override void _Ready()
+    {
+        Ui.StylePanel(this, 18);
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(560, 0) };
+        box.AddThemeConstantOverride("separation", 8);
+        AddChild(box);
+        _title = Ui.Label("", 20, Ui.Player);
+        box.AddChild(_title);
+        _body = Ui.Label("", 14);
+        _body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _body.CustomMinimumSize = new Vector2(560, 0);
+        box.AddChild(_body);
+        box.AddChild(Ui.SmallButton("Close (Esc)", () => _screen.CloseReport(), "Close the report; R opens the last one again"));
+    }
+
+    public void Refresh(Battle b)
+    {
+        var p = b.For(Side.Player);
+        var r = b.For(Side.Rival);
+        var end = b.EndHour is double e ? GameTime.Format(e) : "still going";
+        var length = (b.EndHour ?? Main.Instance.Sim!.World.Hour) - b.StartHour;
+        _title.Text = $"Combat report: {GameTime.Format(b.StartHour)} to {end} ({Format.Hours(length)})";
+        _body.Text = SideText("You", p) + "\n\n" + SideText("Rival", r);
+    }
+
+    private static string SideText(string who, BattleSide s)
+    {
+        var lines = new List<string> { $"{who}: {(s.Fleets.Count > 0 ? string.Join(", ", s.Fleets) : "no fleets")}" };
+        if (s.RailShots > 0) lines.Add($"  Railguns: {s.RailHits} hits from {s.RailShots} shots");
+        if (s.MissilesFired > 0)
+            lines.Add($"  Missiles: {s.MissilesFired} fired, {s.MissileHits} hit, {s.ShotDown} shot down, {s.Dodged} dodged, {s.RanDry} ran dry or lost their target");
+        lines.Add($"  Damage done: {s.DamageDealt:0}");
+        if (s.Knocked.Count > 0) lines.Add($"  Knocked out: {string.Join(", ", s.Knocked)}");
+        lines.Add(s.ShipsLost.Count > 0 ? $"  Ships lost: {string.Join(", ", s.ShipsLost)}" : "  Ships lost: none");
+        return string.Join("\n", lines);
     }
 }

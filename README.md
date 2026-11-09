@@ -44,7 +44,7 @@ back never touches it:
 | `reports\` | F8 reports: note, screenshot, save, replay, log tail |
 | `crashes\` | Crash reports: error, save, replay, log tail, and a README saying how to replay |
 | `saves\` | Quick save, manual saves and the last 5 autosaves |
-| `nightly\` | Overnight runs; `latest-summary.md` is the morning summary |
+| `nightly\` | Overnight runs; `latest-summary.md` is the morning summary, `latest-battles.md` the battle sweep |
 
 See [docs/LOGGING.md](docs/LOGGING.md) for details, and [docs/BUILDS.md](docs/BUILDS.md) for how
 builds, updates and overnight runs work.
@@ -75,6 +75,7 @@ Developing: install the .NET 8 SDK and the Godot 4.7 .NET editor, then
 ```bash
 dotnet test Lightlag.sln                                        # simulation tests
 dotnet run --project src/Lightlag.Headless -- batch --games 10   # quick headless batch
+dotnet run --project src/Lightlag.Headless -- battles --repeats 1 # quick battle sweep
 ```
 
 and open `game/` in Godot.

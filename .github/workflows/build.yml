@@ -55,6 +55,9 @@ jobs:
       - name: Headless batch (20 games, strict rule checks)
         run: dotnet run --project src/Lightlag.Headless -c Release -- batch --games 20 --days 365 --seed 1 --data-dir ci-data
 
+      - name: Battle sweep (every mix, approach and missile brain once)
+        run: dotnet run --project src/Lightlag.Headless -c Release -- battles --repeats 1 --data-dir ci-data
+
       - name: Work out the version
         id: version
         run: |

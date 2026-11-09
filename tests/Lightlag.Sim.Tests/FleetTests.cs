@@ -22,7 +22,8 @@ public class FleetTests
 
     private static void StepUntilArrived(Simulation sim, Fleet f, int maxDays = 400)
     {
-        for (var i = 0; i < maxDays * GameTime.TicksPerDay && (f.InFlight || sim.PendingCommands.Count > 0); i++) sim.Step();
+        var end = sim.World.Tick + maxDays * GameTime.TicksPerDay;
+        while (sim.World.Tick < end && (f.InFlight || sim.PendingCommands.Count > 0)) sim.Step();
         Assert.False(f.InFlight, "fleet never arrived");
     }
 
@@ -66,14 +67,14 @@ public class FleetTests
     {
         var sim = NewGame();
         var fleet = PlayerFleet(sim);
-        var rust = BodyNamed(sim, "rust");
-        var plan = FlightPlanner.Plan(sim.World, fleet, To(rust));
+        var vela = BodyNamed(sim, "vela");
+        var plan = FlightPlanner.Plan(sim.World, fleet, To(vela));
         Assert.True(plan.Ok, plan.Problem);
-        sim.Issue(new PlanFlightCommand(fleet.Id, To(rust)));
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(vela)));
         StepUntilArrived(sim, fleet);
         Assert.Equal(HoldStyle.Orbit, fleet.Hold);
-        Assert.Equal(rust.Id, fleet.OrbitBodyId);
-        Assert.InRange(fleet.OrbitRadius, Fleets.OrbitRadiusFor(rust) * 0.95, Fleets.OrbitRadiusFor(rust) * 1.05);
+        Assert.Equal(vela.Id, fleet.OrbitBodyId);
+        Assert.InRange(fleet.OrbitRadius, Fleets.OrbitRadiusFor(vela) * 0.95, Fleets.OrbitRadiusFor(vela) * 1.05);
         Assert.InRange((double)sim.World.Tick, plan.Flight!.ArriveHour, plan.Flight.ArriveHour + 2);
         Assert.All(sim.World.ShipsOf(fleet), s => Assert.True(s.Supplies < GameData.ShipClass(s.ClassId).Supplies));
     }

@@ -3,7 +3,8 @@ using Lightlag.Sim.Logging;
 
 namespace Lightlag.Sim.Replay;
 
-public sealed record RecordedCommand(long Tick, GameCommand Command);
+/// <summary>A command and when it took effect: the hour, and the battle-time step within it (0 outside battles).</summary>
+public sealed record RecordedCommand(long Tick, GameCommand Command, int Sub = 0);
 
 /// <summary>The state hash at a moment in the game, used to check that a replay stays exact.</summary>
 public sealed record Checkpoint(long Tick, string Hash);
@@ -18,6 +19,9 @@ public sealed class ReplayFile
     public string Build { get; set; } = "";
     public string Scenario { get; set; } = "";
     public ulong Seed { get; set; }
+
+    /// <summary>For battle sandbox games: the fleets that were set up.</summary>
+    public SandboxSetup? Sandbox { get; set; }
     public List<RecordedCommand> Commands { get; set; } = new();
     public List<Checkpoint> Checkpoints { get; set; } = new();
 
@@ -42,9 +46,9 @@ public static class ReplayRunner
     /// <param name="onTick">Called after each tick, e.g. to draw or inspect the game.</param>
     public static ReplayResult Run(ReplayFile replay, GameLog log, long? untilTick = null, Action<Simulation>? onTick = null)
     {
-        var sim = Simulation.NewGame(replay.Scenario, replay.Seed, log);
+        var sim = Simulation.NewGame(replay.Scenario, replay.Seed, log, sandbox: replay.Sandbox);
         var end = untilTick ?? replay.LastTick;
-        var commands = replay.Commands.OrderBy(c => c.Tick).ToList();
+        var commands = replay.Commands.OrderBy(c => c.Tick).ThenBy(c => c.Sub).ToList();
         var checkpoints = replay.Checkpoints.ToDictionary(c => c.Tick, c => c.Hash);
         var ci = 0;
         try
@@ -52,11 +56,12 @@ public static class ReplayRunner
             if (checkpoints.TryGetValue(0, out var start) && start != sim.StateHash())
                 return new ReplayResult(false, 0, "Start state differs: the scenario or this build changed how games start.");
 
-            while (sim.World.Tick < end || (ci < commands.Count && commands[ci].Tick <= end))
+            while (sim.World.Tick < end || sim.World.Sub != 0 || (ci < commands.Count && commands[ci].Tick <= end))
             {
-                while (ci < commands.Count && commands[ci].Tick == sim.World.Tick)
+                while (ci < commands.Count && commands[ci].Tick == sim.World.Tick && commands[ci].Sub == sim.World.Sub)
                     sim.Issue(commands[ci++].Command);
                 sim.Step();
+                if (sim.World.Sub != 0) continue;
                 onTick?.Invoke(sim);
                 if (checkpoints.TryGetValue(sim.World.Tick, out var expected) && expected != sim.StateHash())
                 {

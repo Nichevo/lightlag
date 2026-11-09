@@ -14,6 +14,7 @@ namespace Lightlag.Game;
 ///   Right click        plan a route there             Shift+right     go there now with the last settings
 ///   Enter              fly the planned route          Esc             cancel the plan (else back to title)
 ///   O / D / S          orbit / drift / stop           Home            show the whole system
+///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
 ///   F5 / F9            quick save / quick load        F8              report a problem
 ///   Ctrl+Shift+F12     test crash                     Ctrl+Shift+F11  break a rule on purpose
@@ -38,6 +39,17 @@ public partial class GameScreen : Node2D
     private double _sinceAutosave;
     private Hud _hud = null!;
     private double _planAge;
+    private double _lastStepHours = 1;
+    private int _lastBattleSeen;
+    private int _lastReportShown;
+
+    /// <summary>Battle time runs this much slower than normal time at the same speed setting.</summary>
+    public const double BattleSlowdown = 1.0 / 360;
+
+    /// <summary>The battle whose report is open, if any.</summary>
+    public Battle? Report { get; private set; }
+
+    public bool InBattle => Sim.World.ActiveBattle != null || Sim.World.Sub != 0;
 
     /// <summary>The route planner's choices, kept between plans.</summary>
     public PlanSettings Settings { get; } = new();
@@ -74,23 +86,34 @@ public partial class GameScreen : Node2D
         _camera.ScreenSize = GetViewportRect().Size;
         if (!_paused)
         {
-            _accum += delta * Speeds[_speed];
-            var steps = Math.Min((int)_accum, 500); // never freeze the screen catching up
-            _accum -= steps;
-            if (steps > 0 && !_main.RunGuarded("running the simulation", () =>
+            // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
+            // battle time, which runs 360 times slower: 1x is then one game minute per second.
+            var cost = Sim.PeekStepHours();
+            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick ? BattleSlowdown : 1);
+            _accum += delta * rate / cost;
+            var ok = _main.RunGuarded("running the simulation", () =>
+            {
+                var done = 0;
+                while (_accum >= 1 && done < 2000) // never freeze the screen catching up
                 {
-                    for (var i = 0; i < steps; i++)
-                    {
-                        _map.BeforeStep();
-                        Sim.Step();
-                    }
-                }))
+                    var next = Sim.PeekStepHours();
+                    if (next != cost) { _accum = 0; break; } // switching in or out of battle time
+                    _map.BeforeStep();
+                    Sim.Step();
+                    _lastStepHours = next;
+                    _accum -= 1;
+                    done++;
+                }
+                if (done == 2000) _accum = 0;
+            });
+            if (!ok)
             {
                 _paused = true;
                 return;
             }
             _map.Blend = Math.Clamp(_accum, 0, 1);
             _sinceAutosave += delta;
+            WatchBattles();
         }
         if (_sinceAutosave >= AutosaveEverySeconds)
         {
@@ -106,6 +129,7 @@ public partial class GameScreen : Node2D
         _map.HoverId = _map.HitTest(GetViewport().GetMousePosition());
         _map.SelectedId = _selected;
         _map.Preview = Planner?.Plan;
+        _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
         _map.QueueRedraw();
         _hud.Refresh();
     }
@@ -119,6 +143,22 @@ public partial class GameScreen : Node2D
     }
 
     public void TogglePause() => _paused = !_paused;
+
+    public bool IsSandbox => Sim.World.Scenario == Scenarios.BattleSandbox;
+
+    /// <summary>Sandbox start: paused, looking at both fleets, with yours selected.</summary>
+    public void FocusSandbox()
+    {
+        _paused = true;
+        var fleets = Sim.World.Fleets;
+        if (fleets.Count == 0) return;
+        var center = fleets.Aggregate(Vec2.Zero, (a, f) => a + f.Position) * (1.0 / fleets.Count);
+        var spread = fleets.Max(f => Vec2.Distance(f.Position, center));
+        _camera.Center = center;
+        _camera.FitRadius(Math.Max(spread * 1.6, 120), instant: true);
+        if (fleets.FirstOrDefault(f => f.Side == Side.Player) is Fleet mine) Select(mine.Id);
+        _main.Toast("Battle sandbox: right-click the enemy fleet to plan an attack, then Enter");
+    }
 
     public void ShowWholeSystem()
     {
@@ -154,6 +194,34 @@ public partial class GameScreen : Node2D
     public Fleet? SelectedFleet => _selected is int id ? Sim.World.FindFleet(id) : null;
     private Fleet? MyFleet => SelectedFleet is { Side: Side.Player } f ? f : null;
 
+    // ---- Battles ------------------------------------------------------------------------------
+
+    /// <summary>Pause when a battle starts (so orders can be given), and show the report when it ends.</summary>
+    private void WatchBattles()
+    {
+        var w = Sim.World;
+        if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen)
+        {
+            _lastBattleSeen = b.Id;
+            _paused = true;
+            _main.Toast($"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time; paused.");
+        }
+        var last = w.Battles.Count > 0 ? w.Battles[^1] : null;
+        if (last is { EndHour: not null } && last.Id != _lastReportShown)
+        {
+            _lastReportShown = last.Id;
+            Report = last;
+        }
+    }
+
+    public void ShowLastReport() => Report = Sim.World.Battles.LastOrDefault();
+    public void CloseReport() => Report = null;
+
+    public void OrderStance(Stance stance, bool retreat)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetStanceCommand(f.Id, stance, retreat));
+    }
+
     // ---- Fleet orders -----------------------------------------------------------------------
 
     public void OrderHold(HoldStyle hold)
@@ -183,11 +251,12 @@ public partial class GameScreen : Node2D
 
     // ---- Route planner ----------------------------------------------------------------------
 
-    public void StartPlanning(int? bodyId, Vec2 point)
+    public void StartPlanning(int? bodyId, Vec2 point, int? enemyFleetId = null)
     {
         if (MyFleet is not Fleet f) return;
         var name = bodyId is int b && Sim.World.FindBody(b) is Body body ? body.Name : "this point";
-        Planner = new PlannerState(f.Id, bodyId, point, name);
+        if (enemyFleetId is int e && Sim.World.FindFleet(e) is Fleet enemy) { name = enemy.Name; bodyId = null; }
+        Planner = new PlannerState(f.Id, bodyId, point, name) { TargetFleetId = enemyFleetId };
         Replan();
     }
 
@@ -202,7 +271,7 @@ public partial class GameScreen : Node2D
     }
 
     private FlightRequest Request(PlannerState p) =>
-        new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route);
+        new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId);
 
     public void ConfirmPlan()
     {
@@ -292,6 +361,7 @@ public partial class GameScreen : Node2D
             case Key.O: OrderHold(HoldStyle.Orbit); break;
             case Key.D: OrderHold(HoldStyle.Drift); break;
             case Key.S: OrderStop(); break;
+            case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
                 _main.Log.Info("save", "Quick save");
@@ -305,6 +375,15 @@ public partial class GameScreen : Node2D
             case Key.Escape when Planner != null:
                 CancelPlanning();
                 break;
+            case Key.Escape when Report != null:
+                CloseReport();
+                break;
+            case Key.F6 when IsSandbox:
+                _main.StartSandbox(_main.LastSandbox);
+                break;
+            case Key.Escape when IsSandbox:
+                _main.ShowSandboxSetup();
+                break;
             case Key.Escape:
                 SaveSlots.WriteAutosave(_main.Paths, Sim);
                 _main.ShowTitle();
@@ -316,6 +395,13 @@ public partial class GameScreen : Node2D
     private void OrderMove(Vector2 at, bool goNow)
     {
         if (MyFleet == null) return;
+        // An enemy fleet under the cursor: attack it.
+        if (_map.HitTest(at) is int hit && Sim.World.FindFleet(hit) is Fleet enemy && enemy.Side != Side.Player)
+        {
+            StartPlanning(null, enemy.Position, enemy.Id);
+            if (goNow) ConfirmPlan();
+            return;
+        }
         var bodyId = _map.HitTestBody(at);
         var point = bodyId is int b ? Sim.World.FindBody(b)!.Position : _camera.ToWorld(at);
         StartPlanning(bodyId, point);
@@ -339,5 +425,6 @@ public sealed class PlannerState(int fleetId, int? targetBodyId, Vec2 point, str
     public int? TargetBodyId { get; } = targetBodyId;
     public Vec2 Point { get; } = point;
     public string TargetName { get; } = targetName;
+    public int? TargetFleetId { get; init; }
     public FlightPlan? Plan { get; set; }
 }

@@ -46,16 +46,17 @@ public sealed class Simulation
     public IReadOnlyDictionary<string, int> RuleHits => _ruleHits;
     public IReadOnlyCollection<GameCommand> PendingCommands => _pending;
 
-    public static Simulation NewGame(string scenario, ulong seed, GameLog log, BuildInfo? build = null)
+    public static Simulation NewGame(string scenario, ulong seed, GameLog log, BuildInfo? build = null, SandboxSetup? sandbox = null)
     {
         build ??= log.Build;
         var rng = new SimRandom(seed);
-        var world = Scenarios.Create(scenario, seed, rng);
+        var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng);
         world.Random = rng.Save();
-        var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed };
+        if (sandbox != null) scenario = Scenarios.BattleSandbox;
+        var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox };
         var sim = new Simulation(world, rng, log, build, replay);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
-        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed });
+        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox });
         return sim;
     }
 
@@ -73,20 +74,46 @@ public sealed class Simulation
     /// <summary>Queue a command. It takes effect at the start of the next tick and is recorded in the replay.</summary>
     public void Issue(GameCommand command) => _pending.Enqueue(command);
 
-    /// <summary>Advance one tick (one game hour).</summary>
+    /// <summary>True when the last step was a battle-time step (10 game seconds) rather than a whole hour.</summary>
+    public bool InBattleTime { get; private set; }
+
+    /// <summary>
+    /// Advance the game: one whole hour normally, or one 10-second battle-time step when enemy fleets
+    /// could meet this hour (or are fighting). Both kinds of step replay exactly.
+    /// </summary>
     public void Step()
     {
         while (_pending.Count > 0)
         {
             var command = _pending.Dequeue();
-            Replay.Commands.Add(new RecordedCommand(World.Tick, command));
+            Replay.Commands.Add(new RecordedCommand(World.Tick, command, World.Sub));
             command.Apply(World, this);
         }
 
-        World.Tick++;
-        UpdateBodyPositions(World);
-        MoveFleets();
+        var t0 = World.Hour;
+        InBattleTime = World.Sub != 0 || Combat.BattlePossible(World);
+        if (InBattleTime)
+        {
+            World.Sub++;
+            if (World.Sub == GameTime.SubSteps)
+            {
+                World.Sub = 0;
+                World.Tick++;
+                UpdateBodyPositions(World);
+            }
+            var t1 = World.Hour;
+            Combat.Steer(this, t0, t1);
+            MoveFleets(t0, t1);
+            Combat.Fire(this, t0, t1);
+        }
+        else
+        {
+            World.Tick++;
+            UpdateBodyPositions(World);
+            MoveFleets(t0, World.Hour);
+        }
         World.Random = Rng.Save();
+        if (World.Sub != 0) return;
 
         if (World.Tick % GameTime.TicksPerDay == 0)
             Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));
@@ -95,9 +122,14 @@ public sealed class Simulation
             CheckRules();
     }
 
+    /// <summary>How much game time the next step will probably take (for the screen's clock; the step itself decides).</summary>
+    public double PeekStepHours() => World.Sub != 0 || Combat.BattlePossible(World) ? GameTime.SubStepHours : GameTime.HoursPerTick;
+
+    /// <summary>Advance this many whole hours (battle time included).</summary>
     public void StepMany(int ticks)
     {
-        for (var i = 0; i < ticks; i++) Step();
+        var end = World.Tick + ticks;
+        while (World.Tick < end || World.Sub != 0) Step();
     }
 
     /// <summary>Runs the rule checks now. Returns what failed.</summary>
@@ -160,41 +192,46 @@ public sealed class Simulation
     /// <summary>Supplies a fleet in orbit at its own home world gets back each day, as a share of a full load.</summary>
     public const double RefillPerDay = 0.1;
 
-    private void MoveFleets()
+    private void MoveFleets(double t0, double t1)
     {
-        double now = World.Tick;
+        var dt = t1 - t0;
         foreach (var f in World.Fleets)
         {
-            if (f.Flight is Flight flight && FlightPlanner.FlightState(flight, now) is { } state)
+            if (f.Flight is Flight flight && FlightPlanner.FlightState(flight, t1) is { } state)
             {
                 if (!flight.Started)
                 {
                     flight.Started = true;
                     Fleets.EnterDrift(f);
+                    f.Maneuvering = false;
                     Log.Info("fleet", $"{f.Name} departs", new { fleetId = f.Id, flight.TargetBodyId });
                 }
-                BurnFuel(f, FlightPlanner.DeltaVBetween(flight, now - GameTime.HoursPerTick, now));
+                BurnFuel(f, FlightPlanner.DeltaVBetween(flight, t0, t1));
                 f.Position = state.Position;
                 f.Velocity = state.Velocity;
-                if (now >= flight.EndHour) Arrive(f, flight);
+                if (t1 >= flight.EndHour) Arrive(f, flight, t1);
             }
             else if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int bodyId && World.FindBody(bodyId) is Body body)
             {
-                f.OrbitAngle += 2 * Math.PI * GameTime.HoursPerTick / Fleets.OrbitPeriodHours(body, f.OrbitRadius);
+                f.OrbitAngle += 2 * Math.PI * dt / Fleets.OrbitPeriodHours(body, f.OrbitRadius);
                 if (f.OrbitAngle >= Math.PI * 2) f.OrbitAngle -= Math.PI * 2;
-                f.Position = body.Position + new Vec2(DetMath.Cos(f.OrbitAngle), DetMath.Sin(f.OrbitAngle)) * f.OrbitRadius;
+                f.Position = FlightPlanner.PredictBody(World, body, t1) + new Vec2(DetMath.Cos(f.OrbitAngle), DetMath.Sin(f.OrbitAngle)) * f.OrbitRadius;
                 f.Velocity = Vec2.Zero;
-                if (body.Owner == f.Side) Refill(f);
+                if (body.Owner == f.Side && World.ActiveBattle == null)
+                {
+                    Refill(f, dt);
+                    Combat.RepairAtHome(World, f, dt);
+                }
             }
             else
             {
-                f.Position += f.Velocity * GameTime.HoursPerTick;
+                f.Position += f.Velocity * dt;
             }
             foreach (var s in World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
         }
     }
 
-    private void Arrive(Fleet f, Flight flight)
+    private void Arrive(Fleet f, Flight flight, double now)
     {
         f.Flight = null;
         var body = flight.TargetBodyId is int id ? World.FindBody(id) : null;
@@ -204,7 +241,7 @@ public sealed class Simulation
             if (flight.HoldAfter == HoldStyle.Orbit && (body ?? Fleets.OrbitableNear(World, f.Position)) is Body orbit)
             {
                 // The flight ended part way through the last hour; keep the spot it reached relative to the body.
-                f.Position = orbit.Position + (f.Position - FlightPlanner.PredictBody(World, orbit, flight.EndHour));
+                f.Position = FlightPlanner.PredictBody(World, orbit, now) + (f.Position - FlightPlanner.PredictBody(World, orbit, flight.EndHour));
                 Fleets.EnterOrbit(f, orbit);
             }
             else
@@ -218,19 +255,19 @@ public sealed class Simulation
         Log.Info("fleet", $"{f.Name} {where}", new { fleetId = f.Id, at = f.Position, hold = f.Hold, speed = f.Velocity.Length });
     }
 
-    private void BurnFuel(Fleet f, double deltaV)
+    public void BurnFuel(Fleet f, double deltaV)
     {
         if (deltaV <= 0) return;
         foreach (var s in World.ShipsOf(f))
             s.Supplies = Math.Max(0, s.Supplies - deltaV * GameData.ShipClass(s.ClassId).SuppliesPerDeltaV);
     }
 
-    private void Refill(Fleet f)
+    private void Refill(Fleet f, double hours)
     {
         foreach (var s in World.ShipsOf(f))
         {
             var max = GameData.ShipClass(s.ClassId).Supplies;
-            s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * GameTime.HoursPerTick / 24);
+            s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * hours / 24);
         }
     }
 }

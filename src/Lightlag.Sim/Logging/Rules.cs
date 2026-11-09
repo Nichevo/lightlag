@@ -61,6 +61,14 @@ public sealed class RuleBook
             .Select(s => $"ship {s.Id} {s.Name} has {s.Supplies} supplies"))
         .Add("ship-class-known", w => w.Ships.Where(s => !GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => $"ship {s.Id} {s.Name} has unknown class '{s.ClassId}'"))
+        .Add("battle-step-in-range", w => w.Sub is < 0 or >= GameTime.SubSteps ? new[] { $"battle step {w.Sub}" } : Array.Empty<string>())
+        .Add("armour-in-range", w => w.Ships.Where(s => GameData.ShipClasses.TryGetValue(s.ClassId, out var c)
+                && !(s.Armour > 0 && s.Armour <= c.Armour + 1e-6) || s.Missiles < 0)
+            .Select(s => $"ship {s.Id} {s.Name} has armour {s.Armour} and {s.Missiles} missiles"))
+        .Add("missiles-sane", w => w.Missiles.Where(m => !m.Position.IsFinite || !m.Velocity.IsFinite || m.DeltaVLeft < -1e-9)
+            .Select(m => $"missile {m.Id} is at {m.Position} moving {m.Velocity} with {m.DeltaVLeft} fuel"))
+        .Add("battle-not-endless", w => w.ActiveBattle is { } b && w.Hour - b.StartHour > 30 * 24
+            ? new[] { $"battle {b.Id} has gone on since {GameTime.Format(b.StartHour)}" } : Array.Empty<string>())
         .Add("ship-speed-sane", w => w.Ships.Where(s => !(s.MaxSpeed > 0 && double.IsFinite(s.MaxSpeed)))
             .Select(s => $"ship {s.Id} {s.Name} has max speed {s.MaxSpeed}"));
 

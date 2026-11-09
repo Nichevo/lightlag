@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
   Overnight headless run: updates to the newest build, then plays many AI games with strict rule
-  checks and writes the morning summary to data\nightly\latest-summary.md.
+  checks and writes the morning summary to data\nightly\latest-summary.md, then runs a battle sweep
+  (data\nightly\latest-battles.md).
 #>
 param(
     [int]$Games = 200,
@@ -21,6 +22,9 @@ try {
     if (-not (Test-Path $runner)) { throw "Headless runner not found at $runner" }
     & $runner nightly --games $Games --days $Days --minutes $Minutes --data-dir $data
     Write-Host "Exit code: $LASTEXITCODE"
+    # Battle sweep: every fleet mix, approach and missile brain, 10 times each (about a minute).
+    & $runner battles --repeats 10 --data-dir $data
+    Write-Host "Battle sweep exit code: $LASTEXITCODE"
 }
 catch {
     Write-Host "Nightly run failed: $($_.Exception.Message)"

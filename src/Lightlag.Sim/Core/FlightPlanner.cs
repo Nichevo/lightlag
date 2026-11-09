@@ -8,7 +8,8 @@ public sealed record FlightRequest(
     ArrivalStyle Arrival,
     HoldStyle HoldAfter,
     long DepartTick,
-    RouteKind Route = RouteKind.Direct);
+    RouteKind Route = RouteKind.Direct,
+    int? TargetFleetId = null);
 
 /// <summary>The planner's answer: the flight, what it costs, or why it cannot be flown.</summary>
 public sealed record FlightPlan(bool Ok, string? Problem, Flight? Flight, double DeltaV, double DeltaVLeft)
@@ -35,7 +36,7 @@ public static class FlightPlanner
     {
         var perf = FleetPerformance.Of(w, fleet);
         if (perf.MaxSpeed <= 0 || perf.Accel <= 0) return FlightPlan.Fail("The fleet has no ships that can fly");
-        double now = w.Tick;
+        var now = w.Hour;
         var legs = new List<FlightLeg>();
         double dv = 0;
 
@@ -65,17 +66,28 @@ public static class FlightPlanner
             if (body == null) return FlightPlan.Fail("That target no longer exists", perf.DeltaVLeft);
         }
 
+        Fleet? enemy = null;
+        if (req.TargetFleetId is int fleetId)
+        {
+            enemy = w.FindFleet(fleetId);
+            if (enemy == null) return FlightPlan.Fail("That fleet is gone", perf.DeltaVLeft);
+            body = null;
+        }
+
         Vec2 aim;
-        if (body == null)
+        if (body == null && enemy == null)
         {
             aim = req.Point;
         }
         else
         {
-            var standoff = Fleets.OrbitRadiusFor(body);
+            // Bodies: arrive at orbit height. Fleets: brake just inside railgun range, or fly straight through.
+            var standoff = body != null ? Fleets.OrbitRadiusFor(body)
+                : req.Arrival == ArrivalStyle.Brake ? GameData.Combat.EngageRangeMm * 0.75 : 0;
+            var targetName = body?.Name ?? enemy!.Name;
             Vec2 AimAt(double hour)
             {
-                var p = PredictBody(w, body, hour);
+                var p = body != null ? PredictBody(w, body, hour) : Combat.PredictFleet(w, enemy!, hour);
                 var away = (p0 - p).Normalized();
                 if (away == Vec2.Zero) away = new Vec2(1, 0);
                 return p + away * standoff;
@@ -93,7 +105,7 @@ public static class FlightPlanner
                     lo = hi;
                     hi += step;
                     if (hi - depart > MaxSearchHours)
-                        return FlightPlan.Fail($"Too slow to catch {body.Name} at this speed", perf.DeltaVLeft);
+                        return FlightPlan.Fail($"Too slow to catch {targetName} at this speed", perf.DeltaVLeft);
                 }
                 for (var i = 0; i < 60; i++)
                 {
@@ -138,6 +150,7 @@ public static class FlightPlanner
         var flight = new Flight
         {
             TargetBodyId = body?.Id,
+            TargetFleetId = enemy?.Id,
             Target = aim,
             Route = req.Route,
             Arrival = req.Arrival,
@@ -160,7 +173,7 @@ public static class FlightPlanner
         var perf = FleetPerformance.Of(w, fleet);
         var v = fleet.Velocity;
         if (v.Length < 1e-9 || perf.Accel <= 0 || v.Length > perf.DeltaVLeft + 1e-9) return null;
-        double now = w.Tick;
+        var now = w.Hour;
         var brake = new FlightLeg(now, now + v.Length / perf.Accel, fleet.Position, v, v.Normalized() * -perf.Accel);
         return new Flight
         {
@@ -235,10 +248,10 @@ public static class FlightPlanner
     {
         if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int id && w.FindBody(id) is Body body)
         {
-            var angle = f.OrbitAngle + 2 * Math.PI * (hour - w.Tick) / Fleets.OrbitPeriodHours(body, f.OrbitRadius);
+            var angle = f.OrbitAngle + 2 * Math.PI * (hour - w.Hour) / Fleets.OrbitPeriodHours(body, f.OrbitRadius);
             return PredictBody(w, body, hour) + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * f.OrbitRadius;
         }
-        return f.Position + f.Velocity * (hour - w.Tick);
+        return f.Position + f.Velocity * (hour - w.Hour);
     }
 
     /// <summary>Where a fleet on this flight is at a game hour (null before it leaves).</summary>

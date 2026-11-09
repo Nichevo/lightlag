@@ -17,6 +17,8 @@ public partial class Hud : CanvasLayer
     private Label _info = null!;
     private FleetPanel _fleetPanel = null!;
     private PlannerPanel _plannerPanel = null!;
+    private ReportPanel _reportPanel = null!;
+    private Label _battle = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -56,7 +58,7 @@ public partial class Hud : CanvasLayer
         _scaleBar.Position += new Vector2(0, -40);
         AddChild(_scaleBar);
 
-        var help = Ui.Label("Wheel zoom · drag pan · click select · double-click follow · right-click plan route (Shift: go now) · Enter go · O orbit · D drift · S stop · Space pause · 1-4 speed · Home system · F8 report", 12, Ui.Dim);
+        var help = Ui.Label("Wheel zoom · drag pan · click select · double-click follow · right-click plan route or attack (Shift: go now) · Enter go · O orbit · D drift · S stop · R combat report · Space pause · 1-4 speed · Home · F8 report", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -75,6 +77,18 @@ public partial class Hud : CanvasLayer
         _fleetPanel.GrowVertical = Control.GrowDirection.Begin;
         AddChild(_fleetPanel);
 
+        _battle = Ui.Label("", 18, Ui.Danger);
+        _battle.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.KeepSize, 60);
+        _battle.HorizontalAlignment = HorizontalAlignment.Center;
+        _battle.GrowHorizontal = Control.GrowDirection.Both;
+        AddChild(_battle);
+
+        _reportPanel = new ReportPanel(_screen);
+        _reportPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
+        _reportPanel.GrowHorizontal = Control.GrowDirection.Both;
+        _reportPanel.GrowVertical = Control.GrowDirection.Both;
+        AddChild(_reportPanel);
+
         _plannerPanel = new PlannerPanel(_screen);
         _plannerPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.KeepSize, 16);
         _plannerPanel.GrowHorizontal = Control.GrowDirection.Begin;
@@ -89,7 +103,10 @@ public partial class Hud : CanvasLayer
     {
         var sim = Main.Instance.Sim;
         if (sim == null) return;
-        _date.Text = GameTime.Format(sim.World.Tick);
+        _date.Text = _screen.InBattle ? GameTime.Format(sim.World.Hour) : GameTime.Format(sim.World.Tick);
+        _battle.Text = _screen.InBattle ? $"BATTLE TIME  ·  {sim.World.Missiles.Count} missiles in flight" : "";
+        _reportPanel.Visible = _screen.Report != null;
+        if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
         _pause.Modulate = _screen.Paused ? Ui.Rival : Colors.White;
         for (var i = 0; i < _speedButtons.Count; i++)
             _speedButtons[i].Modulate = !_screen.Paused && i == _screen.SpeedIndex ? Ui.Player : new Color(1, 1, 1, 0.75f);

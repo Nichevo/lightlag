@@ -6,6 +6,9 @@ public enum HoldStyle { Orbit, Drift }
 /// <summary>How a flight ends: brake to a stop at the target, or fly through it at speed (cheaper, faster, no stop).</summary>
 public enum ArrivalStyle { Brake, FastPass }
 
+/// <summary>Standing order: Engage closes to weapon range and fires; Hold keeps its course and fires at what comes in range.</summary>
+public enum Stance { Engage, Hold }
+
 /// <summary>Direct leaves now; Wait leaves when the trip is shortest (the target swings closer).</summary>
 public enum RouteKind { Direct, Wait }
 
@@ -34,6 +37,16 @@ public sealed class Fleet
     /// <summary>The flight under way or waiting to leave, if any.</summary>
     public Flight? Flight { get; set; }
 
+    /// <summary>What the fleet does when enemies come into contact.</summary>
+    public Stance Stance { get; set; } = Stance.Engage;
+
+    /// <summary>Break off and fly home when the fleet's armour falls below half.</summary>
+    public bool RetreatWhenDamaged { get; set; } = true;
+    public bool Retreating { get; set; }
+
+    /// <summary>Closing in on an enemy, or braking after a fight (moved by velocity, outside any flight plan).</summary>
+    public bool Maneuvering { get; set; }
+
     public bool InFlight => Flight != null;
 }
 
@@ -44,6 +57,7 @@ public sealed class Fleet
 public sealed class Flight
 {
     public int? TargetBodyId { get; set; }
+    public int? TargetFleetId { get; set; }
     public Vec2 Target { get; set; }
     public RouteKind Route { get; set; }
     public ArrivalStyle Arrival { get; set; }
@@ -98,8 +112,10 @@ public readonly record struct FleetPerformance(double MaxSpeed, double Accel, do
         double speed = double.MaxValue, accel = double.MaxValue, dv = double.MaxValue;
         foreach (var s in w.ShipsOf(f))
         {
-            speed = Math.Min(speed, s.MaxSpeed);
-            accel = Math.Min(accel, s.Accel);
+            // A ship with its engines knocked out limps at half speed and half thrust.
+            var engines = s.Disabled == Module.Engines ? 0.5 : 1.0;
+            speed = Math.Min(speed, s.MaxSpeed * engines);
+            accel = Math.Min(accel, s.Accel * engines);
             var cls = GameData.ShipClass(s.ClassId);
             dv = Math.Min(dv, s.Supplies / cls.SuppliesPerDeltaV);
         }

@@ -5,7 +5,7 @@ using Lightlag.Sim.Save;
 
 namespace Lightlag.Headless;
 
-/// <summary>Command-line entry: batch (overnight runs), replay, logs.</summary>
+/// <summary>Command-line entry: batch (overnight runs), battles (battle sweeps), replay, logs.</summary>
 public static class Cli
 {
     public const string Usage = """
@@ -17,6 +17,10 @@ public static class Cli
                   Stops starting new games after M minutes. The newest summary is also copied to
                   <data>/nightly/latest-summary.md (the "morning summary").
           nightly Same as batch with overnight defaults (--games 200 --days 365 --minutes 360).
+
+          battles [--repeats N] [--seed S] [--data-dir DIR]
+                  Battle sweep: every fleet mix x approach x missile brain in the sandbox, N times each.
+                  Writes battles.csv and a summary to <data>/nightly/<time>_battles/ and latest-battles.md.
 
           replay  <replay.json | save.json> [--until-tick T]
                   Replays a game and checks it matches what was recorded. Exit code 0 = exact.
@@ -41,6 +45,7 @@ public static class Cli
             {
                 "batch" => Batch.Run(opts, nightly: false),
                 "nightly" => Batch.Run(opts, nightly: true),
+                "battles" => BattleSweep.Run(opts),
                 "replay" => RunReplay(opts),
                 "logs" => LogSearch.Run(opts),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}"),

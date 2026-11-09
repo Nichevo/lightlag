@@ -13,11 +13,21 @@ public sealed class TestPilot
 
     public double OrderChancePerDay { get; set; } = 0.3;
 
-    /// <summary>Call once per tick, before Step.</summary>
+    /// <summary>Play the game with this pilot until the given hour (finishing any battle-time steps).</summary>
+    public void PlayUntil(Simulation sim, long tick)
+    {
+        while (sim.World.Tick < tick || sim.World.Sub != 0)
+        {
+            Act(sim);
+            sim.Step();
+        }
+    }
+
+    /// <summary>Call before each Step.</summary>
     public void Act(Simulation sim)
     {
         var world = sim.World;
-        if (world.Tick % GameTime.TicksPerDay != 0) return;
+        if (world.Tick % GameTime.TicksPerDay != 0 || world.Sub != 0) return;
         foreach (var fleet in world.Fleets.ToList())
         {
             if (!_rng.Chance(OrderChancePerDay)) continue;

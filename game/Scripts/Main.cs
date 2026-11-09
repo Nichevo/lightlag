@@ -82,6 +82,24 @@ public partial class Main : Node
         });
     }
 
+    /// <summary>The last battle sandbox set-up, so "Restart battle" can run it again.</summary>
+    public SandboxSetup LastSandbox { get; private set; } = new();
+
+    public void StartSandbox(SandboxSetup setup, ulong? seed = null)
+    {
+        LastSandbox = setup;
+        var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
+        RunGuarded("starting the battle sandbox", () =>
+        {
+            Sim = Simulation.NewGame(Scenarios.BattleSandbox, s, Log, Build, setup);
+            var screen = new GameScreen();
+            SetScreen(screen);
+            screen.FocusSandbox();
+        });
+    }
+
+    public void ShowSandboxSetup() => SetScreen(new SandboxScreen());
+
     public void LoadGame(string path)
     {
         RunGuarded($"loading {System.IO.Path.GetFileName(path)}", () =>
@@ -259,16 +277,39 @@ public partial class Main : Node
                     game.Select(rival.Id);
                 }),
             };
-            foreach (var (name, setup) in views)
+            async Task Shoot(string name)
             {
-                game.Select(null);
-                setup();
-                game.Camera.SetScale(game.Camera.TargetScale, instant: true);
                 for (var i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 var image = GetViewport().GetTexture().GetImage();
                 image.SavePng(System.IO.Path.Combine(dir, name + ".png"));
                 Log.Info("game", $"Screenshot {name}");
             }
+            foreach (var (name, setup) in views)
+            {
+                game.Select(null);
+                setup();
+                game.Camera.SetScale(game.Camera.TargetScale, instant: true);
+                await Shoot(name);
+            }
+
+            // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
+            StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 150), 7);
+            var battle = (GameScreen)_screen!;
+            var mine = Sim!.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+            var theirs = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Rival);
+            battle.Settings.Route = RouteKind.Direct;
+            battle.StartPlanning(null, theirs.Position, theirs.Id);
+            await Shoot("11-attack-plan");
+            battle.ConfirmPlan();
+            for (var i = 0; i < 20000 && Sim.World.Missiles.Count < 4; i++) Sim.Step();
+            battle.Select(mine.Id);
+            battle.FocusSandbox();
+            battle.Camera.SetScale(battle.Camera.TargetScale, instant: true);
+            await Shoot("12-battle");
+            var end = Sim.World.Tick + 72;
+            while ((Sim.World.ActiveBattle != null || Sim.World.Sub != 0) && Sim.World.Tick < end) Sim.Step();
+            battle.ShowLastReport();
+            await Shoot("13-combat-report");
         }
         catch (Exception ex)
         {

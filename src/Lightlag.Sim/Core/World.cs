@@ -9,10 +9,21 @@ public sealed class World
     public string Scenario { get; set; } = "";
     public ulong Seed { get; set; }
     public long Tick { get; set; }
+
+    /// <summary>
+    /// Battle time: when fleets could meet, each hour is run in short steps (see GameTime.SubSteps).
+    /// This is how far into the current hour the game is; 0 between hours.
+    /// </summary>
+    public int Sub { get; set; }
     public RandomState Random { get; set; } = new(0, 1);
     public List<Body> Bodies { get; set; } = new();
     public List<Ship> Ships { get; set; } = new();
     public List<Fleet> Fleets { get; set; } = new();
+    public List<Missile> Missiles { get; set; } = new();
+    public List<Battle> Battles { get; set; } = new();
+
+    /// <summary>Missile guidance level per side (1 or 2). Research raises it later.</summary>
+    public int[] MissileBrain { get; set; } = { 1, 1 };
     public List<Belt> Belts { get; set; } = new();
     public int NextId { get; set; } = 1;
 
@@ -20,6 +31,11 @@ public sealed class World
     public int[] FleetNumbers { get; set; } = new int[2];
 
     public int Day => GameTime.DayOf(Tick);
+
+    /// <summary>The game time in hours, including battle-time steps within the hour.</summary>
+    public double Hour => Tick + (double)Sub / GameTime.SubSteps;
+
+    public Battle? ActiveBattle => Battles.Count > 0 && Battles[^1].EndHour == null ? Battles[^1] : null;
 
     public Body? FindBody(int id) => Bodies.Find(b => b.Id == id);
     public Ship? FindShip(int id) => Ships.Find(s => s.Id == id);
@@ -81,6 +97,18 @@ public sealed class Ship
     public double MaxSpeed { get; set; }         // Mm per hour
     public double Accel { get; set; }            // Mm per hour per hour
 
-    /// <summary>The ship's one stock of fuel and (from M3) ammunition.</summary>
+    /// <summary>The ship's one stock of fuel and railgun ammunition.</summary>
     public double Supplies { get; set; }
+
+    public double Armour { get; set; }
+    public int Missiles { get; set; }
+
+    /// <summary>A part knocked out in battle, until repaired at home.</summary>
+    public Module? Disabled { get; set; }
+
+    /// <summary>Game hours when the railguns and missile racks can fire again.</summary>
+    public double RailsReadyHour { get; set; }
+    public double SalvoReadyHour { get; set; }
 }
+
+public enum Module { Engines, Railguns, Missiles, PointDefence }

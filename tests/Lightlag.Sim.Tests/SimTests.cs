@@ -13,11 +13,7 @@ public class SimTests
     {
         var sim = Simulation.NewGame(Scenarios.TestSystem, seed, log ?? GameLog.Memory());
         var pilot = new TestPilot(seed);
-        for (var i = 0; i < days * GameTime.TicksPerDay; i++)
-        {
-            pilot.Act(sim);
-            sim.Step();
-        }
+        pilot.PlayUntil(sim, days * GameTime.TicksPerDay);
         return sim;
     }
 
@@ -68,8 +64,8 @@ public class SimTests
         var pilot = new TestPilot(11);
         // Bring the pilot's own dice to the same point by replaying its first 20 days of decisions.
         var warmup = Simulation.NewGame(Scenarios.TestSystem, 11, GameLog.Memory());
-        for (var i = 0; i < 20 * GameTime.TicksPerDay; i++) { pilot.Act(warmup); warmup.Step(); }
-        for (var i = 0; i < 20 * GameTime.TicksPerDay; i++) { pilot.Act(loaded); loaded.Step(); }
+        pilot.PlayUntil(warmup, 20 * GameTime.TicksPerDay);
+        pilot.PlayUntil(loaded, 40 * GameTime.TicksPerDay);
 
         Assert.Equal(straight.StateHash(), loaded.StateHash());
     }
@@ -116,7 +112,7 @@ public class SimTests
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         var pilot = new TestPilot(5);
-        for (var i = 0; i < 400 * GameTime.TicksPerDay; i++) { pilot.Act(sim); sim.Step(); }
+        pilot.PlayUntil(sim, 400 * GameTime.TicksPerDay);
         Assert.Equal(0, sim.RuleViolations);
     }
 
