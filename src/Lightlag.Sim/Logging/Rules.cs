@@ -53,6 +53,8 @@ public sealed class RuleBook
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)
+        .Add("ship-hold-body-exists", w => w.Ships.Where(s => s.HoldBodyId is int b && w.FindBody(b) == null)
+            .Select(s => $"ship {s.Id} {s.Name} keeps station with missing body {s.HoldBodyId}"))
         .Add("ship-class-known", w => w.Ships.Where(s => !GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => $"ship {s.Id} {s.Name} has unknown class '{s.ClassId}'"))
         .Add("ship-speed-sane", w => w.Ships.Where(s => !(s.MaxSpeed > 0 && double.IsFinite(s.MaxSpeed)))

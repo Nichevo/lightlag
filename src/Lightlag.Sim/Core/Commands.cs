@@ -56,6 +56,8 @@ public sealed record DebugBreakRuleCommand : GameCommand
 {
     public override void Apply(World world, Simulation sim)
     {
-        if (world.Ships.Count > 0) world.Ships[0].Position = new Vec2(double.NaN, 0);
+        if (world.Ships.Count == 0) return;
+        world.Ships[0].HoldBodyId = null;
+        world.Ships[0].Position = new Vec2(double.NaN, 0);
     }
 }

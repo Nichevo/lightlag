@@ -161,14 +161,22 @@ public sealed class Simulation
     {
         foreach (var s in World.Ships)
         {
-            if (s.Destination is not Vec2 dest) continue;
+            if (s.Destination is not Vec2 dest)
+            {
+                if (s.HoldBodyId is int hold && World.FindBody(hold) is Body body)
+                    s.Position = body.Position + s.HoldOffset;
+                continue;
+            }
+            s.HoldBodyId = null;
             var toGo = dest - s.Position;
             var step = s.MaxSpeed * GameTime.HoursPerTick;
             if (toGo.Length <= step)
             {
                 s.Position = dest;
                 s.Destination = null;
-                Log.Info("sim", $"{s.Name} arrived", new { shipId = s.Id, at = dest });
+                KeepStationNearby(World, s);
+                var near = s.HoldBodyId is int h ? World.FindBody(h)?.Name : null;
+                Log.Info("sim", near != null ? $"{s.Name} arrived near {near}" : $"{s.Name} arrived", new { shipId = s.Id, at = dest, near });
             }
             else
             {
@@ -176,4 +184,28 @@ public sealed class Simulation
             }
         }
     }
+
+    /// <summary>
+    /// If the ship is close to a body (inside a planet's moon system or within 3,000,000 km of it,
+    /// or right next to a moon), it keeps station with the nearest such body from now on.
+    /// </summary>
+    public static void KeepStationNearby(World world, Ship ship)
+    {
+        Body? best = null;
+        var bestDist = double.MaxValue;
+        foreach (var b in world.Bodies)
+        {
+            if (b.Kind == BodyKind.Star) continue;
+            // Planets: their moon system, or 3,000,000 km. Moons: a small zone close in.
+            var reach = b.Kind == BodyKind.Moon ? Math.Max(b.Radius * 20, b.OrbitRadius * 0.1) : 3000.0;
+            foreach (var m in world.Bodies)
+                if (m.ParentId == b.Id) reach = Math.Max(reach, m.OrbitRadius * 1.2);
+            var d = Vec2.Distance(ship.Position, b.Position);
+            // Prefer the closest body that is in reach (a moon over its planet when right next to it).
+            if (d <= reach && d < bestDist) { best = b; bestDist = d; }
+        }
+        ship.HoldBodyId = best?.Id;
+        ship.HoldOffset = best != null ? ship.Position - best.Position : Vec2.Zero;
+    }
+
 }
