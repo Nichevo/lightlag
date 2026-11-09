@@ -70,14 +70,19 @@ public static class Sensors
         return count == 0 ? 0 : largest * (1 + S.ExtraShip * (count - 1));
     }
 
-    public static double Signature(World w, Fleet f) => SizeOf(w, f) * StateFactor(StateOf(f));
+    public static double Signature(World w, Fleet f)
+    {
+        var state = StateOf(f);
+        var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) : 1;
+        return SizeOf(w, f) * StateFactor(state) * quiet;
+    }
 
     /// <summary>The fleet's best sensor range (for a signature of 1).</summary>
     public static double SensorOf(World w, Fleet f)
     {
         double best = 0;
         foreach (var s in w.ShipsOf(f)) best = Math.Max(best, GameData.ShipClass(s.ClassId).SensorMm);
-        return best;
+        return best * Tech.Factor(w, f.Side, Tech.LongSensors);
     }
 
     /// <summary>How far a sensor of this strength sees a fleet with this signature.</summary>
@@ -131,7 +136,7 @@ public static class Sensors
             foreach (var f in w.Fleets.Where(f => f.Side == side))
                 if (f.Position.IsFinite) observers.Add((f.Position, SensorOf(w, f), null));
             foreach (var b in w.Bodies.Where(b => b.Owner == side))
-                observers.Add((b.Position, S.PlanetSensorMm, b.Id));
+                observers.Add((b.Position, S.PlanetSensorMm * Tech.Factor(w, side, Tech.LongSensors), b.Id));
 
             foreach (var enemy in w.Fleets.Where(f => f.Side != side))
             {

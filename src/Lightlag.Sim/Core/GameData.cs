@@ -26,7 +26,7 @@ public sealed record SystemData(string Name, List<BodyData> Bodies, List<BeltDat
 public sealed record BodyData(
     string Id, string Name, BodyKind Kind, string Type, string? Parent,
     double? OrbitAu, double? OrbitMm, double? MassSun, double? MassEarth,
-    double RadiusMm, string Color, string? Atmosphere)
+    double RadiusMm, string Color, string? Atmosphere, double? Industry = null)
 {
     public double OrbitRadiusMm => OrbitMm ?? (OrbitAu ?? 0) * Physics.MmPerAu;
     public double Gm => (MassSun ?? 0) * Physics.GmSun + (MassEarth ?? 0) * Physics.GmEarth;
@@ -74,10 +74,18 @@ public static class GameData
 {
     private static readonly Lazy<ShipClassFile> _file = new(LoadShipClassFile);
     private static readonly Lazy<IReadOnlyDictionary<string, ShipClass>> _classes = new(LoadShipClasses);
+    private static readonly Lazy<EconomyData> _economy = new(LoadEconomy);
+    private static readonly Lazy<IReadOnlyDictionary<string, ResearchData>> _research =
+        new(() => _economy.Value.Research.ToDictionary(r => r.Id));
 
     public static IReadOnlyDictionary<string, ShipClass> ShipClasses => _classes.Value;
     public static CombatData Combat => _file.Value.Combat;
     public static SensorData Sensors => _file.Value.Sensors;
+    public static EconomyData Economy => _economy.Value;
+    public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;
+
+    public static ResearchData Research(string id) =>
+        ResearchById.TryGetValue(id, out var r) ? r : throw new InvalidDataException($"Unknown research '{id}'");
 
     public static ShipClass ShipClass(string id) =>
         ShipClasses.TryGetValue(id, out var c) ? c : throw new InvalidDataException($"Unknown ship class '{id}'");
@@ -104,6 +112,23 @@ public static class GameData
         if (file.Combat == null) throw new InvalidDataException("ship-classes.json: the combat section is missing");
         if (file.Sensors == null) throw new InvalidDataException("ship-classes.json: the sensors section is missing");
         return file;
+    }
+
+    private static EconomyData LoadEconomy()
+    {
+        var e = Json.Deserialize<EconomyData>(ReadText("economy.json"));
+        if (e.Shipyard == null || e.Research == null) throw new InvalidDataException("economy.json: the shipyard or research section is missing");
+        if (!(e.BuildIndustryPerDay > 0 && e.ClaimDays > 0 && e.HoldToWinDays > 0 && e.StartIndustry >= 0))
+            throw new InvalidDataException("economy.json: buildIndustryPerDay, claimDays and holdToWinDays must be above 0");
+        if (!(e.Shipyard.Armour > 0 && e.Shipyard.MissileEveryHours >= 1))
+            throw new InvalidDataException("economy.json: shipyard armour must be above 0 and missileEveryHours at least 1");
+        var ids = new HashSet<string>();
+        foreach (var r in e.Research)
+        {
+            if (!ids.Add(r.Id)) throw new InvalidDataException($"economy.json: research '{r.Id}' is listed twice");
+            if (!(r.Cost > 0 && r.Days > 0 && r.Factor > 0)) throw new InvalidDataException($"economy.json: research '{r.Id}' needs cost, days and factor above 0");
+        }
+        return e;
     }
 
     private static IReadOnlyDictionary<string, ShipClass> LoadShipClasses()
@@ -136,6 +161,7 @@ public static class GameData
                 var parent = data.Bodies.First(p => p.Id == b.Parent);
                 if (!(parent.Gm > 0)) throw new InvalidDataException($"{file}: '{b.Parent}' needs a mass for '{b.Id}' to orbit it");
             }
+            if (b.Industry is < 0) throw new InvalidDataException($"{file}: '{b.Id}' has negative industry");
             if (!(b.RadiusMm > 0)) throw new InvalidDataException($"{file}: '{b.Id}' needs radiusMm above 0");
         }
         foreach (var belt in data.Belts ?? new())

@@ -1,0 +1,25 @@
+{
+  "_comment": "The game loop. Industry is the one resource: each planet or moon you hold adds its industry value (from the system file) per day. Ships cost their class cost in Industry, paid when the shipyard starts them, and take cost / buildIndustryPerDay days. Research is one queue; each item is paid when it starts. A neutral or enemy body is claimed after a side holds orbit there for claimDays with no enemy fleet in orbit. A shipyard is destroyed when its armour runs out under bombardment by an enemy fleet in orbit with no defenders nearby. Win: the enemy shipyard is destroyed, or hold more than half of the bodies with industry for holdToWinDays.",
+  "startIndustry": 80,
+  "buildIndustryPerDay": 8,
+  "claimDays": 10,
+  "holdToWinDays": 30,
+  "shipyard": {
+    "armour": 1500,
+    "repairPerDay": 0.05,
+    "railDamagePerHour": 1,
+    "railSuppliesPerHour": 0.05,
+    "missileDamage": 50,
+    "missileEveryHours": 6
+  },
+  "research": [
+    { "id": "missile-brain-2", "name": "Missile brain 2", "effect": "Missiles dodge point defence and evasive ships better", "cost": 100, "days": 15, "factor": 2 },
+    { "id": "point-defence-2", "name": "Faster point defence", "effect": "Point defence kills 30 % more missiles", "cost": 80, "days": 12, "factor": 1.3 },
+    { "id": "heavy-armour", "name": "Heavier armour", "effect": "Every ship gets 20 % more armour (repair at the shipyard to fill it)", "cost": 100, "days": 15, "factor": 1.2 },
+    { "id": "efficient-drives", "name": "Efficient drives", "effect": "Burns use 15 % less supplies", "cost": 80, "days": 12, "factor": 0.85 },
+    { "id": "long-sensors", "name": "Long-range sensors", "effect": "Ships and planets see 25 % further", "cost": 60, "days": 10, "factor": 1.25 },
+    { "id": "quiet-drives", "name": "Quiet drives", "effect": "Burning engines are seen from half as far", "cost": 100, "days": 15, "factor": 0.25 },
+    { "id": "fast-railguns", "name": "Fast railguns", "effect": "Railguns reload 25 % faster", "cost": 80, "days": 12, "factor": 0.75 },
+    { "id": "automation", "name": "Automated industry", "effect": "Every planet you hold makes 25 % more Industry", "cost": 120, "days": 20, "factor": 1.25 }
+  ]
+}

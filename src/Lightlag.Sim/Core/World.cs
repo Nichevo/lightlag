@@ -28,6 +28,23 @@ public sealed class World
     /// <summary>Missile guidance level per side (1 or 2). Research raises it later.</summary>
     public int[] MissileBrain { get; set; } = { 1, 1 };
     public List<Belt> Belts { get; set; } = new();
+
+    /// <summary>True in a full game (income, building, research, claims, winning); false in the battle sandbox.</summary>
+    public bool Loop { get; set; }
+
+    /// <summary>Each side's Industry, research and planet-holding clock, indexed by Side.</summary>
+    public SideState[] Sides { get; set; } = { new() { Side = Side.Player }, new() { Side = Side.Rival } };
+
+    /// <summary>Ships being built and upgrades being researched, in queue order (see Economy).</summary>
+    public List<WorkOrder> Orders { get; set; } = new();
+
+    /// <summary>How many ships of each class each side has had, so new ships get fresh numbers ("player:gun-frigate").</summary>
+    public Dictionary<string, int> ShipNumbers { get; set; } = new();
+
+    public Side? Winner { get; set; }
+    public string? WinReason { get; set; }
+    public double? WinHour { get; set; }
+
     public int NextId { get; set; } = 1;
 
     /// <summary>How many fleets each side has numbered so far, so new fleets get fresh numbers.</summary>
@@ -67,8 +84,20 @@ public sealed class Body
     public double Radius { get; set; }           // Mm, the body's own size
     public Vec2 Position { get; set; }
 
-    /// <summary>The side whose home this is: fleets in orbit here refill their supplies.</summary>
+    /// <summary>The side that holds it: fleets in orbit here refill their supplies, and it adds to that side's income.</summary>
     public Side? Owner { get; set; }
+
+    /// <summary>Industry per day for whoever holds it. 0 means it is not worth claiming.</summary>
+    public double Industry { get; set; }
+
+    /// <summary>A shipyard station orbits here: it builds ships, and fleets here are repaired and rearmed.</summary>
+    public bool Shipyard { get; set; }
+    public double ShipyardArmour { get; set; }
+    public double? LastBombardedHour { get; set; }
+
+    /// <summary>The side holding orbit here to claim it, and for how long so far.</summary>
+    public Side? ClaimSide { get; set; }
+    public double ClaimHours { get; set; }
 }
 
 /// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>

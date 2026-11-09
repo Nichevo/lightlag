@@ -117,10 +117,13 @@ public sealed class Simulation
             MoveFleets(t0, World.Hour);
             UpdateFacing(velocities);
             Sensors.Update(this);
+            // Contacts between fleets that can't fight yet start (or end) a battle at the hour.
+            Combat.UpdateContacts(this, World.Hour);
         }
         World.Random = Rng.Save();
         if (World.Sub != 0) return;
         JoinFleets();
+        Economy.Update(this);
 
         if (World.Tick % GameTime.TicksPerDay == 0)
             Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));
@@ -196,7 +199,7 @@ public sealed class Simulation
         }
     }
 
-    /// <summary>Supplies a fleet in orbit at its own home world gets back each day, as a share of a full load.</summary>
+    /// <summary>Supplies a fleet in orbit at a planet its side holds gets back each day, as a share of a full load.</summary>
     public const double RefillPerDay = 0.1;
 
     private void MoveFleets(double t0, double t1)
@@ -226,8 +229,9 @@ public sealed class Simulation
                 f.Velocity = Vec2.Zero;
                 if (body.Owner == f.Side && World.ActiveBattle == null)
                 {
+                    // Any planet you hold refuels; only the shipyard repairs and rearms.
                     Refill(f, dt);
-                    Combat.RepairAtHome(World, f, dt);
+                    if (body.Shipyard) Combat.RepairAtHome(World, f, dt);
                 }
             }
             else
@@ -298,7 +302,7 @@ public sealed class Simulation
     {
         if (deltaV <= 0) return;
         foreach (var s in World.ShipsOf(f))
-            s.Supplies = Math.Max(0, s.Supplies - deltaV * GameData.ShipClass(s.ClassId).SuppliesPerDeltaV);
+            s.Supplies = Math.Max(0, s.Supplies - deltaV * Tech.SuppliesPerDeltaV(World, s));
     }
 
     private void Refill(Fleet f, double hours)

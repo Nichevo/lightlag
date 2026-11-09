@@ -8,7 +8,7 @@ namespace Lightlag.Headless;
 
 public sealed record GameResult(
     int Index, ulong Seed, string Outcome, long Ticks, double Seconds, int RuleFailures,
-    int Errors, int Warnings, string? Error, string? ReportFolder);
+    int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null);
 
 /// <summary>Runs many games back to back and writes the morning summary.</summary>
 public static class Batch
@@ -83,8 +83,10 @@ public static class Batch
             var end = (long)days * GameTime.TicksPerDay;
             pilot.PlayUntil(sim, end);
             log.Info("game", $"Game finished at {GameTime.Format(sim.World.Tick)}", new { hash = sim.StateHash() });
-            return new GameResult(index, seed, "ok", sim.World.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
-                log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null);
+            var w = sim.World;
+            return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
+                log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
+                w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null);
         }
         catch (Exception ex)
         {
@@ -115,6 +117,9 @@ public static class Batch
             var slowest = results.MaxBy(r => r.Seconds)!;
             md.AppendLine($"- Time per game: average {results.Average(r => r.Seconds):0.00}s, slowest {slowest.Seconds:0.00}s (seed {slowest.Seed}). Target is under 60s.");
             md.AppendLine($"- Rule failures: {results.Sum(r => r.RuleFailures)}; log errors: {results.Sum(r => r.Errors)}; warnings: {results.Sum(r => r.Warnings)}");
+            var won = results.Where(r => r.Winner != null).ToList();
+            md.AppendLine($"- Games won (test pilot on both sides): player {won.Count(r => r.Winner == "Player")}, rival {won.Count(r => r.Winner == "Rival")}, nobody {results.Count - won.Count}"
+                          + (won.Count > 0 ? $"; average win on day {won.Average(r => r.WinDay ?? 0):0}" : ""));
         }
         md.AppendLine($"- Folder: `{runDir}`");
         if (bad.Count > 0)

@@ -16,6 +16,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetStanceCommand), "setStance")]
 [JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
+[JsonDerivedType(typeof(QueueOrderCommand), "queueOrder")]
+[JsonDerivedType(typeof(CancelOrderCommand), "cancelOrder")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

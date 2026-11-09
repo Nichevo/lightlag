@@ -1,0 +1,210 @@
+using Lightlag.Sim.Core;
+using Lightlag.Sim.Logging;
+using Lightlag.Sim.Replay;
+using Xunit;
+
+namespace Lightlag.Sim.Tests;
+
+public class EconomyTests
+{
+    private static Simulation NewGame(ulong seed = 8)
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        return sim;
+    }
+
+    private static Fleet FleetOf(Simulation sim, Side side) => sim.World.Fleets.First(f => f.Side == side);
+    private static Body BodyNamed(Simulation sim, string key) => sim.World.Bodies.Single(b => b.Key == key);
+    private static SideState Player(Simulation sim) => Economy.Of(sim.World, Side.Player);
+    private static void Days(Simulation sim, double days) => sim.StepMany((int)Math.Round(days * GameTime.TicksPerDay));
+
+    /// <summary>Puts a fleet straight into orbit at a body (test setup, not gameplay).</summary>
+    private static void PlaceInOrbit(Simulation sim, Fleet f, Body b)
+    {
+        f.Flight = null;
+        f.Position = b.Position + new Vec2(Fleets.OrbitRadiusFor(b), 0);
+        Fleets.EnterOrbit(f, b);
+        foreach (var s in sim.World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+    }
+
+    [Fact]
+    public void Each_side_starts_with_a_shipyard_and_industry()
+    {
+        var sim = NewGame();
+        Assert.True(sim.World.Loop);
+        Assert.Equal(Side.Player, Economy.ShipyardOf(sim.World, Side.Player)?.Owner);
+        Assert.Equal("verdant", Economy.ShipyardOf(sim.World, Side.Player)?.Key);
+        Assert.Equal("rust", Economy.ShipyardOf(sim.World, Side.Rival)?.Key);
+        Assert.Equal(GameData.Economy.StartIndustry, Player(sim).Industry);
+        Assert.Equal(12, Economy.Claimable(sim.World).Count());
+    }
+
+    [Fact]
+    public void Held_planets_pay_industry_every_day()
+    {
+        var sim = NewGame();
+        var start = Player(sim).Industry;
+        Days(sim, 10);
+        Assert.Equal(start + 10 * BodyNamed(sim, "verdant").Industry, Player(sim).Industry, 6);
+    }
+
+    [Fact]
+    public void The_shipyard_builds_a_ship_that_joins_the_fleet_at_home()
+    {
+        var sim = NewGame();
+        var home = FleetOf(sim, Side.Player);
+        var ships = home.ShipIds.Count;
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
+        sim.Step();
+        var frigate = GameData.ShipClass("gun-frigate");
+        Assert.Equal(GameData.Economy.StartIndustry - frigate.Cost + BodyNamed(sim, "verdant").Industry / 24, Player(sim).Industry, 6);
+        Days(sim, frigate.Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
+        Assert.Equal(ships + 1, home.ShipIds.Count);
+        Assert.Empty(sim.World.Orders);
+        Assert.Contains(sim.World.ShipsOf(home), s => s.Name == "FF-3");
+    }
+
+    [Fact]
+    public void A_ship_waits_until_there_is_enough_industry()
+    {
+        var sim = NewGame();
+        Player(sim).Industry = 10;
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "missile-destroyer"));
+        Days(sim, 2);
+        Assert.False(sim.World.Orders.Single().Paid);
+        Player(sim).Industry = 200;
+        sim.Step();
+        Assert.True(sim.World.Orders.Single().Paid);
+    }
+
+    [Fact]
+    public void Cancelling_a_started_order_gives_the_industry_back()
+    {
+        var sim = NewGame();
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
+        sim.Step();
+        var before = Player(sim).Industry;
+        sim.Issue(new CancelOrderCommand(Side.Player, sim.World.Orders.Single().Id));
+        sim.Step();
+        Assert.Empty(sim.World.Orders);
+        Assert.Equal(before + GameData.ShipClass("gun-frigate").Cost + BodyNamed(sim, "verdant").Industry / 24, Player(sim).Industry, 6);
+    }
+
+    [Fact]
+    public void Research_finishes_and_changes_the_numbers()
+    {
+        var sim = NewGame();
+        var ship = sim.World.ShipsOf(FleetOf(sim, Side.Player)).First();
+        var before = Tech.SuppliesPerDeltaV(sim.World, ship);
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.EfficientDrives));
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.EfficientDrives)); // a second one is refused
+        Days(sim, GameData.Research(Tech.EfficientDrives).Days + 0.1);
+        Assert.Contains(Tech.EfficientDrives, Player(sim).Researched);
+        Assert.Equal(before * GameData.Research(Tech.EfficientDrives).Factor, Tech.SuppliesPerDeltaV(sim.World, ship), 9);
+        Assert.Null(Economy.CanQueue(sim.World, Side.Player, OrderKind.Research, Tech.QuietDrives));
+        Assert.NotNull(Economy.CanQueue(sim.World, Side.Player, OrderKind.Research, Tech.EfficientDrives));
+    }
+
+    [Fact]
+    public void Missile_brain_research_upgrades_the_missiles()
+    {
+        var sim = NewGame();
+        Player(sim).Industry = 1000;
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.MissileBrain2));
+        Days(sim, GameData.Research(Tech.MissileBrain2).Days + 0.1);
+        Assert.Equal(2, sim.World.MissileBrain[(int)Side.Player]);
+        Assert.Equal(1, sim.World.MissileBrain[(int)Side.Rival]);
+    }
+
+    [Fact]
+    public void Holding_orbit_for_ten_days_claims_a_planet()
+    {
+        var sim = NewGame();
+        var vela = BodyNamed(sim, "vela");
+        PlaceInOrbit(sim, FleetOf(sim, Side.Player), vela);
+        Days(sim, GameData.Economy.ClaimDays - 1);
+        Assert.Null(vela.Owner);
+        Assert.Equal(Side.Player, vela.ClaimSide);
+        Days(sim, 1.1);
+        Assert.Equal(Side.Player, vela.Owner);
+        var income = Economy.IncomePerDay(sim.World, Side.Player);
+        Assert.Equal(BodyNamed(sim, "verdant").Industry + vela.Industry, income, 9);
+    }
+
+    [Fact]
+    public void An_enemy_in_orbit_stops_the_claim()
+    {
+        var sim = NewGame();
+        var vela = BodyNamed(sim, "vela");
+        PlaceInOrbit(sim, FleetOf(sim, Side.Player), vela);
+        var rival = FleetOf(sim, Side.Rival);
+        rival.Stance = Stance.Hold;
+        FleetOf(sim, Side.Player).Stance = Stance.Hold;
+        PlaceInOrbit(sim, rival, vela);
+        rival.Position = vela.Position - new Vec2(Fleets.OrbitRadiusFor(vela), 0);
+        Fleets.EnterOrbit(rival, vela);
+        // Strip both fleets' weapons so they share the orbit without a fight.
+        foreach (var s in sim.World.Ships) { s.Missiles = 0; s.Disabled = Module.Railguns; }
+        Days(sim, GameData.Economy.ClaimDays + 2);
+        Assert.Null(vela.Owner);
+        Assert.Null(vela.ClaimSide);
+    }
+
+    [Fact]
+    public void An_undefended_shipyard_falls_and_its_side_loses()
+    {
+        var sim = NewGame();
+        var rust = BodyNamed(sim, "rust");
+        var rival = FleetOf(sim, Side.Rival);
+        // Send the defenders far away and park the player's fleet at the rival shipyard.
+        rival.Flight = null;
+        Fleets.EnterDrift(rival);
+        rival.Position = new Vec2(0, 30 * Physics.MmPerAu);
+        PlaceInOrbit(sim, FleetOf(sim, Side.Player), rust);
+        rust.ShipyardArmour = 100;
+        Days(sim, 3);
+        Assert.False(rust.Shipyard);
+        Assert.Equal(Side.Player, sim.World.Winner);
+        Assert.Contains("rival shipyard", sim.World.WinReason);
+        var income = Player(sim).Industry;
+        Days(sim, 2);
+        Assert.Equal(income, Player(sim).Industry); // the game is over: nothing more happens to the score
+    }
+
+    [Fact]
+    public void Holding_most_planets_for_thirty_days_wins()
+    {
+        var sim = NewGame();
+        foreach (var key in new[] { "cinder", "vela", "pale", "tamber", "brim", "glass" })
+            BodyNamed(sim, key).Owner = Side.Player;
+        Days(sim, GameData.Economy.HoldToWinDays - 1);
+        Assert.Null(sim.World.Winner);
+        Days(sim, 1.1);
+        Assert.Equal(Side.Player, sim.World.Winner);
+    }
+
+    [Fact]
+    public void The_sandbox_has_no_economy()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 3, GameLog.Memory(), sandbox: new SandboxSetup());
+        Assert.False(sim.World.Loop);
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
+        sim.StepMany(48);
+        Assert.Empty(sim.World.Orders);
+        Assert.Null(sim.World.Winner);
+    }
+
+    [Fact]
+    public void A_game_with_building_and_research_replays_exactly()
+    {
+        var sim = NewGame(21);
+        var pilot = new TestPilot(21) { OrderChancePerDay = 0.5 };
+        pilot.PlayUntil(sim, 120 * GameTime.TicksPerDay);
+        Assert.Contains(sim.Replay.Commands, c => c.Command is QueueOrderCommand);
+        Assert.True(sim.World.Ships.Count > 6);
+        var result = ReplayRunner.Run(ReplayFile.FromJson(sim.Replay.ToJson()), GameLog.Memory());
+        Assert.True(result.Exact, result.Message);
+    }
+}

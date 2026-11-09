@@ -129,8 +129,7 @@ public readonly record struct FleetPerformance(double MaxSpeed, double Accel, do
             var engines = s.Disabled == Module.Engines ? 0.5 : 1.0;
             speed = Math.Min(speed, s.MaxSpeed * engines);
             accel = Math.Min(accel, s.Accel * engines);
-            var cls = GameData.ShipClass(s.ClassId);
-            dv = Math.Min(dv, s.Supplies / cls.SuppliesPerDeltaV);
+            dv = Math.Min(dv, s.Supplies / Tech.SuppliesPerDeltaV(w, s));
         }
         if (speed == double.MaxValue) return new FleetPerformance(0, 0, 0);
         return new FleetPerformance(speed, accel, dv);

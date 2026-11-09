@@ -102,7 +102,7 @@ public class CombatTests
     [Fact]
     public void Battles_replay_exactly()
     {
-        var sim = Sandbox(new SandboxSetup(DistanceMm: 90), seed: 9);
+        var sim = Sandbox(new SandboxSetup(DistanceMm: 45), seed: 9);
         var player = FleetOf(sim, Side.Player);
         for (var i = 0; i < 400; i++) sim.Step();                     // into battle time
         Assert.NotEqual(0, sim.World.Sub);
