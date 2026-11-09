@@ -340,8 +340,9 @@ public partial class Main : Node
             pale.ClaimHours = 4 * 24;
             empire.TogglePause();
             empire.ShowEmpire = true;
-            empire.Follow(Key("verdant"), true);
-            empire.Camera.SetScale(empire.Camera.TargetScale * 0.03, instant: true);
+            empire.ShowWholeSystem(); // stop following, then frame Verdant and Pale
+            empire.Camera.Center = Sim.World.Bodies.Single(b => b.Key == "verdant").Position + new Vec2(-150, 0);
+            empire.Camera.FitRadius(600, instant: true);
             await Shoot("17-empire");
 
             // The end of a game: the rival shipyard is gone.
