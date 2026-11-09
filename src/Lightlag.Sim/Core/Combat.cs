@@ -267,19 +267,14 @@ public static class Combat
             var start = missile.Position;
             var targetStart = target.Position - targetFleet.Velocity * dt; // ships have already moved this step
 
-            // Steering. Brain 1 points straight at the target; brain 2 also cancels sideways drift.
+            // Steering: aim the velocity relative to the target straight at it, burning off any sideways
+            // drift. Brain 2 does this fully; brain 1 only corrects half the drift each step, so it wastes
+            // fuel and can miss a target that jinks across its path.
             var rel = targetStart - start;
-            Vec2 dir;
-            if (missile.Brain >= 2)
-            {
-                var relVel = missile.Velocity - targetFleet.Velocity;
-                var closing = Math.Max(400, relVel.Length);
-                dir = (rel.Normalized() * closing - relVel).Normalized();
-            }
-            else
-            {
-                dir = rel.Normalized();
-            }
+            var relVel = missile.Velocity - targetFleet.Velocity;
+            var closing = Math.Max(400, relVel.Length);
+            var correction = missile.Brain >= 2 ? 1.0 : 0.5;
+            var dir = (rel.Normalized() * closing - relVel * correction).Normalized();
             var burn = Math.Min(m.AccelMmPerHour2 * dt, missile.DeltaVLeft);
             missile.DeltaVLeft -= burn;
             var v0 = missile.Velocity;

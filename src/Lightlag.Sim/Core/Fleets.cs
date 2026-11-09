@@ -128,7 +128,7 @@ public readonly record struct FleetPerformance(double MaxSpeed, double Accel, do
 public static class Fleets
 {
     /// <summary>Distance between ships in the loose formation.</summary>
-    public const double FormationSpacing = 12; // Mm (12,000 km)
+    public const double FormationSpacing = 2; // Mm (2,000 km), well inside railgun range
 
     /// <summary>How close two fleets must be to merge.</summary>
     public const double MergeDistance = 3000; // Mm
