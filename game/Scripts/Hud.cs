@@ -15,6 +15,8 @@ public partial class Hud : CanvasLayer
     private ScaleBar _scaleBar = null!;
     private PanelContainer _infoPanel = null!;
     private Label _info = null!;
+    private FleetPanel _fleetPanel = null!;
+    private PlannerPanel _plannerPanel = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -54,7 +56,7 @@ public partial class Hud : CanvasLayer
         _scaleBar.Position += new Vector2(0, -40);
         AddChild(_scaleBar);
 
-        var help = Ui.Label("Wheel zoom · drag pan · click select · double-click follow · right-click move · Space pause · 1-4 speed · Home system · F8 report · Esc title", 12, Ui.Dim);
+        var help = Ui.Label("Wheel zoom · drag pan · click select · double-click follow · right-click plan route (Shift: go now) · Enter go · O orbit · D drift · S stop · Space pause · 1-4 speed · Home system · F8 report", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -66,16 +68,22 @@ public partial class Hud : CanvasLayer
         _infoPanel.GrowHorizontal = Control.GrowDirection.Begin;
         _infoPanel.GrowVertical = Control.GrowDirection.Begin;
         AddChild(_infoPanel);
+
+        _fleetPanel = new FleetPanel(_screen);
+        _fleetPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomRight, Control.LayoutPresetMode.KeepSize, 16);
+        _fleetPanel.GrowHorizontal = Control.GrowDirection.Begin;
+        _fleetPanel.GrowVertical = Control.GrowDirection.Begin;
+        AddChild(_fleetPanel);
+
+        _plannerPanel = new PlannerPanel(_screen);
+        _plannerPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.KeepSize, 16);
+        _plannerPanel.GrowHorizontal = Control.GrowDirection.Begin;
+        _plannerPanel.Position += new Vector2(0, 60);
+        AddChild(_plannerPanel);
         _ = main;
     }
 
-    private static Button SmallButton(string text, Action pressed, string tip)
-    {
-        var b = new Button { Text = text, TooltipText = tip, CustomMinimumSize = new Vector2(44, 32), ToggleMode = false, FocusMode = Control.FocusModeEnum.None };
-        b.AddThemeFontSizeOverride("font_size", 15);
-        b.Pressed += () => Main.Instance.RunGuarded($"button '{text}'", pressed);
-        return b;
-    }
+    private static Button SmallButton(string text, Action pressed, string tip) => Ui.SmallButton(text, pressed, tip);
 
     public void Refresh()
     {
@@ -90,27 +98,19 @@ public partial class Hud : CanvasLayer
                        + (_screen.Paused ? "\nPAUSED" : "");
         _scaleBar.QueueRedraw();
 
-        var text = Describe(sim);
+        var fleet = _screen.SelectedFleet;
+        _fleetPanel.Visible = fleet != null;
+        if (fleet != null) _fleetPanel.Refresh(sim, fleet);
+        _plannerPanel.Visible = _screen.Planner != null;
+        if (_screen.Planner != null) _plannerPanel.Refresh(sim, _screen.Planner);
+
+        var text = fleet == null ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
     }
 
     private string? Describe(Simulation sim)
     {
-        if (_screen.SelectedShip is Ship s)
-        {
-            var cls = GameData.ShipClasses.TryGetValue(s.ClassId, out var c) ? c : null;
-            var lines = new List<string>
-            {
-                s.Name + (s.Side == Side.Player ? "" : "  (rival)"),
-                cls?.Name ?? s.ClassId,
-                cls?.Role ?? "",
-                $"Top speed: {Format.Speed(s.MaxSpeed)}",
-                s.Destination is Vec2 d ? $"Heading: {Format.Distance(Vec2.Distance(s.Position, d))} to go, about {Format.Hours(Vec2.Distance(s.Position, d) / s.MaxSpeed)}" : "Holding position",
-            };
-            if (_screen.IsFollowing(s.Id)) lines.Add("Following");
-            return string.Join("\n", lines.Where(l => l != ""));
-        }
         if (_screen.SelectedBody is Body b)
         {
             var lines = new List<string> { b.Name, $"{Format.Title(b.Kind.ToString())} · {b.Type}", $"Radius: {Format.Distance(b.Radius)}" };
@@ -121,6 +121,8 @@ public partial class Hud : CanvasLayer
             }
             var moons = sim.World.Bodies.Count(m => m.ParentId == b.Id && m.Kind == BodyKind.Moon);
             if (moons > 0) lines.Add($"Moons: {moons}");
+            if (b.Owner is Side owner) lines.Add(owner == Side.Player ? "Your home: fleets in orbit refill supplies" : "Rival home");
+            if (_screen.SelectedFleet == null && sim.World.Fleets.Any(f => f.Side == Side.Player)) lines.Add("Select a fleet, then right-click here to fly");
             lines.Add(_screen.IsFollowing(b.Id) ? "Following" : "Double-click or F to follow");
             return string.Join("\n", lines);
         }

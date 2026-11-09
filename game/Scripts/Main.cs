@@ -229,8 +229,10 @@ public partial class Main : Node
             Sim!.StepMany(3 * GameTime.TicksPerDay);
             game.TogglePause();
             int Key(string key) => Sim.World.Bodies.First(b => b.Key == key).Id;
-            var firstShip = Sim.World.Ships.First(s => s.Side == Lightlag.Sim.Core.Side.Player);
-            Sim.Issue(new MoveShipCommand(firstShip.Id, 0, 0));
+            var fleet = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+            // A fleet on its way to Vela, so routes show in the pictures.
+            Sim.Issue(new PlanFlightCommand(fleet.Id, new FlightRequest(Key("vela"), Vec2.Zero, 0.7, ArrivalStyle.Brake, HoldStyle.Orbit, Sim.World.Tick)));
+            Sim.StepMany(30);
             var views = new (string Name, Action Setup)[]
             {
                 ("1-inner-system", () => { }),
@@ -239,7 +241,23 @@ public partial class Main : Node
                 ("4-tamber-moons", () => game.Follow(Key("tamber"), true)),
                 ("5-rust-moons", () => game.Follow(Key("rust"), true)),
                 ("6-flint-close", () => { game.Follow(Key("flint"), true); game.Select(Key("flint")); }),
-                ("7-ships", () => { game.Follow(firstShip.Id, false); game.Camera.SetScale(0.02); game.Select(firstShip.Id); }),
+                ("7-fleet", () => { game.Follow(fleet.Id, false); game.Camera.SetScale(0.02); game.Select(fleet.Id); }),
+                ("8-fleet-close", () => { game.Follow(fleet.Id, false); game.Camera.SetScale(3); game.Select(fleet.Id); }),
+                ("9-route-planner", () =>
+                {
+                    game.Camera.Center = Vec2.Zero;
+                    game.Camera.FitRadius(2.0 * Physics.MmPerAu);
+                    game.Select(fleet.Id);
+                    game.Settings.Route = RouteKind.Wait;
+                    game.StartPlanning(Key("rust"), Vec2.Zero);
+                }),
+                ("10-rust-orbit", () =>
+                {
+                    var rival = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Rival);
+                    game.Follow(rival.Id, false);
+                    game.Camera.SetScale(2);
+                    game.Select(rival.Id);
+                }),
             };
             foreach (var (name, setup) in views)
             {
