@@ -328,7 +328,9 @@ public partial class EngagementTimeline : Control
             var x = X(s.ImpactHours);
             var c = s.Ours ? Ui.Player : Ui.Danger;
             DrawCircle(new Vector2(x, y4 + 9), 5, c);
-            DrawString(_font, new Vector2(x + 7, y4 + 13), $"{s.Count} {(s.Ours ? "yours" : "at you")}, {When(s.ImpactHours)}", HorizontalAlignment.Left, -1, 11, c);
+            var label = $"{s.Count} {(s.Ours ? "yours" : "at you")}, {When(s.ImpactHours)}";
+            var lx = Math.Min(x + 7, labelW + width - _font.GetStringSize(label, HorizontalAlignment.Left, -1, 11).X);
+            DrawString(_font, new Vector2(lx, y4 + 13 + (lx < x ? 12 : 0)), label, HorizontalAlignment.Left, -1, 11, c);
         }
     }
 }
