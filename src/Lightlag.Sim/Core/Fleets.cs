@@ -6,8 +6,14 @@ public enum HoldStyle { Orbit, Drift }
 /// <summary>How a flight ends: brake to a stop at the target, or fly through it at speed (cheaper, faster, no stop).</summary>
 public enum ArrivalStyle { Brake, FastPass }
 
-/// <summary>Standing order: Engage closes to weapon range and fires (breaking off any flight); Hold keeps its course and fires at what comes in range.</summary>
-public enum Stance { Engage, Hold }
+/// <summary>
+/// Standing order for contact. Engage closes to weapon range and fires (breaking off any flight); Hold
+/// keeps its course and fires at what comes in range; EngageIfStronger engages only when the fleet
+/// outguns what it meets (else holds course); HoldPosition stops where it is and fires without
+/// chasing; Avoid flies home as soon as an enemy is seen coming for it; ReturnHome breaks off and
+/// flies home on contact.
+/// </summary>
+public enum Stance { Engage, Hold, EngageIfStronger, HoldPosition, Avoid, ReturnHome }
 
 /// <summary>How a fleet fires its railguns: Focused (aimed slugs) or Spread (a burst in a fan, harder to dodge, then the guns cool).</summary>
 public enum FireMode { Focused, Spread }

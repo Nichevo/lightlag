@@ -22,8 +22,18 @@ public partial class FleetPanel : PanelContainer
     private Button _drift = null!;
     private Button _stop = null!;
     private Button _route = null!;
-    private Button _engage = null!;
-    private Button _hold = null!;
+    private OptionButton _stance = null!;
+
+    /// <summary>The standing orders offered, in the menu's order, with what each does.</summary>
+    private static readonly (Stance Stance, string Name, string Tip)[] Stances =
+    {
+        (Stance.Engage, "Engage", "Close to railgun range and fire"),
+        (Stance.EngageIfStronger, "Engage if stronger", "Close in and fight only when this fleet clearly outguns what it meets; otherwise keep course"),
+        (Stance.Hold, "Hold course", "Keep course; fire at whatever comes in range"),
+        (Stance.HoldPosition, "Hold position", "Stop where it is on contact and fire without chasing"),
+        (Stance.Avoid, "Avoid contact", "Fly home as soon as an enemy is seen coming for it"),
+        (Stance.ReturnHome, "Return home", "Break off on contact and fly home"),
+    };
     private CheckBox _retreat = null!;
     private HBoxContainer _orders = null!;
     private readonly Dictionary<int, (CheckBox Box, Label Supplies)> _rows = new();
@@ -69,13 +79,18 @@ public partial class FleetPanel : PanelContainer
         var label = Ui.Label("In contact", 13, Ui.Dim);
         label.CustomMinimumSize = new Vector2(70, 0);
         _orders.AddChild(label);
-        _engage = Ui.SmallButton("Engage", () => SetStance(Stance.Engage, null), "Close to railgun range and fire");
-        _hold = Ui.SmallButton("Hold", () => SetStance(Stance.Hold, null), "Keep course; fire at whatever comes in range");
+        _stance = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "What the fleet does when enemies come into contact" };
+        _stance.AddThemeFontSizeOverride("font_size", 13);
+        for (var i = 0; i < Stances.Length; i++)
+        {
+            _stance.AddItem(Stances[i].Name, i);
+            _stance.SetItemTooltip(i, Stances[i].Tip);
+        }
+        _stance.ItemSelected += i => SetStance(Stances[i].Stance, null);
         _retreat = new CheckBox { Text = "Retreat when damaged", FocusMode = FocusModeEnum.None, TooltipText = "Fly home when the fleet's armour falls below half" };
         _retreat.AddThemeFontSizeOverride("font_size", 13);
         _retreat.Pressed += () => SetStance(null, _retreat.ButtonPressed);
-        _orders.AddChild(_engage);
-        _orders.AddChild(_hold);
+        _orders.AddChild(_stance);
         _orders.AddChild(_retreat);
         box.AddChild(_orders);
         _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
@@ -185,8 +200,8 @@ public partial class FleetPanel : PanelContainer
         _buttons.Visible = mine;
         _orders.Visible = mine;
         _engagementButton.Visible = mine && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
-        _engage.Modulate = f.Stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
-        _hold.Modulate = f.Stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        var at = Array.FindIndex(Stances, x => x.Stance == f.Stance);
+        if (at >= 0 && _stance.Selected != at) _stance.Select(at);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
         var flying = f.Flight is { Started: true } || f.Velocity.Length > 1e-9;
         var picked = Checked().Count;
