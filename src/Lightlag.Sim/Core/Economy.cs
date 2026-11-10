@@ -44,6 +44,9 @@ public sealed class SideState
     /// <summary>The autonomy new fleets start with.</summary>
     public AutonomyLevel DefaultAutonomy { get; set; } = AutonomyLevel.Sensible;
 
+    /// <summary>After the flagship is lost far from its successor: no orders go out until this hour (fleets act on their own).</summary>
+    public double CommandGapUntil { get; set; } = -1e9;
+
     /// <summary>When this side started holding more than half the planets (null while it doesn't).</summary>
     public double? MajoritySinceHour { get; set; }
 
@@ -438,7 +441,7 @@ public static class Economy
         }
     }
 
-    private static void Win(Simulation sim, Side side, string reason)
+    internal static void Win(Simulation sim, Side side, string reason)
     {
         var w = sim.World;
         w.Winner = side;

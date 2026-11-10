@@ -14,6 +14,8 @@
   ],
   "_rangesComment": "Reach, longest first: contact (battle time) 100,000 km, missile launch 60,000 km, railguns 40,000 km (hits fall off with range, so fleets that engage close to engageRangeMm x 0.75), point defence 12,000 km (last-ditch, inside railgun reach). Railgun slugs fly at slugSpeedMmPerHour (250 km/s) plus the closing speed.",
   "combat": {
+    "_flagBridgeComment": "With light lag on, the fleet carrying the flagship fights better: railguns reload in reloadFactor of the time, point defence kills pointDefenceFactor times as many missiles (linked fire control), and railgun hit chances are accuracyFactor times higher (fire control spreads shots over the targets).",
+    "flagBridge": { "reloadFactor": 0.85, "pointDefenceFactor": 1.25, "accuracyFactor": 1.1 },
     "contactRangeMm": 100,
     "engageRangeMm": 20,
     "railgun": { "rangeMm": 40, "reloadSeconds": 30, "accuracy": 0.6, "damage": 10, "suppliesPerShot": 0.05 },

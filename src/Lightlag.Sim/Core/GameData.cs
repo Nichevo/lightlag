@@ -69,7 +69,10 @@ public sealed record PointDefenceData(double RangeMm, double ShotSeconds, double
 public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
     double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay,
-    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null);
+    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null, FlagBridgeData? FlagBridge = null);
+
+/// <summary>The flagship's fleet fights better (light lag only): faster reloads, linked point defence, better aimed railguns.</summary>
+public sealed record FlagBridgeData(double ReloadFactor = 1, double PointDefenceFactor = 1, double AccuracyFactor = 1);
 
 /// <summary>Spread railgun fire and hard-burn dodging. See ship-classes.json.</summary>
 public sealed record SpreadData(int SlugsPerGun, double Accuracy, double Cooldown, double FanMm, double FocusFanMm,

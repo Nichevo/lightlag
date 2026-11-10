@@ -69,6 +69,7 @@ public sealed class Simulation
         {
             world.Light.On = light.On;
             world.Light.SpeedFactor = light.SpeedFactor;
+            world.Light.Decapitation = light.On && (options.Decapitation ?? true);
         }
         if (sandbox == null && options?.Autonomy is AutonomyLevel level)
         {

@@ -12,6 +12,9 @@ public sealed class LightState
     public bool On { get; set; }
     public double SpeedFactor { get; set; } = 1;
 
+    /// <summary>Losing the flagship with no destroyer left to take command loses the game (light lag only).</summary>
+    public bool Decapitation { get; set; }
+
     /// <summary>Orders sent but not yet arrived, oldest first.</summary>
     public List<Transit> InTransit { get; set; } = new();
 
@@ -135,20 +138,40 @@ public static class Light
         }
     }
 
+    /// <summary>Hours with no orders while command passes to a successor out of command range.</summary>
+    public const double SuccessionGapHours = 3;
+
+    /// <summary>Ships that can take command: destroyers (they carry the flag bridge).</summary>
+    public static bool CommandCapable(Ship s) => s.ClassId == "missile-destroyer";
+
     /// <summary>
-    /// The flagship was lost: command moves to the nearest surviving destroyer (else any ship), or to
-    /// home if none is left.
+    /// The flagship was lost: command moves to the nearest surviving destroyer. Within command range of
+    /// where it was lost the handover is instant; further off, no orders go out for a few hours. With no
+    /// destroyer left: under Decapitation the side loses; otherwise command passes to any ship, or home.
     /// </summary>
     public static void Succeed(Simulation sim, Side side, Vec2 lostAt)
     {
         var w = sim.World;
-        var next = w.Ships.Where(s => s.Side == side)
-            .OrderBy(s => s.ClassId == "missile-destroyer" ? 0 : 1)
-            .ThenBy(s => Vec2.Distance(s.Position, lostAt)).ThenBy(s => s.Id).FirstOrDefault();
-        Economy.Of(w, side).FlagshipId = next?.Id;
+        var mine = w.Ships.Where(s => s.Side == side).OrderBy(s => Vec2.Distance(s.Position, lostAt)).ThenBy(s => s.Id).ToList();
+        var next = mine.FirstOrDefault(CommandCapable);
+        if (next == null && w.Light.Decapitation && w.Loop && w.Winner == null)
+        {
+            Economy.Of(w, side).FlagshipId = null;
+            sim.Log.Info("light", $"{side} flagship lost with no destroyer to take command", new { side = side.ToString() });
+            Economy.Win(sim, Combat.Other(side), "decapitation: the enemy flagship was destroyed with no destroyer left to take command");
+            return;
+        }
+        next ??= mine.FirstOrDefault();
+        var me = Economy.Of(w, side);
+        me.FlagshipId = next?.Id;
+        var instant = next != null && Vec2.Distance(next.Position, lostAt) <= CommandRangeMm(w, side);
+        if (!instant && w.Light.On) me.CommandGapUntil = w.Hour + SuccessionGapHours;
         sim.Log.Info("light", next != null ? $"{side} command passes to {next.Name}" : $"{side} command falls back to home",
-            new { side = side.ToString(), shipId = next?.Id });
+            new { side = side.ToString(), shipId = next?.Id, instant, gapHours = instant ? 0 : SuccessionGapHours });
     }
+
+    /// <summary>Is the side's command still passing to a new flagship (no orders go out)?</summary>
+    public static bool InCommandGap(World w, Side side) => w.Hour < Economy.Of(w, side).CommandGapUntil;
 
     /// <summary>Sends an order: it takes effect now if the target is live, else it is queued until its light arrives.</summary>
     public static bool Send(Simulation sim, GameCommand command)
@@ -156,8 +179,10 @@ public static class Light
         var w = sim.World;
         if (!w.Light.On || command.Destination(w) is not (Side side, Vec2 at)) return false;
         var delay = DelayHours(w, side, at);
-        if (delay <= 0) return false;
-        w.Light.InTransit.Add(new Transit { Side = side, SentHour = w.Hour, ArriveHour = w.Hour + delay, Command = command });
+        // While command passes to a new flagship nothing goes out; the order leaves when the gap ends.
+        var leaves = Math.Max(w.Hour, Economy.Of(w, side).CommandGapUntil);
+        if (delay <= 0 && leaves <= w.Hour) return false;
+        w.Light.InTransit.Add(new Transit { Side = side, SentHour = leaves, ArriveHour = leaves + delay, Command = command });
         sim.Log.Info("light", $"{side} order on its way", new { side = side.ToString(), command = command.GetType().Name, delayHours = delay });
         return true;
     }

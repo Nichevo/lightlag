@@ -366,10 +366,11 @@ public static class Combat
         var mode = spread != null ? fleet.Fire : FireMode.Focused;
         var slugs = cls.Railguns * (mode == FireMode.Spread ? spread!.SlugsPerGun : 1);
         var cooldown = mode == FireMode.Spread ? spread!.Cooldown : 1; // a burst heats the guns: they wait longer
-        ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
+        var bridge = FlagBridge(w, fleet);
+        ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) * (bridge?.ReloadFactor ?? 1) / 3600;
         fleet.LastVolley = mode;
         fleet.LastVolleyHour = t1;
-        var fan = spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm;
+        var fan = (spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm);
         sim.AddEffect(new CombatEffect(t1, EffectKind.Volley, ship.Position, target.Position, ship.Side, fan));
         var side = (target.Position - ship.Position).Normalized();
         side = new Vec2(-side.Y, side.X);
@@ -383,6 +384,7 @@ public static class Combat
             var evasion = GameData.ShipClass(target.ClassId).Evasion;
             var chance = rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
+            chance *= bridge?.AccuracyFactor ?? 1;
             if (Dodging(w, targetFleet))
             {
                 chance *= DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet));
@@ -495,7 +497,8 @@ public static class Combat
             .Sum(s => GameData.ShipClass(s.ClassId).PointDefence);
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
-        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2);
+        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2)
+                   * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1);
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
@@ -543,8 +546,7 @@ public static class Combat
                 Economy.Of(w, by).Totals.ShipsKilled++;
             }
             sim.Log.Info("combat", $"{target.Name} is destroyed", new { shipId = target.Id, by = by.ToString() });
-            RemoveShip(w, target);
-            if (Economy.Of(w, target.Side).FlagshipId == target.Id) Light.Succeed(sim, target.Side, target.Position);
+            Destroy(sim, target);
             return;
         }
         if (target.Disabled == null && sim.Rng.NextDouble() < C.ModuleHitChance)
@@ -566,6 +568,17 @@ public static class Combat
         Module.Missiles => "missile racks",
         _ => "point defence",
     };
+
+    /// <summary>The flag bridge's help, if this fleet carries its side's flagship (light lag on only).</summary>
+    public static FlagBridgeData? FlagBridge(World w, Fleet f) =>
+        w.Light.On && C.FlagBridge != null && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id ? C.FlagBridge : null;
+
+    /// <summary>A ship is gone: off its fleet, and if it was the flagship, command passes on (or the side loses).</summary>
+    public static void Destroy(Simulation sim, Ship ship)
+    {
+        RemoveShip(sim.World, ship);
+        if (Economy.Of(sim.World, ship.Side).FlagshipId == ship.Id) Light.Succeed(sim, ship.Side, ship.Position);
+    }
 
     private static void RemoveShip(World w, Ship ship)
     {

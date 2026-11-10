@@ -13,7 +13,7 @@ public enum Personality { Raider, Expander, Turtle }
 public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Normal, Personality? Personality = null);
 
 /// <summary>Choices made when a game starts that are not in the scenario file. Stored in the replay.</summary>
-public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null)
+public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -27,7 +27,7 @@ public sealed record AiEasy(double ExtraRatio, double SlipChance);
 
 public sealed record PersonalityData(
     string Name, double FrigateShare, double Ratio, double ClaimWeight, double HuntWeight, double GuardShare,
-    double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research);
+    double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research, double FlagshipBoldness = 0.3);
 
 public sealed record AiData(
     AiThinkHours ThinkHours, AiEasy Easy, AiRange AttackRatio, double NerveDrift, double NerveRange, AiRange FirstProbeDay,
@@ -738,8 +738,9 @@ public static class Mind
             var pool = Pool().Where(Ready).OrderByDescending(f => Stats.Power(_w, f)).ToList();
             var from = pool.FirstOrDefault();
             if (from == null) return null;
-            // Under light lag the flagship stays at home unless every ship is needed.
-            var flag = _w.Light.On ? Economy.Of(_w, _side).FlagshipId : null;
+            // Under light lag the flagship stays at home unless every ship is needed, or the personality
+            // is bold enough to lead from the front this time (its flag bridge makes the group fight better).
+            var flag = _w.Light.On && !_rng.Chance(_p.FlagshipBoldness) ? Economy.Of(_w, _side).FlagshipId : null;
             var ships = _w.ShipsOf(from).OrderBy(s => s.Id == flag ? 1 : 0).ThenByDescending(s => Stats.ShipPower(_w, s)).ToList();
             var picked = new List<Ship>();
             double sum = 0;
