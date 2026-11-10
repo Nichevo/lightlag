@@ -226,6 +226,7 @@ public static class FlightPlanner
 
         var points = req.Waypoints!;
         var start = p;
+        var reached = new List<double>();
         for (var i = 0; i < points.Count; i++)
         {
             var wp = points[i];
@@ -244,6 +245,7 @@ public static class FlightPlanner
             legs.AddRange(stretch.Legs);
             dv += stretch.DeltaV;
             (p, v, t) = (stretch.EndP, stretch.EndV, stretch.EndT);
+            reached.Add(t);
             if (wp.Stop && wp.WaitHours > 0)
             {
                 legs.Add(new FlightLeg(t, t + wp.WaitHours, p, Vec2.Zero, Vec2.Zero));
@@ -256,7 +258,12 @@ public static class FlightPlanner
         legs.AddRange(last.Legs);
         dv += last.DeltaV;
         var plan = Finish(w, req, body, enemy, perf, legs, last.Aim, cruise, depart, dv);
-        plan.Flight?.Waypoints.AddRange(points.Select(x => x.Point));
+        if (plan.Flight is Flight flight)
+        {
+            flight.Waypoints.AddRange(points.Select(x => x.Point));
+            flight.WaypointPlan.AddRange(points);
+            flight.WaypointHours.AddRange(reached);
+        }
         return plan;
     }
 

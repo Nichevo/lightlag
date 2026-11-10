@@ -1,5 +1,6 @@
 using Lightlag.Sim.Core;
 using Lightlag.Sim.Logging;
+using Lightlag.Sim.Replay;
 using Xunit;
 
 namespace Lightlag.Sim.Tests;
@@ -474,6 +475,40 @@ public class FleetTests
         Assert.True(worst < 12, $"strays {worst:0.0} Mm off the route");
         // Passing through: no stretch starts from a standstill except the first (it turns, it doesn't stop and restart).
         Assert.DoesNotContain(f.Legs.Skip(1), l => l.V0.Length < 1e-6);
+    }
+
+    [Fact]
+    public void A_flying_route_can_be_reopened_with_the_waypoints_still_ahead()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup());
+        var fleet = sim.World.Fleets.First(f => f.Side == Side.Player);
+        var o = fleet.Position;
+        var first = o + new Vec2(40, -30);
+        var second = o + new Vec2(80, 0);
+        var request = new FlightRequest(null, o + new Vec2(120, 20), 0.7, ArrivalStyle.Brake, HoldStyle.Drift, sim.World.Tick)
+        {
+            Waypoints = new List<Waypoint> { new(first), new(second, Stop: true, WaitHours: 5) },
+        };
+        sim.Issue(new PlanFlightCommand(fleet.Id, request));
+        sim.Step();
+        var flight = fleet.Flight!;
+        Assert.Equal(2, flight.WaypointPlan.Count);
+        Assert.Equal(2, flight.WaypointHours.Count);
+        Assert.True(flight.WaypointHours[0] < flight.WaypointHours[1]);
+        Assert.Equal(2, flight.WaypointsAhead(sim.World.Hour).Count());
+
+        // Past the first waypoint only the second (with its stop and wait) is still ahead.
+        sim.StepMany((int)Math.Ceiling(flight.WaypointHours[0] - sim.World.Hour) + 1);
+        var ahead = fleet.Flight!.WaypointsAhead(sim.World.Hour).ToList();
+        Assert.Equal(new Waypoint(second, Stop: true, WaitHours: 5), Assert.Single(ahead));
+
+        // Sending the route again with the second waypoint moved replans from where the fleet is now.
+        var moved = request with { DepartTick = sim.World.Tick, Waypoints = new List<Waypoint> { ahead[0] with { Point = second + new Vec2(0, 20) } } };
+        sim.Issue(new PlanFlightCommand(fleet.Id, moved));
+        sim.Step();
+        Assert.Equal(second + new Vec2(0, 20), Assert.Single(fleet.Flight!.WaypointPlan).Point);
+        var replay = ReplayRunner.Run(ReplayFile.FromJson(sim.Replay.ToJson()), GameLog.Memory());
+        Assert.True(replay.Exact, replay.Message);
     }
 
     private static double SegmentDistance(Vec2 q, Vec2 a, Vec2 b)

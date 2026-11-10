@@ -439,6 +439,22 @@ public partial class MapView : Node2D
         return null;
     }
 
+    /// <summary>Waypoints of a flight not reached yet (older saves only have the points).</summary>
+    private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
+        ? flight.WaypointsAhead(DrawHour).Select(w => w.Point).ToList()
+        : flight.Waypoints;
+
+    /// <summary>A not-yet-reached waypoint of the selected fleet's current route under a screen point.</summary>
+    public int? HitTestFlightWaypoint(Vector2 screen)
+    {
+        if (SelectedId is not int id || Sim.World.FindFleet(id) is not { Side: Side.Player, Flight: Flight flight }) return null;
+        if (flight.WaypointPlan.Count == 0) return null;
+        var ahead = flight.WaypointsAhead(Sim.World.Hour).Select(w => w.Point).ToList();
+        for (var i = ahead.Count - 1; i >= 0; i--)
+            if (Camera.ToScreen(ahead[i]).DistanceTo(screen) <= 12) return i;
+        return null;
+    }
+
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
     public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
 
@@ -519,7 +535,18 @@ public partial class MapView : Node2D
         var end = Camera.ToScreen(flight.Target);
         DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);
         if (!preview)
-            foreach (var wp in flight.Waypoints) DrawDiamond(Camera.ToScreen(wp), 5, new Color(baseColor, alpha), false);
+        {
+            var ahead = AheadPoints(flight);
+            var mine = f.Id == SelectedId && f.Side == Side.Player && PlannerWaypoints == null;
+            for (var i = 0; i < ahead.Count; i++)
+            {
+                var at = Camera.ToScreen(ahead[i]);
+                DrawDiamond(at, mine ? 7 : 5, new Color(baseColor, mine ? 0.9f : alpha), false);
+                if (mine) DrawString(_font, at + new Vector2(10, -6), $"{i + 1}", HorizontalAlignment.Left, -1, 12, new Color(baseColor, 0.9f));
+            }
+            if (mine && ahead.Count > 0)
+                DrawString(_font, Camera.ToScreen(ahead[^1]) + new Vector2(10, 10), "drag to change", HorizontalAlignment.Left, -1, 11, new Color(baseColor, 0.6f));
+        }
         if (flight.Arrival == ArrivalStyle.FastPass)
         {
             // Carries on past the target.
