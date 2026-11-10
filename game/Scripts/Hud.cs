@@ -258,6 +258,8 @@ public partial class Hud : CanvasLayer
             else if (b.Owner == Side.Rival) tags.Add("rival");
             if (b.Shipyard) tags.Add("shipyard");
             if (b.ClaimSide == Side.Player) tags.Add("you are claiming it");
+            if (w.Loop && b.Industry <= 0 && b.Kind != BodyKind.Star) tags.Add("can't be claimed");
+            else if (w.Loop && b.Industry > 0) tags.Add($"industry {b.Industry:0}");
             popup.AddItem($"{indent}{b.Name} · {string.Join(", ", tags)}", _bodyMenuActions.Count);
             _bodyMenuActions.Add(() => _screen.PickBody(id));
         }
@@ -289,6 +291,7 @@ public partial class Hud : CanvasLayer
                           + (b.Shipyard ? $" · shipyard, armour {b.ShipyardArmour / GameData.Economy.Shipyard.Armour * 100:0} %" : "")
                           + (owner == Side.Player ? (b.Shipyard ? ": fleets here refill, repair and rearm" : ": fleets here refill supplies") : ""));
             if (w.Loop && b.Industry > 0) lines.Add($"Industry: {b.Industry:0} a day for whoever holds it");
+            else if (w.Loop && b.Kind != BodyKind.Star) lines.Add("No industry: it can't be claimed and doesn't count towards winning");
             if (b.ClaimSide is Side claimer)
                 lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {GameData.Economy.ClaimDays:0} days");
             else if (w.Loop && b.Industry > 0 && b.Owner != Side.Player && !b.Shipyard)
