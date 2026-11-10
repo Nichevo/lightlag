@@ -32,6 +32,7 @@ public partial class Hud : CanvasLayer
     private EndPanel _end = null!;
     private EngagementPanel _engagement = null!;
     private ContactsPanel _contacts = null!;
+    private GameMenu _menu = null!;
     private PanelContainer _mindPanel = null!;
     private Label _mind = null!;
 
@@ -170,11 +171,14 @@ public partial class Hud : CanvasLayer
         _engagement = new EngagementPanel(_screen);
         AddChild(_engagement);
 
+        _menu = new GameMenu(_screen) { Visible = false };
         _end = new EndPanel(_screen);
         _end.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
         _end.GrowHorizontal = Control.GrowDirection.Both;
         _end.GrowVertical = Control.GrowDirection.Both;
         AddChild(_end);
+        _menu.ZIndex = 50;
+        AddChild(_menu); // last and on top, so it covers everything
         _ = main;
     }
 
@@ -231,6 +235,9 @@ public partial class Hud : CanvasLayer
         // On a short screen the planner and the fleet panel would overlap: the planner wins while it is open.
         if (_plannerPanel.Visible && _fleetPanel.Visible && _plannerPanel.GetGlobalRect().End.Y > _fleetPanel.GetGlobalRect().Position.Y)
             _fleetPanel.Visible = false;
+
+        if (_screen.MenuOpen && !_menu.Visible) _menu.Open();
+        else if (!_screen.MenuOpen) _menu.Visible = false;
 
         var engagement = _screen.EngagementNow;
         _engagement.Visible = engagement != null;

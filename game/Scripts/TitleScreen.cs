@@ -7,6 +7,18 @@ namespace Lightlag.Game;
 /// <summary>Title screen: Continue, new test game, battle sandbox, folders, and the build version.</summary>
 public partial class TitleScreen : Control
 {
+    private Control _menu = null!;
+    private SavesList _saves = null!;
+    private HowToPlay _help = null!;
+
+    private void ShowPage(Control page)
+    {
+        _menu.Visible = page == _menu;
+        _saves.Visible = page == _saves;
+        _help.Visible = page == _help;
+        if (page == _saves) _saves.Refresh();
+    }
+
     public override void _Ready()
     {
         var main = Main.Instance;
@@ -15,7 +27,7 @@ public partial class TitleScreen : Control
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 14);
         col.AddChild(Ui.Label("LIGHTLAG", 64, Ui.Player));
-        col.AddChild(Ui.Label("Milestone 6: the rival (a computer opponent that plays by your rules)", 16, Ui.Dim));
+        col.AddChild(Ui.Label("First playable: one star system, you against a rival that plays by your rules", 16, Ui.Dim));
         col.AddChild(new Control { CustomMinimumSize = new Vector2(0, 24) });
 
         var latest = SaveSlots.Latest(main.Paths);
@@ -25,6 +37,8 @@ public partial class TitleScreen : Control
         col.AddChild(cont);
         col.AddChild(Ui.Button("New game: Normal rival", () => main.StartNewGame()));
         col.AddChild(Ui.Button("New game: Easy rival", () => main.StartNewGame(difficulty: Lightlag.Sim.Core.Difficulty.Easy), 16));
+        col.AddChild(Ui.Button("Load game", () => ShowPage(_saves), 16));
+        col.AddChild(Ui.Button("How to play", () => ShowPage(_help), 16));
         col.AddChild(Ui.Button("Battle sandbox", () => main.ShowSandboxSetup()));
         col.AddChild(Ui.Button("Open reports folder", () => OS.ShellOpen(main.Paths.Root), 16));
         col.AddChild(Ui.Button("Quit", () => main.Quit(), 16));
@@ -33,6 +47,11 @@ public partial class TitleScreen : Control
 
         var center = Ui.Centered(col);
         AddChild(center);
+        _menu = center;
+        _saves = new SavesList(() => ShowPage(_menu)) { Visible = false };
+        AddChild(_saves);
+        _help = new HowToPlay(() => ShowPage(_menu)) { Visible = false };
+        AddChild(_help);
 
         var version = Ui.Label($"Build {main.Build}   ·   F8 report a problem", 14, Ui.Dim);
         version.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.KeepSize, 16);
