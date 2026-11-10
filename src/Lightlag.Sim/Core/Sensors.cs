@@ -13,6 +13,10 @@ public enum SignatureState { Cold, Orbit, Burn, Warm }
 public sealed class Sighting
 {
     public Side SeenBy { get; set; }
+
+    /// <summary>A report on one of the side's own fleets (only in a light-lag picture, see Light).</summary>
+    public bool Own { get; set; }
+
     public int FleetId { get; set; }
     public string Name { get; set; } = "";
     public int Ships { get; set; }
@@ -40,6 +44,13 @@ public sealed class Sighting
 
     /// <summary>Where it would be at this hour if it kept going as last seen.</summary>
     public Vec2 Guess(double hour) => Position + Velocity * Math.Max(0, hour - Hour);
+
+    public Sighting Copy()
+    {
+        var c = (Sighting)MemberwiseClone();
+        c.Classes = new List<string>(Classes);
+        return c;
+    }
 }
 
 /// <summary>
@@ -147,22 +158,30 @@ public static class Sensors
     }
 
     /// <summary>Can this side see that fleet right now?</summary>
-    public static bool Sees(World w, Side side, Fleet f) =>
-        f.Side == side || (Find(w, side, f.Id) is { Visible: true });
+    /// <summary>
+    /// Is this fleet in sight of the side? By default, as its fleets out there see it (for fighting and
+    /// chasing); with seat set, as the side's command knows it, which under light lag is the picture the
+    /// last reports carried home (for the player's map and the rival's plans).
+    /// </summary>
+    public static bool Sees(World w, Side side, Fleet f, bool seat = false) =>
+        f.Side == side || (Find(w, side, f.Id, seat) is { Visible: true });
 
-    public static Sighting? Find(World w, Side seenBy, int fleetId) =>
-        w.Sightings.Find(s => s.SeenBy == seenBy && s.FleetId == fleetId);
+    public static Sighting? Find(World w, Side seenBy, int fleetId, bool seat = false) =>
+        Known(w, seat).Find(s => s.SeenBy == seenBy && s.FleetId == fleetId);
+
+    /// <summary>The sightings as the fleets see them now, or (seat) as command knows them (see Light).</summary>
+    public static List<Sighting> Known(World w, bool seat) => seat && w.Light.On ? w.Picture : w.Sightings;
 
     /// <summary>
     /// Where this side expects an enemy fleet to be at an hour: circling with it if it is seen holding
     /// orbit, otherwise in a straight line from where it was last seen. Null if it has never been seen.
     /// </summary>
-    public static Vec2? Predict(World w, Side side, int fleetId, double hour)
+    public static Vec2? Predict(World w, Side side, int fleetId, double hour, bool seat = false)
     {
         if (w.FindFleet(fleetId) is Fleet f && f.Side == side) return Combat.PredictFleet(w, f, hour);
-        var s = Find(w, side, fleetId);
+        var s = Find(w, side, fleetId, seat);
         if (s == null) return null;
-        if (s.Visible && s.State == SignatureState.Orbit && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
+        if (s.Visible && s.State == SignatureState.Orbit && (!seat || !w.Light.On) && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
             return FlightPlanner.PredictHoldPosition(w, orbiting, hour);
         return s.Guess(hour);
     }

@@ -13,7 +13,7 @@ public enum Personality { Raider, Expander, Turtle }
 public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Normal, Personality? Personality = null);
 
 /// <summary>Choices made when a game starts that are not in the scenario file. Stored in the replay.</summary>
-public sealed record GameOptions(List<AiSetup>? Ai = null)
+public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -272,7 +272,7 @@ public static class Mind
         private void Believe()
         {
             // Sightings it has (what its sensors saw). Recent ones only for planning.
-            _known = _w.Sightings.Where(s => s.SeenBy == _side && _w.Hour - s.Hour <= 20 * 24).ToList();
+            _known = Sensors.Known(_w, seat: true).Where(s => s.SeenBy == _side && !s.Own && _w.Hour - s.Hour <= 20 * 24).ToList();
             // What the enemy has earned, from the planets anyone can see it holds.
             var hours = Math.Max(0, _w.Hour - _m.LastThinkHour);
             var enemyIncome = Economy.Claimable(_w).Where(b => b.Owner == _enemy).Sum(b => b.Industry);
@@ -330,7 +330,7 @@ public static class Mind
                     JobKind.Claim => body == null || body.Owner == _side || (body.Owner == _enemy && body.Shipyard),
                     JobKind.Break => body == null || body.ClaimSide != _enemy,
                     JobKind.Strike => _enemyYard == null,
-                    JobKind.Hunt => job.EnemyFleetId is not int e || Sensors.Find(_w, _side, e) is not Sighting s || _w.Hour - s.Hour > 48,
+                    JobKind.Hunt => job.EnemyFleetId is not int e || Sensors.Find(_w, _side, e, seat: true) is not Sighting s || _w.Hour - s.Hour > 48,
                     JobKind.Probe => f.Flight == null && _w.Hour - job.Since > A.ProbeDays * 24,
                     JobKind.Refit => AtHome(f) && Ready(f),
                     _ => false,

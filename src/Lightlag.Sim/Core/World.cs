@@ -25,6 +25,15 @@ public sealed class World
     /// <summary>What each side knows about the other's fleets (see Sensors).</summary>
     public List<Sighting> Sightings { get; set; } = new();
 
+    /// <summary>
+    /// Under light lag, what each side's command knows: the sightings above (and its own fleets) as the
+    /// last reports carried them home. Empty with light lag off, when command sees what the fleets see.
+    /// </summary>
+    public List<Sighting> Picture { get; set; } = new();
+
+    /// <summary>Light lag: whether it is on, light speed, and orders on their way (see Light).</summary>
+    public LightState Light { get; set; } = new();
+
     /// <summary>Missile guidance level per side (1 or 2). Research raises it later.</summary>
     public int[] MissileBrain { get; set; } = { 1, 1 };
     public List<Belt> Belts { get; set; } = new();

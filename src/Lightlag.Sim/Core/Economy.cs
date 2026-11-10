@@ -22,6 +22,9 @@ public sealed class SideState
     public double Industry { get; set; }
     public List<string> Researched { get; set; } = new();
 
+    /// <summary>The ship command sits on (see Light); null once none is left.</summary>
+    public int? FlagshipId { get; set; }
+
     /// <summary>When this side started holding more than half the planets (null while it doesn't).</summary>
     public double? MajoritySinceHour { get; set; }
 
@@ -403,6 +406,9 @@ public static class Economy
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
 public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null) : GameCommand
 {
+    /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+
     public override void Apply(World world, Simulation sim)
     {
         if (Economy.CanQueue(world, Side, Kind, Key) is string problem)
@@ -421,6 +427,9 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
 /// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
 public sealed record SetOrderFleetCommand(Side Side, int OrderId, int? JoinFleetId) : GameCommand
 {
+    /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+
     public override void Apply(World world, Simulation sim)
     {
         var order = world.Orders.Find(o => o.Id == OrderId && o.Side == Side && o.Kind == OrderKind.Ship);
@@ -442,6 +451,9 @@ public sealed record SetOrderFleetCommand(Side Side, int OrderId, int? JoinFleet
 /// <summary>Take an order off its queue. If it was already started, its Industry comes back.</summary>
 public sealed record CancelOrderCommand(Side Side, int OrderId) : GameCommand
 {
+    /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+
     public override void Apply(World world, Simulation sim)
     {
         var order = world.Orders.Find(o => o.Id == OrderId && o.Side == Side);

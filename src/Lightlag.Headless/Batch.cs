@@ -38,6 +38,9 @@ public static class Batch
         var pilot = opts.Get("pilot") ?? "ai";
         if (pilot is not ("ai" or "test" or "easy" or "easy-v-normal" or "test-v-ai"))
             throw new ArgumentException("--pilot must be ai, easy, easy-v-normal, test-v-ai or test");
+        // --lag 1 plays with real light lag, --lag 0.1 with light ten times slower; off by default.
+        _light = opts.Get("lag") is string lag
+            ? new LightSetup(true, double.Parse(lag, System.Globalization.CultureInfo.InvariantCulture)) : null;
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -86,7 +89,12 @@ public static class Batch
         return results.Any(r => r.Outcome != "ok") ? 1 : 0;
     }
 
-    private static GameOptions? OptionsFor(string pilot) => pilot switch
+    private static LightSetup? _light;
+
+    private static GameOptions? OptionsFor(string pilot) =>
+        _light == null ? BaseOptions(pilot) : (BaseOptions(pilot) ?? new GameOptions()) with { Light = _light };
+
+    private static GameOptions? BaseOptions(string pilot) => pilot switch
     {
         "test" => null,
         "easy" => GameOptions.AiVsAi(Difficulty.Easy),
@@ -158,6 +166,7 @@ public static class Batch
         md.AppendLine();
         md.AppendLine($"- Build: {build}");
         md.AppendLine($"- Scenario: {scenario}, {days} game days each, rule checks every tick ({(strict ? "strict" : "lenient")})");
+        md.AppendLine(_light is { On: true } l ? $"- Light lag: on, light at {l.SpeedFactor:0.##} x real speed" : "- Light lag: off");
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
         if (results.Count > 0)
         {

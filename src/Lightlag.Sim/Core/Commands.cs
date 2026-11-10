@@ -30,6 +30,13 @@ public abstract record GameCommand
 
     public abstract void Apply(World world, Simulation sim);
 
+    /// <summary>
+    /// The side giving the order and where it takes effect, for light lag (null: it takes effect at once,
+    /// like debug commands). Fleet orders go to the fleet; see Light.
+    /// </summary>
+    public virtual (Side Side, Vec2 At)? Destination(World world) =>
+        this is IFleetCommand fc && world.FindFleet(fc.FleetId) is Fleet f ? (f.Side, f.Position) : null;
+
     protected Fleet? GetFleet(World world, Simulation sim, int fleetId, string what)
     {
         var fleet = world.FindFleet(fleetId);
@@ -38,8 +45,14 @@ public abstract record GameCommand
     }
 }
 
+/// <summary>An order to one fleet: under light lag it travels to that fleet.</summary>
+public interface IFleetCommand
+{
+    int FleetId { get; }
+}
+
 /// <summary>Fly a fleet to a body (it ends in orbit there, or drifting) or to a point in space.</summary>
-public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : GameCommand
+public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -72,7 +85,7 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
 }
 
 /// <summary>Cancel the flight. A moving fleet brakes to a stop if it has the fuel, otherwise it drifts on.</summary>
-public sealed record StopFleetCommand(int FleetId) : GameCommand
+public sealed record StopFleetCommand(int FleetId) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -97,7 +110,7 @@ public sealed record StopFleetCommand(int FleetId) : GameCommand
 }
 
 /// <summary>Orbit the nearest body, or drift with engines cold. The fleet must be stopped.</summary>
-public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand
+public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -125,7 +138,7 @@ public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand
 }
 
 /// <summary>Take some ships out of a fleet into a new fleet that carries on doing the same thing.</summary>
-public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCommand
+public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -157,7 +170,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
 }
 
 /// <summary>Join another fleet into this one. Both must be stopped and close together.</summary>
-public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCommand
+public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -177,7 +190,7 @@ public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCom
 /// "Fast ships go ahead": the ships faster than the fleet's slowest split off and fly the same order at
 /// their own pace, then wait at the destination and join the slower ships when they arrive.
 /// </summary>
-public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : GameCommand
+public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -236,7 +249,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
 /// Bring fleets together into one: those already close join now; the others fly to it (to its
 /// destination if it is flying) and join when they get there.
 /// </summary>
-public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, double SpeedFraction) : GameCommand
+public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, double SpeedFraction) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -263,7 +276,7 @@ public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, d
 }
 
 /// <summary>Set a fleet's standing orders: engage or hold, and whether to retreat when badly damaged.</summary>
-public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWhenDamaged) : GameCommand
+public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWhenDamaged) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -275,7 +288,7 @@ public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWh
 }
 
 /// <summary>How a fleet dodges railgun fire.</summary>
-public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand
+public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -286,7 +299,7 @@ public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand
 }
 
 /// <summary>How a fleet fires its railguns: focused or spread.</summary>
-public sealed record SetFireModeCommand(int FleetId, FireMode Fire) : GameCommand
+public sealed record SetFireModeCommand(int FleetId, FireMode Fire) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {

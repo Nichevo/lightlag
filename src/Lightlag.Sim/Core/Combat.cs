@@ -486,6 +486,7 @@ public static class Combat
             }
             sim.Log.Info("combat", $"{target.Name} is destroyed", new { shipId = target.Id, by = by.ToString() });
             RemoveShip(w, target);
+            if (Economy.Of(w, target.Side).FlagshipId == target.Id) Light.Succeed(sim, target.Side, target.Position);
             return;
         }
         if (target.Disabled == null && sim.Rng.NextDouble() < C.ModuleHitChance)

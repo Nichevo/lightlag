@@ -92,6 +92,14 @@ public sealed class RuleBook
         .Add("shipyards-sane", w => w.Bodies.Where(b => b.Shipyard && (b.Owner == null || !(b.ShipyardArmour > 0)
                 || b.ShipyardArmour > GameData.Economy.Shipyard.Armour + 1e-6))
             .Select(b => $"{b.Name} shipyard has armour {b.ShipyardArmour} and owner {b.Owner}"))
+        .Add("flagships-sane", w => w.Sides.Where(s => s.FlagshipId is int id && w.FindShip(id) is not { } ship
+                || s.FlagshipId is int id2 && w.FindShip(id2)?.Side != s.Side)
+            .Select(s => $"{s.Side} flagship {s.FlagshipId} is not one of its ships"))
+        .Add("light-sane", w => w.Light.InTransit.Where(t => !(t.ArriveHour >= t.SentHour) || !double.IsFinite(t.ArriveHour))
+                .Select(t => $"order {t.Command.GetType().Name} sent at {t.SentHour} arrives at {t.ArriveHour}")
+            .Concat(w.Light.Reports.Where(r => !double.IsFinite(r.ArriveHour) || r.ArriveHour < r.Snapshot.Hour - 1e-9)
+                .Select(r => $"report on fleet {r.Snapshot.FleetId} arrives at {r.ArriveHour}, before it was made"))
+            .Concat(!w.Light.On && (w.Light.InTransit.Count > 0 || w.Picture.Count > 0) ? new[] { "light lag is off but orders or reports are in transit" } : Array.Empty<string>()))
         .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>());
 
     private static IEnumerable<string> PositionsFinite(World w)

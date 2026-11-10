@@ -78,12 +78,12 @@ public static class Engagement
     /// <summary>The enemy fleet your fleet is most concerned with: in a battle with it, else the nearest one seen.</summary>
     public static int? EnemyFor(World w, Fleet mine)
     {
-        if (mine.Chase is { } c && Sensors.Find(w, mine.Side, c.TargetFleetId) != null) return c.TargetFleetId;
+        if (mine.Chase is { } c && Sensors.Find(w, mine.Side, c.TargetFleetId, seat: true) != null) return c.TargetFleetId;
         int? best = null;
         var bestD = double.MaxValue;
-        foreach (var s in w.Sightings)
+        foreach (var s in Sensors.Known(w, seat: true))
         {
-            if (s.SeenBy != mine.Side) continue;
+            if (s.SeenBy != mine.Side || s.Own) continue;
             var d = Vec2.Distance(s.Guess(w.Hour), mine.Position);
             if (!s.Visible) d *= 3; // prefer what is in sight
             if (d < bestD) { bestD = d; best = s.FleetId; }
@@ -124,9 +124,9 @@ public static class Engagement
         foreach (var mine in w.Fleets)
         {
             if (mine.Side != side || !mine.Position.IsFinite || !w.ShipsOf(mine).Any()) continue;
-            foreach (var s in w.Sightings)
+            foreach (var s in Sensors.Known(w, seat: true))
             {
-                if (s.SeenBy != side) continue;
+                if (s.SeenBy != side || s.Own) continue;
                 var gap = Vec2.Distance(s.Guess(w.Hour), mine.Position);
                 var chased = mine.Chase?.TargetFleetId == s.FleetId;
                 if (gap > near && !chased && Sensors.HeadingFor(s, mine, w.Hour) == null) continue;
@@ -140,10 +140,10 @@ public static class Engagement
     /// <param name="burn">How hard to burn for the approach choices: a share of the fleet's top speed (0.1 to 1).</param>
     public static EngagementInfo? Of(World w, Fleet mine, int enemyId, double burn = 1.0)
     {
-        var s = Sensors.Find(w, mine.Side, enemyId);
+        var s = Sensors.Find(w, mine.Side, enemyId, seat: true);
         if (s == null || !mine.Position.IsFinite) return null;
         var now = w.Hour;
-        Vec2 Them(double t) => Sensors.Predict(w, mine.Side, enemyId, now + t) ?? s.Guess(now + t);
+        Vec2 Them(double t) => Sensors.Predict(w, mine.Side, enemyId, now + t, seat: true) ?? s.Guess(now + t);
         Vec2 Us(double t) => Combat.PredictFleet(w, mine, now + t);
         double GapAt(double t) => Vec2.Distance(Us(t), Them(t));
 
