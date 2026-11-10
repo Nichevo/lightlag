@@ -132,11 +132,35 @@ public class LowFuelTests
         f.Flight = null;
         Fleets.EnterDrift(f);
         f.Velocity = new Vec2(300, 0);
-        foreach (var s in sim.World.ShipsOf(f)) s.Supplies = 100 * Tech.SuppliesPerDeltaV(sim.World, s); // fuel for 100 Mm/h
+        // The same share in every ship (so sharing changes nothing), and fuel for at least 100 Mm/h in every ship.
+        var ships = sim.World.ShipsOf(f).ToList();
+        var share = ships.Max(s => 100 * Tech.SuppliesPerDeltaV(sim.World, s) / GameData.ShipClass(s.ClassId).Supplies);
+        foreach (var s in ships) s.Supplies = share * GameData.ShipClass(s.ClassId).Supplies;
         sim.Issue(new StopFleetCommand(f.Id));
         sim.StepMany(24);
         Assert.Null(f.Flight);
-        Assert.InRange(f.Velocity.Length, 195, 205);
-        Assert.True(FleetPerformance.Of(sim.World, f).DeltaVLeft < 1);
+        Assert.InRange(f.Velocity.Length, 150, 205); // shared fuel can brake a little more than 100
+        Assert.True(f.Velocity.Length > 100);
+    }
+}
+
+public class SupplySharingTests
+{
+    [Fact]
+    public void Ships_in_a_fleet_share_supplies_and_keep_the_total()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 4, GameLog.Memory());
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        var f = sim.World.Fleets.First(x => x.Side == Side.Player && x.ShipIds.Count >= 2);
+        var ships = sim.World.ShipsOf(f).ToList();
+        f.Flight = null;
+        Fleets.EnterDrift(f);
+        ships[0].Supplies = 0;
+        var total = ships.Sum(s => s.Supplies);
+        sim.StepMany(12);
+        Assert.Equal(total, ships.Sum(s => s.Supplies), 6);
+        var shares = ships.Select(s => s.Supplies / GameData.ShipClass(s.ClassId).Supplies).ToList();
+        Assert.True(shares.Max() - shares.Min() < 0.01);
     }
 }

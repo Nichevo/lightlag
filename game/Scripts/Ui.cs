@@ -70,13 +70,15 @@ public partial class Toast : Control
 {
     private readonly string _text;
     private readonly string? _folder;
+    private readonly Action? _onClick;
 
     public Toast() : this("") { }
 
-    public Toast(string text, string? folder = null)
+    public Toast(string text, string? folder = null, Action? onClick = null)
     {
         _text = text;
         _folder = folder;
+        _onClick = onClick;
         ProcessMode = ProcessModeEnum.Always;
     }
 
@@ -84,16 +86,23 @@ public partial class Toast : Control
     {
         // Centred at the top of the window (worked out from the window, so it never slides off the left edge).
         Position = new Vector2(GetViewportRect().Size.X / 2, 0);
-        var label = Ui.Label(_folder != null ? $"{_text}  (click to open)" : _text, 18);
+        var label = Ui.Label(_folder != null ? $"{_text}  (click to open)" : _onClick != null ? $"{_text}  (click to go there)" : _text, 18);
         var panel = Ui.Panel(label, 12);
         panel.Position = new Vector2(-250, 24);
         panel.CustomMinimumSize = new Vector2(500, 0);
         label.HorizontalAlignment = HorizontalAlignment.Center;
         if (_folder != null)
             panel.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true }) OS.ShellOpen(_folder); };
+        if (_onClick != null)
+            panel.GuiInput += e =>
+            {
+                if (e is not InputEventMouseButton { Pressed: true }) return;
+                Main.Instance.RunGuarded("toast click", _onClick);
+                QueueFree();
+            };
         AddChild(panel);
         var tween = CreateTween();
-        tween.TweenInterval(4.0);
+        tween.TweenInterval(_onClick != null ? 8.0 : 4.0);
         tween.TweenProperty(this, "modulate:a", 0.0, 1.0);
         tween.TweenCallback(Callable.From(QueueFree));
     }

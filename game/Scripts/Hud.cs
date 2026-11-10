@@ -18,10 +18,12 @@ public partial class Hud : CanvasLayer
     private FleetPanel _fleetPanel = null!;
     private PlannerPanel _plannerPanel = null!;
     private ReportPanel _reportPanel = null!;
-    private Label _battle = null!;
+    private Button _battle = null!;
     private MenuButton _fleets = null!;
     private readonly List<Action> _fleetMenuActions = new();
     private MenuButton _bodies = null!;
+    private MenuButton _news = null!;
+    private readonly List<Action> _newsActions = new();
     private readonly List<Action> _bodyMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
@@ -72,6 +74,14 @@ public partial class Hud : CanvasLayer
         _bodies.AboutToPopup += FillBodyMenu;
         bodyPopup.IdPressed += id => { if (id >= 0 && id < _bodyMenuActions.Count) Main.Instance.RunGuarded("planet list", _bodyMenuActions[(int)id]); };
         bar.AddChild(_bodies);
+        _news = new MenuButton { Text = "News ▾", TooltipText = "The latest messages; click one to go there", FocusMode = Control.FocusModeEnum.None, Flat = false };
+        _news.CustomMinimumSize = new Vector2(80, 32);
+        _news.AddThemeFontSizeOverride("font_size", 15);
+        var newsPopup = _news.GetPopup();
+        newsPopup.AddThemeFontSizeOverride("font_size", 14);
+        _news.AboutToPopup += FillNewsMenu;
+        newsPopup.IdPressed += id => { if (id >= 0 && id < _newsActions.Count) Main.Instance.RunGuarded("news", _newsActions[(int)id]); };
+        bar.AddChild(_news);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
         _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
@@ -119,9 +129,13 @@ public partial class Hud : CanvasLayer
         _groupPanel.GrowVertical = Control.GrowDirection.Begin;
         AddChild(_groupPanel);
 
-        _battle = Ui.Label("", 18, Ui.Danger);
+        // Battle time banner: says which fleets and where; click it to go there.
+        _battle = new Button { Flat = true, FocusMode = Control.FocusModeEnum.None, TooltipText = "Click to go to the fleets involved" };
+        _battle.AddThemeFontSizeOverride("font_size", 18);
+        _battle.AddThemeColorOverride("font_color", Ui.Danger);
+        _battle.AddThemeColorOverride("font_hover_color", Ui.Text);
+        _battle.Pressed += () => Main.Instance.RunGuarded("go to battle", _screen.FocusBattle);
         _battle.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.KeepSize, 100);
-        _battle.HorizontalAlignment = HorizontalAlignment.Center;
         _battle.GrowHorizontal = Control.GrowDirection.Both;
         AddChild(_battle);
 
@@ -161,7 +175,7 @@ public partial class Hud : CanvasLayer
         var sim = Main.Instance.Sim;
         if (sim == null) return;
         _date.Text = _screen.InBattle ? GameTime.Format(sim.World.Hour) : GameTime.Format(sim.World.Tick);
-        _battle.Text = (_screen.InBattle ? $"BATTLE TIME  ·  {sim.World.Missiles.Count} missiles in flight" : "")
+        _battle.Text = (_screen.InBattle ? _screen.BattleLine() : "")
                        + (_screen.RevealAll ? (_screen.InBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
         _reportPanel.Visible = _screen.Report != null;
         if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
@@ -231,6 +245,21 @@ public partial class Hud : CanvasLayer
     public void TickShip(int shipId) => _fleetPanel.TickOnly(shipId);
 
     /// <summary>The fleet list: your fleets with their ships, then the rival fleets.</summary>
+    private void FillNewsMenu()
+    {
+        var popup = _news.GetPopup();
+        popup.Clear();
+        _newsActions.Clear();
+        var news = Main.Instance.News;
+        if (news.Count == 0) { popup.AddItem("No messages yet", -1); popup.SetItemDisabled(0, true); return; }
+        foreach (var n in Enumerable.Reverse(news))
+        {
+            var text = $"{GameTime.Format(n.Hour)}   {n.Text}" + (n.Click != null ? "  →" : "");
+            if (n.Click != null) { popup.AddItem(text, _newsActions.Count); _newsActions.Add(n.Click); }
+            else { popup.AddItem(text, -1); popup.SetItemDisabled(popup.ItemCount - 1, true); }
+        }
+    }
+
     private void FillFleetMenu()
     {
         var sim = Main.Instance.Sim;

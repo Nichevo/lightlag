@@ -24,11 +24,13 @@
     "retreatBelowArmour": 0.5,
     "repairPerDay": 0.1
   },
-  "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters) or burn (main engines firing). Planets block the line of sight. Your home planet's sensors use planetSensorMm. Sightings no longer updated are forgotten after forgetAfterHours.",
+  "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters), warm (coasting within warmHours of a burn: the engines are still hot) or burn (main engines firing). With these numbers a frigate sees a cold frigate at about 30,000 km (so cold ships can still creep inside missile range), a warm one at 1.5 million km and a burn at about 9.5 million km; a home planet sees five times as far (a burn about a third of an AU away). Planets block the line of sight. Your home planet's sensors use planetSensorMm. Sightings no longer updated are forgotten after forgetAfterHours.",
   "sensors": {
     "cold": 1,
     "orbit": 3,
-    "burn": 1000000,
+    "warm": 2500,
+    "warmHours": 48,
+    "burn": 100000,
     "extraShip": 0.25,
     "planetSensorMm": 150,
     "forgetAfterHours": 720

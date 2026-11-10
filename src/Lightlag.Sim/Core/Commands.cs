@@ -50,6 +50,16 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
         }
         fleet.Flight = plan.Flight;
         fleet.JoinFleetId = null;
+        fleet.Chase = null;
+        if (plan.Flight.Chase != ChaseMode.None && Request.TargetFleetId is int chased)
+        {
+            fleet.Chase = Chases.Order(world, fleet, chased, plan.Flight.Chase, Request.SpeedFraction);
+            sim.Log.Info("fleet", $"{fleet.Name} chases {world.FindFleet(chased)?.Name}", new
+            {
+                fleetId = fleet.Id, targetFleetId = chased, mode = plan.Flight.Chase.ToString(), plan.Flight.ArriveHour, plan.DeltaV, Source,
+            });
+            return;
+        }
         var target = Request.TargetBodyId is int b ? world.FindBody(b)?.Name : plan.Flight.Target.ToString();
         sim.Log.Info("fleet", $"{fleet.Name} plans a flight to {target}", new
         {
@@ -65,6 +75,7 @@ public sealed record StopFleetCommand(int FleetId) : GameCommand
     {
         if (GetFleet(world, sim, FleetId, "Stop order") is not Fleet fleet) return;
         fleet.Flight = null;
+        fleet.Chase = null;
         fleet.JoinFleetId = null;
         if (fleet.Velocity.Length < 1e-9) return;
         if (FlightPlanner.BrakeToStop(world, fleet) is Flight brake)
@@ -130,6 +141,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.OrbitRadius = fleet.OrbitRadius;
         created.OrbitAngle = fleet.OrbitAngle;
         created.Flight = fleet.Flight?.Copy();
+        created.Chase = fleet.Chase?.Copy();
         created.Stance = fleet.Stance;
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
@@ -203,6 +215,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         }
         fleet.Flight = slowPlan.Flight;
         fleet.JoinFleetId = null;
+        fleet.Chase = null;
         ahead.Flight = fastPlan.Flight;
         ahead.JoinFleetId = fleet.Id;
         sim.Log.Info("fleet", $"{ahead.Name} goes ahead of {fleet.Name}", new

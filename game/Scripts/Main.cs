@@ -112,6 +112,7 @@ public partial class Main : Node
 
     private void SetScreen(Node screen)
     {
+        if (screen is GameScreen) News.Clear();
         _screen?.QueueFree();
         _screen = screen;
         AddChild(screen);
@@ -208,7 +209,16 @@ public partial class Main : Node
         _overlay.AddChild(panel);
     }
 
-    public void Toast(string text, string? folderToOpen = null) => _overlay.AddChild(new Toast(text, folderToOpen));
+    public void Toast(string text, string? folderToOpen = null, Action? onClick = null)
+    {
+        _overlay.AddChild(new Toast(text, folderToOpen, onClick));
+        if (Sim == null || folderToOpen != null) return;
+        News.Add(new NewsItem(Sim.World.Hour, text, onClick));
+        if (News.Count > 30) News.RemoveAt(0);
+    }
+
+    /// <summary>The latest messages of this game (the News menu), newest last.</summary>
+    public List<NewsItem> News { get; } = new();
 
     public void Quit(int exitCode = 0)
     {
@@ -461,3 +471,6 @@ public partial class Main : Node
         return BuildInfo.Load(System.IO.Path.GetDirectoryName(OS.GetExecutablePath()) ?? ".");
     }
 }
+
+/// <summary>One message in the News menu: when, what, and where clicking it goes (if anywhere).</summary>
+public sealed record NewsItem(double Hour, string Text, Action? Click);

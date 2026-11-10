@@ -80,6 +80,12 @@ public static class Combat
         if (w.Missiles.Count > 0) return true;
         var standoff = Standoff(w);
         if (w.ActiveBattle != null && !standoff) return true;
+        return PossibleMeeting(w) != null;
+    }
+
+    /// <summary>A player fleet and an enemy fleet that could come into contact in the next hour (why battle time is on), if any.</summary>
+    public static (Fleet Mine, Fleet Theirs)? PossibleMeeting(World w)
+    {
         var to = w.Hour + 1;
         var ends = new Dictionary<int, (Vec2 A, Vec2 B, double Margin)>();
         foreach (var f in w.Fleets)
@@ -104,12 +110,12 @@ public static class Combat
                 // Fleets already close together only need battle time if something can change: one is
                 // flying closer, manoeuvring, or would close in to fight. Parked or drifting neighbours that
                 // can't (or won't) fight are checked once an hour instead.
-                if (r0.Length > C.ContactRangeMm + 50) return true;
-                if (ma > 0 || mb > 0 || WouldEngage(w, a, b) || WouldEngage(w, b, a)) return true;
-                if ((a.Flight is { Started: true } || b.Flight is { Started: true }) && closest < r0.Length - 1) return true;
+                if (r0.Length > C.ContactRangeMm + 50) return (a, b);
+                if (ma > 0 || mb > 0 || WouldEngage(w, a, b) || WouldEngage(w, b, a)) return (a, b);
+                if ((a.Flight is { Started: true } || b.Flight is { Started: true }) && closest < r0.Length - 1) return (a, b);
             }
         }
-        return false;
+        return null;
     }
 
     /// <summary>Where a fleet will be at a future hour if nothing changes.</summary>
@@ -146,7 +152,7 @@ public static class Combat
                 if (!f.Maneuvering)
                 {
                     f.Maneuvering = true;
-                    f.Flight = null;          // engaging overrides a flight still waiting to leave
+                    f.Flight = null;          // engaging overrides the flight
                     Fleets.EnterDrift(f);
                     sim.Log.Info("combat", $"{f.Name} closes in on {enemy!.Name}", new { fleetId = f.Id, enemyId = enemy.Id });
                 }
@@ -154,6 +160,12 @@ public static class Combat
                 var excess = gap.Length - C.EngageRangeMm * 0.75;
                 var closing = Math.Clamp(excess / 0.05, -perf.MaxSpeed * 0.3, perf.MaxSpeed * 0.6);
                 desired = enemy.Velocity + gap.Normalized() * closing;
+            }
+            else if (f.Chase != null)
+            {
+                // Lost sight while chasing: carry on as it is and let the chase take over again.
+                f.Maneuvering = false;
+                continue;
             }
             else
             {
@@ -174,9 +186,12 @@ public static class Combat
         }
     }
 
-    /// <summary>Would this fleet close in to fight that enemy? (Engage stance, sees it, has railguns and fuel, isn't flying or retreating.)</summary>
+    /// <summary>
+    /// Would this fleet close in to fight that enemy? (Engage stance, sees it, has railguns and fuel, isn't
+    /// retreating.) An Engage fleet breaks off a flight to fight; a Hold fleet keeps its course.
+    /// </summary>
     public static bool WouldEngage(World w, Fleet f, Fleet enemy) =>
-        f.Stance == Stance.Engage && !f.Retreating && f.Flight is not { Started: true }
+        f.Stance == Stance.Engage && !f.Retreating && Chases.LetsEngage(f)
         && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
         && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3;
 
@@ -185,6 +200,7 @@ public static class Combat
         var w = sim.World;
         f.Retreating = true;
         f.Maneuvering = false;
+        f.Chase = null;
         var home = Economy.HomeOf(w, f.Side);
         if (home == null) return;
         var req = new FlightRequest(home.Id, home.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick);
@@ -236,6 +252,7 @@ public static class Combat
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
         battle.Action(t1);
+        fleet.LastBurnHour = t1; // firing heats the ships up: they stay easier to see for a while
         ship.RailsReadyHour = t1 + rail.ReloadSeconds * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
         for (var i = 0; i < cls.Railguns; i++)
         {
@@ -246,7 +263,11 @@ public static class Combat
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
             var evasion = GameData.ShipClass(target.ClassId).Evasion;
             var chance = rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
-            if (sim.Rng.NextDouble() < chance)
+            var hit = sim.Rng.NextDouble() < chance;
+            // Misses are drawn landing a little off the target, on a fixed pattern (no extra dice).
+            var off = new Vec2(DetMath.Cos(i * 2.1 + t1 * 977), DetMath.Sin(i * 2.1 + t1 * 977)) * 0.6;
+            sim.AddEffect(new CombatEffect(t1, hit ? EffectKind.RailHit : EffectKind.RailMiss, ship.Position, target.Position + (hit ? Vec2.Zero : off), ship.Side));
+            if (hit)
             {
                 stats.RailHits++;
                 Damage(sim, battle, target, rail.Damage, ship.Side);
@@ -262,6 +283,7 @@ public static class Combat
         var target = NearestEnemyShip(w, ship, m.LaunchRangeMm);
         if (target == null) return;
         battle.Action(t1);
+        fleet.LastBurnHour = t1;
         var count = Math.Min(m.Salvo, ship.Missiles);
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
@@ -345,6 +367,9 @@ public static class Combat
         if (sim.Rng.NextDouble() >= survive)
         {
             stats.ShotDown++;
+            var gunner = w.ShipsOf(targetFleet).Where(s => GameData.ShipClass(s.ClassId).PointDefence > 0 && s.Disabled != Module.PointDefence)
+                .OrderBy(s => Vec2.Distance(s.Position, missile.Position)).FirstOrDefault();
+            sim.AddEffect(new CombatEffect(w.Hour, EffectKind.PointDefenceKill, gunner?.Position ?? target.Position, missile.Position, targetFleet.Side));
             return;
         }
         var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1);
@@ -354,6 +379,7 @@ public static class Combat
             return;
         }
         stats.MissileHits++;
+        sim.AddEffect(new CombatEffect(w.Hour, EffectKind.MissileHit, missile.Position, target.Position, missile.Side));
         Damage(sim, battle, target, C.Missile.Damage, missile.Side);
     }
 

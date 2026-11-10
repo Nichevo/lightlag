@@ -187,10 +187,13 @@ public partial class MapView : Node2D
             DrawRoute(pf, preview, true, Preview.Ok);
         DrawPlannerWaypoints();
         if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
+        RecordTracks();
+        DrawTracks();
         DrawLastSeen();
         if (RevealAll) DrawMindJobs();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
         DrawMissiles();
+        DrawEffects();
         if (SelectionBox is Rect2 box)
         {
             DrawRect(box, new Color(Ui.Player, 0.08f));
@@ -227,6 +230,39 @@ public partial class MapView : Node2D
             {
                 DrawArc(at, r, 0, Mathf.Tau, 96, new Color(Ui.Text, 0.12f), 1, true);
                 DrawString(_font, at + new Vector2(6, r + 14), $"Sees a cold frigate {Km(sees)}", HorizontalAlignment.Left, -1, 13, new Color(Ui.Text, 0.45f));
+            }
+        }
+    }
+
+    /// <summary>Recent shots: railgun tracers (bright on a hit), point defence killing missiles, missile strikes. Each fades over a game minute.</summary>
+    private void DrawEffects()
+    {
+        const double life = 1.0 / 60; // one game minute
+        foreach (var e in Sim.Effects)
+        {
+            var age = DrawHour - e.Hour;
+            if (age < -1e-9 || age > life) continue;
+            var fade = (float)(1 - age / life);
+            var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var from = Camera.ToScreen(e.From);
+            var to = Camera.ToScreen(e.To);
+            if (!Camera.OnScreen(to, 200) && !Camera.OnScreen(from, 200)) continue;
+            switch (e.Kind)
+            {
+                case EffectKind.RailHit:
+                    DrawLine(from, to, new Color(mine, 0.8f * fade), 1.5f);
+                    DrawCircle(to, 3 + 4 * fade, new Color(1, 0.9f, 0.6f, 0.9f * fade));
+                    break;
+                case EffectKind.RailMiss:
+                    DrawLine(from, to, new Color(mine, 0.3f * fade), 1);
+                    break;
+                case EffectKind.PointDefenceKill:
+                    DrawDashedLine(from, to, new Color(mine, 0.7f * fade), 1, 3);
+                    DrawArc(to, 3 + 6 * (1 - fade), 0, Mathf.Tau, 12, new Color(1, 1, 1, 0.9f * fade), 1.5f, true);
+                    break;
+                case EffectKind.MissileHit:
+                    DrawCircle(to, 4 + 10 * (1 - fade), new Color(1, 0.6f, 0.2f, 0.8f * fade));
+                    break;
             }
         }
     }
@@ -488,6 +524,76 @@ public partial class MapView : Node2D
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
     public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
 
+    // Recent track of each enemy fleet you have seen: where it was each hour, and whether it was burning.
+    private readonly Dictionary<int, List<(Vec2 At, bool Burn, long Tick)>> _tracks = new();
+    private long _trackTick = -1;
+    private const int TrackHours = 72;
+
+    /// <summary>Once a game hour: note where each enemy fleet in sight is, and whether it is burning.</summary>
+    private void RecordTracks()
+    {
+        var w = Sim.World;
+        if (w.Tick == _trackTick) return;
+        if (w.Tick < _trackTick) _tracks.Clear(); // a load went back in time
+        _trackTick = w.Tick;
+        foreach (var f in w.Fleets)
+        {
+            if (f.Side == Side.Player || !Sensors.Sees(w, Side.Player, f) || !f.Position.IsFinite) continue;
+            if (!_tracks.TryGetValue(f.Id, out var list)) _tracks[f.Id] = list = new();
+            list.Add((f.Position, f.Thrusting || f.Warm && w.Hour - f.LastBurnHour < 1.01, w.Tick));
+        }
+        foreach (var (id, list) in _tracks.ToList())
+        {
+            list.RemoveAll(p => w.Tick - p.Tick > TrackHours);
+            if (list.Count == 0 || w.FindFleet(id) == null && Sensors.Find(w, Side.Player, id) == null) _tracks.Remove(id);
+        }
+    }
+
+    /// <summary>
+    /// Enemy tracks: where seen fleets have been over the last few days (bright and thick where they burned,
+    /// faint where they coasted), a flame behind a fleet burning now, and its course ahead if it keeps going.
+    /// </summary>
+    private void DrawTracks()
+    {
+        var w = Sim.World;
+        foreach (var (id, list) in _tracks)
+        {
+            if (RevealAll && w.FindFleet(id) is { Side: Side.Player }) continue;
+            for (var i = 1; i < list.Count; i++)
+            {
+                if (list[i].Tick - list[i - 1].Tick > 1) continue; // out of sight in between
+                var a = Camera.ToScreen(list[i - 1].At);
+                var b = Camera.ToScreen(list[i].At);
+                if (!Camera.OnScreen(a, 200) && !Camera.OnScreen(b, 200)) continue;
+                var age = (float)(w.Tick - list[i].Tick) / TrackHours;
+                var burn = list[i].Burn;
+                DrawLine(a, b, burn ? new Color(1f, 0.6f, 0.2f, 0.95f - 0.6f * age) : new Color(Ui.Rival, 0.35f - 0.25f * age), burn ? 3f : 1f);
+            }
+        }
+        foreach (var f in w.Fleets)
+        {
+            if (f.Side == Side.Player || !Shown(f) || !_drawn.TryGetValue(f.Id, out var world)) continue;
+            var at = Camera.ToScreen(world);
+            if (!Camera.OnScreen(at, 300)) continue;
+            if (f.Velocity.Length > 1e-6)
+            {
+                // Its course for the next day if nothing changes.
+                var ahead = Camera.ToScreen(world + f.Velocity * 24);
+                DrawDashedLine(at, ahead, new Color(Ui.Rival, 0.4f), 1, 6);
+            }
+            if (Sensors.StateOf(f) == SignatureState.Burn)
+            {
+                // A flame out of the engines, opposite the way the thrust pushes.
+                var facing = (float)(_shownFacing.TryGetValue(f.Id, out var sh) ? sh : f.Facing);
+                var back = new Vector2(-Mathf.Cos(facing), -Mathf.Sin(facing));
+                var pulse = 0.75f + 0.25f * Mathf.Sin((float)Time.GetTicksMsec() / 90f);
+                DrawLine(at + back * 8, at + back * (30 * pulse), new Color(1f, 0.75f, 0.3f, 0.9f), 4f);
+                DrawLine(at + back * 8, at + back * (18 * pulse), new Color(1f, 1f, 0.85f, 0.95f), 2f);
+                DrawArc(at, 20 + 4 * pulse, 0, Mathf.Tau, 32, new Color(1f, 0.6f, 0.2f, 0.5f), 1.5f, true);
+            }
+        }
+    }
+
     /// <summary>Enemy fleets out of sight: a faint mark where they were last seen, and a dashed guess of where they went.</summary>
     private void DrawLastSeen()
     {
@@ -505,9 +611,16 @@ public partial class MapView : Node2D
             DrawLine(at + new Vector2(-5, -5), at + new Vector2(5, 5), color, 1.2f);
             DrawLine(at + new Vector2(-5, 5), at + new Vector2(5, -5), color, 1.2f);
             var ago = Format.Hours(Math.Max(0, DrawHour - s.Hour));
-            if (s.FleetId == SelectedId || s.FleetId == HoverId || Camera.Scale > 0.01)
+            // Where it should be now if it kept its course: a hollow marker that moves along the track.
+            var moving = at.DistanceTo(guess) > 4;
+            if (moving)
+            {
+                DrawDiamond(guess, 7, new Color(Ui.Rival, 0.75f), false);
+                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships}): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(Ui.Rival, 0.75f));
+            }
+            else if (s.FleetId == SelectedId || s.FleetId == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships}): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
-            if (s.FleetId == SelectedId) DrawArc(at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
+            if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
         }
     }
 
@@ -646,7 +759,7 @@ public partial class MapView : Node2D
         foreach (var sight in Sim.World.Sightings)
         {
             if (sight.SeenBy != Side.Player || sight.Visible) continue;
-            var d = Camera.ToScreen(sight.Position).DistanceTo(screen);
+            var d = Math.Min(Camera.ToScreen(sight.Position).DistanceTo(screen), Camera.ToScreen(sight.Guess(DrawHour)).DistanceTo(screen));
             if (d < bestD) { bestD = d; best = sight.FleetId; }
         }
         return best ?? HitTestBody(screen);

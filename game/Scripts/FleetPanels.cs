@@ -191,6 +191,7 @@ public partial class FleetPanel : PanelContainer
     {
         SignatureState.Burn => "engines burning",
         SignatureState.Orbit => "holding orbit",
+        SignatureState.Warm => "coasting, engines still warm",
         _ => "running cold",
     };
 
@@ -226,6 +227,15 @@ public partial class FleetPanel : PanelContainer
             return Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm) is Fleet e
                 ? $"Closing on {e.Name}, {Vec2.Distance(e.Position, f.Position) * 1000:#,0} km away"
                 : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
+        if (f.Chase is ChaseOrder c)
+        {
+            var who = Sensors.Find(w, f.Side, c.TargetFleetId)?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
+            var how = FlightPlanner.ChaseName(c.Mode);
+            var text = f.Flight is Flight cf
+                ? $"Chasing {who} ({how}), there {GameTime.Format(cf.ArriveHour)}"
+                : $"Keeping pace with {who} ({how})";
+            return c.Problem != null ? $"{text}. Can't keep up: {c.Problem}" : text;
+        }
         if (f.Flight is Flight fl)
         {
             var to = Name(fl.TargetBodyId) ?? (fl.TargetFleetId is int tf ? w.FindFleet(tf)?.Name : null) ?? "a point in space";
@@ -302,7 +312,9 @@ public partial class PlannerPanel : PanelContainer
     private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
     private Button _together = null!, _ahead = null!;
     private Button _addEnd = null!, _addMid = null!;
-    private HBoxContainer _shipsRow = null!;
+    private HBoxContainer _shipsRow = null!, _routeRow = null!, _arriveRow = null!, _thenRow = null!, _ctrlRow = null!, _chaseRow = null!, _keyRow = null!;
+    private OptionButton _chase = null!;
+    private Label _chaseInfo = null!, _hint = null!;
     private VBoxContainer _waypointBox = null!;
     private readonly List<(Button Through, Button Stop, Label Speed, Label Wait, HBoxContainer WaitRow)> _waypointRows = new();
     private PlannerState? _rowsFor;
@@ -326,7 +338,26 @@ public partial class PlannerPanel : PanelContainer
         var s = _screen.Settings;
         _direct = Choice("Direct", "Leave now", () => s.Route = RouteKind.Direct);
         _wait = Choice("Wait", "Leave when the trip is shortest (within 120 days)", () => s.Route = RouteKind.Wait);
-        box.AddChild(Row("Route", _direct, _wait));
+        _routeRow = Row("Route", _direct, _wait);
+        box.AddChild(_routeRow);
+
+        _chase = new OptionButton { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(250, 30) };
+        foreach (var mode in GameScreen.ChaseModes) _chase.AddItem(ChaseLabel(mode), (int)mode);
+        _chase.ItemSelected += i =>
+        {
+            if (_updating) return;
+            s.Chase = (ChaseMode)_chase.GetItemId((int)i);
+            _screen.Replan();
+        };
+        _chaseRow = new HBoxContainer();
+        _chaseRow.AddThemeConstantOverride("separation", 4);
+        _chaseRow.AddChild(RowLabel("Chase"));
+        _chaseRow.AddChild(_chase);
+        box.AddChild(_chaseRow);
+        _chaseInfo = Ui.Label("", 13, Ui.Dim);
+        _chaseInfo.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _chaseInfo.CustomMinimumSize = new Vector2(360, 0);
+        box.AddChild(_chaseInfo);
 
         _speed = new HSlider
         {
@@ -351,25 +382,29 @@ public partial class PlannerPanel : PanelContainer
 
         _brake = Choice("Stop", "Brake to a stop at the target (then orbit or drift)", () => s.Arrival = ArrivalStyle.Brake);
         _pass = Choice("Fly by", "Fly past the target at speed without stopping or going into orbit: quicker and half the fuel", () => s.Arrival = ArrivalStyle.FastPass);
-        box.AddChild(Row("Arrive", _brake, _pass));
+        _arriveRow = Row("Arrive", _brake, _pass);
+        box.AddChild(_arriveRow);
         _orbit = Choice("Orbit", "Circle the planet or moon on arrival", () => s.Hold = HoldStyle.Orbit);
         _drift = Choice("Drift", "Sit with engines cold on arrival", () => s.Hold = HoldStyle.Drift);
-        box.AddChild(Row("Then", _orbit, _drift));
+        _thenRow = Row("Then", _orbit, _drift);
+        box.AddChild(_thenRow);
         _together = Choice("Together", "The whole fleet flies at the pace of its slowest ship", () => s.FastAhead = false);
         _ahead = Choice("Fast ahead", "Faster ships fly at their own pace, wait at the target and rejoin when the slow ones arrive", () => s.FastAhead = true);
         _shipsRow = Row("Ships", _together, _ahead);
         box.AddChild(_shipsRow);
         _addEnd = Choice("New end", "Ctrl+right-click sets a new destination; the old one becomes a waypoint on the way", () => s.AddAtEnd = true);
         _addMid = Choice("Mid point", "Ctrl+right-click adds a waypoint on the way, keeping the destination", () => s.AddAtEnd = false);
-        box.AddChild(Row("Ctrl+R-click", _addEnd, _addMid));
-        var hint = Ui.Label("Drag a waypoint or the end of the route to move it", 13, Ui.Dim);
-        box.AddChild(hint);
+        _ctrlRow = Row("Ctrl+R-click", _addEnd, _addMid);
+        box.AddChild(_ctrlRow);
+        _hint = Ui.Label("Drag a waypoint or the end of the route to move it", 13, Ui.Dim);
+        box.AddChild(_hint);
         var key = new HBoxContainer();
         key.AddThemeConstantOverride("separation", 10);
         key.AddChild(Ui.Label("Line:", 13, Ui.Dim));
         key.AddChild(Ui.Label("speeding up", 13, MapView.SpeedUp));
         key.AddChild(Ui.Label("braking", 13, MapView.Braking));
         key.AddChild(Ui.Label("coasting (thin)", 13, Ui.Player));
+        _keyRow = key;
         box.AddChild(key);
         _waypointBox = new VBoxContainer();
         _waypointBox.AddThemeConstantOverride("separation", 2);
@@ -390,6 +425,31 @@ public partial class PlannerPanel : PanelContainer
         actions.AddChild(cancel);
         box.AddChild(actions);
     }
+
+    private static string ChaseLabel(ChaseMode mode) => mode switch
+    {
+        ChaseMode.MatchSpeed => "Match speed (keep this gap)",
+        ChaseMode.GunRange => $"Close to gun range ({GapText(mode)})",
+        ChaseMode.MissileRange => $"Close to missile range ({GapText(mode)})",
+        ChaseMode.ShadowGuns => $"Shadow outside their guns ({GapText(mode)})",
+        ChaseMode.ShadowMissiles => $"Shadow outside their missiles ({GapText(mode)})",
+        ChaseMode.Overtake => "Overtake (fly through them)",
+        _ => mode.ToString(),
+    };
+
+    private static string GapText(ChaseMode mode) =>
+        FlightPlanner.ChaseDistance(mode) is double d ? $"{d * 1000:#,0} km" : "";
+
+    private static string ChaseTip(ChaseMode mode) => mode switch
+    {
+        ChaseMode.MatchSpeed => "Match their speed and course where you are. Keeps following their last seen track while out of sight",
+        ChaseMode.GunRange => "Close in to railgun range and keep pace. On Engage the fleet then fights at close range",
+        ChaseMode.MissileRange => "Sit just inside missile launch range and keep pace: destroyers fire, their railguns cannot reach",
+        ChaseMode.ShadowGuns => "Keep pace just outside the reach of their railguns",
+        ChaseMode.ShadowMissiles => "Keep pace just outside their missile launch range: watch them without being shot at",
+        ChaseMode.Overtake => "Fly through them faster than they are moving (the speed setting sets how much faster), then carry on",
+        _ => "",
+    };
 
     private Button Choice(string text, string tip, Action set)
     {
@@ -479,6 +539,26 @@ public partial class PlannerPanel : PanelContainer
         }
     }
 
+    /// <summary>Both fleets' speeds, so it is clear why a chase can or cannot work.</summary>
+    private static string ChaseInfo(World w, Fleet? fleet, int targetId, PlanSettings s)
+    {
+        var sighting = Sensors.Find(w, Side.Player, targetId);
+        if (fleet == null || sighting == null) return "";
+        var theirs = sighting.Velocity.Length;
+        var seen = sighting.Visible ? "in sight" : $"last seen {Format.Hours(w.Hour - sighting.Hour)} ago, assumed still on that track";
+        var perf = FleetPerformance.Of(w, fleet);
+        var slowest = w.ShipsOf(fleet).OrderBy(Fleets.ShipSpeed).FirstOrDefault();
+        var gap = Vec2.Distance(fleet.Position, sighting.Guess(w.Hour));
+        var lines = new List<string>
+        {
+            $"{sighting.Name}: {Format.Speed(theirs)} ({seen}), {gap * 1000:#,0} km away",
+            $"This fleet: top {Format.Speed(perf.MaxSpeed)}, {Format.Speed(perf.MaxSpeed * s.Speed)} at this setting"
+            + (slowest != null && w.ShipsOf(fleet).Skip(1).Any() ? $" (set by its slowest ship, {slowest.Name})" : ""),
+            "It re-aims when it sees them change course.",
+        };
+        return string.Join("\n", lines);
+    }
+
     public void Refresh(Simulation sim, PlannerState p)
     {
         RefreshWaypoints(p);
@@ -494,11 +574,35 @@ public partial class PlannerPanel : PanelContainer
         Mark(_brake, s.Arrival == ArrivalStyle.Brake);
         Mark(_pass, s.Arrival == ArrivalStyle.FastPass);
         var canOrbit = s.Arrival == ArrivalStyle.Brake && p.TargetBodyId != null;
-        if (p.TargetFleetId != null) _title.Text = $"Attack: {fleet?.Name} on {p.TargetName}";
+        var chasing = p.TargetFleetId != null;
+        if (chasing) _title.Text = $"Chase: {fleet?.Name} after {p.TargetName}";
+        _routeRow.Visible = !chasing;
+        _arriveRow.Visible = !chasing;
+        _thenRow.Visible = !chasing;
+        _ctrlRow.Visible = !chasing;
+        _hint.Visible = !chasing;
+        _keyRow.Visible = !chasing;
+        _chaseRow.Visible = chasing;
+        _chaseInfo.Visible = chasing;
+        if (chasing)
+        {
+            _updating = true;
+            for (var i = 0; i < _chase.ItemCount; i++)
+            {
+                var mode = (ChaseMode)_chase.GetItemId(i);
+                p.ChaseProblems.TryGetValue(mode, out var problem);
+                _chase.SetItemText(i, ChaseLabel(mode) + (problem != null ? "  (can't)" : ""));
+                _chase.SetItemTooltip(i, problem ?? ChaseTip(mode));
+                if (mode == s.Chase) _chase.Select(i);
+            }
+            _updating = false;
+            _chase.TooltipText = ChaseTip(s.Chase);
+            _chaseInfo.Text = ChaseInfo(w, fleet, p.TargetFleetId!.Value, s);
+        }
         Mark(_orbit, canOrbit && s.Hold == HoldStyle.Orbit, canOrbit);
         Mark(_drift, !canOrbit || s.Hold == HoldStyle.Drift, canOrbit);
-        var canAhead = fleet != null && _screen.HasFastShips(fleet) && s.Arrival == ArrivalStyle.Brake;
-        _shipsRow.Visible = fleet != null && _screen.HasFastShips(fleet);
+        var canAhead = !chasing && fleet != null && _screen.HasFastShips(fleet) && s.Arrival == ArrivalStyle.Brake;
+        _shipsRow.Visible = !chasing && fleet != null && _screen.HasFastShips(fleet);
         Mark(_together, !canAhead || !s.FastAhead, canAhead);
         Mark(_ahead, canAhead && s.FastAhead, canAhead);
         _updating = true;

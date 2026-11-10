@@ -10,7 +10,8 @@ public sealed record FlightRequest(
     long DepartTick,
     RouteKind Route = RouteKind.Direct,
     int? TargetFleetId = null,
-    List<Waypoint>? Waypoints = null);
+    List<Waypoint>? Waypoints = null,
+    ChaseMode Chase = ChaseMode.None);
 
 /// <summary>
 /// A point the route goes through on the way. The fleet flies through it and turns towards the next
@@ -74,6 +75,9 @@ public static class FlightPlanner
             if (away == Vec2.Zero) away = new Vec2(1, 0);
             return p + away * standoffFor;
         }
+
+        if (enemy != null && req.Chase != ChaseMode.None)
+            return PlanChase(w, fleet, enemy, req.Chase, req.SpeedFraction, perf);
 
         if (req.Waypoints is { Count: > 0 })
             return PlanWaypoints(w, fleet, req, perf, body, enemy, AimFrom);
@@ -200,7 +204,7 @@ public static class FlightPlanner
             Legs = legs,
         };
         if (dv > perf.DeltaVLeft + 1e-9)
-            return new FlightPlan(false, $"Not enough supplies for this trip (needs {dv:0} Mm/h of speed change, has {perf.DeltaVLeft:0}): fly slower or refill at home", flight, dv, perf.DeltaVLeft);
+            return new FlightPlan(false, $"Not enough supplies for this trip (needs {Kms(dv)} of speed change, has {Kms(perf.DeltaVLeft)}): fly slower or refill at home", flight, dv, perf.DeltaVLeft);
         return new FlightPlan(true, null, flight, dv, perf.DeltaVLeft);
     }
 
@@ -435,6 +439,124 @@ public static class FlightPlanner
             return new Turn(legs, aim, speed, (vd - v).Length + (speed - end));
         }
         return null;
+    }
+
+    /// <summary>How far from the enemy a chase settles (null: keep the gap there is now).</summary>
+    public static double? ChaseDistance(ChaseMode mode)
+    {
+        var c = GameData.Combat;
+        return mode switch
+        {
+            ChaseMode.GunRange => c.EngageRangeMm * 0.75,
+            ChaseMode.MissileRange => c.Missile.LaunchRangeMm * 0.8,
+            ChaseMode.ShadowGuns => c.Railgun.RangeMm * 1.25,
+            ChaseMode.ShadowMissiles => c.Missile.LaunchRangeMm * 1.1,
+            ChaseMode.Overtake => 0,
+            _ => null,
+        };
+    }
+
+    /// <summary>A speed for messages, in km/s like the screens show.</summary>
+    public static string Kms(double mmPerHour) => $"{mmPerHour / 3.6:#,0} km/s";
+
+    public static string ChaseName(ChaseMode mode) => mode switch
+    {
+        ChaseMode.MatchSpeed => "match speed",
+        ChaseMode.GunRange => "close to gun range",
+        ChaseMode.MissileRange => "close to missile range",
+        ChaseMode.ShadowGuns => "shadow outside their guns",
+        ChaseMode.ShadowMissiles => "shadow outside their missiles",
+        ChaseMode.Overtake => "overtake",
+        _ => "attack",
+    };
+
+    /// <summary>
+    /// Plans a chase. It is worked out as if the enemy stood still (relative to it, on its last seen
+    /// track), then turned back into a real flight: the fleet ends at the chosen distance moving with
+    /// the enemy, or (overtake) passes through it at the chosen extra speed. Fuel is the same either way.
+    /// Fails, saying why, when the fleet is too slow or short of fuel.
+    /// </summary>
+    public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
+    {
+        var now = w.Hour;
+        var side = fleet.Side;
+        var sighting = Sensors.Find(w, side, enemy.Id);
+        var at = Sensors.Predict(w, side, enemy.Id, now);
+        if (at == null) return FlightPlan.Fail("That fleet has not been seen", perf.DeltaVLeft);
+        var vt = sighting?.Velocity ?? enemy.Velocity;
+        var theirSpeed = vt.Length;
+        var fraction = Math.Clamp(speedFraction, MinSpeedFraction, 1.0);
+        var top = perf.MaxSpeed * fraction;
+        string Slow()
+        {
+            var slowest = w.ShipsOf(fleet).OrderBy(Fleets.ShipSpeed).FirstOrDefault();
+            var fastest = w.ShipsOf(fleet).Select(Fleets.ShipSpeed).DefaultIfEmpty(0).Max();
+            var why = $"{enemy.Name} is moving at {Kms(theirSpeed)}; this fleet goes {Kms(top)} at this speed setting";
+            if (fraction < 1 && perf.MaxSpeed > theirSpeed * 1.05) return why + ": try a faster speed";
+            if (slowest != null && fastest > theirSpeed * 1.05)
+                return why + $" because its slowest ship, {slowest.Name}, tops out at {Kms(Fleets.ShipSpeed(slowest))}: split off the faster ships to chase";
+            return why + ", and none of its ships is fast enough";
+        }
+
+        var r = fleet.Position - at.Value;
+        var u = fleet.Velocity - vt;
+        var standoff = ChaseDistance(mode) ?? r.Length;
+        var endSpeed = mode == ChaseMode.Overtake ? double.PositiveInfinity : 0;
+        // Keep the fleet at least slightly faster than the enemy when it has to catch up.
+        if (mode != ChaseMode.MatchSpeed && top <= theirSpeed * 1.02 && Vec2.Dot(vt, r) > 0 && r.Length > standoff * 1.05)
+            return FlightPlan.Fail($"Too slow to catch up: {Slow()}", perf.DeltaVLeft);
+        if (theirSpeed > top * 1.001 && mode != ChaseMode.Overtake)
+            return FlightPlan.Fail($"Cannot keep pace: {Slow()}", perf.DeltaVLeft);
+        var away = r.Normalized();
+        if (away == Vec2.Zero) away = new Vec2(1, 0);
+        var aim = mode == ChaseMode.Overtake ? Vec2.Zero : away * standoff;
+
+        // Try the fastest closing speed that keeps the real speed within the fleet's limit.
+        var closing = top + theirSpeed;
+        for (var attempt = 0; attempt < 24; attempt++, closing *= 0.8)
+        {
+            if (closing < perf.MaxSpeed * 0.01) break;
+            StretchPlan? stretch;
+            if (mode == ChaseMode.MatchSpeed || r.Length < 1e-6 || Vec2.Distance(r, aim) < 0.05)
+            {
+                // Already where it wants to be: just match the enemy's velocity.
+                var dvMatch = u.Length;
+                var t1 = dvMatch / perf.Accel;
+                var legsMatch = new List<FlightLeg>();
+                if (t1 > 1e-9) legsMatch.Add(new FlightLeg(now, now + t1, r, u, u.Normalized() * -perf.Accel));
+                stretch = Ended(legsMatch, r + u * (t1 / 2), dvMatch, r, u, now);
+            }
+            else
+                stretch = Stretch(r, u, now, perf.Accel, closing, endSpeed, (_, _) => aim);
+            if (stretch == null) continue;
+            var legs = stretch.Legs.Select(l => new FlightLeg(l.Start, l.End, l.P0 + at.Value + vt * (l.Start - now), l.V0 + vt, l.A)).ToList();
+            var fastest = legs.Count == 0 ? 0 : legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
+            if (fastest > Math.Max(top, theirSpeed + closing * 0.01) * 1.001 && attempt < 23) continue;
+            if (legs.Count == 0)
+                legs.Add(new FlightLeg(now, now + 0.01, fleet.Position, fleet.Velocity, Vec2.Zero));
+            var end = legs[^1];
+            var flight = new Flight
+            {
+                TargetFleetId = enemy.Id,
+                Target = end.PositionAt(end.End),
+                Route = RouteKind.Direct,
+                Arrival = ArrivalStyle.FastPass, // it ends still moving (with the enemy, or past it)
+                HoldAfter = HoldStyle.Drift,
+                SpeedFraction = fraction,
+                CruiseSpeed = Math.Min(top, closing),
+                DepartHour = now,
+                ArriveHour = end.End,
+                DeltaV = stretch.DeltaV,
+                Legs = legs,
+                Chase = mode,
+            };
+            if (stretch.DeltaV > perf.DeltaVLeft + 1e-9)
+                return new FlightPlan(false,
+                    $"Not enough supplies to {ChaseName(mode)} (needs {Kms(stretch.DeltaV)} of speed change, has {Kms(perf.DeltaVLeft)})"
+                    + (mode != ChaseMode.MatchSpeed ? ": try a slower speed or Match speed" : ""), flight, stretch.DeltaV, perf.DeltaVLeft);
+            return new FlightPlan(true, null, flight, stretch.DeltaV, perf.DeltaVLeft);
+        }
+        return FlightPlan.Fail($"Cannot {ChaseName(mode)}: {Slow()}", perf.DeltaVLeft);
     }
 
     /// <summary>
