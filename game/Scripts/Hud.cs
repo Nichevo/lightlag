@@ -31,6 +31,7 @@ public partial class Hud : CanvasLayer
     private EmpirePanel _empire = null!;
     private EndPanel _end = null!;
     private EngagementPanel _engagement = null!;
+    private ContactsPanel _contacts = null!;
     private PanelContainer _mindPanel = null!;
     private Label _mind = null!;
 
@@ -162,6 +163,10 @@ public partial class Hud : CanvasLayer
         _mindPanel.MouseFilter = Control.MouseFilterEnum.Ignore;
         AddChild(_mindPanel);
 
+        // Coming contacts: top left, under the menu bar and the sight-view line.
+        _contacts = new ContactsPanel(_screen) { Position = new Vector2(16, 84) };
+        AddChild(_contacts);
+
         _engagement = new EngagementPanel(_screen);
         AddChild(_engagement);
 
@@ -188,7 +193,8 @@ public partial class Hud : CanvasLayer
         _pauseOnContact.Modulate = _screen.PauseOnContact ? Ui.Player : new Color(1, 1, 1, 0.6f);
         for (var i = 0; i < _speedButtons.Count; i++)
             _speedButtons[i].Modulate = !_screen.Paused && i == _screen.SpeedIndex ? Ui.Player : new Color(1, 1, 1, 0.75f);
-        _status.Text = $"seed {sim.World.Seed} · build {Main.Instance.Build}"
+        var rival = sim.World.Minds.FirstOrDefault(m => m.Side == Side.Rival);
+        _status.Text = (rival != null ? $"{rival.Difficulty} rival · " : "") + $"seed {sim.World.Seed} · build {Main.Instance.Build}"
                        + (sim.RuleViolations > 0 ? $" · rule failures: {sim.RuleViolations}" : "")
                        + (_screen.Paused ? "\nPAUSED" : "");
         _scaleBar.QueueRedraw();
@@ -226,6 +232,8 @@ public partial class Hud : CanvasLayer
 
         var engagement = _screen.EngagementNow;
         _engagement.Visible = engagement != null;
+        _contacts.Refresh();
+        if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;
         if (engagement != null)
         {
             _engagement.Refresh(sim, engagement);

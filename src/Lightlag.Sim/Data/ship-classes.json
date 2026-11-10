@@ -19,7 +19,7 @@
     "railgun": { "rangeMm": 40, "reloadSeconds": 30, "accuracy": 0.6, "damage": 10, "suppliesPerShot": 0.05 },
     "missile": { "launchRangeMm": 60, "salvo": 4, "salvoReloadSeconds": 360, "accelMmPerHour2": 1500, "deltaV": 600,
                  "damage": 50, "lifetimeHours": 1.0, "hitRadiusMm": 0.3 },
-    "pointDefence": { "rangeMm": 12, "shotSeconds": 10, "killChance": 0.016, "brain2KillFactor": 0.7 },
+    "pointDefence": { "rangeMm": 12, "shotSeconds": 10, "killChance": 0.02, "brain2KillFactor": 0.56 },
     "brain2DodgeFactor": 0.5,
     "moduleHitChance": 0.15,
     "retreatBelowArmour": 0.5,

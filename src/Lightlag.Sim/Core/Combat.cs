@@ -348,7 +348,7 @@ public static class Combat
     {
         var w = sim.World;
         var m = C.Missile;
-        var target = NearestEnemyShip(w, ship, m.LaunchRangeMm);
+        var target = SalvoTarget(w, ship, m.LaunchRangeMm);
         if (target == null) return;
         battle.Action(t1);
         fleet.LastBurnHour = t1;
@@ -370,6 +370,9 @@ public static class Combat
         sim.Log.Info("combat", $"{ship.Name} fires {count} missiles at {target.Name}", new { shipId = ship.Id, targetId = target.Id, count });
     }
 
+    /// <summary>How fast a missile likes to close on its target (Mm/h) before it stops burning.</summary>
+    private const double MissileClosingSpeed = 400;
+
     private static void MoveMissiles(Simulation sim, Battle battle, double t0, double t1)
     {
         var w = sim.World;
@@ -381,7 +384,7 @@ public static class Combat
             var target = w.FindShip(missile.TargetShipId);
             if (target == null)
             {
-                target = NearestShipOfSide(w, Other(missile.Side), missile.Position, C.ContactRangeMm);
+                target = EasiestTurn(w, missile);
                 if (target != null) missile.TargetShipId = target.Id;
             }
             if (target == null || t1 >= missile.ExpiresHour)
@@ -394,18 +397,22 @@ public static class Combat
             var start = missile.Position;
             var targetStart = target.Position - targetFleet.Velocity * dt; // ships have already moved this step
 
-            // Steering: aim the velocity relative to the target straight at it, burning off any sideways
-            // drift. Brain 2 does this fully; brain 1 only corrects half the drift each step, so it wastes
-            // fuel and can miss a target that jinks across its path.
+            // Steering: aim the velocity relative to the target straight at it, closing at least
+            // MissileClosingSpeed, and burn off any sideways drift. It only burns what the correction
+            // needs, so a missile on course coasts in with fuel to spare. Brain 2 cancels all the drift;
+            // brain 1 only half each step, so it wastes fuel and can miss a target that jinks across its path.
             var rel = targetStart - start;
             var relVel = missile.Velocity - targetFleet.Velocity;
-            var closing = Math.Max(400, relVel.Length);
+            var toward = rel.Normalized();
+            var along = Vec2.Dot(relVel, toward);
+            var sideways = relVel - toward * along;
             var correction = missile.Brain >= 2 ? 1.0 : 0.5;
-            var dir = (rel.Normalized() * closing - relVel * correction).Normalized();
-            var burn = Math.Min(m.AccelMmPerHour2 * dt, missile.DeltaVLeft);
+            var wanted = toward * Math.Max(along, MissileClosingSpeed) + sideways * (1 - correction);
+            var change = wanted - relVel;
+            var burn = Math.Min(Math.Min(m.AccelMmPerHour2 * dt, missile.DeltaVLeft), change.Length);
             missile.DeltaVLeft -= burn;
             var v0 = missile.Velocity;
-            missile.Velocity = v0 + dir * burn;
+            if (burn > 0) missile.Velocity = v0 + change.Normalized() * burn;
             missile.Position = start + (v0 + missile.Velocity) * (0.5 * dt);
 
             // Closest approach to the target during this step.
@@ -582,6 +589,56 @@ public static class Combat
             if (o.Side == f.Side || !Sensors.Sees(w, f.Side, o)) continue;
             var d = Vec2.Distance(o.Position, f.Position);
             if (d <= bestD) { best = o; bestD = d; }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// The ship a salvo goes for: the nearest one that the missiles already on their way would not finish
+    /// off, so salvos spread over a fleet instead of all chasing one ship that dies before most arrive.
+    /// When every ship in reach is already covered, the nearest one.
+    /// </summary>
+    private static Ship? SalvoTarget(World w, Ship ship, double range)
+    {
+        var nearest = NearestEnemyShip(w, ship, range);
+        if (nearest == null) return null;
+        var inbound = w.Missiles.Where(x => x.Side == ship.Side).GroupBy(x => x.TargetShipId).ToDictionary(g => g.Key, g => g.Count());
+        var seen = w.Fleets.Where(f => f.Side != ship.Side && Sensors.Sees(w, ship.Side, f)).Select(f => f.Id).ToHashSet();
+        Ship? best = null;
+        var bestD = range;
+        foreach (var s in w.Ships)
+        {
+            if (s.Side == ship.Side || !seen.Contains(s.FleetId)) continue;
+            var d = Vec2.Distance(s.Position, ship.Position);
+            if (d > bestD) continue;
+            // Roughly a third of missiles get through point defence: enough inbound to kill it covers it.
+            var coming = inbound.TryGetValue(s.Id, out var n) ? n : 0;
+            if (coming * C.Missile.Damage / 3 >= s.Armour) continue;
+            best = s;
+            bestD = d;
+        }
+        return best ?? nearest;
+    }
+
+    /// <summary>A missile whose target is gone picks the ship it can turn onto most easily: ahead of it and close.</summary>
+    private static Ship? EasiestTurn(World w, Missile missile)
+    {
+        var side = Other(missile.Side);
+        var seen = w.Fleets.Where(f => f.Side == side && Sensors.Sees(w, missile.Side, f)).ToDictionary(f => f.Id);
+        Ship? best = null;
+        var bestCost = double.PositiveInfinity;
+        foreach (var s in w.Ships)
+        {
+            if (s.Side != side || !seen.TryGetValue(s.FleetId, out var fleet)) continue;
+            var gap = s.Position - missile.Position;
+            var d = gap.Length;
+            if (d > C.ContactRangeMm) continue;
+            var relVel = missile.Velocity - fleet.Velocity;
+            // Speed that has to be turned: the part of its closing velocity not aimed at this ship.
+            var along = d > 1e-9 ? Vec2.Dot(relVel, gap) / d : 0;
+            var sideways = Math.Sqrt(Math.Max(0, Vec2.Dot(relVel, relVel) - along * along)) + Math.Max(0, -along) * 2;
+            var cost = sideways + d * 0.01;
+            if (cost < bestCost) { best = s; bestCost = cost; }
         }
         return best;
     }
