@@ -194,9 +194,11 @@ public partial class Hud : CanvasLayer
         for (var i = 0; i < _speedButtons.Count; i++)
             _speedButtons[i].Modulate = !_screen.Paused && i == _screen.SpeedIndex ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var rival = sim.World.Minds.FirstOrDefault(m => m.Side == Side.Rival);
-        _status.Text = (rival != null ? $"{rival.Difficulty} rival · " : "") + $"seed {sim.World.Seed} · build {Main.Instance.Build}"
+        // Second line: the rival's difficulty, then PAUSED (the first line is long enough to reach the menus).
+        var second = string.Join(" · ", new[] { rival != null ? $"{rival.Difficulty} rival" : null, _screen.Paused ? "PAUSED" : null }.Where(x => x != null));
+        _status.Text = $"seed {sim.World.Seed} · build {Main.Instance.Build}"
                        + (sim.RuleViolations > 0 ? $" · rule failures: {sim.RuleViolations}" : "")
-                       + (_screen.Paused ? "\nPAUSED" : "");
+                       + (second.Length > 0 ? "\n" + second : "");
         _scaleBar.QueueRedraw();
 
         var w = sim.World;

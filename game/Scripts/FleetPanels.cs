@@ -334,6 +334,23 @@ public partial class GroupPanel : PanelContainer
 /// </summary>
 public partial class PlannerPanel : PanelContainer
 {
+    /// <summary>How far the planned flight goes, along its curves.</summary>
+    private static double PathLength(Flight f)
+    {
+        double sum = 0;
+        foreach (var leg in f.Legs)
+        {
+            var last = leg.PositionAt(leg.Start);
+            for (var i = 1; i <= 32; i++)
+            {
+                var p = leg.PositionAt(leg.Start + (leg.End - leg.Start) * i / 32);
+                sum += Vec2.Distance(p, last);
+                last = p;
+            }
+        }
+        return sum;
+    }
+
     private readonly GameScreen _screen;
     private Label _title = null!;
     private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
@@ -655,6 +672,7 @@ public partial class PlannerPanel : PanelContainer
         {
             waitDays < 0.05 ? "Leave: now" : $"Leave: {GameTime.Format(f.DepartHour)} (in {Format.Hours(f.DepartHour - now)})",
             $"Trip: {Format.Hours(f.ArriveHour - f.DepartHour)} · arrive {GameTime.Format(f.ArriveHour)}",
+            $"Distance: {Format.Distance(PathLength(f))} flown" + (fleet != null ? $" ({Format.Distance(Vec2.Distance(fleet.Position, f.Legs.Count > 0 ? f.Legs[^1].PositionAt(f.Legs[^1].End) : fleet.Position))} in a straight line)" : ""),
             $"Fuel: {Format.Speed(plan.DeltaV)} of speed change, {plan.FuelShare:P0} of what the fleet has",
         };
         // What is left afterwards, and whether that is enough to stop again (a fly-by ends still moving).
