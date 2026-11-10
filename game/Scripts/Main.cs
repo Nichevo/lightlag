@@ -75,12 +75,15 @@ public partial class Main : Node
     /// <summary>Light lag for new games, chosen on the title screen: real light speed, ten times slower, or off.</summary>
     public LightSetup LightChoice { get; set; } = new(true, 1.0);
 
+    /// <summary>Decapitation for the next new game: losing the flagship with no destroyer left loses the game.</summary>
+    public bool DecapitationChoice { get; set; } = true;
+
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
         RunGuarded("starting a new game", () =>
         {
-            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with { Light = LightChoice });
+            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with { Light = LightChoice, Decapitation = DecapitationChoice });
             SetScreen(new GameScreen());
         });
     }
@@ -490,6 +493,11 @@ public partial class Main : Node
             while ((Sim.World.ActiveBattle != null || Sim.World.Sub != 0) && Sim.World.Tick < end) Sim.Step();
             battle.ShowLastReport();
             await Shoot("13-combat-report");
+            // The replay of that battle, a third of the way in, with its moments listed.
+            battle.CloseReport();
+            var fought = Sim.World.Battles[^1];
+            battle.OpenReplay(fought, fought.StartHour + ((fought.EndHour ?? Sim.World.Hour) - fought.StartHour) / 3);
+            await Shoot("40-battle-replay");
         }
         catch (Exception ex)
         {

@@ -81,6 +81,25 @@ public static class BattleSweep
             }
         }
 
+        // Tactics sweep (M9): the player's fleet with one setting changed, against the rival on defaults.
+        var tactics = new List<(string Name, BattleOutcome O)>();
+        foreach (var (name, apply) in Tactics)
+        foreach (var pm in Mixes)
+        foreach (var rm in Mixes)
+        for (var i = 0; i < repeats; i++)
+        {
+            var s = seed + 200000 + (ulong)tactics.Count + (ulong)crashes;
+            var setup = new SandboxSetup(pm.Frigates, pm.Destroyers, rm.Frigates, rm.Destroyers);
+            using var log = GameLog.Memory(build);
+            log.MinLevel = LogLevel.Warn;
+            try { tactics.Add((name, BattleRunner.Run(setup, Approach.BrakeFast, s, log, playerSetup: apply))); }
+            catch (Exception ex)
+            {
+                crashes++;
+                Console.WriteLine($"Tactics battle crashed: {name}, {pm.Name} vs {rm.Name}, seed {s}: {ex.Message}");
+            }
+        }
+
         var csv = new StringBuilder("player,rival,approach,playerBrain,rivalBrain,seed,winner,playerLost,rivalLost,playerDamage,rivalDamage,hours,playerMissiles,rivalMissiles,shotDown,railHits\n");
         foreach (var r in rows)
             csv.AppendLine(string.Join(",", r.Player, r.Rival, r.Approach, r.PlayerBrain, r.RivalBrain, r.Seed, r.O.Winner,
@@ -88,7 +107,7 @@ public static class BattleSweep
                 r.O.PlayerMissiles, r.O.RivalMissiles, r.O.ShotDown, r.O.RailHits));
         File.WriteAllText(Path.Combine(runDir, "battles.csv"), csv.ToString());
 
-        var md = Summarise(build, rows, crashes, timer.Elapsed) + SummariseAmbush(ambush);
+        var md = Summarise(build, rows, crashes, timer.Elapsed) + SummariseAmbush(ambush) + SummariseTactics(tactics);
         File.WriteAllText(Path.Combine(runDir, "summary.md"), md);
         File.WriteAllText(Path.Combine(data.Nightly, "latest-battles.md"), md);
         Console.WriteLine(md);
@@ -97,6 +116,41 @@ public static class BattleSweep
     }
 
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>One setting changed on the player's fleet (M9 heat and fire control); the rival keeps the defaults.</summary>
+    public static readonly (string Name, Action<Fleet> Apply)[] Tactics =
+    {
+        ("Defaults", _ => { }),
+        ("Largest first", f => f.FireAt = FireAt.Largest),
+        ("Finish off", f => f.FireAt = FireAt.Weakest),
+        ("Engines", f => f.FireAt = FireAt.Engines),
+        ("Split fire", f => f.FireAt = FireAt.Split),
+        ("Radiators out", f => f.Radiators = RadiatorMode.Out),
+        ("No auto sinks", f => f.AutoSinks = false),
+        ("Long-range fire", f => f.LongShots = true),
+        ("Hold missiles to 40k km", f => f.MissileLaunch = MissileLaunch.Mid),
+        ("Hold missiles to 25k km", f => f.MissileLaunch = MissileLaunch.Close),
+        ("Spread fire", f => f.Fire = FireMode.Spread),
+        ("No dodging", f => f.Dodge = DodgeMode.Off),
+    };
+
+    private static string SummariseTactics(List<(string Name, BattleOutcome O)> rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("## Tactics: one player setting changed, all mixes, brake-fast attack (rival on defaults)");
+        sb.AppendLine();
+        sb.AppendLine("| Setting | Player wins / rival wins | Ships lost (player / rival) | Hours |");
+        sb.AppendLine("|---|---|---|---|");
+        foreach (var (name, _) in Tactics)
+        {
+            var l = rows.Where(r => r.Name == name).Select(r => r.O).ToList();
+            if (l.Count == 0) continue;
+            sb.AppendLine($"| {name} | {l.Count(o => o.Winner == "player") * 100 / l.Count}% / {l.Count(o => o.Winner == "rival") * 100 / l.Count}% | "
+                          + $"{l.Average(o => o.PlayerLost):0.0} / {l.Average(o => o.RivalLost):0.0} | {l.Average(o => o.Hours):0.0} |");
+        }
+        return sb.ToString();
+    }
 
     public static readonly double[] AmbushDistances = { 300, 3000 };
     public static readonly Approach[] AmbushApproaches = { Approach.BrakeFast, Approach.FastPass, Approach.ColdDrift };

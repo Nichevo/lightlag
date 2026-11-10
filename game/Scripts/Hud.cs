@@ -18,6 +18,7 @@ public partial class Hud : CanvasLayer
     private FleetPanel _fleetPanel = null!;
     private PlannerPanel _plannerPanel = null!;
     private ReportPanel _reportPanel = null!;
+    private ReplayPanel _replayPanel = null!;
     private Button _battle = null!;
     private MenuButton _fleets = null!;
     private readonly List<Action> _fleetMenuActions = new();
@@ -27,6 +28,7 @@ public partial class Hud : CanvasLayer
     private readonly List<Action> _bodyMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
+    private Button _silence = null!;
     private Button _empireButton = null!;
     private EmpirePanel _empire = null!;
     private EndPanel _end = null!;
@@ -88,6 +90,9 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_news);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
+        _silence = SmallButton("Radio silence", () => _screen.ToggleRadioSilence(),
+            "No orders leave your flagship (they wait until you lift it), so the rival can't follow your signal traffic to find it. Fleets in command range still get orders");
+        bar.AddChild(_silence);
         _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
         bar.AddChild(_empireButton);
         AddChild(bar);
@@ -149,6 +154,12 @@ public partial class Hud : CanvasLayer
         _reportPanel.GrowVertical = Control.GrowDirection.Both;
         AddChild(_reportPanel);
 
+        _replayPanel = new ReplayPanel(_screen) { Visible = false };
+        _replayPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
+        _replayPanel.GrowHorizontal = Control.GrowDirection.Both;
+        _replayPanel.GrowVertical = Control.GrowDirection.Both;
+        AddChild(_replayPanel);
+
         _plannerPanel = new PlannerPanel(_screen);
         _plannerPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.KeepSize, 16);
         _plannerPanel.GrowHorizontal = Control.GrowDirection.Begin;
@@ -193,8 +204,14 @@ public partial class Hud : CanvasLayer
                        + (_screen.RevealAll ? (_screen.InBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
         _reportPanel.Visible = _screen.Report != null;
         if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
+        _replayPanel.Visible = _screen.Replay != null;
+        if (_screen.Replay != null) _replayPanel.Open(_screen.Replay);
         _pause.Modulate = _screen.Paused ? Ui.Rival : Colors.White;
         _pauseOnContact.Modulate = _screen.PauseOnContact ? Ui.Player : new Color(1, 1, 1, 0.6f);
+        _silence.Visible = sim.World.Light.On;
+        var silent = Economy.Of(sim.World, Side.Player).RadioSilence;
+        _silence.Text = silent ? $"RADIO SILENCE ({sim.World.Light.Held.Count(t => t.Side == Side.Player)} held)" : "Radio silence";
+        _silence.Modulate = silent ? Ui.Danger : new Color(1, 1, 1, 0.6f);
         for (var i = 0; i < _speedButtons.Count; i++)
             _speedButtons[i].Modulate = !_screen.Paused && i == _screen.SpeedIndex ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var rival = sim.World.Minds.FirstOrDefault(m => m.Side == Side.Rival);

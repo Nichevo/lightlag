@@ -13,7 +13,7 @@ public enum Personality { Raider, Expander, Turtle }
 public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Normal, Personality? Personality = null);
 
 /// <summary>Choices made when a game starts that are not in the scenario file. Stored in the replay.</summary>
-public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null)
+public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -27,7 +27,7 @@ public sealed record AiEasy(double ExtraRatio, double SlipChance);
 
 public sealed record PersonalityData(
     string Name, double FrigateShare, double Ratio, double ClaimWeight, double HuntWeight, double GuardShare,
-    double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research);
+    double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research, double FlagshipBoldness = 0.3);
 
 public sealed record AiData(
     AiThinkHours ThinkHours, AiEasy Easy, AiRange AttackRatio, double NerveDrift, double NerveRange, AiRange FirstProbeDay,
@@ -248,6 +248,62 @@ public static class Mind
                 }
             }
             Spend();
+            FireControlAll();
+        }
+
+        /// <summary>Its firing rule and missile timing by personality (raiders finish off and hold missiles close,
+        /// turtles go for the largest and launch far, expanders split fire); fleets running from a chaser drop missiles behind them.</summary>
+        private void FireControlAll()
+        {
+            var rule = _m.Personality switch { Personality.Raider => FireAt.Weakest, Personality.Turtle => FireAt.Largest, _ => FireAt.Split };
+            var launch = _m.Personality switch { Personality.Raider => MissileLaunch.Close, Personality.Turtle => MissileLaunch.Far, _ => MissileLaunch.Mid };
+            foreach (var f in Mine().ToList())
+            {
+                if (f.MissileLaunch != launch) Do(new SetFireControlCommand(f.Id, f.LongShots, launch));
+                if (f.Retreating && _w.ShipsOf(f).Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles)
+                    && _w.Fleets.Any(e => e.Side != _side && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm * 1.5 && Sensors.Sees(_w, _side, e))
+                    && !_w.Dropped.Any(d => d.Side == _side && Vec2.Distance(d.Position, f.Position) <= GameData.Heat.DropSeekMm * 2))
+                {
+                    Do(new DropMissilesCommand(f.Id, 0.25));
+                    Note($"{f.Name} drops missiles behind it as it runs");
+                }
+            }
+            if (_w.Light.On) FlagshipWar(rule);
+            else
+                foreach (var f in Mine().ToList())
+                    if (f.FireAt != rule) Do(new SetCoverCommand(f.Id, f.Cover, rule));
+        }
+
+        /// <summary>
+        /// Under light lag: the fleet with its flagship screens it (Turtles keep close), and fleets near a
+        /// fleet it takes to carry the enemy flagship go for it when they clearly outgun that fleet.
+        /// </summary>
+        private void FlagshipWar(FireAt rule)
+        {
+            var flag = Light.Flagship(_w, _side);
+            foreach (var f in Mine().ToList())
+            {
+                // Orders stuck behind a planet for six hours go by drone.
+                if (Drones.Blocked(_w, f.Id).Any(t => t.Side == _side && _w.Hour - t.ArriveHour >= 6)
+                    && Drones.CanSend(_w, _side, f.Id) == null)
+                {
+                    Do(new SendDroneCommand(_side, f.Id));
+                    Note($"Sends a drone to {f.Name}: a planet blocks its orders");
+                }
+                var carries = flag != null && flag.FleetId == f.Id;
+                var cover = !carries ? CoverStyle.Loose : _m.Personality == Personality.Turtle ? CoverStyle.Close : CoverStyle.Screen;
+                var fireAt = rule;
+                var near = _known.Where(s => s.Flag is FlagKnown.Suspected or FlagKnown.Confirmed
+                        && Vec2.Distance(s.Guess(_w.Hour), f.Position) <= GameData.Combat.ContactRangeMm * 2)
+                    .OrderByDescending(s => s.FlagScore).FirstOrDefault();
+                if (near != null && Stats.Power(_w, f) >= SightingPower(near) * (_m.Personality == Personality.Raider ? 1.0 : 1.3))
+                    fireAt = FireAt.Flagship;
+                if (f.Cover != cover || f.FireAt != fireAt)
+                {
+                    Do(new SetCoverCommand(f.Id, cover, fireAt));
+                    if (fireAt == FireAt.Flagship && f.FireAt != FireAt.Flagship) Note($"{f.Name} goes for the suspected flagship in {near!.Name}");
+                }
+            }
         }
 
         // ---- What it believes ---------------------------------------------------------------
@@ -550,7 +606,8 @@ public static class Mind
         {
             if (Slip()) return;
             var mineBodies = Economy.Claimable(_w).Where(b => b.Owner == _side).Select(b => b.Position).ToList();
-            foreach (var s in _known.Where(s => s.Visible || _w.Hour - s.Hour <= maxAgeHours).OrderBy(s => s.Ships).ToList())
+            foreach (var s in _known.Where(s => s.Visible || _w.Hour - s.Hour <= maxAgeHours)
+                         .OrderBy(s => s.Flag is FlagKnown.Suspected or FlagKnown.Confirmed ? 0 : 1).ThenBy(s => s.Ships).ToList())
             {
                 if (_m.Jobs.Any(j => j.EnemyFleetId == s.FleetId)) continue;
                 var at = s.Guess(_w.Hour);
@@ -738,9 +795,15 @@ public static class Mind
             var pool = Pool().Where(Ready).OrderByDescending(f => Stats.Power(_w, f)).ToList();
             var from = pool.FirstOrDefault();
             if (from == null) return null;
-            // Under light lag the flagship stays at home unless every ship is needed.
-            var flag = _w.Light.On ? Economy.Of(_w, _side).FlagshipId : null;
-            var ships = _w.ShipsOf(from).OrderBy(s => s.Id == flag ? 1 : 0).ThenByDescending(s => Stats.ShipPower(_w, s)).ToList();
+            // Under light lag the flagship stays at home unless every ship is needed, or the personality
+            // is bold enough to lead from the front this time (its flag bridge makes the group fight better).
+            var flag = _w.Light.On && !_rng.Chance(_p.FlagshipBoldness) ? Economy.Of(_w, _side).FlagshipId : null;
+            // Under decapitation a spare destroyer goes out with groups, so one blow can't take both.
+            var spareFirst = _w.Light.Decapitation && Economy.Of(_w, _side).FlagshipId is int f0 && _w.FindShip(f0)?.FleetId == from.Id
+                             && _w.ShipsOf(from).Count(Light.CommandCapable) >= 2;
+            var ships = _w.ShipsOf(from).OrderBy(s => s.Id == flag ? 1 : 0)
+                .ThenBy(s => spareFirst && Light.CommandCapable(s) && s.Id != Economy.Of(_w, _side).FlagshipId ? 0 : 1)
+                .ThenByDescending(s => Stats.ShipPower(_w, s)).ToList();
             var picked = new List<Ship>();
             double sum = 0;
             foreach (var s in ships)

@@ -37,6 +37,10 @@ public partial class TitleScreen : Control
             _ => new Lightlag.Sim.Core.LightSetup(true, 1.0),
         };
         row.AddChild(pick);
+        var decap = new CheckBox { Text = "Decapitation", ButtonPressed = main.DecapitationChoice, FocusMode = FocusModeEnum.None,
+            TooltipText = "With light lag on: lose your flagship with no destroyer left to take command and you lose the game (the rival too)" };
+        decap.Toggled += on => main.DecapitationChoice = on;
+        row.AddChild(decap);
         return row;
     }
 

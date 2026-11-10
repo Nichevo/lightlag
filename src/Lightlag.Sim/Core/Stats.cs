@@ -21,6 +21,9 @@ public sealed class SideTotals
 
     /// <summary>Decisions its fleets made for themselves (see Autonomy).</summary>
     public int OwnDecisions { get; set; }
+
+    /// <summary>Times its ships overheated.</summary>
+    public int Overheats { get; set; }
     public double DamageDealt { get; set; }
     public double ShipyardDamage { get; set; }
 }

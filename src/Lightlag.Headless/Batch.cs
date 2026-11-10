@@ -13,14 +13,14 @@ public sealed record GameResult(
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
-    int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0)
+    int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0, int Overheats = 0)
 {
     public static SideEnd Of(World w, Side side)
     {
         var t = Stats.Of(w, side);
         return new SideEnd(Economy.Claimable(w).Count(b => b.Owner == side), w.Ships.Count(s => s.Side == side),
             Math.Round(Stats.Power(w, side)), t.ShipsBuilt, t.ShipsLost, t.Battles, t.PlanetsClaimed,
-            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions);
+            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions, t.Overheats);
     }
 }
 
@@ -179,6 +179,8 @@ public static class Batch
                           + $"rival {ended.Average(r => r.Rival!.LaggedBattles):0.0} (of {ended.Average(r => r.Player!.Battles):0.0} and {ended.Average(r => r.Rival!.Battles):0.0}); "
                           + $"flagship in battle: player {ended.Average(r => r.Player!.FlagshipBattles):0.0}, rival {ended.Average(r => r.Rival!.FlagshipBattles):0.0}; "
                           + $"fleets' own decisions: player {ended.Average(r => r.Player!.OwnDecisions):0.0}, rival {ended.Average(r => r.Rival!.OwnDecisions):0.0}");
+        if (ended.Count > 0)
+            md.AppendLine($"- Heat, per game: ships overheated: player {ended.Average(r => r.Player!.Overheats):0.0}, rival {ended.Average(r => r.Rival!.Overheats):0.0}");
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
         if (results.Count > 0)
         {

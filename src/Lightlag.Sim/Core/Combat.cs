@@ -14,6 +14,9 @@ public sealed class Missile
     public double DeltaVLeft { get; set; }
     public int Brain { get; set; } = 1;
     public double ExpiresHour { get; set; }
+
+    /// <summary>A dropped missile: drifts dark until this hour (see DroppedMissiles).</summary>
+    public double WakeHour { get; set; }
 }
 
 /// <summary>How one side did in a battle: the numbers behind the combat report.</summary>
@@ -26,6 +29,8 @@ public sealed class BattleSide
     public int ShotDown { get; set; }      // our missiles their point defence stopped
     public int Dodged { get; set; }        // our missiles that missed because the target dodged
     public int RanDry { get; set; }        // our missiles that ran out of fuel or lost their target
+    public int Decoyed { get; set; }       // our missiles a heat sink drew off
+    public double ShieldSoaked { get; set; } // damage this side's shields took instead of armour
     public double DamageDealt { get; set; }
     public List<string> ShipsLost { get; set; } = new();
     public List<string> Knocked { get; set; } = new();   // "FF-1: railguns"
@@ -63,6 +68,13 @@ public sealed class Battle
     public BattleSide[] Sides { get; set; } = { new(), new() };
 
     public BattleSide For(Side s) => Sides[(int)s];
+
+    /// <summary>The recording, to watch the battle again from News (see BattleRecords).</summary>
+    public List<BattleFrame> Frames { get; set; } = new();
+    public List<RosterShip> Roster { get; set; } = new();
+    public List<BattleMark> Marks { get; set; } = new();
+    public List<FrameShot> PendingShots { get; set; } = new();
+    public double FrameEveryHours { get; set; }
 }
 
 /// <summary>
@@ -81,7 +93,7 @@ public static class Combat
     /// </summary>
     public static bool BattlePossible(World w)
     {
-        if (w.Missiles.Count > 0) return true;
+        if (w.Missiles.Count > 0 || DroppedMissiles.MayWake(w)) return true;
         var standoff = Standoff(w);
         if (w.ActiveBattle != null && !standoff) return true;
         return PossibleMeeting(w) != null;
@@ -206,6 +218,10 @@ public static class Combat
         }
     }
 
+    /// <summary>Computer-run fleets fire at long range while they run (to make a chaser dodge and burn).</summary>
+    internal static bool AiLongShots(World w, Fleet f) =>
+        Mind.Of(w, f.Side) != null && (f.Retreating || f.Stance is Stance.Avoid or Stance.ReturnHome);
+
     /// <summary>Is this fleet dodging railgun fire now? (Set to dodge, and supplies not yet low.)</summary>
     public static bool Dodging(World w, Fleet f) => f.Dodge != DodgeMode.Off && C.DodgeFactor < 1 && SupplyShare(w, f) >= C.DodgeStopsBelow;
 
@@ -321,6 +337,7 @@ public static class Combat
         if (plan is { Ok: true, Flight: Flight flight })
         {
             f.Flight = flight;
+            BattleRecords.Mark(w, f, MarkKind.Decision, $"{f.Name} {why}");
             sim.Log.Info("combat", $"{f.Name} {why}", new { fleetId = f.Id, home = home.Name, armour = ArmourShare(w, f), stance = f.Stance.ToString() });
         }
         else
@@ -337,12 +354,13 @@ public static class Combat
         UpdateContacts(sim, t1);
         var battle = w.ActiveBattle;
         if (battle == null) return;
+        BattleRecords.Record(sim, battle, t1);
 
         foreach (var ship in w.Ships.ToList())
         {
             if (w.FleetOf(ship) is not Fleet fleet) continue;
             var cls = GameData.ShipClass(ship.ClassId);
-            if (cls.Railguns > 0 && ship.Disabled != Module.Railguns && t1 >= ship.RailsReadyHour)
+            if (cls.Railguns > 0 && ship.Disabled != Module.Railguns && !ship.Overheated && t1 >= ship.RailsReadyHour)
                 FireRailguns(sim, battle, ship, fleet, cls, t1);
             if (ship.Missiles > 0 && ship.Disabled != Module.Missiles && t1 >= ship.SalvoReadyHour)
                 LaunchSalvo(sim, battle, ship, fleet, t1);
@@ -355,8 +373,13 @@ public static class Combat
     {
         var w = sim.World;
         var rail = C.Railgun;
-        var target = NearestEnemyShip(w, ship, rail.RangeMm);
+        var reach = fleet.LongShots || AiLongShots(w, fleet) ? Math.Max(rail.RangeMm, Heat.D.LongRangeMm) : rail.RangeMm;
+        var target = FireControl.Pick(sim, ship, fleet, rail.RangeMm) ?? (reach > rail.RangeMm ? NearestEnemyShip(w, ship, reach) : null);
         if (target == null) return;
+        target = Flagships.Screened(sim, target);
+        var dist = Vec2.Distance(ship.Position, target.Position);
+        var longShot = dist > rail.RangeMm;
+        target.LastTargetedHour = t1;
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
         battle.Action(t1);
@@ -366,10 +389,12 @@ public static class Combat
         var mode = spread != null ? fleet.Fire : FireMode.Focused;
         var slugs = cls.Railguns * (mode == FireMode.Spread ? spread!.SlugsPerGun : 1);
         var cooldown = mode == FireMode.Spread ? spread!.Cooldown : 1; // a burst heats the guns: they wait longer
-        ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
+        var bridge = FlagBridge(w, fleet);
+        ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) * (bridge?.ReloadFactor ?? 1)
+            * (longShot ? Heat.D.LongReloadFactor : 1) / 3600;
         fleet.LastVolley = mode;
         fleet.LastVolleyHour = t1;
-        var fan = spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm;
+        var fan = (spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm);
         sim.AddEffect(new CombatEffect(t1, EffectKind.Volley, ship.Position, target.Position, ship.Side, fan));
         var side = (target.Position - ship.Position).Normalized();
         side = new Vec2(-side.Y, side.X);
@@ -377,16 +402,24 @@ public static class Combat
         {
             if (ship.Supplies < rail.SuppliesPerShot) break;
             ship.Supplies -= rail.SuppliesPerShot;
+            Heat.Add(ship, Heat.D.PerRailSlug);
             stats.RailShots++;
             var d = Vec2.Distance(ship.Position, target.Position);
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
             var evasion = GameData.ShipClass(target.ClassId).Evasion;
-            var chance = rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
+            // Beyond normal reach a slug flies so long that only a ship holding its course gets hit.
+            var chance = longShot
+                ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - rail.RangeMm) / Math.Max(1e-9, Heat.D.LongRangeMm - rail.RangeMm)) * (1 - evasion)
+                : rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
+            chance *= FireControl.AimFactor(fleet);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
+            chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1);
             if (Dodging(w, targetFleet))
             {
-                chance *= DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet));
+                chance = longShot ? 0 : chance * Flagships.DodgeFactor(targetFleet, DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet)));
                 sim.BurnFuel(targetFleet, C.DodgeDeltaV * (targetFleet.Dodge == DodgeMode.HardBurn && spread != null ? spread.HardCost : 1));
+                // The closer the shooter, the harder (and hotter) the jink that clears a slug.
+                Heat.Add(target, Heat.D.PerDodge * Math.Clamp(rail.RangeMm / Math.Max(d, 1e-6), 1, Heat.D.DodgeCloseMax));
                 targetFleet.LastBurnHour = t1;
             }
             var hit = sim.Rng.NextDouble() < chance;
@@ -396,7 +429,7 @@ public static class Combat
             if (hit)
             {
                 stats.RailHits++;
-                Damage(sim, battle, target, rail.Damage, ship.Side);
+                Damage(sim, battle, target, rail.Damage, ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
                 if (w.FindShip(target.Id) == null) break;
             }
         }
@@ -406,8 +439,12 @@ public static class Combat
     {
         var w = sim.World;
         var m = C.Missile;
-        var target = SalvoTarget(w, ship, m.LaunchRangeMm);
+        var launch = Heat.LaunchRange(fleet);
+        var target = (fleet.FireAt == FireAt.Flagship ? Flagships.FlagTarget(sim, ship, launch) : null)
+                     ?? (fleet.FireAt is FireAt.Largest or FireAt.Weakest ? FireControl.Pick(sim, ship, fleet, launch) : null)
+                     ?? SalvoTarget(w, ship, launch);
         if (target == null) return;
+        target.LastTargetedHour = t1;
         battle.Action(t1);
         fleet.LastBurnHour = t1;
         var count = Math.Min(m.Salvo, ship.Missiles);
@@ -440,6 +477,13 @@ public static class Combat
         {
             var stats = battle.For(missile.Side);
             var target = w.FindShip(missile.TargetShipId);
+            // Brain 2 missiles sent at a guessed flagship turn onto the real one once it is confirmed.
+            if (target != null && missile.Brain >= 2 && Flagships.Retarget(w, missile, target) is Ship real && real.Id != target.Id)
+            {
+                target = real;
+                missile.TargetShipId = real.Id;
+                sim.Log.Info("combat", "Missile turns onto the confirmed flagship", new { missileId = missile.Id, shipId = real.Id });
+            }
             if (target == null)
             {
                 target = EasiestTurn(w, missile);
@@ -492,10 +536,12 @@ public static class Combat
 
         // Point defence: every working mount in the target's fleet gets shots while the missile crosses its range.
         var mounts = w.ShipsOf(targetFleet).Where(s => s.Disabled != Module.PointDefence)
-            .Sum(s => GameData.ShipClass(s.ClassId).PointDefence);
+            .Sum(s => GameData.ShipClass(s.ClassId).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1));
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
-        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2);
+        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2)
+                   * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target)
+                   * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)); // fuel to weave on the way in
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
@@ -505,7 +551,9 @@ public static class Combat
             sim.AddEffect(new CombatEffect(w.Hour, EffectKind.PointDefenceKill, gunner?.Position ?? target.Position, missile.Position, targetFleet.Side));
             return;
         }
-        var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1);
+        // A missile launched close still has most of its fuel at the end: it follows a dodge.
+        var fuelShare = Heat.FuelShare(missile);
+        var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
         {
             stats.Dodged++;
@@ -513,7 +561,7 @@ public static class Combat
         }
         stats.MissileHits++;
         sim.AddEffect(new CombatEffect(w.Hour, EffectKind.MissileHit, missile.Position, target.Position, missile.Side));
-        Damage(sim, battle, target, C.Missile.Damage, missile.Side);
+        Damage(sim, battle, target, C.Missile.Damage, missile.Side, missile: true);
     }
 
     /// <summary>base^exponent for a fractional exponent, using only exact operations (see DetMath).</summary>
@@ -527,9 +575,11 @@ public static class Combat
         return result * (1 - frac * (1 - b));
     }
 
-    private static void Damage(Simulation sim, Battle battle, Ship target, double amount, Side by)
+    private static void Damage(Simulation sim, Battle battle, Ship target, double amount, Side by, bool missile, bool engines = false)
     {
         var w = sim.World;
+        if (w.FleetOf(target) is Fleet tf && Heat.RadiatorsOut(w, tf, target)) amount *= Heat.D.RadiatorsOutDamage;
+        amount = Heat.Absorb(target, amount, missile, battle);
         target.Armour -= amount;
         battle.For(by).DamageDealt += amount;
         if (w.Loop) Economy.Of(w, by).Totals.DamageDealt += amount;
@@ -537,23 +587,23 @@ public static class Combat
         if (target.Armour <= 0)
         {
             lost.ShipsLost.Add(target.Name);
+            BattleRecords.Mark(w, battle, target.Side, MarkKind.ShipLost, $"{target.Name} destroyed");
             if (w.Loop)
             {
                 Economy.Of(w, target.Side).Totals.ShipsLost++;
                 Economy.Of(w, by).Totals.ShipsKilled++;
             }
             sim.Log.Info("combat", $"{target.Name} is destroyed", new { shipId = target.Id, by = by.ToString() });
-            RemoveShip(w, target);
-            if (Economy.Of(w, target.Side).FlagshipId == target.Id) Light.Succeed(sim, target.Side, target.Position);
+            Destroy(sim, target);
             return;
         }
-        if (target.Disabled == null && sim.Rng.NextDouble() < C.ModuleHitChance)
+        if (target.Disabled == null && sim.Rng.NextDouble() < (engines ? Heat.D.EnginesModuleChance : C.ModuleHitChance))
         {
             var cls = GameData.ShipClass(target.ClassId);
             var parts = new List<Module> { Module.Engines, Module.PointDefence };
             if (cls.Railguns > 0) parts.Add(Module.Railguns);
             if (cls.Missiles > 0) parts.Add(Module.Missiles);
-            target.Disabled = parts[sim.Rng.Range(0, parts.Count)];
+            target.Disabled = engines ? Module.Engines : parts[sim.Rng.Range(0, parts.Count)];
             lost.Knocked.Add($"{target.Name}: {ModuleName(target.Disabled.Value)}");
             sim.Log.Info("combat", $"{target.Name} loses its {ModuleName(target.Disabled.Value)}", new { shipId = target.Id, module = target.Disabled });
         }
@@ -566,6 +616,17 @@ public static class Combat
         Module.Missiles => "missile racks",
         _ => "point defence",
     };
+
+    /// <summary>The flag bridge's help, if this fleet carries its side's flagship (light lag on only).</summary>
+    public static FlagBridgeData? FlagBridge(World w, Fleet f) =>
+        w.Light.On && C.FlagBridge != null && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id ? C.FlagBridge : null;
+
+    /// <summary>A ship is gone: off its fleet, and if it was the flagship, command passes on (or the side loses).</summary>
+    public static void Destroy(Simulation sim, Ship ship)
+    {
+        RemoveShip(sim.World, ship);
+        if (Economy.Of(sim.World, ship.Side).FlagshipId == ship.Id) Light.Succeed(sim, ship.Side, ship.Position);
+    }
 
     private static void RemoveShip(World w, Ship ship)
     {
@@ -604,6 +665,7 @@ public static class Combat
             battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, FightingSinceHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
+            BattleRecords.Trim(w);
             foreach (var side in new[] { Side.Player, Side.Rival }) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
             {
@@ -626,6 +688,7 @@ public static class Combat
         }
         if (inContact.Count == 0 && w.Missiles.Count == 0)
         {
+            BattleRecords.Record(sim, battle, t1, force: true);
             battle.EndHour = t1;
             if (w.Loop)
                 foreach (var side in new[] { Side.Player, Side.Rival })
@@ -762,6 +825,7 @@ public static class Combat
             var max = Tech.MaxArmour(w, s);
             s.Armour = Math.Min(max, s.Armour + max * C.RepairPerDay * hours / 24);
             if (s.Armour >= max * 0.5) s.Disabled = null;
+            Heat.Restock(s);
             if (s.Missiles < cls.Missiles && s.Supplies >= 1 && w.Hour % 6 < hours)
             {
                 s.Missiles++;

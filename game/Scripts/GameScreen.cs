@@ -589,7 +589,19 @@ public partial class GameScreen : Node2D
             // Every enemy fleet in it is one you said not to pause for: a news line instead.
             var rivals = w.Fleets.Where(f => f.Side == Side.Rival && b.For(Side.Rival).Fleets.Contains(f.Name)).Select(f => f.Id).ToList();
             var quiet = rivals.Count > 0 && rivals.All(QuietEnemies.Contains);
-            if (again || quiet)
+            var far = w.Light.On && b.For(Side.Player).LagHours > 5.0 / 60;
+            if (far)
+            {
+                // A far battle: its light is only now arriving. Watch it as the light comes in.
+                var battle = b;
+                _main.AddNews($"Battle far away ({Format.Hours(b.For(Side.Player).LagHours)} of light): {string.Join(", ", b.For(Side.Player).Fleets)} and "
+                              + $"{string.Join(", ", b.For(Side.Rival).Fleets)}. Click to watch as the light arrives", () => OpenReplay(battle), keep: true);
+                if (!(again || quiet)) _paused = true;
+                if (!(again || quiet))
+                    _main.Toast($"Light from a far battle: {string.Join(", ", b.For(Side.Player).Fleets)} met {string.Join(", ", b.For(Side.Rival).Fleets)} "
+                                + $"{Format.Hours(Sim.World.Hour - b.StartHour)} ago. Paused; click to watch.", onClick: () => OpenReplay(battle));
+            }
+            else if (again || quiet)
             {
                 _main.AddNews($"{(again ? "Contact again" : "Contact (no pause)")}: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
             }
@@ -604,7 +616,7 @@ public partial class GameScreen : Node2D
         if (last != null && last.Id > _lastReportShown)
         {
             _lastReportShown = last.Id;
-            Report = last;
+            if (Replay?.Id != last.Id) Report = last;
             // Keep the result in the News menu: who fought, losses on each side; click to reopen the report.
             var us = last.For(Side.Player);
             var them = last.For(Side.Rival);
@@ -612,8 +624,8 @@ public partial class GameScreen : Node2D
             var lost = us.ShipsLost.Count == 0 ? "no ships lost" : $"lost {us.ShipsLost.Count} ({string.Join(", ", us.ShipsLost)})";
             var sunk = them.ShipsLost.Count == 0 ? "none of theirs destroyed" : $"destroyed {them.ShipsLost.Count} of theirs";
             _main.AddNews($"Battle over: {string.Join(", ", us.Fleets)} and {string.Join(", ", them.Fleets)}: {lost}, {sunk}. "
-                          + $"Railgun hits {us.RailHits}/{us.RailShots}, missile hits {us.MissileHits}/{us.MissilesFired}",
-                () => Report = battle, keep: true);
+                          + $"Railgun hits {us.RailHits}/{us.RailShots}, missile hits {us.MissileHits}/{us.MissilesFired}. Click to watch it again",
+                () => OpenReplay(battle), keep: true);
         }
     }
 
@@ -755,6 +767,15 @@ public partial class GameScreen : Node2D
 
     public void ShowLastReport() => Report = Sim.World.Battles.LastOrDefault();
     public void CloseReport() => Report = null;
+    public void ShowReportOf(Battle? b) { Replay = null; Report = b; }
+
+    /// <summary>The battle being watched again, if any (see ReplayPanel).</summary>
+    public Battle? Replay { get; private set; }
+    public void OpenReplay(Battle b, double? at = null) { Report = null; Replay = b; ReplaySeek = at; }
+
+    /// <summary>Where a replay just opened should start (null: at the beginning). The replay panel takes it once.</summary>
+    public double? ReplaySeek { get; set; }
+    public void CloseReplay() => Replay = null;
 
     public void OrderStance(Stance stance, bool retreat)
     {
@@ -773,6 +794,49 @@ public partial class GameScreen : Node2D
     {
         if (MyFleet is Fleet f) Sim.Issue(new SetMissionCommand(f.Id, mission, bodyId, escortFleetId));
     }
+
+    public void OrderCover(CoverStyle cover, FireAt fireAt)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetCoverCommand(f.Id, cover, fireAt));
+    }
+
+    public void OrderProtect(int shipId, bool on)
+    {
+        if (Sim.World.FindShip(shipId) is Ship s && s.Side == Side.Player) Sim.Issue(new SetProtectCommand(s.FleetId, s.Id, on));
+    }
+
+    public void OrderHeat(RadiatorMode radiators, bool autoSinks)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetHeatCommand(f.Id, radiators, autoSinks));
+    }
+
+    public void EjectSinks()
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new EjectHeatSinksCommand(f.Id));
+    }
+
+    public void OrderFireControl(bool longShots, MissileLaunch launch)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetFireControlCommand(f.Id, longShots, launch));
+    }
+
+    public void DropMissiles(double waitHours)
+    {
+        if (MyFleet is not Fleet f) return;
+        Sim.Issue(new DropMissilesCommand(f.Id, waitHours));
+        _main.Toast(waitHours <= 0 ? $"{f.Name} drops missiles: they go for the first enemy that passes close" : $"{f.Name} drops missiles: they wake in {Format.Hours(waitHours)}");
+    }
+
+    public void SendDrone()
+    {
+        if (MyFleet is not Fleet f) return;
+        if (Drones.CanSend(Sim.World, Side.Player, f.Id) is string problem) { _main.Toast(problem); return; }
+        Sim.Issue(new SendDroneCommand(Side.Player, f.Id));
+        _main.Toast($"Drone away to {f.Name}");
+    }
+
+    public void ToggleRadioSilence() =>
+        Sim.Issue(new SetRadioSilenceCommand(Side.Player, !Economy.Of(Sim.World, Side.Player).RadioSilence));
 
     public void OrderAutonomy(AutonomyLevel level)
     {
@@ -1149,6 +1213,9 @@ public partial class GameScreen : Node2D
                 break;
             case Key.Escape when Planner != null:
                 CancelPlanning();
+                break;
+            case Key.Escape when Replay != null:
+                CloseReplay();
                 break;
             case Key.Escape when Report != null:
                 CloseReport();

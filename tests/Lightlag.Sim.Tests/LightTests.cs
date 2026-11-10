@@ -236,4 +236,84 @@ public class LightTests
         }
         Assert.True(sent);
     }
+
+    private static Simulation Decap(bool on)
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory(),
+            options: new GameOptions(Light: new LightSetup(true, 1.0), Decapitation: on));
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        return sim;
+    }
+
+    [Fact]
+    public void Losing_the_flagship_with_no_destroyer_left_loses_the_game()
+    {
+        var sim = Decap(true);
+        Combat.Destroy(sim, Light.Flagship(sim.World, Side.Player)!);
+        Assert.Equal(Side.Rival, sim.World.Winner);
+        Assert.Contains("decapitation", sim.World.WinReason);
+        sim.Step();
+    }
+
+    [Fact]
+    public void Without_decapitation_a_frigate_takes_command()
+    {
+        var sim = Decap(false);
+        Combat.Destroy(sim, Light.Flagship(sim.World, Side.Player)!);
+        Assert.Null(sim.World.Winner);
+        Assert.Equal("gun-frigate", Light.Flagship(sim.World, Side.Player)!.ClassId);
+        sim.Step();
+    }
+
+    [Fact]
+    public void A_destroyer_nearby_takes_command_at_once_and_a_far_one_after_a_gap()
+    {
+        var sim = Decap(true);
+        var w = sim.World;
+        var flag = Light.Flagship(w, Side.Player)!;
+        var home = w.FleetOf(flag)!;
+        // A second destroyer in the same fleet: instant handover.
+        var spare = Economy.NewShip(w, Side.Player, "missile-destroyer");
+        spare.FleetId = home.Id;
+        spare.Position = home.Position;
+        home.ShipIds.Add(spare.Id);
+        Combat.Destroy(sim, flag);
+        Assert.Equal(spare.Id, Light.Flagship(w, Side.Player)!.Id);
+        Assert.False(Light.InCommandGap(w, Side.Player));
+        // Now the only destroyer flies far off and the new flagship is lost at home... it has no successor in range.
+        var lone = FrigateAtTamber(sim);
+        var far = Economy.NewShip(w, Side.Player, "missile-destroyer");
+        far.FleetId = lone.Id;
+        far.Position = lone.Position;
+        lone.ShipIds.Add(far.Id);
+        Combat.Destroy(sim, Light.Flagship(w, Side.Player)!);
+        Assert.Equal(far.Id, Light.Flagship(w, Side.Player)!.Id);
+        Assert.True(Light.InCommandGap(w, Side.Player));
+        Assert.Null(w.Winner);
+    }
+
+    [Fact]
+    public void A_drone_carries_orders_round_a_planet_in_the_way()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var lone = FrigateAtTamber(sim);
+        var end = w.Tick + 60 * GameTime.TicksPerDay;
+        while (Light.SignalClear(w, Side.Player, lone.Position) && w.Tick < end) sim.Step();
+        Assert.False(Light.SignalClear(w, Side.Player, lone.Position));
+        sim.Issue(new SetHoldCommand(lone.Id, HoldStyle.Drift));
+        sim.Step();
+        Assert.Null(Drones.CanSend(w, Side.Player, lone.Id));
+        var industry = Economy.Of(w, Side.Player).Industry;
+        sim.Issue(new SendDroneCommand(Side.Player, lone.Id));
+        sim.Step();
+        Assert.Single(w.Drones);
+        Assert.Empty(Drones.Pending(w, Side.Player, lone.Id));
+        Assert.True(Economy.Of(w, Side.Player).Industry < industry + 1);
+        // Tamber is 4 to 6 AU out: at 20,000 Mm/h the drone takes one to two days.
+        for (var i = 0; i < 4 * 24 && w.Drones.Count > 0; i++) sim.Step();
+        Assert.Empty(w.Drones);
+        Assert.Equal(HoldStyle.Drift, lone.Hold);
+    }
 }

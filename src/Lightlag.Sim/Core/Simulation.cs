@@ -39,6 +39,7 @@ public sealed class Simulation
     public void AddEffect(CombatEffect e)
     {
         Effects.Add(e);
+        BattleRecords.Shot(World, e);
         if (Effects.Count > 400 || (Effects.Count > 0 && e.Hour - Effects[0].Hour > 0.05)) Effects.RemoveAll(x => e.Hour - x.Hour > 0.05);
     }
     public GameLog Log { get; }
@@ -69,6 +70,7 @@ public sealed class Simulation
         {
             world.Light.On = light.On;
             world.Light.SpeedFactor = light.SpeedFactor;
+            world.Light.Decapitation = light.On && (options.Decapitation ?? true);
         }
         if (sandbox == null && options?.Autonomy is AutonomyLevel level)
         {
@@ -131,6 +133,9 @@ public sealed class Simulation
             var t1 = World.Hour;
             Combat.Steer(this, t0, t1);
             MoveFleets(t0, t1);
+            Drones.Move(this, t1 - t0);
+            Heat.Update(this, t1 - t0);
+            DroppedMissiles.Update(this, t1 - t0);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Light.Relay(this);
@@ -143,11 +148,15 @@ public sealed class Simulation
             // Fleets still braking after a fight finish braking (otherwise they would drift on for ever).
             Combat.Steer(this, t0, World.Hour);
             MoveFleets(t0, World.Hour);
+            Drones.Move(this, World.Hour - t0);
+            Heat.Update(this, World.Hour - t0);
+            DroppedMissiles.Update(this, World.Hour - t0);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Light.Relay(this);
             // Contacts between fleets that can't fight yet start (or end) a battle at the hour.
             Combat.UpdateContacts(this, World.Hour);
+            if (World.ActiveBattle is Battle b) BattleRecords.Record(this, b, World.Hour);
         }
         World.Random = Rng.Save();
         if (World.Sub != 0) return;
@@ -157,6 +166,7 @@ public sealed class Simulation
         Economy.Update(this);
         Mind.Update(this);
         Autonomy.Update(this);
+        Flagships.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
 
         if (World.Tick % GameTime.TicksPerDay == 0)

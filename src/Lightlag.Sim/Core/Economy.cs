@@ -44,6 +44,12 @@ public sealed class SideState
     /// <summary>The autonomy new fleets start with.</summary>
     public AutonomyLevel DefaultAutonomy { get; set; } = AutonomyLevel.Sensible;
 
+    /// <summary>No orders leave the flagship (they are held), and its signal traffic can't be followed.</summary>
+    public bool RadioSilence { get; set; }
+
+    /// <summary>After the flagship is lost far from its successor: no orders go out until this hour (fleets act on their own).</summary>
+    public double CommandGapUntil { get; set; } = -1e9;
+
     /// <summary>When this side started holding more than half the planets (null while it doesn't).</summary>
     public double? MajoritySinceHour { get; set; }
 
@@ -85,6 +91,7 @@ public static class Tech
     public const string Automation = "automation";
     public const string CommandUplink = "command-uplink";
     public const string TightBeam = "tight-beam";
+    public const string DeflectorGrid = "deflector-grid";
 
     /// <summary>Research that only matters with light lag on.</summary>
     public static bool LagOnly(string id) => id is CommandUplink or TightBeam;
@@ -305,6 +312,7 @@ public static class Economy
             MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies, Missiles = cls.Missiles,
         };
         ship.Armour = Tech.MaxArmour(w, ship);
+        Heat.Fit(w, ship);
         w.Ships.Add(ship);
         return ship;
     }
@@ -438,7 +446,7 @@ public static class Economy
         }
     }
 
-    private static void Win(Simulation sim, Side side, string reason)
+    internal static void Win(Simulation sim, Side side, string reason)
     {
         var w = sim.World;
         w.Winner = side;

@@ -52,7 +52,8 @@ public sealed record StartShipsData([property: JsonPropertyName("class")] string
 public sealed record ShipClass(
     string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, double AccelMmPerHour2,
     double Supplies, double SuppliesPerDeltaV, double Armour, double Evasion, int Railguns, int PointDefence,
-    int Missiles, double Cost, string Role, double SensorMm, double SignatureSize)
+    int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
+    double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0)
 {
     /// <summary>Total speed change a full load of supplies buys.</summary>
     public double FullDeltaV => Supplies / SuppliesPerDeltaV;
@@ -69,7 +70,10 @@ public sealed record PointDefenceData(double RangeMm, double ShotSeconds, double
 public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
     double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay,
-    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null);
+    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null, FlagBridgeData? FlagBridge = null);
+
+/// <summary>The flagship's fleet fights better (light lag only): faster reloads, linked point defence, better aimed railguns.</summary>
+public sealed record FlagBridgeData(double ReloadFactor = 1, double PointDefenceFactor = 1, double AccuracyFactor = 1);
 
 /// <summary>Spread railgun fire and hard-burn dodging. See ship-classes.json.</summary>
 public sealed record SpreadData(int SlugsPerGun, double Accuracy, double Cooldown, double FanMm, double FocusFanMm,
@@ -81,7 +85,7 @@ public sealed record SensorData(double Cold, double Orbit, double Burn, double E
     double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
     double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0);
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null);
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -100,6 +104,10 @@ public static class GameData
     public static CombatData Combat => _file.Value.Combat;
     public static SensorData Sensors => _file.Value.Sensors;
     public static LightData Light => _file.Value.Light ?? new LightData();
+    public static FlagshipData Flagships => _file.Value.Flagships ?? new FlagshipData();
+    public static DroneData Drones => _file.Value.Drones ?? new DroneData();
+    public static HeatData Heat => _file.Value.Heat ?? new HeatData();
+    public static BattleRecordData Recording => _file.Value.Recording ?? new BattleRecordData();
     public static EconomyData Economy => _economy.Value;
     public static AiData Ai => _ai.Value;
     public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;

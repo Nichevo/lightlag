@@ -24,18 +24,18 @@
   "personalities": {
     "raider": {
       "name": "Raider", "frigateShare": 0.75, "ratio": 0.9, "claimWeight": 0.9, "huntWeight": 1.6, "guardShare": 0.25,
-      "probeEarly": 0.7, "takeHeldWeight": 1.4, "claimGroups": 2,
-      "research": ["fast-railguns", "quiet-drives", "efficient-drives", "long-sensors", "heavy-armour", "automation", "point-defence-2", "command-uplink", "missile-brain-2", "tight-beam"]
+      "probeEarly": 0.7, "takeHeldWeight": 1.4, "claimGroups": 2, "flagshipBoldness": 0.6,
+      "research": ["fast-railguns", "quiet-drives", "efficient-drives", "long-sensors", "heavy-armour", "automation", "point-defence-2", "command-uplink", "missile-brain-2", "deflector-grid", "tight-beam"]
     },
     "expander": {
       "name": "Expander", "frigateShare": 0.55, "ratio": 1.1, "claimWeight": 1.6, "huntWeight": 0.8, "guardShare": 0.3,
-      "probeEarly": 1.0, "takeHeldWeight": 0.8, "claimGroups": 3,
-      "research": ["automation", "efficient-drives", "long-sensors", "heavy-armour", "point-defence-2", "command-uplink", "missile-brain-2", "fast-railguns", "tight-beam", "quiet-drives"]
+      "probeEarly": 1.0, "takeHeldWeight": 0.8, "claimGroups": 3, "flagshipBoldness": 0.3,
+      "research": ["automation", "efficient-drives", "long-sensors", "heavy-armour", "point-defence-2", "deflector-grid", "command-uplink", "missile-brain-2", "fast-railguns", "tight-beam", "deflector-grid", "quiet-drives"]
     },
     "turtle": {
       "name": "Turtle", "frigateShare": 0.4, "ratio": 1.15, "claimWeight": 0.8, "huntWeight": 0.6, "guardShare": 0.45,
-      "probeEarly": 1.2, "takeHeldWeight": 0.6, "claimGroups": 2,
-      "research": ["heavy-armour", "point-defence-2", "command-uplink", "missile-brain-2", "automation", "long-sensors", "tight-beam", "fast-railguns", "efficient-drives", "quiet-drives"]
+      "probeEarly": 1.2, "takeHeldWeight": 0.6, "claimGroups": 2, "flagshipBoldness": 0.1,
+      "research": ["heavy-armour", "point-defence-2", "deflector-grid", "command-uplink", "missile-brain-2", "automation", "long-sensors", "tight-beam", "fast-railguns", "efficient-drives", "quiet-drives"]
     }
   }
 }

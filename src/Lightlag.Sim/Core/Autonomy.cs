@@ -249,6 +249,7 @@ public static class Autonomy
         var delay = Light.DelayHours(w, f.Side, f.Position);
         w.Light.Notes.Add(new FleetNote(w.Light.NextNoteId++, f.Side, f.Id, w.Hour, w.Hour + delay, text));
         Economy.Of(w, f.Side).Totals.OwnDecisions++;
+        BattleRecords.Mark(w, f, MarkKind.Decision, text);
         sim.Log.Info("autonomy", text, new { fleetId = f.Id, side = f.Side.ToString(), mission = f.Mission.ToString(), autonomy = f.Autonomy.ToString(), delayHours = delay });
     }
 }
