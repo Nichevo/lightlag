@@ -81,6 +81,9 @@ public sealed class Fleet
     /// <summary>What the fleet does when enemies come into contact.</summary>
     public Stance Stance { get; set; } = Stance.Engage;
 
+    /// <summary>Sidestep railgun fire (costs fuel per slug; stops when supplies run low).</summary>
+    public bool Dodge { get; set; } = true;
+
     /// <summary>Break off and fly home when the fleet's armour falls below half.</summary>
     public bool RetreatWhenDamaged { get; set; } = true;
     public bool Retreating { get; set; }

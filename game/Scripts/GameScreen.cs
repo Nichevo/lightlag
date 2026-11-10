@@ -1,5 +1,6 @@
 using Godot;
 using Lightlag.Sim.Core;
+using Engagement_ = Lightlag.Sim.Core.Engagement;
 using Lightlag.Sim.Save;
 using Side = Lightlag.Sim.Core.Side;
 
@@ -176,6 +177,7 @@ public partial class GameScreen : Node2D
         _camera.Update(delta, _follow is int id ? _map.DrawnPosition(id) : null);
         if (_selected is int sel && Sim.World.FindBody(sel) == null && Sim.World.FindFleet(sel) == null) _selected = null;
         UpdatePlanner(delta);
+        UpdateEngagement(delta);
         _map.HoverId = _map.HitTest(GetViewport().GetMousePosition());
         _map.SelectedId = _selected;
         _group.RemoveAll(g => Sim.World.FindFleet(g) == null);
@@ -212,6 +214,69 @@ public partial class GameScreen : Node2D
     }
 
     public bool IsSandbox => Sim.World.Scenario == Scenarios.BattleSandbox;
+
+    // ---- Engagement screen --------------------------------------------------------------------
+
+    /// <summary>The engagement on screen: your fleet and the enemy fleet (null when the map is shown).</summary>
+    public (int Mine, int Enemy)? Engagement { get; private set; }
+    public EngagementInfo? EngagementNow { get; private set; }
+    private double _engagementAge;
+
+    /// <summary>Open the engagement screen for one of your fleets (against the given enemy, or the one it is most concerned with).</summary>
+    public void OpenEngagement(int mineId, int? enemyId = null)
+    {
+        var w = Sim.World;
+        if (w.FindFleet(mineId) is not { Side: Side.Player } mine) return;
+        var enemy = enemyId ?? Engagement_.EnemyFor(w, mine);
+        if (enemy is not int e || Sensors.Find(w, Side.Player, e) == null)
+        {
+            _main.Toast($"{mine.Name} has no enemy fleet in sight or on record");
+            return;
+        }
+        Planner = null;
+        ShowEmpire = false;
+        Engagement = (mineId, e);
+        Select(mineId);
+        _engagementAge = 1;
+        UpdateEngagement(0);
+        if (EngagementNow is EngagementInfo info)
+        {
+            // Fit both fleets and the closest pass, and at least the missile ranges.
+            var spread = Math.Max(Vec2.Distance(mine.Position, info.EnemyAt), GameData.Combat.Missile.LaunchRangeMm);
+            _follow = mineId;
+            _camera.FitRadius(spread * 1.4);
+        }
+    }
+
+    public void CloseEngagement()
+    {
+        Engagement = null;
+        EngagementNow = null;
+    }
+
+    public void ToggleEngagement()
+    {
+        if (Engagement != null) { CloseEngagement(); return; }
+        if (MyFleet is Fleet f) OpenEngagement(f.Id);
+        else _main.Toast("Select one of your fleets first (V opens its engagement screen)");
+    }
+
+    private void UpdateEngagement(double delta)
+    {
+        if (Engagement is not (int mineId, int enemyId)) { _map.Engagement = null; return; }
+        _engagementAge += delta;
+        if (_engagementAge < 0.25 && EngagementNow != null) { _map.Engagement = EngagementNow; return; }
+        _engagementAge = 0;
+        var w = Sim.World;
+        if (w.FindFleet(mineId) is not Fleet mine || Sensors.Find(w, Side.Player, enemyId) == null)
+        {
+            CloseEngagement();
+            _map.Engagement = null;
+            return;
+        }
+        _main.RunGuarded("engagement", () => EngagementNow = Engagement_.Of(w, mine, enemyId));
+        _map.Engagement = EngagementNow;
+    }
 
     /// <summary>Sandbox start: paused, looking at both fleets, with yours selected.</summary>
     private Action GoToFleet(int id) => () => { if (Sim.World.FindFleet(id) != null) { Select(id); _follow = id; } };
@@ -273,6 +338,8 @@ public partial class GameScreen : Node2D
         if (mine != null) { _follow = mine.Id; Select(mine.Id); }
         else { _follow = null; _camera.Center = center; }
         _camera.FitRadius(Math.Max(spread * 2.5, 300));
+        var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id) != null);
+        if (mine != null) OpenEngagement(mine.Id, theirs?.Id);
     }
 
     public void FocusSandbox()
@@ -434,8 +501,9 @@ public partial class GameScreen : Node2D
                 if (_chaseWarned.TryGetValue(key, out var when) && w.Hour - when < 24) { _chaseWarned[key] = w.Hour; continue; }
                 _chaseWarned[key] = w.Hour;
                 var enemyId = s.FleetId;
+                var mineId = mine.Id;
                 _main.Toast($"{s.Name} ({s.Ships} ships) is heading for {mine.Name}: about {Format.Hours(eta)} away at {Format.Speed((s.Velocity - mine.Velocity).Length)} closing",
-                    onClick: () => GoToSighting(enemyId));
+                    onClick: () => OpenEngagement(mineId, enemyId));
             }
     }
 
@@ -830,6 +898,8 @@ public partial class GameScreen : Node2D
             case Key.X: OrderStop(); break;
             case Key.C when Planner == null: EditRoute(); break;
             case Key.M: OrderMerge(); break;
+            case Key.V: ToggleEngagement(); break;
+            case Key.Escape when Engagement != null: CloseEngagement(); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;

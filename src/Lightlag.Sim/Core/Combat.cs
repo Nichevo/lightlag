@@ -186,6 +186,17 @@ public static class Combat
         }
     }
 
+    /// <summary>Is this fleet sidestepping railgun fire now? (Set to dodge, and supplies not yet low.)</summary>
+    public static bool Dodging(World w, Fleet f) => f.Dodge && C.DodgeFactor < 1 && SupplyShare(w, f) >= C.DodgeStopsBelow;
+
+    /// <summary>Supplies left as a share of full, across the fleet.</summary>
+    public static double SupplyShare(World w, Fleet f)
+    {
+        double have = 0, full = 0;
+        foreach (var s in w.ShipsOf(f)) { have += s.Supplies; full += GameData.ShipClass(s.ClassId).Supplies; }
+        return full > 0 ? have / full : 0;
+    }
+
     /// <summary>
     /// Would this fleet close in to fight that enemy? (Engage stance, sees it, has railguns and fuel, isn't
     /// retreating.) An Engage fleet breaks off a flight to fight; a Hold fleet keeps its course.
@@ -263,6 +274,12 @@ public static class Combat
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
             var evasion = GameData.ShipClass(target.ClassId).Evasion;
             var chance = rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
+            if (Dodging(w, targetFleet))
+            {
+                chance *= C.DodgeFactor;
+                sim.BurnFuel(targetFleet, C.DodgeDeltaV);
+                targetFleet.LastBurnHour = t1;
+            }
             var hit = sim.Rng.NextDouble() < chance;
             // Misses are drawn landing a little off the target, on a fixed pattern (no extra dice).
             var off = new Vec2(DetMath.Cos(i * 2.1 + t1 * 977), DetMath.Sin(i * 2.1 + t1 * 977)) * 0.6;

@@ -71,7 +71,12 @@ public partial class FleetPanel : PanelContainer
         _orders.AddChild(_hold);
         _orders.AddChild(_retreat);
         box.AddChild(_orders);
+        _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
+            "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
+        box.AddChild(_engagementButton);
     }
+
+    private Button _engagementButton = null!;
 
     private Fleet? _fleet;
 
@@ -172,6 +177,7 @@ public partial class FleetPanel : PanelContainer
 
         _buttons.Visible = mine;
         _orders.Visible = mine;
+        _engagementButton.Visible = mine && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
         _engage.Modulate = f.Stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
         _hold.Modulate = f.Stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);

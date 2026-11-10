@@ -30,6 +30,7 @@ public partial class Hud : CanvasLayer
     private Button _empireButton = null!;
     private EmpirePanel _empire = null!;
     private EndPanel _end = null!;
+    private EngagementPanel _engagement = null!;
     private PanelContainer _mindPanel = null!;
     private Label _mind = null!;
 
@@ -160,6 +161,9 @@ public partial class Hud : CanvasLayer
         _mindPanel.MouseFilter = Control.MouseFilterEnum.Ignore;
         AddChild(_mindPanel);
 
+        _engagement = new EngagementPanel(_screen);
+        AddChild(_engagement);
+
         _end = new EndPanel(_screen);
         _end.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
         _end.GrowHorizontal = Control.GrowDirection.Both;
@@ -219,7 +223,19 @@ public partial class Hud : CanvasLayer
         if (_plannerPanel.Visible && _fleetPanel.Visible && _plannerPanel.GetGlobalRect().End.Y > _fleetPanel.GetGlobalRect().Position.Y)
             _fleetPanel.Visible = false;
 
-        var text = fleet == null && group.Count < 2 ? Describe(sim) : null;
+        var engagement = _screen.EngagementNow;
+        _engagement.Visible = engagement != null;
+        if (engagement != null)
+        {
+            _engagement.Refresh(sim, engagement);
+            _fleetPanel.Visible = false;
+            _groupPanel.Visible = false;
+            _mindPanel.Visible = false;
+            _battle.Visible = false;
+        }
+        else _battle.Visible = true;
+
+        var text = fleet == null && group.Count < 2 && engagement == null ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
     }
