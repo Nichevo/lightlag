@@ -362,7 +362,7 @@ public partial class GameScreen : Node2D
             _owners[b.Id] = b.Owner;
             if (b.ClaimSide == Side.Rival && b.Owner == Side.Player)
             {
-                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {GameData.Economy.ClaimDays:0} days"); _paused = true; }
+                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days"); _paused = true; }
             }
             else _claimsWarned.Remove(b.Id);
         }

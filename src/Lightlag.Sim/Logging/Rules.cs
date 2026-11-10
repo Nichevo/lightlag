@@ -83,7 +83,7 @@ public sealed class RuleBook
         .Add("orders-sane", w => w.Orders.Where(o => !double.IsFinite(o.HoursLeft) || o.HoursLeft > o.TotalHours + 1e-6
                 || (o.Kind == OrderKind.Ship ? !GameData.ShipClasses.ContainsKey(o.Key) : !GameData.ResearchById.ContainsKey(o.Key)))
             .Select(o => $"order {o.Id} ({o.Kind} {o.Key}) has {o.HoursLeft} of {o.TotalHours} hours left"))
-        .Add("claims-sane", w => w.Bodies.Where(b => b.ClaimHours < 0 || b.ClaimHours > GameData.Economy.ClaimDays * 24
+        .Add("claims-sane", w => w.Bodies.Where(b => b.ClaimHours < 0 || b.ClaimHours > Economy.ClaimHoursFor(b)
                 || (b.ClaimSide == null && b.ClaimHours != 0) || (b.ClaimSide != null && b.ClaimSide == b.Owner))
             .Select(b => $"{b.Name} claim by {b.ClaimSide} at {b.ClaimHours} hours (owner {b.Owner})"))
         .Add("shipyards-sane", w => w.Bodies.Where(b => b.Shipyard && (b.Owner == null || !(b.ShipyardArmour > 0)

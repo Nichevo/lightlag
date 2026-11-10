@@ -175,6 +175,20 @@ public class EconomyTests
     }
 
     [Fact]
+    public void Taking_a_planet_the_other_side_holds_takes_longer()
+    {
+        var sim = NewGame();
+        var vela = BodyNamed(sim, "vela");
+        vela.Owner = Side.Rival;
+        PlaceInOrbit(sim, FleetOf(sim, Side.Player), vela);
+        Days(sim, GameData.Economy.ClaimDays + 1);
+        Assert.Equal(Side.Rival, vela.Owner);
+        Assert.Equal(Side.Player, vela.ClaimSide);
+        Days(sim, GameData.Economy.ClaimHeldDays - GameData.Economy.ClaimDays);
+        Assert.Equal(Side.Player, vela.Owner);
+    }
+
+    [Fact]
     public void An_enemy_in_orbit_stops_the_claim()
     {
         var sim = NewGame();

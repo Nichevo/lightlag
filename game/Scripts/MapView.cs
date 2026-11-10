@@ -177,7 +177,7 @@ public partial class MapView : Node2D
             if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
             if (b.ClaimSide is Side claimer)
             {
-                var share = (float)(b.ClaimHours / (GameData.Economy.ClaimDays * 24));
+                var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
                 var cc = claimer == Side.Player ? Ui.Player : Ui.Rival;
                 DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
                 DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);

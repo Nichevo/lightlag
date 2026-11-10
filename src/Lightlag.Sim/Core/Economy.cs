@@ -11,7 +11,7 @@ public sealed record ShipyardData(double Armour, double RepairPerDay, double Rai
 public sealed record ResearchData(string Id, string Name, string Effect, double Cost, double Days, double Factor);
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
-    ShipyardData Shipyard, List<ResearchData> Research);
+    ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0);
 
 // ---- State --------------------------------------------------------------------------------
 
@@ -235,16 +235,21 @@ public static class Economy
         return ship;
     }
 
+    /// <summary>Hours of holding orbit to claim a body: longer to take one the other side holds than an empty one.</summary>
+    public static double ClaimHoursFor(Body b) =>
+        (b.Owner != null && E.ClaimHeldDays > 0 ? E.ClaimHeldDays : E.ClaimDays) * 24;
+
     /// <summary>
-    /// A side that holds orbit at a body with no enemy fleet in orbit there claims it after ClaimDays.
+    /// A side that holds orbit at a body with no enemy fleet in orbit there claims it after ClaimDays
+    /// (ClaimHeldDays for a body the other side holds).
     /// Leaving, or an enemy arriving, resets the count. Shipyard planets can't be claimed, only destroyed.
     /// </summary>
     private static void Claims(Simulation sim)
     {
         var w = sim.World;
-        var need = E.ClaimDays * 24;
         foreach (var b in Claimable(w))
         {
+            var need = ClaimHoursFor(b);
             if (b.Shipyard) { b.ClaimSide = null; b.ClaimHours = 0; continue; }
             var sides = w.Fleets.Where(f => InOrbitAt(f, b)).Select(f => f.Side).Distinct().ToList();
             if (sides.Count != 1 || b.Owner == sides[0])

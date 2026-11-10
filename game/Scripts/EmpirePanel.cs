@@ -183,11 +183,11 @@ public partial class EmpirePanel : PanelContainer
 
     private static string ClaimsText(World w)
     {
-        var need = GameData.Economy.ClaimDays * 24;
         var lines = w.Bodies.Where(b => b.ClaimSide != null).Select(b =>
-            $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {need / 24:0} days").ToList();
+            $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days").ToList();
+        var e = GameData.Economy;
         return lines.Count > 0 ? string.Join("\n", lines)
-            : $"Hold orbit at a planet or moon for {need / 24:0} days, with no enemy in orbit, to claim it.";
+            : $"Hold orbit at a planet or moon, with no enemy in orbit, to claim it: {e.ClaimDays:0} days for an empty one, {(e.ClaimHeldDays > 0 ? e.ClaimHeldDays : e.ClaimDays):0} for one the rival holds.";
     }
 
     private void Heading(string text)

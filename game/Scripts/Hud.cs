@@ -296,9 +296,9 @@ public partial class Hud : CanvasLayer
             if (w.Loop && b.Industry > 0) lines.Add($"Industry: {b.Industry:0} a day for whoever holds it");
             else if (w.Loop && b.Kind != BodyKind.Star) lines.Add("No industry: it can't be claimed and doesn't count towards winning");
             if (b.ClaimSide is Side claimer)
-                lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {GameData.Economy.ClaimDays:0} days");
+                lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days");
             else if (w.Loop && b.Industry > 0 && b.Owner != Side.Player && !b.Shipyard)
-                lines.Add($"Hold orbit here {GameData.Economy.ClaimDays:0} days with no enemy in orbit to claim it");
+                lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it");
             else if (b.Shipyard && b.Owner == Side.Rival)
                 lines.Add("Park an armed fleet in orbit with no defenders near to wear the shipyard down");
             if (_screen.SelectedFleet == null && sim.World.Fleets.Any(f => f.Side == Side.Player)) lines.Add("Select a fleet, then right-click here to fly");

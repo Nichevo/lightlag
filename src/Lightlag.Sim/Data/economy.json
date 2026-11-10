@@ -1,8 +1,9 @@
 {
-  "_comment": "The game loop. Industry is the one resource: each planet or moon you hold adds its industry value (from the system file) per day. Ships cost their class cost in Industry, paid when the shipyard starts them, and take cost / buildIndustryPerDay days. Research is one queue; each item is paid when it starts. A neutral or enemy body is claimed after a side holds orbit there for claimDays with no enemy fleet in orbit. A shipyard is destroyed when its armour runs out under bombardment by an enemy fleet in orbit with no defenders nearby. Win: the enemy shipyard is destroyed, or hold more than half of the bodies with industry for holdToWinDays.",
+  "_comment": "The game loop. Industry is the one resource: each planet or moon you hold adds its industry value (from the system file) per day. Ships cost their class cost in Industry, paid when the shipyard starts them, and take cost / buildIndustryPerDay days. Research is one queue; each item is paid when it starts. A neutral or enemy body is claimed after a side holds orbit there for claimDays with no enemy fleet in orbit; a body the other side holds takes claimHeldDays. A shipyard is destroyed when its armour runs out under bombardment by an enemy fleet in orbit with no defenders nearby. Win: the enemy shipyard is destroyed, or hold more than half of the bodies with industry for holdToWinDays.",
   "startIndustry": 80,
   "buildIndustryPerDay": 8,
   "claimDays": 10,
+  "claimHeldDays": 30,
   "holdToWinDays": 30,
   "shipyard": {
     "armour": 1500,
