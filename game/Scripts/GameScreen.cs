@@ -175,7 +175,7 @@ public partial class GameScreen : Node2D
             // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
             // battle time, which runs 360 times slower: 1x is then one game minute per second.
             var cost = Sim.PeekStepHours();
-            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick ? BattleSlowdown : 1);
+            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick && SlowForBattle() ? BattleSlowdown : 1);
             _accum += delta * rate / cost;
             var switched = false;
             var ok = _main.RunGuarded("running the simulation", () =>
@@ -553,11 +553,32 @@ public partial class GameScreen : Node2D
 
     // ---- Battles ------------------------------------------------------------------------------
 
+    /// <summary>Has news of something that happened at this hour and place reached your flagship yet?</summary>
+    private bool Heard(double hour, Vec2 where) => Sim.World.Hour - hour >= Light.DelayHours(Sim.World, Side.Player, where) - 1e-9;
+
+    /// <summary>
+    /// Should battle time slow the clock? Without light lag, whenever the game runs in battle time. With
+    /// it, only when you could know: a battle whose news has reached you, or enemies close to a fleet
+    /// within your command range. A far battle you have not heard of yet runs at the normal speed.
+    /// </summary>
+    private bool SlowForBattle()
+    {
+        var w = Sim.World;
+        if (!w.Light.On) return true;
+        if (w.ActiveBattle is Battle b && Heard(b.StartHour, b.Where)) return true;
+        var near = GameData.Combat.ContactRangeMm * 2;
+        foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player && Light.DelayHours(w, Side.Player, f.Position) <= 0))
+            if (w.Fleets.Any(e => e.Side != Side.Player && Vec2.Distance(e.Position, mine.Position) <= near)
+                || w.Missiles.Any(m => Vec2.Distance(m.Position, mine.Position) <= near))
+                return true;
+        return false;
+    }
+
     /// <summary>Pause when a battle starts (so orders can be given), and show the report when it ends.</summary>
     private void WatchBattles()
     {
         var w = Sim.World;
-        if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen)
+        if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen && Heard(b.StartHour, b.Where))
         {
             _lastBattleSeen = b.Id;
             // The same fleets meeting again soon after a contact ended (drifting in and out of range): no new pause.
@@ -578,8 +599,8 @@ public partial class GameScreen : Node2D
                     onClick: FocusBattle);
             }
         }
-        var last = w.Battles.Count > 0 ? w.Battles[^1] : null;
-        if (last is { EndHour: not null } && last.Id != _lastReportShown)
+        var last = w.Battles.LastOrDefault(x => x.EndHour is double end && Heard(end, x.Where));
+        if (last != null && last.Id > _lastReportShown)
         {
             _lastReportShown = last.Id;
             Report = last;

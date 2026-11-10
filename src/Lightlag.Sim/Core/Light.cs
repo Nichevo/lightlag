@@ -77,6 +77,18 @@ public static class Light
         return d <= CommandRangeMm(w, side) ? 0 : d / MmPerHour(w);
     }
 
+    /// <summary>
+    /// Can a signal pass straight between the side's flagship and this point? Planets, moons and the star
+    /// block it; the body the flagship itself orbits does not (it is always just round the corner).
+    /// </summary>
+    public static bool SignalClear(World w, Side side, Vec2 at)
+    {
+        if (!w.Light.On) return true;
+        var seat = Seat(w, side);
+        var home = w.Bodies.Where(b => Vec2.Distance(b.Position, seat) < b.Radius * 2 + 1).Select(b => (int?)b.Id).FirstOrDefault();
+        return Sensors.LineOfSight(w, seat, at, home);
+    }
+
     /// <summary>Picks each side's flagship at the start: the first destroyer at home, else the first ship.</summary>
     public static void ChooseFlagships(World w)
     {
@@ -135,6 +147,8 @@ public static class Light
             var key = $"{(int)snap.SeenBy}:{snap.FleetId}";
             live.Add(key);
             var delay = DelayHours(w, snap.SeenBy, snap.Position);
+            // A planet, moon or the star between it and the flagship blocks the signal: no news until it clears.
+            if (delay > 0 && !SignalClear(w, snap.SeenBy, snap.Position)) { live.Add(key); return; }
             // Live news (within command range) goes every step; news from afar every few minutes.
             if (marks.TryGetValue(key, out var last) && last.Visible == snap.Visible
                 && (snap.Hour <= last.Hour || delay > 0 && snap.Hour - last.Hour < ReportEveryHours - 1e-9)) return;
@@ -202,7 +216,10 @@ public static class Light
     {
         var w = sim.World;
         if (w.Light.InTransit.Count == 0) return;
-        var due = w.Light.InTransit.Where(t => t.ArriveHour <= w.Hour + 1e-9).OrderBy(t => t.ArriveHour).ToList();
+        // An order whose fleet is behind a body waits until the line clears (it keeps its place in the queue).
+        var due = w.Light.InTransit.Where(t => t.ArriveHour <= w.Hour + 1e-9
+                                               && (t.Command.Destination(w) is not (Side side, Vec2 at) || SignalClear(w, side, at)))
+            .OrderBy(t => t.ArriveHour).ToList();
         foreach (var t in due)
         {
             w.Light.InTransit.Remove(t);

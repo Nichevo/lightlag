@@ -287,7 +287,10 @@ public partial class EngagementPanel : Control
             ? "they are as close as they will get"
             : $"closest pass in {When(e.ClosestInHours)} at {Km(e.ClosestGap)}";
         _header.Text = $"ENGAGEMENT: {f.Name} and {e.EnemyName} ({e.EnemyShips} ships, {seen})\n"
-                       + $"{Km(e.Gap)} apart, {how}; {pass}, if neither changes course.";
+                       + $"{Km(e.Gap)} apart, {how}; {pass}, if neither changes course."
+                       + (Light.DelayHours(w, Lightlag.Sim.Core.Side.Player, f.Position) is var lag && lag > 0
+                           ? $"\nOrders take {Format.Lag(lag)} to reach {f.Name}; this picture is {Format.Lag(Light.AgeHours(w, Lightlag.Sim.Core.Side.Player, e.EnemyId))} old."
+                           : "");
         RefreshTabs(e);
 
         // Approach options.

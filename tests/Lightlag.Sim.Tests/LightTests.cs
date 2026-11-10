@@ -133,4 +133,28 @@ public class LightTests
         for (var i = 0; i < 48; i++) { sim.Step(); loaded.Step(); }
         Assert.Equal(sim.StateHash(), loaded.StateHash());
     }
+
+    [Fact]
+    public void A_body_between_flagship_and_fleet_blocks_its_news_until_it_clears()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var lone = FrigateAtTamber(sim);
+        var tamber = BodyNamed(sim, "tamber");
+        // Step on until the frigate, orbiting Tamber, is on the far side of it from the flagship.
+        var end = w.Tick + 60 * GameTime.TicksPerDay;
+        while (Light.SignalClear(w, Side.Player, lone.Position) && w.Tick < end) sim.Step();
+        Assert.False(Light.SignalClear(w, Side.Player, lone.Position));
+        var before = Light.Known(w, Side.Player, lone.Id)!.Hour;
+        sim.Step();
+        sim.Step();
+        Assert.Equal(before, Light.Known(w, Side.Player, lone.Id)!.Hour, 6);
+        // An order to it waits too.
+        sim.Issue(new SetHoldCommand(lone.Id, HoldStyle.Drift));
+        sim.Step();
+        while (!Light.SignalClear(w, Side.Player, lone.Position) && w.Tick < end) { sim.Step(); Assert.Equal(HoldStyle.Orbit, lone.Hold); }
+        for (var i = 0; i < 3; i++) sim.Step();
+        Assert.Equal(HoldStyle.Drift, lone.Hold);
+        Assert.True(Light.Known(w, Side.Player, lone.Id)!.Hour > before);
+    }
 }
