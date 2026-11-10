@@ -21,7 +21,7 @@ namespace Lightlag.Game;
 ///   Ctrl+right click   add a waypoint to the route    Drag a waypoint move it (the route replans live)
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
-///   E                  empire: build, research, claims
+///   E                  empire: build, research, claims B               sight shadows behind planets on / off
 ///   F5 / F9            quick save / quick load        F8              report a problem
 ///   Ctrl+Shift+F12     test crash                     Ctrl+Shift+F11  break a rule on purpose
 /// </summary>
@@ -739,7 +739,7 @@ public partial class GameScreen : Node2D
         if (fl.TargetFleetId is int enemy && Sim.World.FindFleet(enemy) != null) StartPlanning(null, fl.Target, enemy);
         else StartPlanning(fl.TargetBodyId, fl.Target);
         if (Planner == null) return;
-        foreach (var wp in fl.WaypointsAhead(Sim.World.Hour))
+        foreach (var wp in fl.ChosenWaypointsAhead(Sim.World.Hour))
             Planner.Waypoints.Add(new WaypointDraft { Point = wp.Point, Stop = wp.Stop, Speed = wp.SpeedFraction, WaitHours = wp.WaitHours });
         Planner.Editing = true;
         Replan();
@@ -974,6 +974,10 @@ public partial class GameScreen : Node2D
             case Key.Tab when Engagement != null: CycleEngagement(key.ShiftPressed ? -1 : 1); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
+            case Key.B:
+                _map.ShowShadows = !_map.ShowShadows;
+                _main.Toast(_map.ShowShadows ? "Showing sight shadows: grey areas planets hide from your sensors" : "Sight shadows hidden (B to show)");
+                break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;

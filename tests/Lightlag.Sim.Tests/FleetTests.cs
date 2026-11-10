@@ -518,4 +518,40 @@ public class FleetTests
         var t = Math.Clamp(Vec2.Dot(q - a, d) / Math.Max(Vec2.Dot(d, d), 1e-12), 0, 1);
         return Vec2.Distance(q, a + d * t);
     }
+
+    [Fact]
+    public void A_route_through_the_star_turns_round_it()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var star = sim.World.Bodies.Single(b => b.ParentId == null);
+        fleet.Hold = HoldStyle.Drift;
+        fleet.OrbitBodyId = null;
+        fleet.Position = star.Position + new Vec2(-5000, 0);
+        fleet.Velocity = Vec2.Zero;
+        var aim = star.Position + new Vec2(5000, 0);
+        var straight = new Flight { Legs = { new FlightLeg(sim.World.Hour, sim.World.Hour + 100, fleet.Position, new Vec2(100, 0), Vec2.Zero) } };
+        Assert.Equal(star.Id, Avoidance.FirstHit(sim.World, straight)?.Body.Id);
+
+        var plan = FlightPlanner.Plan(sim.World, fleet, new FlightRequest(null, aim, 0.5, ArrivalStyle.Brake, HoldStyle.Drift, sim.World.Tick));
+        Assert.NotNull(plan.Flight);
+        Assert.Null(Avoidance.FirstHit(sim.World, plan.Flight!));
+        var turn = Assert.Single(plan.Flight!.WaypointPlan, p => p.Auto);
+        Assert.True(Vec2.Distance(turn.Point, star.Position) >= star.Radius * 2);
+        Assert.Empty(plan.Flight.ChosenWaypointsAhead(sim.World.Hour)); // the player's route has no waypoints to edit
+        Assert.True(Vec2.Distance(plan.Flight.Legs[^1].PositionAt(plan.Flight.ArriveHour), aim) < 1);
+    }
+
+    [Fact]
+    public void A_fleet_inside_a_planet_breaks_a_rule()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        fleet.Hold = HoldStyle.Drift;
+        fleet.OrbitBodyId = null;
+        fleet.Position = BodyNamed(sim, "verdant").Position;
+        fleet.Flight = new Flight { Legs = { new FlightLeg(sim.World.Hour, sim.World.Hour + 10, fleet.Position, new Vec2(1, 0), Vec2.Zero) } };
+        var broken = RuleBook.Default().Check(sim.World).ToList();
+        Assert.Contains(broken, b => b.Rule == "flights-miss-bodies");
+    }
 }

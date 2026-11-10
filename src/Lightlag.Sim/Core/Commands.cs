@@ -56,6 +56,7 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
         if (plan.Flight.Chase != ChaseMode.None && Request.TargetFleetId is int chased)
         {
             fleet.Chase = Chases.Order(world, fleet, chased, plan.Flight.Chase, Request.SpeedFraction);
+            fleet.Chase.Detouring = plan.Flight.Detour;
             sim.Log.Info("fleet", $"{fleet.Name} chases {world.FindFleet(chased)?.Name}", new
             {
                 fleetId = fleet.Id, targetFleetId = chased, mode = plan.Flight.Chase.ToString(), plan.Flight.ArriveHour, plan.DeltaV, Source,

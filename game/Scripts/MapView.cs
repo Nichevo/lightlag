@@ -131,6 +131,39 @@ public partial class MapView : Node2D
                 p = prev + (p - prev) * t;
             _drawn[f.Id] = p;
         }
+        SyncPlanets();
+    }
+
+    private readonly Dictionary<int, PlanetSprite> _planets = new();
+
+    /// <summary>Move each planet and moon sprite to where its body is drawn this frame.</summary>
+    private void SyncPlanets()
+    {
+        var w = Sim.World;
+        var star = w.Bodies.FirstOrDefault(b => b.ParentId == null);
+        var starAt = star != null ? _drawn[star.Id] : Vec2.Zero;
+        foreach (var gone in _planets.Keys.Where(id => w.FindBody(id) == null).ToList())
+        {
+            _planets[gone].QueueFree();
+            _planets.Remove(gone);
+        }
+        var spin = (float)(Math.Tau * DrawHour / (24 * 30));
+        foreach (var b in w.Bodies)
+        {
+            if (b.Kind == BodyKind.Star) continue;
+            if (!_planets.TryGetValue(b.Id, out var sprite))
+            {
+                sprite = PlanetSprite.For(b);
+                _planets[b.Id] = sprite;
+                AddChild(sprite);
+            }
+            var at = Camera.ToScreen(_drawn[b.Id]);
+            var r = (float)ScreenRadius(b);
+            sprite.Visible = IsVisible(b) && Camera.OnScreen(at, r * 1.2f + 4);
+            if (!sprite.Visible) continue;
+            var toStar = starAt - _drawn[b.Id];
+            sprite.Set(at, r, new Vector2((float)toStar.X, (float)toStar.Y), spin + (float)(b.Id * 1.3));
+        }
     }
 
     public override void _Draw()
@@ -144,8 +177,10 @@ public partial class MapView : Node2D
         foreach (var b in w.Bodies)
         {
             if (b.ParentId is int pid && IsVisible(b))
-                DrawOrbit(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f);
+                DrawOrbit(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
         }
+
+        DrawShadows();
 
         foreach (var b in w.Bodies)
         {
@@ -153,8 +188,7 @@ public partial class MapView : Node2D
             var at = Camera.ToScreen(_drawn[b.Id]);
             var r = (float)ScreenRadius(b);
             if (!Camera.OnScreen(at, r + 200)) continue;
-            if (b.Kind == BodyKind.Star) DrawStar(b, at, r);
-            else DrawPlanet(b, at, r, star != null ? _drawn[star.Id] : Vec2.Zero);
+            if (b.Kind == BodyKind.Star) DrawStar(b, at, r); // planets and moons are PlanetSprite children
         }
 
         foreach (var b in w.Bodies)
@@ -312,7 +346,8 @@ public partial class MapView : Node2D
     /// An orbit circle. Small ones are drawn whole; huge ones (zoomed in close) only near the view,
     /// worked out in double precision so they stay smooth and in the right place.
     /// </summary>
-    private void DrawOrbit(Vec2 parentWorld, double radiusMm, float alpha)
+    /// <summary>An orbit line, with a gap where its own body sits (the planet is drawn underneath).</summary>
+    private void DrawOrbit(Vec2 parentWorld, double radiusMm, float alpha, Vec2 bodyWorld, double gapPx)
     {
         var scale = Camera.Scale;
         var rPx = radiusMm * scale;
@@ -324,7 +359,11 @@ public partial class MapView : Node2D
             var c = Camera.ToScreen(parentWorld);
             if (!Camera.OnScreen(c, (float)rPx + 10)) return;
             var segments = (int)Math.Clamp(rPx / 2, 48, 720);
-            DrawArc(c, (float)rPx, 0, Mathf.Tau, segments, color, 1, true);
+            var at = bodyWorld - parentWorld;
+            var gap = Math.Min(Math.PI, gapPx / rPx);
+            var start = (float)(Math.Atan2(at.Y, at.X) + gap);
+            if (gap * rPx < 2) DrawArc(c, (float)rPx, 0, Mathf.Tau, segments, color, 1, true);
+            else DrawArc(c, (float)rPx, start, start + (float)(Math.Tau - 2 * gap), segments, color, 1, true);
             return;
         }
         var toView = Camera.Center - parentWorld;
@@ -338,7 +377,20 @@ public partial class MapView : Node2D
             var a = mid - half + 2 * half * i / n;
             pts[i] = Camera.ToScreen(parentWorld + new Vec2(Math.Cos(a), Math.Sin(a)) * radiusMm);
         }
-        DrawPolyline(pts, color, 1, true);
+        // Leave a gap where the body sits.
+        var bodyAt = Camera.ToScreen(bodyWorld);
+        var run = new List<Vector2>();
+        foreach (var p in pts)
+        {
+            if (p.DistanceTo(bodyAt) < gapPx)
+            {
+                if (run.Count >= 2) DrawPolyline(run.ToArray(), color, 1, true);
+                run.Clear();
+                continue;
+            }
+            run.Add(p);
+        }
+        if (run.Count >= 2) DrawPolyline(run.ToArray(), color, 1, true);
     }
 
     private void DrawBelt(Belt belt)
@@ -382,38 +434,6 @@ public partial class MapView : Node2D
             DrawCircle(at, r * (1 + i * 0.6f), new Color(core, 0.05f));
         DrawCircle(at, r, core);
         DrawCircle(at, r * 0.7f, core.Lightened(0.35f));
-    }
-
-    private void DrawPlanet(Body b, Vector2 at, float r, Vec2 starWorld)
-    {
-        var baseColor = new Color(b.Color);
-        DrawCircle(at, r, baseColor);
-        if (r >= 3)
-        {
-            // Night side: the half facing away from the star.
-            var toStar = starWorld - _drawn[b.Id];
-            var light = (float)Math.Atan2(toStar.Y, toStar.X);
-            const int n = 28;
-            var pts = new Vector2[n + 1];
-            for (var i = 0; i <= n; i++)
-            {
-                var a = light + Mathf.Pi / 2 + Mathf.Pi * i / n;
-                pts[i] = at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
-            }
-            DrawColoredPolygon(pts, new Color(0, 0, 0, 0.55f));
-            if (r >= 6 && b.Type is "gas" or "ice-giant")
-            {
-                // A few faint bands on the giants.
-                for (var k = -2; k <= 2; k++)
-                {
-                    var y = k * r * 0.3f;
-                    var half = Mathf.Sqrt(Mathf.Max(0, r * r - y * y));
-                    DrawLine(at + new Vector2(-half, y), at + new Vector2(half, y), new Color(baseColor.Darkened(0.2f), 0.5f), Math.Max(1, r * 0.08f));
-                }
-            }
-        }
-        if (b.Atmosphere is string atm && r >= 4)
-            DrawArc(at, r + Math.Max(0.8f, r * 0.04f), 0, Mathf.Tau, 64, new Color(new Color(atm), 0.55f), Math.Max(1, r * 0.06f), true);
     }
 
     /// <summary>Is the formation spread out enough on screen to draw each ship on its own?</summary>
@@ -524,7 +544,7 @@ public partial class MapView : Node2D
 
     /// <summary>Waypoints of a flight not reached yet (older saves only have the points).</summary>
     private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
-        ? flight.WaypointsAhead(DrawHour).Select(w => w.Point).ToList()
+        ? flight.ChosenWaypointsAhead(DrawHour).Select(w => w.Point).ToList()
         : flight.Waypoints;
 
     /// <summary>Is the end of the route being planned, or else of the selected fleet's current route, under a screen point?</summary>
@@ -541,7 +561,7 @@ public partial class MapView : Node2D
     {
         if (SelectedId is not int id || Sim.World.FindFleet(id) is not { Side: Side.Player, Flight: Flight flight }) return null;
         if (flight.WaypointPlan.Count == 0) return null;
-        var ahead = flight.WaypointsAhead(Sim.World.Hour).Select(w => w.Point).ToList();
+        var ahead = flight.ChosenWaypointsAhead(Sim.World.Hour).Select(w => w.Point).ToList();
         for (var i = ahead.Count - 1; i >= 0; i--)
             if (Camera.ToScreen(ahead[i]).DistanceTo(screen) <= 12) return i;
         return null;
@@ -818,7 +838,7 @@ public partial class MapView : Node2D
         if (!preview)
         {
             var ahead = AheadPoints(flight);
-            var stops = flight.WaypointPlan.Count > 0 ? flight.WaypointsAhead(DrawHour).Select(w => w.Stop).ToList() : null;
+            var stops = flight.WaypointPlan.Count > 0 ? flight.ChosenWaypointsAhead(DrawHour).Select(w => w.Stop).ToList() : null;
             var mine = f.Id == SelectedId && f.Side == Side.Player && PlannerWaypoints == null;
             for (var i = 0; i < ahead.Count; i++)
             {

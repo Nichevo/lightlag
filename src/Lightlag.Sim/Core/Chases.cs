@@ -55,7 +55,8 @@ public static class Chases
                 continue;
             }
             if (f.Maneuvering) continue; // in a fight: combat steers
-            if (c.Mode == ChaseMode.Overtake && f.Flight == null)
+            var detoured = c.Detouring && f.Flight is not { Detour: true };
+            if (c.Mode == ChaseMode.Overtake && f.Flight == null && !detoured)
             {
                 f.Chase = null;
                 sim.Log.Info("fleet", $"{f.Name} has overtaken {target.Name}", new { fleetId = f.Id, targetFleetId = target.Id });
@@ -67,16 +68,18 @@ public static class Chases
             // A chase that has arrived but drifted off its spot (after a fight, say) sets off again.
             var want = FlightPlanner.ChaseDistance(c.Mode);
             var adrift = f.Flight == null && want is double d && Math.Abs(Vec2.Distance(f.Position, guess) - d) > Math.Max(2, d * 0.25);
-            if (!turned && !adrift) continue;
+            if (!turned && !adrift && !detoured) continue;
 
             var perf = FleetPerformance.Of(w, f);
             var plan = FlightPlanner.PlanChase(w, f, target, c.Mode, c.SpeedFraction, perf);
             c.TargetAt = guess;
             c.TargetVelocity = s.Velocity;
             c.PlannedHour = now;
+            c.Detouring = false;
             if (plan is { Ok: true, Flight: Flight flight })
             {
                 f.Flight = flight;
+                c.Detouring = flight.Detour;
                 c.Problem = null;
                 sim.Log.Info("fleet", $"{f.Name} re-aims its chase", new
                 {
