@@ -87,6 +87,8 @@ public partial class GameScreen : Node2D
     private int _researchSeen = -1;
     private double? _yardAttackSeen;
     private readonly HashSet<int> _claimsWarned = new();
+    private readonly Dictionary<(int Enemy, int Mine), double> _chaseWarned = new();
+    private long _chaseCheckedTick = -1;
 
     /// <summary>The route planner's choices, kept between plans.</summary>
     public PlanSettings Settings { get; } = new();
@@ -154,6 +156,7 @@ public partial class GameScreen : Node2D
             _sinceAutosave += delta;
             WatchBattles();
             WatchSightings();
+            WatchChasers();
             WatchEconomy();
             // Pausing, or switching in or out of battle time: show where things really are now, so the
             // map neither stops part way back to the last step nor jumps when time runs again.
@@ -211,6 +214,67 @@ public partial class GameScreen : Node2D
     public bool IsSandbox => Sim.World.Scenario == Scenarios.BattleSandbox;
 
     /// <summary>Sandbox start: paused, looking at both fleets, with yours selected.</summary>
+    private Action GoToFleet(int id) => () => { if (Sim.World.FindFleet(id) != null) { Select(id); _follow = id; } };
+    private Action GoToBody(int id) => () => { if (Sim.World.FindBody(id) != null) { Select(id); Follow(id, true); } };
+
+    /// <summary>Centre on an enemy fleet: follow it while in sight, else go to where it is expected to be.</summary>
+    public void GoToSighting(int fleetId)
+    {
+        var w = Sim.World;
+        var s = Sensors.Find(w, Side.Player, fleetId);
+        if (s == null || w.FindFleet(fleetId) is not Fleet f) return;
+        Select(fleetId);
+        if (s.Visible || RevealAll) _follow = f.Id;
+        else { _follow = null; _camera.Center = s.Guess(w.Hour); }
+        if (_camera.TargetScale < 0.002) _camera.FitRadius(20000);
+    }
+
+    /// <summary>The fleets that put the game in battle time: an active battle's, or a pair that could meet this hour.</summary>
+    private List<Fleet> BattleFleets()
+    {
+        var w = Sim.World;
+        if (w.ActiveBattle is Battle b && !Combat.Standoff(w))
+        {
+            var names = b.For(Side.Player).Fleets.Concat(b.For(Side.Rival).Fleets).ToHashSet();
+            var inIt = w.Fleets.Where(f => names.Contains(f.Name)).ToList();
+            if (inIt.Count > 0) return inIt;
+        }
+        if (Combat.PossibleMeeting(w) is var (mine, theirs)) return new List<Fleet> { mine, theirs };
+        // Only missiles left in flight: whoever fired or is targeted.
+        return w.Missiles.Select(m => w.FindShip(m.TargetShipId)).OfType<Ship>().Select(s => w.FleetOf(s)).OfType<Fleet>().Distinct().ToList();
+    }
+
+    /// <summary>The battle time banner: who, where, and missiles in flight. The player only hears about enemies they can see.</summary>
+    public string BattleLine()
+    {
+        var w = Sim.World;
+        var fleets = BattleFleets();
+        var mine = fleets.Where(f => f.Side == Side.Player).Select(f => f.Name).ToList();
+        var seen = fleets.Where(f => f.Side != Side.Player && _map.Shown(f)).Select(f => f.Name).ToList();
+        var at = fleets.Count > 0 ? fleets[0].Position : Vec2.Zero;
+        var near = w.Bodies.Where(b => b.Kind != BodyKind.Star).OrderBy(b => Vec2.Distance(b.Position, at)).FirstOrDefault();
+        var where = near != null ? $" near {near.Name}" : "";
+        var fighting = w.ActiveBattle != null && !Combat.Standoff(w);
+        var who = mine.Count == 0 ? "" : fighting
+            ? $": {string.Join(", ", mine)}{(seen.Count > 0 ? " against " + string.Join(", ", seen) : "")}"
+            : $": {string.Join(", ", mine)} could meet {(seen.Count > 0 ? string.Join(", ", seen) : "an enemy")} within the hour";
+        var missiles = w.Missiles.Count > 0 ? $"  ·  {w.Missiles.Count} missiles in flight" : "";
+        return $"BATTLE TIME{who}{where}{missiles}  (click to go there)";
+    }
+
+    /// <summary>Centre the map on the fleets in the battle (or about to meet) and follow the player's one.</summary>
+    public void FocusBattle()
+    {
+        var fleets = BattleFleets();
+        if (fleets.Count == 0) return;
+        var center = fleets.Aggregate(Vec2.Zero, (a, f) => a + f.Position) * (1.0 / fleets.Count);
+        var spread = fleets.Max(f => Vec2.Distance(f.Position, center));
+        var mine = fleets.FirstOrDefault(f => f.Side == Side.Player);
+        if (mine != null) { _follow = mine.Id; Select(mine.Id); }
+        else { _follow = null; _camera.Center = center; }
+        _camera.FitRadius(Math.Max(spread * 2.5, 300));
+    }
+
     public void FocusSandbox()
     {
         _paused = true;
@@ -328,7 +392,8 @@ public partial class GameScreen : Node2D
         {
             _lastBattleSeen = b.Id;
             _paused = true;
-            _main.Toast($"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time; paused.");
+            _main.Toast($"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time; paused.",
+                onClick: FocusBattle);
         }
         var last = w.Battles.Count > 0 ? w.Battles[^1] : null;
         if (last is { EndHour: not null } && last.Id != _lastReportShown)
@@ -348,9 +413,30 @@ public partial class GameScreen : Node2D
             if (s.SpottedHour < w.Hour - 1) continue; // already in sight when the game was loaded
             var nearest = w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => Vec2.Distance(f.Position, s.Position)).FirstOrDefault();
             var where = nearest != null ? $", {Vec2.Distance(nearest.Position, s.Position) * 1000:#,0} km from {nearest.Name}" : "";
-            _main.Toast($"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}" + (PauseOnContact ? ". Paused." : ""));
+            var fleetId = s.FleetId;
+            _main.Toast($"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}" + (PauseOnContact ? ". Paused." : ""),
+                onClick: () => GoToSighting(fleetId));
             if (PauseOnContact) _paused = true;
         }
+    }
+
+    /// <summary>Once an hour: warn when a seen enemy fleet's track is closing on one of your fleets.</summary>
+    private void WatchChasers()
+    {
+        var w = Sim.World;
+        if (w.Tick == _chaseCheckedTick) return;
+        _chaseCheckedTick = w.Tick;
+        foreach (var s in w.Sightings.Where(s => s.SeenBy == Side.Player && s.Visible))
+            foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player))
+            {
+                if (Sensors.HeadingFor(s, mine, w.Hour) is not double eta) continue;
+                var key = (s.FleetId, mine.Id);
+                if (_chaseWarned.TryGetValue(key, out var when) && w.Hour - when < 24) { _chaseWarned[key] = w.Hour; continue; }
+                _chaseWarned[key] = w.Hour;
+                var enemyId = s.FleetId;
+                _main.Toast($"{s.Name} ({s.Ships} ships) is heading for {mine.Name}: about {Format.Hours(eta)} away at {Format.Speed((s.Velocity - mine.Velocity).Length)} closing",
+                    onClick: () => GoToSighting(enemyId));
+            }
     }
 
     /// <summary>Says when ships are launched, research finishes, planets change hands, and when the game ends.</summary>
@@ -368,7 +454,7 @@ public partial class GameScreen : Node2D
             if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
                 _main.Toast(f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
                     ? $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} launched: flying out to join {to.Name}"
-                    : $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}");
+                    : $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}", onClick: GoToFleet(f.Id));
 
         foreach (var b in Economy.Claimable(w))
         {
@@ -376,19 +462,19 @@ public partial class GameScreen : Node2D
             if (!first && had != b.Owner)
             {
                 var text = b.Owner == Side.Player ? $"You claimed {b.Name}" : had == Side.Player ? $"You lost {b.Name} to the rival" : $"The rival claimed {b.Name}";
-                _main.Toast(text);
+                _main.Toast(text, onClick: GoToBody(b.Id));
             }
             _owners[b.Id] = b.Owner;
             if (b.ClaimSide == Side.Rival && b.Owner == Side.Player)
             {
-                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days"); _paused = true; }
+                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days", onClick: GoToBody(b.Id)); _paused = true; }
             }
             else _claimsWarned.Remove(b.Id);
         }
 
         if (Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double hit } yard && (_yardAttackSeen == null || hit - _yardAttackSeen > 24))
         {
-            if (!first) { _main.Toast($"Your shipyard at {yard.Name} is under attack!"); _paused = true; }
+            if (!first) { _main.Toast($"Your shipyard at {yard.Name} is under attack!", onClick: GoToBody(yard.Id)); _paused = true; }
             _yardAttackSeen = hit;
         }
 
@@ -506,7 +592,8 @@ public partial class GameScreen : Node2D
     {
         if (!CanEditRoute || MyFleet is not Fleet f || f.Flight is not Flight fl) return;
         Settings.Speed = fl.SpeedFraction;
-        Settings.Arrival = fl.Arrival;
+        if (fl.Chase != ChaseMode.None) Settings.Chase = fl.Chase;
+        else Settings.Arrival = fl.Arrival;
         if (fl.TargetBodyId != null) Settings.Hold = fl.HoldAfter;
         Settings.Route = fl.Started ? RouteKind.Direct : fl.Route;
         Planner = null; // don't carry over waypoints from an earlier plan
@@ -525,11 +612,24 @@ public partial class GameScreen : Node2D
     {
         _planAge = 0;
         if (Planner is not PlannerState p || Sim.World.FindFleet(p.FleetId) is not Fleet f) { Planner = null; return; }
-        _main.RunGuarded("planning a route", () => p.Plan = FlightPlanner.PlanRoute(Sim.World, f, Request(p)));
+        _main.RunGuarded("planning a route", () =>
+        {
+            p.Plan = FlightPlanner.PlanRoute(Sim.World, f, Request(p));
+            p.ChaseProblems.Clear();
+            if (p.TargetFleetId != null)
+                foreach (var mode in ChaseModes)
+                    p.ChaseProblems[mode] = mode == Settings.Chase ? p.Plan?.Problem
+                        : FlightPlanner.Plan(Sim.World, f, Request(p) with { Chase = mode }).Problem;
+        });
     }
 
-    private FlightRequest Request(PlannerState p) =>
-        new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId,
+    public static readonly ChaseMode[] ChaseModes =
+        { ChaseMode.MatchSpeed, ChaseMode.GunRange, ChaseMode.MissileRange, ChaseMode.ShadowGuns, ChaseMode.ShadowMissiles, ChaseMode.Overtake };
+
+    private FlightRequest Request(PlannerState p) => p.TargetFleetId != null
+        ? new(null, p.Point, Settings.Speed, ArrivalStyle.Brake, HoldStyle.Drift, Sim.World.Tick, RouteKind.Direct, p.TargetFleetId,
+            Chase: Settings.Chase)
+        : new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId,
             p.Waypoints.Count > 0 ? p.Waypoints.Select(d => new Waypoint(d.Point, d.Stop, d.Speed, d.Stop ? d.WaitHours : 0)).ToList() : null);
 
     /// <summary>Add a waypoint on the way, in the stretch of the route it is closest to.</summary>
@@ -581,9 +681,9 @@ public partial class GameScreen : Node2D
     public void ConfirmPlan()
     {
         if (Planner is not PlannerState p || p.Plan is not { Ok: true, Flight: Flight flight }) return;
-        var depart = Settings.Route == RouteKind.Wait ? Math.Max(Sim.World.Tick, (long)Math.Round(flight.DepartHour)) : Sim.World.Tick;
+        var depart = Settings.Route == RouteKind.Wait && p.TargetFleetId == null ? Math.Max(Sim.World.Tick, (long)Math.Round(flight.DepartHour)) : Sim.World.Tick;
         var request = Request(p) with { DepartTick = depart };
-        if (Settings.FastAhead && Settings.Arrival == ArrivalStyle.Brake && Sim.World.FindFleet(p.FleetId) is Fleet f && HasFastShips(f))
+        if (p.TargetFleetId == null && Settings.FastAhead && Settings.Arrival == ArrivalStyle.Brake && Sim.World.FindFleet(p.FleetId) is Fleet f && HasFastShips(f))
             Sim.Issue(new SendAheadCommand(p.FleetId, request));
         else
             Sim.Issue(new PlanFlightCommand(p.FleetId, request));
@@ -824,6 +924,9 @@ public sealed class PlanSettings
     public HoldStyle Hold = HoldStyle.Orbit;
     public bool FastAhead;
 
+    /// <summary>How to chase when the target is an enemy fleet.</summary>
+    public ChaseMode Chase = ChaseMode.GunRange;
+
     /// <summary>Ctrl+right-click sets a new destination (true) or adds a waypoint on the way (false).</summary>
     public bool AddAtEnd = true;
 }
@@ -837,6 +940,9 @@ public sealed class PlannerState(int fleetId, int? targetBodyId, Vec2 point, str
     public string TargetName { get; } = targetName;
     public int? TargetFleetId { get; init; }
     public FlightPlan? Plan { get; set; }
+
+    /// <summary>For a chase: why each chase mode would not work right now (null: it would).</summary>
+    public Dictionary<ChaseMode, string?> ChaseProblems { get; } = new();
 
     /// <summary>Opened from a route the fleet is already flying (Go replaces it).</summary>
     public bool Editing { get; set; }

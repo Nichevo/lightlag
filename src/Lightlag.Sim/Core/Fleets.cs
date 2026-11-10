@@ -6,11 +6,42 @@ public enum HoldStyle { Orbit, Drift }
 /// <summary>How a flight ends: brake to a stop at the target, or fly through it at speed (cheaper, faster, no stop).</summary>
 public enum ArrivalStyle { Brake, FastPass }
 
-/// <summary>Standing order: Engage closes to weapon range and fires; Hold keeps its course and fires at what comes in range.</summary>
+/// <summary>Standing order: Engage closes to weapon range and fires (breaking off any flight); Hold keeps its course and fires at what comes in range.</summary>
 public enum Stance { Engage, Hold }
 
 /// <summary>Direct leaves now; Wait leaves when the trip is shortest (the target swings closer).</summary>
 public enum RouteKind { Direct, Wait }
+
+/// <summary>
+/// How a fleet chases an enemy fleet. Match speed keeps the gap it has and moves with it; Gun range
+/// closes to railgun range and keeps pace; Missile range keeps pace just inside missile launch range;
+/// Shadow keeps pace just outside the range of the enemy's railguns or missiles; Overtake flies through
+/// it faster than it is moving. Only Gun range hands over to close combat (Engage); the others hold
+/// their distance and fire at what is in reach.
+/// </summary>
+public enum ChaseMode { None, MatchSpeed, GunRange, MissileRange, ShadowGuns, ShadowMissiles, Overtake }
+
+/// <summary>
+/// A standing order to chase an enemy fleet. The flight is planned against where the enemy is expected to
+/// be (its last seen track), and planned again only when a new burn is seen, so the chase goes on while
+/// it is out of sight.
+/// </summary>
+public sealed class ChaseOrder
+{
+    public int TargetFleetId { get; set; }
+    public ChaseMode Mode { get; set; }
+    public double SpeedFraction { get; set; }
+
+    /// <summary>The enemy track the current flight was planned against.</summary>
+    public Vec2 TargetAt { get; set; }
+    public Vec2 TargetVelocity { get; set; }
+    public double PlannedHour { get; set; }
+
+    /// <summary>Why the last attempt to re-aim failed (null when it worked).</summary>
+    public string? Problem { get; set; }
+
+    public ChaseOrder Copy() => (ChaseOrder)MemberwiseClone();
+}
 
 /// <summary>
 /// A group of ships that flies as one, at the pace of its slowest ship. Its ships keep a loose
@@ -35,6 +66,10 @@ public sealed class Fleet
     /// <summary>Main engines fired during the last step (lights the fleet up on enemy sensors).</summary>
     public bool Thrusting { get; set; }
 
+    /// <summary>When the main engines last fired, and whether they are still hot from it (see sensors.warmHours).</summary>
+    public double LastBurnHour { get; set; } = -1e9;
+    public bool Warm { get; set; }
+
     /// <summary>When holding in orbit: the body, how far out, and where on the circle.</summary>
     public int? OrbitBodyId { get; set; }
     public double OrbitRadius { get; set; }
@@ -56,6 +91,9 @@ public sealed class Fleet
     /// <summary>Join this fleet once both are stopped together (after "fast ships go ahead" or "gather").</summary>
     public int? JoinFleetId { get; set; }
 
+    /// <summary>Chasing an enemy fleet: re-aimed whenever it is seen to change course.</summary>
+    public ChaseOrder? Chase { get; set; }
+
     public bool InFlight => Flight != null;
 }
 
@@ -73,6 +111,9 @@ public sealed class Flight
     public HoldStyle HoldAfter { get; set; }
     public double SpeedFraction { get; set; }
     public double CruiseSpeed { get; set; }
+
+    /// <summary>A chase flight (ends moving with the enemy, or past it).</summary>
+    public ChaseMode Chase { get; set; }
 
     /// <summary>Game hour the main burn starts. Before that the fleet keeps its hold.</summary>
     public double DepartHour { get; set; }
@@ -282,6 +323,7 @@ public static class Fleets
         var plan = FlightPlanner.Plan(world, f, request);
         if (!plan.Ok || plan.Flight == null) return plan.Problem ?? "no route";
         f.Flight = plan.Flight;
+        f.Chase = null;
         return null;
     }
 

@@ -29,6 +29,18 @@ public sealed class Simulation
 
     public World World { get; }
     public SimRandom Rng { get; }
+
+    /// <summary>
+    /// Recent shots and kills, only for drawing (not saved, not part of the game state). Combat adds to it;
+    /// entries older than a game minute or two are dropped.
+    /// </summary>
+    public List<CombatEffect> Effects { get; } = new();
+
+    public void AddEffect(CombatEffect e)
+    {
+        Effects.Add(e);
+        if (Effects.Count > 400 || (Effects.Count > 0 && e.Hour - Effects[0].Hour > 0.05)) Effects.RemoveAll(x => e.Hour - x.Hour > 0.05);
+    }
     public GameLog Log { get; }
     public BuildInfo Build { get; }
     public RuleBook Rules { get; set; } = RuleBook.Default();
@@ -106,7 +118,7 @@ public sealed class Simulation
             var t1 = World.Hour;
             Combat.Steer(this, t0, t1);
             MoveFleets(t0, t1);
-            UpdateFacing(velocities);
+            UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Combat.Fire(this, t0, t1);
         }
@@ -117,7 +129,7 @@ public sealed class Simulation
             // Fleets still braking after a fight finish braking (otherwise they would drift on for ever).
             Combat.Steer(this, t0, World.Hour);
             MoveFleets(t0, World.Hour);
-            UpdateFacing(velocities);
+            UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             // Contacts between fleets that can't fight yet start (or end) a battle at the hour.
             Combat.UpdateContacts(this, World.Hour);
@@ -125,6 +137,8 @@ public sealed class Simulation
         World.Random = Rng.Save();
         if (World.Sub != 0) return;
         JoinFleets();
+        ShareSupplies();
+        Chases.Update(this);
         Economy.Update(this);
         Mind.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
@@ -220,6 +234,24 @@ public sealed class Simulation
     /// <summary>Supplies a fleet in orbit at a planet its side holds gets back each day, as a share of a full load.</summary>
     public const double RefillPerDay = 0.1;
 
+    /// <summary>Ships in a fleet pass fuel and ammunition between them: each hour this share of the gap to an even load closes.</summary>
+    public const double ShareSuppliesPerHour = 0.5;
+
+    /// <summary>Evens out supplies across each fleet's ships (as a share of what each can carry); the total stays the same.</summary>
+    private void ShareSupplies()
+    {
+        foreach (var f in World.Fleets)
+        {
+            if (f.ShipIds.Count < 2) continue;
+            var ships = World.ShipsOf(f).ToList();
+            var capacity = ships.Sum(s => GameData.ShipClass(s.ClassId).Supplies);
+            if (capacity <= 0) continue;
+            var even = ships.Sum(s => s.Supplies) / capacity;
+            foreach (var s in ships)
+                s.Supplies += (even * GameData.ShipClass(s.ClassId).Supplies - s.Supplies) * ShareSuppliesPerHour;
+        }
+    }
+
     private void MoveFleets(double t0, double t1)
     {
         var dt = t1 - t0;
@@ -264,13 +296,19 @@ public sealed class Simulation
     /// Ships point their engines where the thrust goes: a fleet that changed velocity this step faces
     /// along that change (so it flips round to brake). Coasting or holding keeps the last facing.
     /// </summary>
-    private static void UpdateFacing(List<(Fleet Fleet, Vec2 Velocity)> before)
+    private static void UpdateFacing(List<(Fleet Fleet, Vec2 Velocity)> before, double hour)
     {
         foreach (var (f, v0) in before)
         {
             var dv = f.Velocity - v0;
             f.Thrusting = dv.Length > 1e-6;
-            if (f.Thrusting) f.Facing = DetMath.Atan2(dv.Y, dv.X);
+            if (f.Thrusting)
+            {
+                f.Facing = DetMath.Atan2(dv.Y, dv.X);
+                f.LastBurnHour = hour;
+            }
+            // Engines stay hot for a while after a burn, so the fleet is still easier to see.
+            f.Warm = !f.Thrusting && hour - f.LastBurnHour <= GameData.Sensors.WarmHours;
         }
     }
 
@@ -342,3 +380,8 @@ public sealed class Simulation
         }
     }
 }
+
+public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit }
+
+/// <summary>Something to draw for a moment: a railgun shot (from, to), point defence killing a missile, a missile striking.</summary>
+public sealed record CombatEffect(double Hour, EffectKind Kind, Vec2 From, Vec2 To, Side Side);

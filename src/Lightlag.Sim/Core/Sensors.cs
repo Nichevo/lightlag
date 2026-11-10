@@ -3,7 +3,7 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>What a fleet is doing, as far as enemy sensors can tell.</summary>
-public enum SignatureState { Cold, Orbit, Burn }
+public enum SignatureState { Cold, Orbit, Burn, Warm }
 
 /// <summary>
 /// What one side knows about one enemy fleet: where it was and how it moved when last seen. While
@@ -35,7 +35,8 @@ public sealed class Sighting
 
 /// <summary>
 /// Passive sensors. Every fleet has a signature: tiny when cold (drifting or coasting with engines
-/// off), a little more holding orbit, and huge with the main engines burning. A sensor sees a fleet
+/// off), a little more holding orbit, more while its engines are still warm after a burn, and huge
+/// with the main engines burning. A sensor sees a fleet
 /// out to its range times the square root of that signature, unless a planet, moon or the star is in
 /// the way. Each side's fleets and its home planet carry sensors. Combat only targets what is seen.
 /// </summary>
@@ -46,6 +47,7 @@ public static class Sensors
     public static SignatureState StateOf(Fleet f)
     {
         if (f.Thrusting) return SignatureState.Burn;
+        if (f.Warm) return SignatureState.Warm;
         if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId != null && f.Flight is not { Started: true }) return SignatureState.Orbit;
         return SignatureState.Cold;
     }
@@ -54,6 +56,7 @@ public static class Sensors
     {
         SignatureState.Burn => S.Burn,
         SignatureState.Orbit => S.Orbit,
+        SignatureState.Warm => S.Warm,
         _ => S.Cold,
     };
 
@@ -123,6 +126,27 @@ public static class Sensors
         if (s.Visible && s.State == SignatureState.Orbit && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
             return FlightPlanner.PredictHoldPosition(w, orbiting, hour);
         return s.Guess(hour);
+    }
+
+    /// <summary>
+    /// Does this enemy fleet look as if it is coming for that fleet? Judged only from what was seen: its
+    /// track, relative to the fleet, closes on it and passes close by. Returns the hours until it gets
+    /// there, or null. Ignores enemies that are barely moving or more than a month away.
+    /// </summary>
+    public static double? HeadingFor(Sighting s, Fleet mine, double hour)
+    {
+        var them = s.Guess(hour);
+        var gap = mine.Position - them;
+        var d = gap.Length;
+        var rel = s.Velocity - mine.Velocity;
+        if (d < 1e-6 || rel.Length < 5) return null;
+        var closing = Vec2.Dot(gap, rel) / d;
+        if (closing <= rel.Length * 0.5) return null;
+        var t = Vec2.Dot(gap, rel) / Vec2.Dot(rel, rel); // hours to the closest approach
+        var miss = Vec2.Distance(them + rel * t, mine.Position);
+        if (miss > Math.Max(GameData.Combat.Missile.LaunchRangeMm, d * 0.05)) return null;
+        var eta = d / closing;
+        return eta > 30 * 24 ? null : eta;
     }
 
     /// <summary>Works out what each side sees now, and refreshes or ages its sightings.</summary>
