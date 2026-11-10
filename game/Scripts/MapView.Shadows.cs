@@ -7,7 +7,7 @@ namespace Lightlag.Game;
 /// <summary>
 /// Sight shadows: the grey areas behind planets, moons and the star that none of your ships or planets
 /// can see into. A point is shaded when it is inside the reach of at least one of your sensors (for a
-/// warm ship) but every sensor that reaches it has a body in the way. Worked out on a coarse screen grid
+/// ship burning its engines, the farthest anything is seen) but every sensor that reaches it has a body in the way. Worked out on a coarse screen grid
 /// a few times a second, using the same straight-line test as the simulation.
 /// </summary>
 public partial class MapView
@@ -21,15 +21,19 @@ public partial class MapView
     private const ulong ShadowRefreshMs = 120; // how often the grid is worked out again
     private static readonly Color ShadowColor = new(0.62f, 0.64f, 0.72f, 0.2f);
     private static readonly Color SeesCold = new(Ui.Player, 0.11f);
-    private static readonly Color SeesWarm = new(Ui.Player, 0.04f);
+    private static readonly Color SeesWarm = new(Ui.Player, 0.05f);
+    private static readonly Color SeesBurn = new(Ui.Player, 0.02f);
+    private static readonly Color BurnEdge = new(Ui.Player, 0.35f);
     private static readonly Color ShadowEdge = new(0.62f, 0.64f, 0.72f, 0.28f);
 
     private readonly List<(Rect2 Rect, Color Color)> _shadowRuns = new();
     private readonly List<(Vector2 A, Vector2 B)> _shadowEdges = new();
+    private readonly List<(Vector2 At, float Radius)> _burnRings = new();
     private ulong _shadowAt;
     private (double Scale, double X, double Y, Vector2 Size) _shadowView;
 
-    private readonly record struct Observer(Vec2 At, double Reach, double ColdReach, int? Body, List<int> Blockers);
+    /// <summary>One sensor: how far it sees a warm ship (Reach), a cold one and a burning one.</summary>
+    private readonly record struct Observer(Vec2 At, double Reach, double ColdReach, double BurnReach, int? Body, List<int> Blockers);
 
     private void DrawShadows()
     {
@@ -44,16 +48,32 @@ public partial class MapView
         }
         foreach (var (r, c) in _shadowRuns) DrawRect(r, c);
         foreach (var (a, b) in _shadowEdges) DrawDashedLine(a, b, ShadowEdge, 1, 6);
+        foreach (var (at, r) in _burnRings) DrawDashedCircle(at, r);
         if (Sight == SightView.Coverage)
             DrawString(_font, new Vector2(16, 64),
-                "Sensor coverage (B): bright = a ship coasting cold is spotted · faint = only a warm ship · grey = hidden behind a body",
+                "Sensor coverage (B): bright = a ship coasting cold is spotted · fainter = a warm ship · faintest, to the dashed edge = a ship burning its engines · grey = hidden behind a body",
                 HorizontalAlignment.Left, -1, 13, new Color(Ui.Text, 0.75f));
+    }
+
+    /// <summary>A dashed circle, skipped when it is too small to read or wholly off screen.</summary>
+    private void DrawDashedCircle(Vector2 at, float r)
+    {
+        var size = Camera.ScreenSize;
+        if (r < 8 || at.X + r < 0 || at.Y + r < 0 || at.X - r > size.X || at.Y - r > size.Y) return;
+        var dashes = Math.Clamp((int)(r * Mathf.Tau / 12), 24, 720);
+        for (var i = 0; i < dashes; i += 2)
+        {
+            var a0 = Mathf.Tau * i / dashes;
+            var a1 = Mathf.Tau * (i + 1) / dashes;
+            DrawLine(at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * r, at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * r, BurnEdge, 1);
+        }
     }
 
     private void WorkOutShadows()
     {
         _shadowRuns.Clear();
         _shadowEdges.Clear();
+        _burnRings.Clear();
         var w = Sim.World;
         var bodies = w.Bodies.Where(b => b.Radius > 0 && _drawn.ContainsKey(b.Id)).ToList();
         if (bodies.Count == 0) return;
@@ -65,15 +85,18 @@ public partial class MapView
         {
             if (!at.IsFinite || sensorMm <= 0) return;
             var reach = Sensors.Range(sensorMm, warm);
+            var burnReach = Sensors.Range(sensorMm, GameData.Sensors.Burn);
+            // A body can hide even a burning ship, out to the far edge where one is seen, so look that far.
+            var blockReach = burnReach;
             var blockers = new List<int>();
             for (var i = 0; i < bodies.Count; i++)
             {
                 var b = bodies[i];
                 if (b.Id == body) continue;
                 var d = Vec2.Distance(at, _drawn[b.Id]);
-                if (d > b.Radius && d - b.Radius < reach) blockers.Add(i);
+                if (d > b.Radius && d - b.Radius < blockReach) blockers.Add(i);
             }
-            sensors.Add(new Observer(at, reach, Sensors.Range(sensorMm, GameData.Sensors.Cold), body, blockers));
+            sensors.Add(new Observer(at, reach, Sensors.Range(sensorMm, GameData.Sensors.Cold), burnReach, body, blockers));
         }
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player))
             if (_drawn.TryGetValue(f.Id, out var p)) Add(p, Sensors.SensorOf(w, f), null);
@@ -101,6 +124,15 @@ public partial class MapView
         if (Sight == SightView.Coverage)
         {
             WorkOutCoverage(sensors, Clear);
+            // The edge of where a burning ship is seen: the outer line of the union of all sensors' reach.
+            for (var i = 0; i < sensors.Count; i++)
+            {
+                var o = sensors[i];
+                var inside = false;
+                for (var j = 0; j < sensors.Count && !inside; j++)
+                    inside = j != i && Vec2.Distance(sensors[j].At, o.At) + o.BurnReach < sensors[j].BurnReach;
+                if (!inside) _burnRings.Add((Camera.ToScreen(o.At), (float)(o.BurnReach * Camera.Scale)));
+            }
             return;
         }
 
@@ -129,7 +161,7 @@ public partial class MapView
                 var corners = new[]
                 {
                     Ray(dir - half, near), Ray(dir + half, near),
-                    Ray(dir - half, o.Reach), Ray(dir + half, o.Reach), Ray(dir, o.Reach),
+                    Ray(dir - half, o.BurnReach), Ray(dir + half, o.BurnReach), Ray(dir, o.BurnReach),
                 };
                 var pts = corners.Select(Camera.ToScreen).ToArray();
                 var box = new Rect2(pts[0], Vector2.Zero);
@@ -151,11 +183,11 @@ public partial class MapView
                     var k = row * cols + col;
                     if (tested[k]) continue;
                     var at = Camera.ToWorld(new Vector2((col + 0.5f) * ShadowCell, (row + 0.5f) * ShadowCell));
-                    if (Vec2.Distance(at, o.At) > o.Reach || Clear(o, at)) continue;
+                    if (Vec2.Distance(at, o.At) > o.BurnReach || Clear(o, at)) continue;
                     tested[k] = true;
                     var seen = false;
                     foreach (var other in sensors)
-                        if (Vec2.Distance(at, other.At) <= other.Reach && Clear(other, at)) { seen = true; break; }
+                        if (Vec2.Distance(at, other.At) <= other.BurnReach && Clear(other, at)) { seen = true; break; }
                     hidden[k] = !seen;
                 }
             }
@@ -181,15 +213,15 @@ public partial class MapView
     }
 
     /// <summary>
-    /// Every cell on screen: seen well enough to spot a ship coasting cold, seen only for a warm ship,
-    /// hidden behind a body from every sensor that reaches it, or out of reach (left dark).
+    /// Every cell on screen: seen well enough to spot a ship coasting cold, a warm ship, or only a ship
+    /// burning its engines; hidden behind a body from every sensor that reaches it; or out of reach (dark).
     /// </summary>
     private void WorkOutCoverage(List<Observer> sensors, Func<Observer, Vec2, bool> clear)
     {
         var size = Camera.ScreenSize;
         var cols = (int)Math.Ceiling(size.X / ShadowCell);
         var rows = (int)Math.Ceiling(size.Y / ShadowCell);
-        var colors = new[] { (Color?)null, SeesWarm, SeesCold, ShadowColor };
+        var colors = new[] { (Color?)null, SeesBurn, SeesWarm, SeesCold, ShadowColor };
         for (var row = 0; row < rows; row++)
         {
             var start = 0;
@@ -204,13 +236,13 @@ public partial class MapView
                     foreach (var o in sensors)
                     {
                         var d = Vec2.Distance(at, o.At);
-                        if (d > o.Reach) continue;
+                        if (d > o.BurnReach) continue;
                         reached = true;
                         if (!clear(o, at)) continue;
-                        state = Math.Max(state, d <= o.ColdReach ? 2 : 1);
-                        if (state == 2) break;
+                        state = Math.Max(state, d <= o.ColdReach ? 3 : d <= o.Reach ? 2 : 1);
+                        if (state == 3) break;
                     }
-                    if (state == 0 && reached) state = 3;
+                    if (state == 0 && reached) state = 4;
                 }
                 else state = -1;
                 if (state == last) continue;
