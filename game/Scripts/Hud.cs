@@ -187,6 +187,9 @@ public partial class Hud : CanvasLayer
         if (group.Count >= 2) _groupPanel.Refresh(sim, group);
         _plannerPanel.Visible = _screen.Planner != null;
         if (_screen.Planner != null) _plannerPanel.Refresh(sim, _screen.Planner);
+        // On a short screen the planner and the fleet panel would overlap: the planner wins while it is open.
+        if (_plannerPanel.Visible && _fleetPanel.Visible && _plannerPanel.GetGlobalRect().End.Y > _fleetPanel.GetGlobalRect().Position.Y)
+            _fleetPanel.Visible = false;
 
         var text = fleet == null && group.Count < 2 ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
