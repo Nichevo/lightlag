@@ -701,8 +701,13 @@ public partial class GameScreen : Node2D
     public void OrderJoin(int intoId)
     {
         if (MyFleet is not Fleet f || Sim.World.FindFleet(intoId) is not Fleet into) return;
+        if (Fleets.JoinProblem(Sim.World, f, into, Settings.Speed) is string problem)
+        {
+            _main.Toast($"{f.Name} cannot join {into.Name}: {problem}", onClick: GoToFleet(f.Id));
+            return;
+        }
         Sim.Issue(new GatherFleetsCommand(into.Id, new List<int> { f.Id }, Settings.Speed));
-        _main.Toast($"{f.Name} flies to join {into.Name}");
+        _main.Toast(Fleets.CanJoin(f, into) ? $"{f.Name} joins {into.Name}" : $"{f.Name} flies to join {into.Name}");
     }
 
     /// <summary>Merge the picked fleets into the largest: close ones at once, the rest fly to it first.</summary>
@@ -711,8 +716,16 @@ public partial class GameScreen : Node2D
         var group = Group;
         if (group.Count < 2) return;
         var into = group[0];
-        Sim.Issue(new GatherFleetsCommand(into.Id, group.Skip(1).Select(f => f.Id).ToList(), Settings.Speed));
-        _main.Toast($"Gathering {group.Count} fleets into {into.Name}");
+        var stuck = group.Skip(1).Select(f => (f, Problem: Fleets.JoinProblem(Sim.World, f, into, Settings.Speed)))
+            .Where(x => x.Problem != null).ToList();
+        if (stuck.Count == group.Count - 1)
+        {
+            _main.Toast($"Cannot gather into {into.Name}: {stuck[0].f.Name}: {stuck[0].Problem}");
+            return;
+        }
+        Sim.Issue(new GatherFleetsCommand(into.Id, group.Skip(1).Where(f => stuck.All(x => x.f != f)).Select(f => f.Id).ToList(), Settings.Speed));
+        _main.Toast($"Gathering {group.Count - stuck.Count} fleets into {into.Name}"
+                    + string.Concat(stuck.Select(x => $". {x.f.Name} cannot join: {x.Problem}")));
         Select(into.Id);
     }
 
