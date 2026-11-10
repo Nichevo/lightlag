@@ -25,7 +25,7 @@ public enum RouteKind { Direct, Wait }
 /// it faster than it is moving. Only Gun range hands over to close combat (Engage); the others hold
 /// their distance and fire at what is in reach.
 /// </summary>
-public enum ChaseMode { None, MatchSpeed, GunRange, MissileRange, ShadowGuns, ShadowMissiles, Overtake }
+public enum ChaseMode { None, MatchSpeed, GunRange, MissileRange, ShadowGuns, ShadowMissiles, Overtake, Join }
 
 /// <summary>
 /// A standing order to chase an enemy fleet. The flight is planned against where the enemy is expected to
@@ -335,7 +335,16 @@ public static class Fleets
     /// <summary>Plan a flight for a fleet to where another fleet will be stopped. Returns why not, or null when on its way.</summary>
     public static string? FlyToJoin(World world, Fleet f, Fleet into, double speedFraction)
     {
-        if (Meeting(world, into, speedFraction) is not FlightRequest request) return DriftingProblem;
+        if (Meeting(world, into, speedFraction) is not FlightRequest request)
+        {
+            // It is drifting on: chase it on intercept tracks, matching its speed, and join on arrival.
+            var perf = FleetPerformance.Of(world, f);
+            var chase = FlightPlanner.PlanChase(world, f, into, ChaseMode.Join, speedFraction, perf);
+            if (!chase.Ok || chase.Flight == null) return chase.Problem ?? "no intercept";
+            f.Flight = chase.Flight;
+            f.Chase = Chases.Order(world, f, into.Id, ChaseMode.Join, speedFraction);
+            return null;
+        }
         var plan = FlightPlanner.Plan(world, f, request);
         if (!plan.Ok || plan.Flight == null) return plan.Problem ?? "no route";
         f.Flight = plan.Flight;

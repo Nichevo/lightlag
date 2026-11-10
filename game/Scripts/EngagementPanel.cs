@@ -22,6 +22,7 @@ public partial class EngagementPanel : Control
     private VBoxContainer _right = null!;
     private ScrollContainer _rightScroll = null!, _leftScroll = null!;
     private VBoxContainer _left = null!;
+    private readonly List<(Button Button, double Share)> _burnButtons = new();
     private HBoxContainer _tabs = null!;
     private string _tabsKey = "";
     private VBoxContainer _legend = null!;
@@ -56,6 +57,24 @@ public partial class EngagementPanel : Control
         var right = new VBoxContainer { CustomMinimumSize = new Vector2(380, 0) };
         right.AddThemeConstantOverride("separation", 8);
         right.AddChild(Ui.Label("Approach", 16, Ui.Text));
+        _burnButtons.Clear();
+        var burnRow = new HBoxContainer();
+        burnRow.AddThemeConstantOverride("separation", 4);
+        var burnLabel = Ui.Label("Burn", 13, Ui.Dim);
+        burnLabel.CustomMinimumSize = new Vector2(64, 0);
+        burnRow.AddChild(burnLabel);
+        foreach (var (name, share, tip) in new[]
+                 {
+                     ("Gentle", 0.4, "40 % thrust and top speed: slower, saves fuel, a dimmer engine flare"),
+                     ("Cruise", 0.7, "70 % thrust and top speed"),
+                     ("Hard", 1.0, "Full thrust, then brake: closes fastest, burns the most fuel and lights you up"),
+                 })
+        {
+            var b = Ui.SmallButton(name, () => _screen.SetEngagementBurn(share), tip);
+            burnRow.AddChild(b);
+            _burnButtons.Add((b, share));
+        }
+        right.AddChild(burnRow);
         _options = new VBoxContainer();
         _options.AddThemeConstantOverride("separation", 4);
         right.AddChild(_options);
@@ -277,6 +296,7 @@ public partial class EngagementPanel : Control
 
         // Defences.
         static Color On(bool on) => on ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        foreach (var (b, share) in _burnButtons) b.Modulate = On(Math.Abs(share - e.Burn) < 1e-6);
         // Orders given while paused wait for the next step: show them as chosen straight away.
         var pending = sim.PendingCommands;
         var dodge = pending.OfType<SetDodgeCommand>().LastOrDefault(c => c.FleetId == f.Id)?.Dodge ?? f.Dodge;
@@ -326,7 +346,9 @@ public partial class EngagementPanel : Control
         shipLines.Add("Spotting");
         shipLines.Add($"  You see them within {Km(e.SpotCold)} coasting cold, {Km(e.SpotWarm)} with warm engines, {Km(e.SpotBurn)} burning.");
         if (e.Cued)
-            shipLines.Add($"  That is with your sensors searching their predicted track: if they changed course, only {Km(e.SpotColdUncued)} cold.");
+            shipLines.Add(e.InSight
+                ? $"  That is holding a contact you already have; a fleet never seen shows up only within {Km(e.SpotColdUncued)} cold."
+                : $"  That is with your sensors searching their predicted track: if they changed course, only {Km(e.SpotColdUncued)} cold.");
         if (!e.InSight)
             shipLines.Add(e.SpotWindow is TimeWindow sw
                 ? $"  If they keep coasting you spot them in {When(sw.From)}."

@@ -452,6 +452,7 @@ public static class FlightPlanner
             ChaseMode.ShadowGuns => c.Railgun.RangeMm * 1.25,
             ChaseMode.ShadowMissiles => c.Missile.LaunchRangeMm * 1.1,
             ChaseMode.Overtake => OvertakePassMm,
+            ChaseMode.Join => JoinDistanceMm,
             _ => null,
         };
     }
@@ -461,6 +462,9 @@ public static class FlightPlanner
     /// speeds would not survive a collision), but still inside railgun range so the guns get a go.
     /// </summary>
     public static double OvertakePassMm => GameData.Combat.Railgun.RangeMm * 0.5;
+
+    /// <summary>How close a fleet flying to join a moving fleet comes alongside before the two merge.</summary>
+    public const double JoinDistanceMm = 0.5;
 
     /// <summary>A speed for messages, in km/s like the screens show.</summary>
     public static string Kms(double mmPerHour) => $"{mmPerHour / 3.6:#,0} km/s";
@@ -473,6 +477,7 @@ public static class FlightPlanner
         ChaseMode.ShadowGuns => "shadow outside their guns",
         ChaseMode.ShadowMissiles => "shadow outside their missiles",
         ChaseMode.Overtake => "overtake",
+        ChaseMode.Join => "catch up and join",
         _ => "attack",
     };
 
@@ -520,6 +525,8 @@ public static class FlightPlanner
         if (Vec2.Dot(beside, u) < 0) beside = beside * -1;
         var aim = mode == ChaseMode.Overtake ? beside * standoff : away * standoff;
 
+        // The speed setting is also how hard it burns: a gentle chase thrusts less (a dimmer flare), not just slower at the top.
+        var accel = perf.Accel * Math.Max(0.25, fraction);
         // Try the fastest closing speed that keeps the real speed within the fleet's limit.
         var closing = top + theirSpeed;
         for (var attempt = 0; attempt < 24; attempt++, closing *= 0.8)
@@ -536,7 +543,7 @@ public static class FlightPlanner
                 stretch = Ended(legsMatch, r + u * (t1 / 2), dvMatch, r, u, now);
             }
             else
-                stretch = Stretch(r, u, now, perf.Accel, closing, endSpeed, (_, _) => aim);
+                stretch = Stretch(r, u, now, accel, closing, endSpeed, (_, _) => aim);
             if (stretch == null) continue;
             var legs = stretch.Legs.Select(l => new FlightLeg(l.Start, l.End, l.P0 + at.Value + vt * (l.Start - now), l.V0 + vt, l.A)).ToList();
             var fastest = legs.Count == 0 ? 0 : legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));

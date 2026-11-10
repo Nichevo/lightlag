@@ -55,6 +55,12 @@ public partial class GameScreen : Node2D
     private bool _draggingEnd;
     private readonly HashSet<(int, double)> _spotted = new();
 
+    /// <summary>When each enemy fleet was last in sight: once spotted, it never pauses the game again when it slips out of sight and back.</summary>
+    private readonly Dictionary<int, double> _lastInSight = new();
+
+    /// <summary>The same fleets meeting again within this many hours of their last contact ending do not pause the game again.</summary>
+    private const double RecontactQuietHours = 48;
+
     /// <summary>Pause the game when an enemy fleet comes into sight.</summary>
     public bool PauseOnContact { get; set; } = true;
 
@@ -220,6 +226,15 @@ public partial class GameScreen : Node2D
     /// <summary>The engagement on screen: your fleet and the enemy fleet (null when the map is shown).</summary>
     public (int Mine, int Enemy)? Engagement { get; private set; }
     public EngagementInfo? EngagementNow { get; private set; }
+
+    /// <summary>How hard the engagement screen's approach choices burn (share of top speed).</summary>
+    public double EngagementBurn { get; private set; } = 1.0;
+
+    public void SetEngagementBurn(double burn)
+    {
+        EngagementBurn = burn;
+        _engagementAge = 1; // work the choices out again now
+    }
     private double _engagementAge;
 
     /// <summary>Open the engagement screen for one of your fleets (against the given enemy, or the one it is most concerned with).</summary>
@@ -290,7 +305,7 @@ public partial class GameScreen : Node2D
         }
         _main.RunGuarded("engagement", () =>
         {
-            EngagementNow = Engagement_.Of(w, mine, enemyId);
+            EngagementNow = Engagement_.Of(w, mine, enemyId, EngagementBurn);
             Engagements = Engagement_.All(w, Side.Player);
         });
         _map.Engagement = EngagementNow;
@@ -476,9 +491,20 @@ public partial class GameScreen : Node2D
         if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen)
         {
             _lastBattleSeen = b.Id;
-            _paused = true;
-            _main.Toast($"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time; paused.",
-                onClick: FocusBattle);
+            // The same fleets meeting again soon after a contact ended (drifting in and out of range): no new pause.
+            var again = w.Battles.Any(o => o.Id != b.Id && o.EndHour is double end && b.StartHour - end < RecontactQuietHours
+                                           && o.For(Side.Player).Fleets.Intersect(b.For(Side.Player).Fleets).Any()
+                                           && o.For(Side.Rival).Fleets.Intersect(b.For(Side.Rival).Fleets).Any());
+            if (again)
+            {
+                _main.AddNews($"Contact again: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
+            }
+            else
+            {
+                _paused = true;
+                _main.Toast($"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time; paused.",
+                    onClick: FocusBattle);
+            }
         }
         var last = w.Battles.Count > 0 ? w.Battles[^1] : null;
         if (last is { EndHour: not null } && last.Id != _lastReportShown)
@@ -503,8 +529,18 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         foreach (var s in w.Sightings)
         {
-            if (s.SeenBy != Side.Player || !s.Visible || !_spotted.Add((s.FleetId, s.SpottedHour))) continue;
+            if (s.SeenBy != Side.Player || !s.Visible) continue;
+            var seenBefore = _lastInSight.ContainsKey(s.FleetId);
+            _lastInSight[s.FleetId] = w.Hour;
+            if (!_spotted.Add((s.FleetId, s.SpottedHour))) continue;
             if (s.SpottedHour < w.Hour - 1) continue; // already in sight when the game was loaded
+            if (seenBefore)
+            {
+                // Spotted before this session: back in sight is a quiet news line, no pop-up and no pause.
+                var id = s.FleetId;
+                _main.AddNews($"{s.Name} back in sight", () => GoToSighting(id));
+                continue;
+            }
             var nearest = w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => Vec2.Distance(f.Position, s.Position)).FirstOrDefault();
             var where = nearest != null ? $", {Vec2.Distance(nearest.Position, s.Position) * 1000:#,0} km from {nearest.Name}" : "";
             var fleetId = s.FleetId;
@@ -641,6 +677,14 @@ public partial class GameScreen : Node2D
     {
         if (Group.Count >= 2) { OrderGather(); return; }
         if (MyFleet is Fleet f && MergeCandidate() is Fleet other) Sim.Issue(new MergeFleetsCommand(f.Id, other.Id));
+    }
+
+    /// <summary>Send the selected fleet to join another of ours (merging at once if they are together).</summary>
+    public void OrderJoin(int intoId)
+    {
+        if (MyFleet is not Fleet f || Sim.World.FindFleet(intoId) is not Fleet into) return;
+        Sim.Issue(new GatherFleetsCommand(into.Id, new List<int> { f.Id }, Settings.Speed));
+        _main.Toast($"{f.Name} flies to join {into.Name}");
     }
 
     /// <summary>Merge the picked fleets into the largest: close ones at once, the rest fly to it first.</summary>

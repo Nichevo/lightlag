@@ -99,11 +99,13 @@ public static class Sensors
 
     /// <summary>
     /// How much further sensors see a fleet because its track is known: CuedFactor while it is still near
-    /// where the old sighting says it should be (the search box grows the longer ago it was seen), else 1.
+    /// where the sighting says it should be (the search box grows the longer ago it was seen), else 1.
+    /// This also holds a contact once made: a fleet in sight stays in sight out to the cued range, so a
+    /// fleet sitting near the edge of spotting range does not flicker in and out.
     /// </summary>
     public static double Cue(World w, Sighting? s, Vec2 actual, double hour)
     {
-        if (s == null || s.Visible || S.CuedFactor <= 1) return 1;
+        if (s == null || S.CuedFactor <= 1) return 1;
         return Vec2.Distance(s.Guess(hour), actual) <= CueRadius(s, hour) ? S.CuedFactor : 1;
     }
 

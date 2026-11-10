@@ -352,8 +352,32 @@ public static class Mind
                 return;
             }
             if (job == null || job.Kind == JobKind.Guard || Slip()) return;
-            // Pull back from a fight it expects to lose.
             var mine = Stats.Power(_w, f);
+            // Being chased: run hard from a stronger chaser, turn and fight a weaker one (scouts always run).
+            if (ChaserOf(f) is Sighting chaser && f.Chase?.TargetFleetId != chaser.FleetId)
+            {
+                var theirs = SightingPower(chaser);
+                if (theirs > mine * A.DangerRatio || job.Kind == JobKind.Probe || !Combat.HasWorking(_w, f, Module.Railguns))
+                {
+                    Note($"{f.Name} runs from {chaser.Name}, which is closing on it (about {theirs:0} against its {mine:0})");
+                    _m.Jobs.Remove(job);
+                    if (job.Kind == JobKind.Probe) _m.LastProbeEndHour = _w.Hour;
+                    GoHome(f, "running from a chaser", hard: true);
+                    return;
+                }
+                if (mine >= theirs * A.DangerRatio)
+                {
+                    var turn = new FlightRequest(null, chaser.Guess(_w.Hour), Burn(f), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick,
+                        TargetFleetId: chaser.FleetId, Chase: ChaseMode.GunRange);
+                    if (Fly(f, turn))
+                    {
+                        Orders(f, Core.Stance.Engage);
+                        Note($"{f.Name} turns to fight {chaser.Name}, which is chasing it ({mine:0} against about {theirs:0})");
+                        return;
+                    }
+                }
+            }
+            // Pull back from a fight it expects to lose.
             // A scout only runs from what comes close to it; others also from what was just seen where they are going.
             var near = job.Kind == JobKind.Probe
                 ? EnemyNear(f.Position, 0.5 * A.DangerRadiusAu * _au, 12)
@@ -514,8 +538,11 @@ public static class Mind
                 if (Pool().Where(Ready).Sum(f => Stats.Power(_w, f)) * (1 - _p.GuardShare) < need) continue;
                 var group = TakeFromPool(need, $"hunt {s.Name}");
                 if (group == null) continue;
-                var request = new FlightRequest(null, at, 0.8, ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick, TargetFleetId: s.FleetId);
-                if (!Fly(group, request)) { GoHome(group, "could not reach the enemy fleet"); continue; }
+                // Burn hard and brake to gun range when there is fuel to spare (chasing it if it moves); else a plain attack run.
+                var request = new FlightRequest(null, at, Burn(group), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick, TargetFleetId: s.FleetId,
+                    Chase: ChaseMode.GunRange);
+                if (!Fly(group, request) && !Fly(group, request with { Chase = ChaseMode.None, SpeedFraction = 0.8 }))
+                { GoHome(group, "could not reach the enemy fleet"); continue; }
                 Orders(group, Core.Stance.Engage);
                 Assign(group, JobKind.Hunt, null, at, $"{s.Name} ({s.Ships} ships) seen near our planets", s.FleetId);
             }
@@ -700,7 +727,15 @@ public static class Mind
             Note($"{f.Name} ({f.ShipIds.Count} ships): {kind} {target.Name}: {why}");
         }
 
-        private void GoHome(Fleet f, string why)
+        /// <summary>An enemy fleet in sight whose track is closing on this fleet, if any (the nearest).</summary>
+        private Sighting? ChaserOf(Fleet f) =>
+            _known.Where(s => s.Visible && Sensors.HeadingFor(s, f, _w.Hour) is double eta && eta <= 48)
+                .OrderBy(s => Vec2.Distance(s.Guess(_w.Hour), f.Position)).FirstOrDefault();
+
+        /// <summary>How hard to burn towards a fight: flat out with fuel to spare, gentler when supplies are low.</summary>
+        private double Burn(Fleet f) => Supplies(f) >= 0.7 ? 1.0 : Supplies(f) >= 0.45 ? 0.7 : 0.5;
+
+        private void GoHome(Fleet f, string why, bool hard = false)
         {
             if (_home == null || Busy(f)) return;
             _m.Jobs.RemoveAll(j => j.FleetId == f.Id);
@@ -709,7 +744,7 @@ public static class Mind
                 Assign(f, JobKind.Refit, _home.Id, _home.Position, why);
                 return;
             }
-            var request = new FlightRequest(_home.Id, _home.Position, 0.6, ArrivalStyle.Brake, HoldStyle.Orbit, _w.Tick);
+            var request = new FlightRequest(_home.Id, _home.Position, hard ? 1.0 : 0.6, ArrivalStyle.Brake, HoldStyle.Orbit, _w.Tick);
             if (!Fly(f, request)) request = request with { SpeedFraction = FlightPlanner.MinSpeedFraction };
             if (f.Flight?.TargetBodyId != _home.Id && !Fly(f, request))
             {
