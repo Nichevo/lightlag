@@ -21,7 +21,16 @@ public static class Physics
 
 // ---- JSON shapes of the data files ------------------------------------------------------
 
-public sealed record SystemData(string Name, List<BodyData> Bodies, List<BeltData>? Belts, List<StartShipsData>? Ships);
+/// <summary>
+/// A star system. SizeScale multiplies every body's radius (1 = true size); moons that would end up too
+/// close to their bigger planet are moved out (see Scenarios.ClosestMoonOrbit), keeping their order.
+/// </summary>
+public sealed record SystemData(string Name, List<BodyData> Bodies, List<BeltData>? Belts, List<StartShipsData>? Ships,
+    double SizeScale = 1)
+{
+    /// <summary>A moon orbits at least this many planet radii out, even where its Roche limit is closer.</summary>
+    public const double MoonClearance = 2;
+}
 
 public sealed record BodyData(
     string Id, string Name, BodyKind Kind, string Type, string? Parent,

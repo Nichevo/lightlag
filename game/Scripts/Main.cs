@@ -289,10 +289,10 @@ public partial class Main : Node
                     game.Settings.Route = RouteKind.Wait;
                     game.StartPlanning(Key("rust"), Vec2.Zero);
                 }),
-                ("23-verdant-close", () => { game.Follow(Key("verdant"), false); game.Camera.SetScale(45); }),
-                ("24-tamber-close", () => { game.Follow(Key("tamber"), false); game.Camera.SetScale(4); }),
-                ("25-pale-shadow", () => { game.Follow(Key("pale"), false); game.Camera.SetScale(12); }),
-                ("26-rust-close", () => { game.Follow(Key("rust"), false); game.Camera.SetScale(90); }),
+                ("23-verdant-close", () => { game.Follow(Key("verdant"), false); game.Camera.SetScale(9); }),
+                ("24-tamber-close", () => { game.Follow(Key("tamber"), false); game.Camera.SetScale(0.8); }),
+                ("25-pale-shadow", () => { game.Follow(Key("pale"), false); game.Camera.SetScale(2.4); }),
+                ("26-rust-close", () => { game.Follow(Key("rust"), false); game.Camera.SetScale(17); }),
                 ("10-rust-orbit", () =>
                 {
                     var rival = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Rival);

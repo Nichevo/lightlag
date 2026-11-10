@@ -252,6 +252,32 @@ public sealed class Simulation
         }
     }
 
+    /// <summary>
+    /// Nothing flies through a planet: a fleet that ends up inside one (drifting into its path, or dodging
+    /// in a fight) is moved out to just above the surface, and stops moving towards it. Its flight, if any,
+    /// moves with it. Flights leaving or reaching a planet are let be (they start and end at rest).
+    /// </summary>
+    private void KeepOutOfBodies(Fleet f, double hour)
+    {
+        foreach (var b in World.Bodies)
+        {
+            var gap = f.Position - b.Position;
+            var d = gap.Length;
+            if (d >= b.Radius || f.Flight?.Launching(World, b, hour) == true) continue;
+            var dir = d > 1e-9 ? gap * (1 / d) : new Vec2(1, 0);
+            var by = b.Position + dir * (b.Radius * 1.02) - f.Position;
+            f.Position += by;
+            var inward = Vec2.Dot(f.Velocity, dir);
+            if (f.Flight is Flight flight)
+            {
+                flight.Legs = flight.Legs.Select(l => l.Shifted(by)).ToList();
+                if (flight.TargetBodyId == null && flight.TargetFleetId == null) flight.Target += by;
+            }
+            else if (inward < 0) f.Velocity -= dir * inward;
+            Log.Info("fleet", $"{f.Name} pulls up clear of {b.Name}", new { fleetId = f.Id, bodyId = b.Id });
+        }
+    }
+
     private void MoveFleets(double t0, double t1)
     {
         var dt = t1 - t0;
@@ -288,6 +314,7 @@ public sealed class Simulation
             {
                 f.Position += f.Velocity * dt;
             }
+            if (f.Hold != HoldStyle.Orbit || f.Flight != null) KeepOutOfBodies(f, t1);
             foreach (var s in World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
         }
     }

@@ -49,9 +49,10 @@ public class FleetTests
         sim.StepMany(30);
         Assert.InRange(Vec2.Distance(fleet.Position, home.Position), fleet.OrbitRadius - 1e-6, fleet.OrbitRadius + 1e-6);
         Assert.NotEqual(angle, fleet.OrbitAngle);
-        // A full circle takes a few days.
+        // A low orbit: half a planet radius up, a full circle in about a day.
+        Assert.InRange(fleet.OrbitRadius, home.Radius * 1.4, home.Radius * 1.6);
         var period = Fleets.OrbitPeriodHours(home, fleet.OrbitRadius);
-        Assert.InRange(period, 72, 24 * 10);
+        Assert.InRange(period, 12, 48);
     }
 
     [Fact]
@@ -553,5 +554,21 @@ public class FleetTests
         fleet.Flight = new Flight { Legs = { new FlightLeg(sim.World.Hour, sim.World.Hour + 10, fleet.Position, new Vec2(1, 0), Vec2.Zero) } };
         var broken = RuleBook.Default().Check(sim.World).ToList();
         Assert.Contains(broken, b => b.Rule == "flights-miss-bodies");
+    }
+
+    [Fact]
+    public void Big_planets_push_their_moons_out_by_gravity()
+    {
+        var sim = NewGame();
+        var tamber = BodyNamed(sim, "tamber");
+        var brim = BodyNamed(sim, "brim");
+        var rust = BodyNamed(sim, "rust");
+        var flint = BodyNamed(sim, "flint");
+        Assert.True(brim.OrbitRadius >= tamber.Radius * SystemData.MoonClearance - 1e-6);
+        Assert.True(flint.OrbitRadius >= rust.Radius * SystemData.MoonClearance - 1e-6);
+        // Moons keep their order, and orbiting fleets stay below them and within railgun reach of the ground.
+        Assert.True(BodyNamed(sim, "glass").OrbitRadius > brim.OrbitRadius);
+        Assert.True(Fleets.OrbitRadiusFor(tamber) < brim.OrbitRadius);
+        Assert.True(Fleets.OrbitRadiusFor(tamber) - tamber.Radius <= GameData.Combat.Railgun.RangeMm * 0.5 + 1e-6);
     }
 }

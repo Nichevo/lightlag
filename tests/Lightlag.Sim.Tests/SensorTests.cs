@@ -66,10 +66,10 @@ public class SensorTests
     {
         var sim = Simulation.NewGame(Scenarios.TestSystem, 1, GameLog.Memory());
         var verdant = sim.World.Bodies.Single(b => b.Key == "verdant");
-        var a = verdant.Position + new Vec2(-50, 0);
-        var b = verdant.Position + new Vec2(50, 0);
+        var a = verdant.Position + new Vec2(-100, 0);
+        var b = verdant.Position + new Vec2(100, 0);
         Assert.False(Sensors.LineOfSight(sim.World, a, b));
-        Assert.True(Sensors.LineOfSight(sim.World, a, b + new Vec2(0, 40)));
+        Assert.True(Sensors.LineOfSight(sim.World, a, b + new Vec2(0, 200)));
     }
 
     [Fact]

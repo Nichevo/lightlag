@@ -247,7 +247,8 @@ public static class Fleets
     public const double MergeDistance = 3000; // Mm
 
     /// <summary>Orbits take at least this long, so a circling fleet moves smoothly at hour steps.</summary>
-    public const double MinOrbitHours = 72;
+    public const double MinOrbitHours = 12;
+    public const double LowOrbitRadii = 1.5;
 
     /// <summary>How far a split-off fleet moves away, so the two are not drawn on top of each other.</summary>
     public const double SplitGap = 300; // Mm, well inside merge distance
@@ -297,12 +298,19 @@ public static class Fleets
         return new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * (ring * FormationSpacing);
     }
 
-    /// <summary>The usual orbit height round a body: three body radii, but at least a 3-day orbit.</summary>
+    /// <summary>
+    /// The usual orbit round a body: low (half a body radius up), and never higher than half railgun range
+    /// above the surface, so a fleet in orbit can always fire on the ground; but at least a 12-hour orbit.
+    /// </summary>
     public static double OrbitRadiusFor(Body b)
     {
         var minByPeriod = DetMath.Cbrt(b.Gm * (MinOrbitHours / (2 * Math.PI)) * (MinOrbitHours / (2 * Math.PI)));
-        return Math.Max(b.Radius * 3, minByPeriod);
+        var height = Math.Min(b.Radius * (LowOrbitRadii - 1), GameData.Combat.Railgun.RangeMm * 0.5);
+        return Math.Max(b.Radius + height, minByPeriod);
     }
+
+    /// <summary>How wide a route turns round a body in its way.</summary>
+    public static double ClearanceFor(Body b) => Math.Max(OrbitRadiusFor(b), b.Radius * 2);
 
     public static double OrbitPeriodHours(Body b, double radius) =>
         Math.Max(MinOrbitHours, Physics.OrbitPeriodHours(radius, b.Gm));
@@ -445,7 +453,7 @@ public static class Fleets
         var offset = f.Position - body.Position;
         f.Hold = HoldStyle.Orbit;
         f.OrbitBodyId = body.Id;
-        f.OrbitRadius = Math.Max(offset.Length, body.Radius * 1.5);
+        f.OrbitRadius = Math.Max(offset.Length, body.Radius * LowOrbitRadii);
         f.OrbitAngle = DetMath.Atan2(offset.Y, offset.X);
         f.Velocity = Vec2.Zero;
     }

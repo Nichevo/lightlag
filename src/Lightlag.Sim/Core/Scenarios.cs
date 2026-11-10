@@ -64,19 +64,37 @@ public static class Scenarios
         Fleets.EnterDrift(fleet);
     }
 
+    /// <summary>How close a moon can orbit its planet: outside the Roche limit and clear of the surface.</summary>
+    public static double ClosestMoonOrbit(BodyData planet, BodyData moon, double scale)
+    {
+        var roche = moon.Gm > 0 ? moon.RadiusMm * scale * DetMath.Cbrt(2 * planet.Gm / moon.Gm) : 0;
+        return Math.Max(roche, SystemData.MoonClearance * planet.RadiusMm * scale);
+    }
+
     public static World FromData(SystemData data, ulong seed, SimRandom rng)
     {
         var w = new World { Scenario = data.Name, Seed = seed };
         var ids = new Dictionary<string, Body>();
 
+        var scale = data.SizeScale > 0 ? data.SizeScale : 1;
+        // Enlarged planets push their moons out, by gravity: a moon can't orbit inside its Roche limit (the
+        // planet's tides would tear it apart) or skim the planet. All of a planet's moons move out by the same
+        // factor, so they keep their order; orbit times still follow from the planet's mass.
+        var push = new Dictionary<string, double>();
+        foreach (var group in data.Bodies.Where(d => d.Parent != null && data.Bodies.First(p => p.Id == d.Parent).Parent != null).GroupBy(d => d.Parent!))
+        {
+            var planet = data.Bodies.First(p => p.Id == group.Key);
+            push[group.Key] = Math.Max(1, group.Max(m => ClosestMoonOrbit(planet, m, scale) / m.OrbitRadiusMm));
+        }
+
         foreach (var d in data.Bodies)
         {
             var parent = d.Parent != null ? ids[d.Parent] : null;
-            var radius = d.OrbitRadiusMm;
+            var radius = d.OrbitRadiusMm * (d.Parent != null && push.TryGetValue(d.Parent, out var k) ? k : 1);
             var b = new Body
             {
                 Id = w.NextId++, Key = d.Id, Name = d.Name, Kind = d.Kind, Type = d.Type,
-                Color = d.Color, Atmosphere = d.Atmosphere, Gm = d.Gm, Radius = d.RadiusMm,
+                Color = d.Color, Atmosphere = d.Atmosphere, Gm = d.Gm, Radius = d.RadiusMm * scale,
                 ParentId = parent?.Id,
                 OrbitRadius = parent != null ? radius : 0,
                 OrbitPeriodDays = parent != null ? Physics.OrbitPeriodHours(radius, parent.Gm) / 24 : 0,
