@@ -257,12 +257,15 @@ public partial class Hud : CanvasLayer
         else if (!_screen.MenuOpen) _menu.Visible = false;
 
         var engagement = _screen.EngagementNow;
-        _engagement.Visible = engagement != null;
+        // A panel you opened yourself (empire, planner, a report or a replay) sits where the engagement
+        // panel draws, so while it is open the engagement panel steps aside; it comes back when you close it.
+        var covered = _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
+        _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;
         if (engagement != null)
         {
-            _engagement.Refresh(sim, engagement);
+            if (_engagement.Visible) _engagement.Refresh(sim, engagement);
             _fleetPanel.Visible = false;
             _groupPanel.Visible = false;
             _mindPanel.Visible = false;
