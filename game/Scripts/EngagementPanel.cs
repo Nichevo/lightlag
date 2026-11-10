@@ -221,26 +221,37 @@ public partial class EngagementPanel : Control
     }
 
     /// <summary>What each ring on the map is, and whether it is on screen at this zoom.</summary>
+    private string? _legendKey;
+
     private void RefreshLegend(EngagementInfo e)
     {
-        foreach (var c in _legend.GetChildren()) c.QueueFree();
-        _legend.AddChild(Ui.Label("Rings on the map", 13, Ui.Text));
+        // Worked out every frame, but the rows are only rebuilt when their text changes.
         var cam = _screen.Camera;
+        var view = new Rect2(Vector2.Zero, GetViewportRect().Size);
+        var rows = new List<(Color Color, string Text, bool OnScreen)>();
         foreach (var ring in EngagementRings.For(e))
         {
             var at = cam.ToScreen(ring.AroundMine ? e.Mine.Position : e.EnemyAt);
             var r = (float)(ring.Mm * cam.Scale);
-            var view = new Rect2(Vector2.Zero, GetViewportRect().Size);
             var where = EngagementRings.Status(at, r, view) switch
             {
                 RingStatus.TooSmall => " (too small: zoom in)",
                 RingStatus.Outside => " (off screen: zoom out)",
                 _ => "",
             };
+            rows.Add((ring.Color, $"{ring.Label} {Km(ring.Mm)}{(ring.Dashed ? " (dashed)" : "")}{where}", where == ""));
+        }
+        var key = string.Join("\n", rows.Select(x => $"{x.Color}{x.Text}"));
+        if (key == _legendKey) return;
+        _legendKey = key;
+        foreach (var c in _legend.GetChildren()) c.QueueFree();
+        _legend.AddChild(Ui.Label("Rings on the map", 13, Ui.Text));
+        foreach (var (color, text, onScreen) in rows)
+        {
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 6);
-            row.AddChild(new ColorRect { Color = ring.Color, CustomMinimumSize = new Vector2(14, 3), SizeFlagsVertical = SizeFlags.ShrinkCenter });
-            row.AddChild(Ui.Label($"{ring.Label} {Km(ring.Mm)}{(ring.Dashed ? " (dashed)" : "")}{where}", 12, where == "" ? ring.Color.Lightened(0.2f) : Ui.Dim));
+            row.AddChild(new ColorRect { Color = color, CustomMinimumSize = new Vector2(14, 3), SizeFlagsVertical = SizeFlags.ShrinkCenter });
+            row.AddChild(Ui.Label(text, 12, onScreen ? color.Lightened(0.2f) : Ui.Dim));
             _legend.AddChild(row);
         }
     }

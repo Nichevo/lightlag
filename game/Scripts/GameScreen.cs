@@ -111,6 +111,41 @@ public partial class GameScreen : Node2D
     public MapCamera Camera => _camera;
     public MapView Map => _map;
     public bool Paused => _paused;
+
+    // ---- Game menu ------------------------------------------------------------------------------
+
+    /// <summary>The Esc menu is open (the game is paused under it).</summary>
+    public bool MenuOpen { get; private set; }
+    private bool _pausedBeforeMenu;
+
+    public void OpenMenu()
+    {
+        if (MenuOpen) return;
+        MenuOpen = true;
+        _pausedBeforeMenu = _paused;
+        _paused = true;
+    }
+
+    public void CloseMenu()
+    {
+        if (!MenuOpen) return;
+        MenuOpen = false;
+        _paused = _pausedBeforeMenu;
+    }
+
+    public void SaveManual()
+    {
+        var path = SaveSlots.WriteManual(_main.Paths, Sim);
+        _main.Log.Info("save", "Game saved", new { file = System.IO.Path.GetFileName(path) });
+        _main.Toast($"Saved: {GameTime.Format(Sim.World.Tick)}");
+        CloseMenu();
+    }
+
+    public void QuitToTitle()
+    {
+        SaveSlots.WriteAutosave(_main.Paths, Sim);
+        _main.ShowTitle();
+    }
     public int SpeedIndex => _speed;
 
     public override void _Ready()
@@ -985,6 +1020,12 @@ public partial class GameScreen : Node2D
 
     private void OnKey(InputEventKey key)
     {
+        // With the game menu open, Esc closes it and nothing else reaches the map.
+        if (MenuOpen)
+        {
+            if (key.Keycode == Key.Escape) CloseMenu();
+            return;
+        }
         if (key.CtrlPressed && key.ShiftPressed && key.Keycode == Key.F12)
         {
             _main.Log.Warn("ui", "Test crash requested from the keyboard");
@@ -1065,8 +1106,7 @@ public partial class GameScreen : Node2D
                 _main.ShowSandboxSetup();
                 break;
             case Key.Escape:
-                SaveSlots.WriteAutosave(_main.Paths, Sim);
-                _main.ShowTitle();
+                OpenMenu();
                 break;
         }
     }

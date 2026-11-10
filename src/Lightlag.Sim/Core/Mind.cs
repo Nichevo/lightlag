@@ -524,12 +524,18 @@ public static class Mind
         {
             if (_w.Hour < _m.GatherUntilHour) { SetGoal("Gather", $"pulling fleets home to strike {_enemyYard!.Name}"); return true; }
             if (Easy) return false; // Easy does not plan that far ahead
-            var away = Mine().Where(f => !AtHome(f) && !Busy(f) && _m.JobOf(f.Id) is { Kind: JobKind.Claim } j
-                                         && _w.FindBody(j.BodyId ?? -1) is Body b && b.ClaimSide != _side && !NeedsRefit(f)
-                                         && TravelDays(f, _home!, 0.6) <= A.GatherDays).ToList();
+            bool Enough(List<Fleet> fleets)
+            {
+                var total = (poolPower + fleets.Sum(f => Stats.Power(_w, f))) * (1 - keep);
+                return fleets.Count > 0 && total >= want && total >= 3 * A.EnemyShipValue;
+            }
+            var claiming = Mine().Where(f => !AtHome(f) && !Busy(f) && _m.JobOf(f.Id) is { Kind: JobKind.Claim } j
+                                             && _w.FindBody(j.BodyId ?? -1) is Body b && b.ClaimSide != _side && !NeedsRefit(f)).ToList();
+            // Planning the flights home is costly, so first check that even all of them would be enough.
+            if (!Enough(claiming)) return false;
+            var away = claiming.Where(f => TravelDays(f, _home!, 0.6) <= A.GatherDays).ToList();
+            if (!Enough(away)) return false;
             var awayPower = away.Sum(f => Stats.Power(_w, f));
-            if (away.Count == 0 || (poolPower + awayPower) * (1 - keep) < want || (poolPower + awayPower) * (1 - keep) < 3 * A.EnemyShipValue)
-                return false;
             _m.GatherUntilHour = _w.Hour + A.GatherDays * 24;
             SetGoal("Gather", $"{poolPower:0} at home and {awayPower:0} out claiming could strike about {guess:0} at {_enemyYard!.Name}");
             foreach (var f in away) GoHome(f, "called home to gather for a strike");

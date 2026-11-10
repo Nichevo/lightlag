@@ -318,6 +318,11 @@ public partial class Main : Node
                 await Shoot(name);
             }
 
+            // The Esc game menu over the map.
+            game.OpenMenu();
+            await Shoot("28-game-menu");
+            game.CloseMenu();
+
             // A change of course mid-flight: the planner shows the curving turn onto the new heading.
             game.Select(fleet.Id);
             game.Follow(fleet.Id, false);

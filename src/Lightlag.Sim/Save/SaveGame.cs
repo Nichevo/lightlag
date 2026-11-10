@@ -48,6 +48,50 @@ public static class SaveSlots
         return path;
     }
 
+    /// <summary>A manual save, named by when it was made, so it never overwrites another.</summary>
+    public static string WriteManual(DataPaths paths, Simulation sim)
+    {
+        Directory.CreateDirectory(paths.Saves);
+        var path = Path.Combine(paths.Saves, $"save_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json");
+        sim.ToSave().WriteTo(path);
+        return path;
+    }
+
+    /// <summary>One save file as the load list shows it.</summary>
+    public sealed record Entry(string Path, string Kind, DateTime SavedUtc, int Day, long Tick, string? Rival, bool Over);
+
+    /// <summary>
+    /// Every save in the folder, newest first, with the game day it was made on. Reads only the few
+    /// fields the list needs; a file that cannot be read is left out.
+    /// </summary>
+    public static List<Entry> List(DataPaths paths)
+    {
+        var list = new List<Entry>();
+        if (!Directory.Exists(paths.Saves)) return list;
+        foreach (var f in new DirectoryInfo(paths.Saves).GetFiles("*.json"))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(f.FullName));
+                var world = doc.RootElement.GetProperty("world");
+                var tick = world.GetProperty("tick").GetInt64();
+                string? rival = null;
+                if (world.TryGetProperty("minds", out var minds))
+                    foreach (var m in minds.EnumerateArray())
+                        if (m.TryGetProperty("difficulty", out var d)) rival = d.GetString();
+                var over = world.TryGetProperty("winner", out var winner) && winner.ValueKind != System.Text.Json.JsonValueKind.Null;
+                var kind = f.Name.StartsWith("autosave_") ? "Autosave" : f.Name.StartsWith(QuickSave) ? "Quick save"
+                    : f.Name.StartsWith("crash") ? "Crash save" : "Save";
+                list.Add(new Entry(f.FullName, kind, f.LastWriteTimeUtc, GameTime.DayOf(tick), tick, rival, over));
+            }
+            catch (Exception)
+            {
+                // Not a save (or half written): leave it off the list.
+            }
+        }
+        return list.OrderByDescending(e => e.SavedUtc).ToList();
+    }
+
     /// <summary>The newest save of any kind, for the title screen's Continue button.</summary>
     public static string? Latest(DataPaths paths)
     {
