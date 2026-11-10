@@ -243,12 +243,12 @@ public static class Autonomy
     private static void Do(Simulation sim, GameCommand command) => (command with { Source = "auto" }).Apply(sim.World, sim);
 
     /// <summary>Sends a decision home: it reaches command when its light does.</summary>
-    public static void Report(Simulation sim, Fleet f, string text)
+    public static void Report(Simulation sim, Fleet f, string text, NoteKind kind = NoteKind.OwnDecision)
     {
         var w = sim.World;
         var delay = Light.DelayHours(w, f.Side, f.Position);
-        w.Light.Notes.Add(new FleetNote(w.Light.NextNoteId++, f.Side, f.Id, w.Hour, w.Hour + delay, text));
-        Economy.Of(w, f.Side).Totals.OwnDecisions++;
+        w.Light.Notes.Add(new FleetNote(w.Light.NextNoteId++, f.Side, f.Id, w.Hour, w.Hour + delay, text, kind));
+        if (kind == NoteKind.OwnDecision) Economy.Of(w, f.Side).Totals.OwnDecisions++;
         BattleRecords.Mark(w, f, MarkKind.Decision, text);
         sim.Log.Info("autonomy", text, new { fleetId = f.Id, side = f.Side.ToString(), mission = f.Mission.ToString(), autonomy = f.Autonomy.ToString(), delayHours = delay });
     }

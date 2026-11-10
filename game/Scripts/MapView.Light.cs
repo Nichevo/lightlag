@@ -30,12 +30,27 @@ public partial class MapView
         var w = Sim.World;
         foreach (var f in w.Fleets)
         {
-            if (Live(f) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var at)) continue;
+            if (Live(f) || OnPlan(f) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var at)) continue;
             var shift = s.Position - f.Position;
             _drawn[f.Id] = at + shift;
             foreach (var id in f.ShipIds)
                 if (_drawn.TryGetValue(id, out var p)) _drawn[id] = p + shift;
         }
+    }
+
+    /// <summary>
+    /// One of your far fleets still doing what you last ordered: you know its plan, so the map shows it
+    /// where the plan puts it now. Not when news is on its way that it did something else (a decision of
+    /// its own, a standing order, a fight you have not heard of yet).
+    /// </summary>
+    private bool OnPlan(Fleet f)
+    {
+        var w = Sim.World;
+        if (f.Side != Side.Player || f.Maneuvering) return false;
+        if (w.Light.Notes.Any(n => n.FleetId == f.Id && n.ArriveHour > w.Hour)) return false;
+        if (w.Light.InTransit.Any(t => t.Command is IFleetCommand fc && fc.FleetId == f.Id)) return false;
+        if (w.ActiveBattle is Battle b && b.For(Side.Player).Fleets.Contains(f.Name)) return false;
+        return true;
     }
 
     /// <summary>Under light lag: is the fleet on your map at all (yours that you have news of; enemies your command knows are in sight)?</summary>
@@ -102,6 +117,12 @@ public partial class MapView
             if (!Camera.OnScreen(at, 300)) continue;
             var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
             var age = Math.Max(0, w.Hour - s.Hour);
+            if (OnPlan(f))
+            {
+                DrawString(_font, at + new Vector2(12, 8), $"on plan · {Format.Lag(Light.DelayHours(w, Side.Player, f.Position))} of light, last report {Format.Lag(age)} ago",
+                    HorizontalAlignment.Left, -1, 11, new Color(color, 0.75f));
+                continue;
+            }
             // Where it should be now if it kept going: a hollow mark at the end of a faint line.
             var now = Camera.ToScreen(s.Guess(w.Hour));
             if (at.DistanceTo(now) > 6)
@@ -109,7 +130,10 @@ public partial class MapView
                 DrawDashedLine(at, now, new Color(color, 0.3f), 1, 4);
                 DrawArc(now, 6, 0, Mathf.Tau, 16, new Color(color, 0.45f), 1, true);
             }
-            DrawString(_font, at + new Vector2(12, 8), $"seen {Format.Lag(age)} ago", HorizontalAlignment.Left, -1, 11, new Color(color, 0.75f));
+            // The light delay itself, and the age of the picture: the picture is taken once a game hour,
+            // so it can be up to an hour older than the light delay alone.
+            var light = Light.DelayHours(w, Side.Player, s.Position);
+            DrawString(_font, at + new Vector2(12, 8), $"{Format.Lag(light)} of light · seen {Format.Lag(age)} ago", HorizontalAlignment.Left, -1, 11, new Color(color, 0.75f));
         }
         var row = new Dictionary<int, int>();
         foreach (var t in w.Light.InTransit)

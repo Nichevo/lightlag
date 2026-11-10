@@ -146,18 +146,19 @@ public static class Combat
     public static void Steer(Simulation sim, double t0, double t1)
     {
         var w = sim.World;
+        Supply.Check(sim);
         var dt = t1 - t0;
         foreach (var f in w.Fleets)
         {
             var enemy = NearestEnemyFleet(w, f, C.ContactRangeMm);
             if (enemy != null && f.RetreatWhenDamaged && !f.Retreating && ArmourShare(w, f) < C.RetreatBelowArmour)
-                Retreat(sim, f, "is badly damaged and retreats");
+                { Retreat(sim, f, "is badly damaged and retreats"); StandingNote(sim, f, $"{f.Name} is badly damaged and heads home (standing order: retreat when damaged)"); }
             if (!f.Retreating && !GoingHome(w, f))
             {
                 if (f.Stance == Stance.ReturnHome && enemy != null)
-                    Retreat(sim, f, $"meets {enemy.Name} and breaks off for home");
+                { Retreat(sim, f, $"meets {enemy.Name} and breaks off for home"); StandingNote(sim, f, $"{f.Name} met {enemy.Name} and breaks off for home (standing order: Return home)"); }
                 else if (f.Stance == Stance.Avoid && Threat(w, f) is string threat)
-                    Retreat(sim, f, $"avoids {threat} and heads home");
+                { Retreat(sim, f, $"avoids {threat} and heads home"); StandingNote(sim, f, $"{f.Name} avoids {threat} and heads home (standing order: Avoid)"); }
             }
             if (f.Stance == Stance.HoldPosition && enemy != null && !f.Maneuvering && !f.Retreating
                 && (f.Flight != null || f.Velocity.Length > 1e-6))
@@ -165,11 +166,12 @@ public static class Combat
                 // Hold position: stop the flight and brake where it is (the brake below does the rest).
                 f.Maneuvering = true;
                 f.Flight = null;
+                LeaveOrbitToFight(sim, f);
                 Fleets.EnterDrift(f);
                 sim.Log.Info("combat", $"{f.Name} holds position", new { fleetId = f.Id, enemyId = enemy.Id });
             }
 
-            var wantsToClose = enemy != null && WouldEngage(w, f, enemy);
+            var wantsToClose = enemy != null && WouldEngage(w, f, enemy) && !HoldsOrbit(w, f);
             if (!wantsToClose && !f.Maneuvering) continue;
 
             var perf = FleetPerformance.Of(w, f);
@@ -185,6 +187,7 @@ public static class Combat
                 {
                     f.Maneuvering = true;
                     f.Flight = null;          // engaging overrides the flight
+                    LeaveOrbitToFight(sim, f);
                     Fleets.EnterDrift(f);
                     sim.Log.Info("combat", $"{f.Name} closes in on {enemy!.Name}", new { fleetId = f.Id, enemyId = enemy.Id });
                 }
@@ -201,7 +204,8 @@ public static class Combat
             }
             else
             {
-                desired = Vec2.Zero; // nothing to chase: brake to a stop
+                // Nothing to chase: brake to a stop, or, after leaving an orbit to fight, to the planet's own motion.
+                desired = OrbitHome(w, f) is Body left ? BodyVelocity(w, left) : Vec2.Zero;
             }
             var change = desired - f.Velocity;
             var maxChange = perf.Accel * dt;
@@ -210,12 +214,82 @@ public static class Combat
             if (cost > perf.DeltaVLeft) change = change.Normalized() * Math.Max(0, perf.DeltaVLeft);
             f.Velocity += change;
             sim.BurnFuel(f, change.Length);
-            if (!wantsToClose && f.Velocity.Length < 1e-6)
+            if (!wantsToClose && (f.Velocity - desired).Length < 1e-6)
             {
-                f.Velocity = Vec2.Zero;
+                f.Velocity = desired;
                 f.Maneuvering = false;
+                // Back with the planet it left: straight back into orbit if it is close enough.
+                if (OrbitHome(w, f) is Body home && NearestEnemyFleet(w, f, C.ContactRangeMm) == null
+                    && Fleets.OrbitableNear(w, f.Position)?.Id == home.Id)
+                {
+                    Fleets.EnterOrbit(f, home);
+                    sim.Log.Info("combat", $"{f.Name} goes back into orbit at {home.Name}", new { fleetId = f.Id, bodyId = home.Id });
+                }
+                else if (f.Velocity.Length < 1e-6) f.Velocity = Vec2.Zero;
             }
         }
+    }
+
+    /// <summary>
+    /// A fleet in orbit fights from orbit: it keeps claiming or blockading and fires at whatever comes
+    /// into reach. It only breaks orbit to close in when it is being shot at from beyond its railguns
+    /// (missiles coming in, nothing in railgun range), and goes back into orbit once the fight is over.
+    /// </summary>
+    public static bool HoldsOrbit(World w, Fleet f)
+    {
+        if (f.Hold != HoldStyle.Orbit || f.OrbitBodyId == null || f.Flight is { Started: true }) return false;
+        var mine = f.ShipIds.ToHashSet();
+        var underFire = w.Missiles.Any(m => m.Side != f.Side && mine.Contains(m.TargetShipId));
+        var inReach = w.Fleets.Any(o => o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= C.Railgun.RangeMm && Sensors.Sees(w, f.Side, o));
+        return !underFire || inReach;
+    }
+
+    /// <summary>The body a fleet left orbit at to fight, while it is not retreating or refilling (it goes back there afterwards).</summary>
+    private static Body? OrbitHome(World w, Fleet f) =>
+        f.LeftOrbitBodyId is int id && !f.Retreating && !f.Resupplying ? w.FindBody(id) : null;
+
+    /// <summary>How fast a body moves now (Mm per hour).</summary>
+    public static Vec2 BodyVelocity(World w, Body b) => FlightPlanner.PredictBody(w, b, w.Hour + 1) - FlightPlanner.PredictBody(w, b, w.Hour);
+
+    /// <summary>Hourly: a fleet that broke orbit to fight goes back once no enemy is in contact (unless it is retreating or refilling).</summary>
+    public static void ReturnToOrbit(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var f in w.Fleets)
+        {
+            if (f.LeftOrbitBodyId is not int id || w.FindBody(id) is not Body body) continue;
+            if (f.Retreating || f.Resupplying || f.Maneuvering || f.Flight != null || f.Chase != null) continue;
+            if (NearestEnemyFleet(w, f, C.ContactRangeMm) != null) continue;
+            if (Fleets.OrbitableNear(w, f.Position)?.Id == body.Id && (f.Velocity - BodyVelocity(w, body)).Length < 100)
+            {
+                Fleets.EnterOrbit(f, body);
+                sim.Log.Info("combat", $"{f.Name} goes back into orbit at {body.Name}", new { fleetId = f.Id, bodyId = body.Id });
+                continue;
+            }
+            var plan = FlightPlanner.Plan(w, f, new FlightRequest(body.Id, body.Position, 0.5, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick));
+            if (plan is not { Ok: true, Flight: Flight flight }) continue;
+            f.Flight = flight;
+            sim.Log.Info("combat", $"{f.Name} goes back into orbit at {body.Name}", new { fleetId = f.Id, bodyId = body.Id });
+        }
+    }
+
+    /// <summary>A far fleet acting on a standing order tells command (late, at light speed); live fleets need no note.</summary>
+    private static void StandingNote(Simulation sim, Fleet f, string text)
+    {
+        if (sim.World.Light.On && Light.DelayHours(sim.World, f.Side, f.Position) > 0) Autonomy.Report(sim, f, text, NoteKind.StandingOrder);
+    }
+
+    /// <summary>A fleet in orbit breaks it to fight: remember where, so the player can be told (claims and bombardment stop until it orbits again).</summary>
+    private static void LeaveOrbitToFight(Simulation sim, Fleet f)
+    {
+        if (f.Hold != HoldStyle.Orbit || f.OrbitBodyId is not int bodyId) return;
+        f.LeftOrbitBodyId = bodyId;
+        // It keeps moving with the planet (an orbit is stored with no velocity of its own); otherwise
+        // the planet would race away at its orbital speed the moment the fleet left orbit.
+        f.Velocity = Sensors.MotionOf(sim.World, f);
+        if (sim.World.FindBody(bodyId) is Body b)
+            StandingNote(sim, f, $"{f.Name} leaves orbit at {b.Name} to fight (standing order: {f.Stance}); claiming and bombarding there stop until it orbits again");
+        sim.Log.Info("combat", $"{f.Name} leaves orbit to fight", new { fleetId = f.Id, bodyId });
     }
 
     /// <summary>Computer-run fleets fire at long range while they run (to make a chaser dodge and burn).</summary>
@@ -223,7 +297,7 @@ public static class Combat
         Mind.Of(w, f.Side) != null && (f.Retreating || f.Stance is Stance.Avoid or Stance.ReturnHome);
 
     /// <summary>Is this fleet dodging railgun fire now? (Set to dodge, and supplies not yet low.)</summary>
-    public static bool Dodging(World w, Fleet f) => f.Dodge != DodgeMode.Off && C.DodgeFactor < 1 && SupplyShare(w, f) >= C.DodgeStopsBelow;
+    public static bool Dodging(World w, Fleet f) => f.Dodge != DodgeMode.Off && !f.Resupplying && C.DodgeFactor < 1 && SupplyShare(w, f) >= C.DodgeStopsBelow;
 
     /// <summary>How long a slug takes to reach its target (seconds): slug speed plus the closing speed.</summary>
     public static double SlugSeconds(double distanceMm, Fleet shooter, Fleet target)
@@ -277,7 +351,7 @@ public static class Combat
     /// retreating.) An Engage fleet breaks off a flight to fight; a Hold fleet keeps its course.
     /// </summary>
     public static bool WouldEngage(World w, Fleet f, Fleet enemy) =>
-        (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && Chases.LetsEngage(f)
+        (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && !f.Resupplying && Chases.LetsEngage(f)
         && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
         && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
         && (f.Stance == Stance.Engage || Stronger(w, f));
@@ -360,7 +434,7 @@ public static class Combat
         {
             if (w.FleetOf(ship) is not Fleet fleet) continue;
             var cls = GameData.ShipClass(ship.ClassId);
-            if (cls.Railguns > 0 && ship.Disabled != Module.Railguns && !ship.Overheated && t1 >= ship.RailsReadyHour)
+            if (cls.Railguns > 0 && ship.Disabled != Module.Railguns && !ship.Overheated && !fleet.Resupplying && t1 >= ship.RailsReadyHour)
                 FireRailguns(sim, battle, ship, fleet, cls, t1);
             if (ship.Missiles > 0 && ship.Disabled != Module.Missiles && t1 >= ship.SalvoReadyHour)
                 LaunchSalvo(sim, battle, ship, fleet, t1);

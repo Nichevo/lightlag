@@ -215,6 +215,7 @@ public partial class EmpirePanel : PanelContainer
     private static string OrderText(World w, WorkOrder o, bool first)
     {
         var name = Economy.NameOf(o);
+        if (o.Blockaded) return $"{name}: BLOCKADED, an enemy fleet in orbit stops the shipyard";
         if (o.Paid) return $"{name}: {Format.Hours(o.HoursLeft)} left ({(1 - o.HoursLeft / o.TotalHours) * 100:0} %)";
         if (!first) return $"{name}: queued";
         var cost = Economy.CostOf(o);

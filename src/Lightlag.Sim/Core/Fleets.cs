@@ -151,6 +151,13 @@ public sealed class Fleet
     public bool LongShots { get; set; }
     public MissileLaunch MissileLaunch { get; set; }
 
+    /// <summary>Supplies: the fuel (speed change) a slow coast to the nearest planet its side holds would take, and whether it is on its way there to refill (see Supply).</summary>
+    public double ReserveDeltaV { get; set; }
+    public bool Resupplying { get; set; }
+
+    /// <summary>The body whose orbit it broke to fight, until it orbits something again (claims and bombardment need orbit).</summary>
+    public int? LeftOrbitBodyId { get; set; }
+
     /// <summary>How much it decides for itself when cut off from command.</summary>
     public AutonomyLevel Autonomy { get; set; } = AutonomyLevel.Sensible;
 
@@ -511,6 +518,7 @@ public static class Fleets
         var offset = f.Position - body.Position;
         f.Hold = HoldStyle.Orbit;
         f.OrbitBodyId = body.Id;
+        f.LeftOrbitBodyId = null;
         f.OrbitRadius = Math.Max(offset.Length, body.Radius * LowOrbitRadii);
         f.OrbitAngle = DetMath.Atan2(offset.Y, offset.X);
         f.Velocity = Vec2.Zero;

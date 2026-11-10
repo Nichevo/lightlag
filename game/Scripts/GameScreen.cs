@@ -595,7 +595,8 @@ public partial class GameScreen : Node2D
                 // A far battle: its light is only now arriving. Watch it as the light comes in.
                 var battle = b;
                 _main.AddNews($"Battle far away ({Format.Hours(b.For(Side.Player).LagHours)} of light): {string.Join(", ", b.For(Side.Player).Fleets)} and "
-                              + $"{string.Join(", ", b.For(Side.Rival).Fleets)}. Click to watch as the light arrives", () => OpenReplay(battle), keep: true);
+                              + $"{string.Join(", ", b.For(Side.Rival).Fleets)}. Out of command range: your fleets fight on their standing orders ({FarOrders(battle)}), "
+                + "and anything they decide for themselves shows as ON ITS OWN. Click to watch as the light arrives", () => OpenReplay(battle), keep: true);
                 if (!(again || quiet)) _paused = true;
                 if (!(again || quiet))
                     _main.Toast($"Light from a far battle: {string.Join(", ", b.For(Side.Player).Fleets)} met {string.Join(", ", b.For(Side.Rival).Fleets)} "
@@ -629,6 +630,11 @@ public partial class GameScreen : Node2D
         }
     }
 
+    /// <summary>The standing orders and autonomy of our fleets in a battle, for news of a far fight.</summary>
+    private string FarOrders(Battle b) => string.Join("; ", Sim.World.Fleets
+        .Where(f => f.Side == Side.Player && b.For(Side.Player).Fleets.Contains(f.Name))
+        .Select(f => $"{f.Name}: {f.Stance}, autonomy {f.Autonomy}"));
+
     private int _lastNoteId;
 
     /// <summary>Decisions our fleets made for themselves: a News line once the news reaches the flagship.</summary>
@@ -641,7 +647,33 @@ public partial class GameScreen : Node2D
             _lastNoteId = Math.Max(_lastNoteId, n.Id);
             if (n.ArriveHour < w.Hour - 1) continue; // already heard before the game was loaded
             var ago = w.Hour - n.Hour > 0.02 ? $" ({Format.Hours(w.Hour - n.Hour)} ago)" : "";
-            _main.AddNews(n.Text + ago, GoToFleet(n.FleetId));
+            var fleet = w.FindFleet(n.FleetId);
+            // Say plainly who decided: the fleet on its own, a standing order you gave, or its supplies.
+            var who = n.Kind switch
+            {
+                NoteKind.OwnDecision => $"ON ITS OWN (autonomy {fleet?.Autonomy.ToString() ?? "?"}, no order from you): ",
+                NoteKind.StandingOrder => "STANDING ORDER (out of command range): ",
+                _ => "SUPPLIES: ",
+            };
+            _main.AddNews(who + n.Text + ago, GoToFleet(n.FleetId));
+            if (n.Kind == NoteKind.Supply) _main.Toast(n.Text + ago, onClick: GoToFleet(n.FleetId));
+        }
+        WatchOrbits();
+    }
+
+    private readonly Dictionary<int, int?> _leftOrbit = new();
+
+    /// <summary>A fleet of ours broke orbit to fight: say so, since claims and bombardment stop until it orbits again.</summary>
+    private void WatchOrbits()
+    {
+        var w = Sim.World;
+        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player))
+        {
+            _leftOrbit.TryGetValue(f.Id, out var before);
+            if (f.LeftOrbitBodyId == before) continue;
+            _leftOrbit[f.Id] = f.LeftOrbitBodyId;
+            if (f.LeftOrbitBodyId is int id && w.FindBody(id) is Body b && Light.DelayHours(w, Side.Player, f.Position) <= 0)
+                _main.AddNews($"{f.Name} leaves orbit at {b.Name} to fight. Claiming and bombarding there stop until it orbits again (select it, O)", GoToFleet(f.Id), keep: true);
         }
     }
 

@@ -285,9 +285,20 @@ public partial class FleetPanel : PanelContainer
         if (mine)
         {
             lines.Add(Doing(w, f));
+            if (w.Light.On && Light.DelayHours(w, Side.Player, f.Position) is var lag and > 0)
+                lines.Add($"{Format.Lag(lag)} of light from the flagship each way. News is gathered once a game hour, so what you see can be up to an hour older");
             lines.Add(Motion(w, f));
             if (f.JoinFleetId is int join && w.FindFleet(join) is Fleet into) lines.Add($"Joins {into.Name} when both are stopped together");
-            lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change");
+            lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change"
+                      + (f.ReserveDeltaV > 0 && !f.Resupplying ? $" (keeps {Format.Speed(f.ReserveDeltaV * Supply.Margin)} to get back to a planet you hold)" : ""));
+            if (f.Resupplying)
+                lines.Add(f.Flight?.TargetBodyId is int to && w.FindBody(to) is Body refill
+                    ? $"LOW ON SUPPLIES: coasting to {refill.Name} to refill; it won't fight or dodge on the way"
+                    : "OUT OF SUPPLIES: drifting, it can't reach a planet you hold");
+            if (f.LeftOrbitBodyId is int left && f.Hold != HoldStyle.Orbit && w.FindBody(left) is Body leftBody)
+                lines.Add($"LEFT ORBIT at {leftBody.Name} to fight: claiming and bombarding there stop until it orbits again (O)");
+            if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int orbitId && w.FindBody(orbitId) is Body orbiting && Economy.BombardStatus(w, orbiting, Side.Player) is string attack)
+                lines.Add($"{orbiting.Name}: {attack}");
             lines.Add(SignatureLine(w, f));
         }
         else if (Sensors.Find(w, Side.Player, f.Id, seat: true) is Sighting sighting || _screen.RevealAll)
@@ -355,6 +366,9 @@ public partial class FleetPanel : PanelContainer
             var armour = s.Armour / cls.Armour;
             var bits = new List<string> { $"armour {armour:P0}", $"supplies {share:P0}" };
             if (cls.Missiles > 0) bits.Add($"{s.Missiles} missiles");
+            var heat = Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0;
+            if (mine) bits.Add(s.Overheated ? "OVERHEATED" : $"heat {heat:P0}");
+            if (mine && Heat.MaxShield(w, s) > 0) bits.Add($"shield {s.Shield / Heat.MaxShield(w, s):P0}");
             if (s.Disabled is Module m) bits.Add($"{Combat.ModuleName(m)} out");
             if (Light.Flagship(w, s.Side)?.Id == s.Id) bits.Insert(0, "FLAGSHIP");
             row.Supplies.Text = string.Join(" · ", bits);
@@ -364,7 +378,8 @@ public partial class FleetPanel : PanelContainer
                 pb.SetPressedNoSignal(on);
                 pb.Modulate = on ? Ui.Player : new Color(1, 1, 1, 0.35f);
             }
-            row.Supplies.AddThemeColorOverride("font_color", share < 0.2 || armour < 0.5 || s.Disabled != null ? Ui.Danger : Ui.Dim);
+            row.Supplies.AddThemeColorOverride("font_color", share < 0.2 || armour < 0.5 || s.Disabled != null || s.Overheated ? Ui.Danger
+                : mine && heat >= 0.75 ? Ui.Rival : Ui.Dim);
         }
 
         _buttons.Visible = mine;

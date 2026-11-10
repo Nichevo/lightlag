@@ -44,7 +44,10 @@ public sealed class Report
 public sealed record ReportMark(double Hour, bool Visible);
 
 /// <summary>A fleet's own decision and why, reaching its side's command at ArriveHour.</summary>
-public sealed record FleetNote(int Id, Side Side, int FleetId, double Hour, double ArriveHour, string Text);
+public sealed record FleetNote(int Id, Side Side, int FleetId, double Hour, double ArriveHour, string Text, NoteKind Kind = NoteKind.OwnDecision);
+
+/// <summary>Why a fleet did something without a live order: its own choice (autonomy), a standing order it was given, or running low on supplies.</summary>
+public enum NoteKind { OwnDecision, StandingOrder, Supply }
 
 /// <summary>An order travelling at light speed from a side's flagship to where it takes effect.</summary>
 public sealed class Transit
@@ -237,12 +240,15 @@ public static class Light
             });
         }
         // Streams that stopped (a fleet destroyed, merged or lost track of) send a last word: gone.
-        foreach (var key in marks.Keys.Where(k => !live.Contains(k)).OrderBy(k => k, StringComparer.Ordinal).ToList())
+        var gone = marks.Keys.Where(k => !live.Contains(k)).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        // Removing from a dictionary leaves holes that later keys fill, so its order (and the saved
+        // state hash) would differ from a freshly loaded copy: rebuild it compact after removals.
+        if (gone.Count > 0) w.Light.LastSent = marks.Where(kv => live.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var key in gone)
         {
             var parts = key.Split(':');
             var side = (Side)int.Parse(parts[0]);
             var id = int.Parse(parts[1]);
-            marks.Remove(key);
             var at = Known(w, side, id)?.Position ?? Seat(w, side);
             w.Light.Reports.Add(new Report
             {

@@ -494,10 +494,58 @@ public partial class MapView : Node2D
             if (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
         }
+        if (f.Side == Side.Player) DrawHeat(f, ships, at);
         if (f.Id == SelectedId || GroupIds.Contains(f.Id))
         {
             var radius = apart ? (float)(Fleets.FormationSpacing * 1.6 * Camera.Scale) + 14 : 14f;
             DrawArc(at, radius, 0, Mathf.Tau, 48, color, 1.5f, true);
+        }
+    }
+
+    /// <summary>
+    /// Stat bars under your ships: armour (green), supplies (yellow), shield (cyan) and heat (blue, orange
+    /// when hot, red when overheated). Zoomed in, one set under each ship; zoomed out, one set for the
+    /// fleet (average armour and shield, lowest supplies, hottest ship). Plus a word when radiators are in.
+    /// </summary>
+    private void DrawHeat(Fleet f, List<Ship> ships, Vector2 at)
+    {
+        if (ships.Count == 0) return;
+        var w = Sim.World;
+        if (ShipsApart)
+            foreach (var s in ships)
+                DrawBars(Camera.ToScreen(_drawn.TryGetValue(s.Id, out var sp) ? sp : f.Position) + new Vector2(-10, 12), new[] { s });
+        else DrawBars(at + new Vector2(-10, 14), ships);
+        var overheated = ships.Any(s => s.Overheated);
+        var radiatorsIn = ships.Any(s => !Heat.RadiatorsOut(w, f, s));
+        var tag = overheated ? "OVERHEATED" : f.Radiators == RadiatorMode.Cold ? (Heat.ColdClockHours(w, f) is double c ? $"running cold, {Format.Hours(c)} left" : "running cold")
+            : radiatorsIn ? "radiators in" : null;
+        if (tag != null && (f.Id == SelectedId || overheated || Camera.Scale > 0.01))
+            DrawString(_font, at + new Vector2(12, 36), tag, HorizontalAlignment.Left, -1, 10, overheated ? Ui.Danger : new Color(Ui.Rival, 0.85f));
+    }
+
+    private void DrawBars(Vector2 origin, IReadOnlyList<Ship> ships)
+    {
+        var w = Sim.World;
+        double Avg(Func<Ship, double> f) => ships.Average(f);
+        var armour = Avg(s => Math.Max(0, s.Armour) / Math.Max(1, Tech.MaxArmour(w, s)));
+        var supplies = ships.Min(s => s.Supplies / Math.Max(1e-9, GameData.ShipClass(s.ClassId).Supplies));
+        var shieldMax = ships.Sum(s => Heat.MaxShield(w, s));
+        var shield = shieldMax > 0 ? ships.Sum(s => s.Shield) / shieldMax : -1;
+        var heat = ships.Max(s => Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0);
+        var hot = ships.Any(s => s.Overheated);
+        var bars = new List<(double Value, Color Color)>
+        {
+            (armour, armour < 0.5 ? Ui.Danger : new Color("6bd16b")),
+            (supplies, supplies < 0.25 ? Ui.Danger : new Color("e8d35a")),
+        };
+        if (shield >= 0) bars.Add((shield, new Color("5ee0e6")));
+        bars.Add((hot ? 1 : heat, hot ? Ui.Danger : heat >= 0.75 ? Ui.Rival : new Color("6b8cff")));
+        const float width = 20, height = 2, gap = 1;
+        for (var i = 0; i < bars.Count; i++)
+        {
+            var y = origin + new Vector2(0, i * (height + gap));
+            DrawRect(new Rect2(y, new Vector2(width, height)), new Color(0.12f, 0.12f, 0.16f, 0.85f));
+            DrawRect(new Rect2(y, new Vector2(width * (float)Math.Clamp(bars[i].Value, 0, 1), height)), bars[i].Color);
         }
     }
 
@@ -878,8 +926,34 @@ public partial class MapView : Node2D
             var ghost = Camera.ToScreen(FlightPlanner.PredictBody(Sim.World, body, flight.ArriveHour));
             DrawArc(ghost, (float)ScreenRadius(body) + 3, 0, Mathf.Tau, 24, new Color(baseColor, alpha * 0.5f), 1, true);
         }
+        // Time and distance still to go, on every route of yours (in full on the selected one).
+        var left = Math.Max(0, flight.ArriveHour - now);
+        var togo = RemainingLength(flight, now);
+        var short_ = $"{Format.Hours(left)} · {Format.Distance(togo)} to go";
         if (preview || f.Id == SelectedId)
-            DrawString(_font, end + new Vector2(8, 16), GameTime.Format((long)flight.ArriveHour), HorizontalAlignment.Left, -1, 12, new Color(baseColor, alpha));
+            DrawString(_font, end + new Vector2(8, 16), $"{GameTime.Format((long)flight.ArriveHour)} · {short_}", HorizontalAlignment.Left, -1, 12, new Color(baseColor, alpha));
+        else if (f.Side == Side.Player || RevealAll)
+            DrawString(_font, end + new Vector2(8, 16), short_, HorizontalAlignment.Left, -1, 11, new Color(baseColor, alpha * 0.9f));
+    }
+
+    /// <summary>Length of the path still ahead (Mm), sampled along each leg.</summary>
+    private static double RemainingLength(Flight flight, double now)
+    {
+        double total = 0;
+        foreach (var leg in flight.Legs)
+        {
+            if (leg.End <= now) continue;
+            var from = Math.Max(leg.Start, now);
+            const int n = 12;
+            var prev = leg.PositionAt(from);
+            for (var i = 1; i <= n; i++)
+            {
+                var p = leg.PositionAt(from + (leg.End - from) * i / n);
+                total += Vec2.Distance(prev, p);
+                prev = p;
+            }
+        }
+        return total;
     }
 
     /// <summary>Orders given while paused only reach the simulation on its next tick; show them now anyway.</summary>
