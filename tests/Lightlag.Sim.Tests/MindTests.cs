@@ -119,3 +119,24 @@ public class MindTests
             Assert.NotEmpty(Mind.DataFor(p).Research);
     }
 }
+
+public class LowFuelTests
+{
+    [Fact]
+    public void Stop_short_of_fuel_brakes_as_much_as_it_can_and_drifts_on_slower()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 4, GameLog.Memory());
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        var f = sim.World.Fleets.First(x => x.Side == Side.Player);
+        f.Flight = null;
+        Fleets.EnterDrift(f);
+        f.Velocity = new Vec2(300, 0);
+        foreach (var s in sim.World.ShipsOf(f)) s.Supplies = 100 * Tech.SuppliesPerDeltaV(sim.World, s); // fuel for 100 Mm/h
+        sim.Issue(new StopFleetCommand(f.Id));
+        sim.StepMany(24);
+        Assert.Null(f.Flight);
+        Assert.InRange(f.Velocity.Length, 195, 205);
+        Assert.True(FleetPerformance.Of(sim.World, f).DeltaVLeft < 1);
+    }
+}

@@ -200,7 +200,7 @@ public static class FlightPlanner
             Legs = legs,
         };
         if (dv > perf.DeltaVLeft + 1e-9)
-            return new FlightPlan(false, "Not enough supplies for this trip: fly slower or refill at home", flight, dv, perf.DeltaVLeft);
+            return new FlightPlan(false, $"Not enough supplies for this trip (needs {dv:0} Mm/h of speed change, has {perf.DeltaVLeft:0}): fly slower or refill at home", flight, dv, perf.DeltaVLeft);
         return new FlightPlan(true, null, flight, dv, perf.DeltaVLeft);
     }
 
@@ -437,23 +437,27 @@ public static class FlightPlanner
         return null;
     }
 
-    /// <summary>A flight that only brakes a moving fleet to a stop where it is heading. Null if it is not moving or lacks the fuel.</summary>
+    /// <summary>
+    /// A flight that only brakes a moving fleet to a stop where it is heading. Short of fuel, it brakes as
+    /// much as the fuel allows and drifts on slower. Null if it is not moving or has no fuel at all.
+    /// </summary>
     public static Flight? BrakeToStop(World w, Fleet fleet)
     {
         var perf = FleetPerformance.Of(w, fleet);
         var v = fleet.Velocity;
-        if (v.Length < 1e-9 || perf.Accel <= 0 || v.Length > perf.DeltaVLeft + 1e-9) return null;
+        var change = Math.Min(v.Length, perf.DeltaVLeft * 0.999);
+        if (v.Length < 1e-9 || perf.Accel <= 0 || change < 1e-6) return null;
         var now = w.Hour;
-        var brake = new FlightLeg(now, now + v.Length / perf.Accel, fleet.Position, v, v.Normalized() * -perf.Accel);
+        var brake = new FlightLeg(now, now + change / perf.Accel, fleet.Position, v, v.Normalized() * -perf.Accel);
         return new Flight
         {
             Target = brake.PositionAt(brake.End),
-            Arrival = ArrivalStyle.Brake,
+            Arrival = change >= v.Length - 1e-9 ? ArrivalStyle.Brake : ArrivalStyle.FastPass, // short of fuel: still moving at the end
             HoldAfter = HoldStyle.Drift,
             SpeedFraction = 1,
             DepartHour = now,
             ArriveHour = brake.End,
-            DeltaV = v.Length,
+            DeltaV = change,
             Started = true,
             Legs = new List<FlightLeg> { brake },
         };

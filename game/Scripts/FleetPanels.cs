@@ -511,7 +511,10 @@ public partial class PlannerPanel : PanelContainer
         _go.Disabled = plan is not { Ok: true };
         if (plan?.Flight is not Flight f)
         {
-            _result.Text = plan?.Problem ?? "Working it out...";
+            _result.Text = (plan?.Problem ?? "Working it out...")
+                           + (fleet != null && fleet.Velocity.Length > perf.DeltaVLeft
+                               ? $"\nThe fleet is moving at {Format.Speed(fleet.Velocity.Length)} with fuel for only {Format.Speed(perf.DeltaVLeft)} of speed change. Stop (X) brakes as much as it can."
+                               : "");
             _result.AddThemeColorOverride("font_color", Ui.Danger);
             return;
         }
@@ -523,10 +526,20 @@ public partial class PlannerPanel : PanelContainer
             $"Trip: {Format.Hours(f.ArriveHour - f.DepartHour)} · arrive {GameTime.Format(f.ArriveHour)}",
             $"Fuel: {Format.Speed(plan.DeltaV)} of speed change, {plan.FuelShare:P0} of what the fleet has",
         };
+        // What is left afterwards, and whether that is enough to stop again (a fly-by ends still moving).
+        var left = Math.Max(0, plan.DeltaVLeft - plan.DeltaV);
+        var endSpeed = f.Legs.Count > 0 ? f.Legs[^1].VelocityAt(f.Legs[^1].End).Length : 0;
+        lines.Add($"Fuel left after: {Format.Speed(left)} of speed change");
+        var stranded = endSpeed > 1e-6 && left < endSpeed;
+        if (endSpeed > 1e-6) lines.Add(stranded
+            ? $"WARNING: arrives at {Format.Speed(endSpeed)} with fuel for only {Format.Speed(left)}: it could not stop again"
+            : $"Arrives at {Format.Speed(endSpeed)}; enough fuel left to stop");
         if (canAhead && s.FastAhead) lines.Add("Fast ships go ahead, wait there and rejoin; times above are for the slowest ship");
         if (!plan.Ok) lines.Add(plan.Problem ?? "Cannot fly this");
+        if (!plan.Ok && fleet != null && fleet.Velocity.Length > perf.DeltaVLeft)
+            lines.Add($"It is moving at {Format.Speed(fleet.Velocity.Length)} with fuel for only {Format.Speed(perf.DeltaVLeft)} of speed change: Stop (X) brakes as much as it can.");
         _result.Text = string.Join("\n", lines);
-        _result.AddThemeColorOverride("font_color", plan.Ok ? Ui.Text : Ui.Danger);
+        _result.AddThemeColorOverride("font_color", !plan.Ok ? Ui.Danger : stranded ? Ui.Rival : Ui.Text);
     }
 }
 
