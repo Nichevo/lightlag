@@ -19,6 +19,7 @@ public partial class EngagementPanel : Control
     private CheckBox _dodge = null!;
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
+    private PanelContainer _headPanel = null!, _rightPanel = null!, _leftPanel = null!, _bottomPanel = null!;
     private bool _updating;
 
     public EngagementPanel() : this(null!) { }
@@ -27,7 +28,7 @@ public partial class EngagementPanel : Control
     public override void _Ready()
     {
         MouseFilter = MouseFilterEnum.Ignore;
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 
         // Header across the top, under the menu bar.
         var head = new HBoxContainer();
@@ -37,10 +38,8 @@ public partial class EngagementPanel : Control
         _header.CustomMinimumSize = new Vector2(760, 0);
         head.AddChild(_header);
         head.AddChild(Ui.SmallButton("Close (V)", () => _screen.CloseEngagement(), "Back to the system map"));
-        var headPanel = Ui.Panel(head, 10);
-        headPanel.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterTop, LayoutPresetMode.KeepSize, 56);
-        headPanel.GrowHorizontal = GrowDirection.Both;
-        AddChild(headPanel);
+        _headPanel = Ui.Panel(head, 10);
+        AddChild(_headPanel);
 
         // Right: approach choices and defences.
         var right = new VBoxContainer { CustomMinimumSize = new Vector2(380, 0) };
@@ -72,30 +71,39 @@ public partial class EngagementPanel : Control
         _defence.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _defence.CustomMinimumSize = new Vector2(380, 0);
         right.AddChild(_defence);
-        var rightPanel = Ui.Panel(right, 12);
-        rightPanel.SetAnchorsAndOffsetsPreset(LayoutPreset.TopRight, LayoutPresetMode.KeepSize, 16);
-        rightPanel.GrowHorizontal = GrowDirection.Begin;
-        rightPanel.Position += new Vector2(0, 110);
-        AddChild(rightPanel);
+        _rightPanel = Ui.Panel(right, 12);
+        AddChild(_rightPanel);
 
         // Left: the ships on both sides.
         _ships = Ui.Label("", 13, Ui.Text);
         _ships.CustomMinimumSize = new Vector2(300, 0);
         _ships.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        var leftPanel = Ui.Panel(_ships, 12);
-        leftPanel.SetAnchorsAndOffsetsPreset(LayoutPreset.TopLeft, LayoutPresetMode.KeepSize, 16);
-        leftPanel.Position += new Vector2(0, 110);
-        leftPanel.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(leftPanel);
+        _leftPanel = Ui.Panel(_ships, 12);
+        _leftPanel.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(_leftPanel);
 
         // Bottom: the timeline.
         _timeline = new EngagementTimeline { CustomMinimumSize = new Vector2(900, 150) };
-        var bottom = Ui.Panel(_timeline, 10);
-        bottom.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterBottom, LayoutPresetMode.KeepSize, 16);
-        bottom.GrowHorizontal = GrowDirection.Both;
-        bottom.GrowVertical = GrowDirection.Begin;
-        bottom.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(bottom);
+        _bottomPanel = Ui.Panel(_timeline, 10);
+        _bottomPanel.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(_bottomPanel);
+    }
+
+    /// <summary>Places the panels for the current screen size: header top middle, choices right, ships left, timeline bottom.</summary>
+    private void Layout()
+    {
+        var size = GetViewportRect().Size;
+        Position = Vector2.Zero;
+        Size = size;
+        foreach (var p in new[] { _headPanel, _rightPanel, _leftPanel, _bottomPanel }) p.Size = p.GetCombinedMinimumSize();
+        _headPanel.Position = new Vector2(Mathf.Max(16, (size.X - _headPanel.Size.X) / 2), 56);
+        var top = _headPanel.Position.Y + _headPanel.Size.Y + 10;
+        _rightPanel.Position = new Vector2(size.X - _rightPanel.Size.X - 16, top);
+        _leftPanel.Position = new Vector2(16, top);
+        var timelineW = Mathf.Clamp(size.X - _rightPanel.Size.X - 64, 500, 1100);
+        _timeline.CustomMinimumSize = new Vector2(timelineW, 150);
+        _bottomPanel.Size = _bottomPanel.GetCombinedMinimumSize();
+        _bottomPanel.Position = new Vector2(16, size.Y - _bottomPanel.Size.Y - 60);
     }
 
     private void SetStance(Stance stance)
@@ -186,6 +194,7 @@ public partial class EngagementPanel : Control
 
         _timeline.Info = e;
         _timeline.QueueRedraw();
+        Layout();
     }
 
     private void Choose(string key)

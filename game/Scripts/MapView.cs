@@ -186,7 +186,7 @@ public partial class MapView : Node2D
         if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
             DrawRoute(pf, preview, true, Preview.Ok);
         DrawPlannerWaypoints();
-        if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
+        if (Engagement == null && SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
         RecordTracks();
         DrawTracks();
         DrawEngagement();
