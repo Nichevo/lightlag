@@ -106,14 +106,15 @@ public class CombatTests
         int Shots(ArrivalStyle style)
         {
             var sim = Sandbox(new SandboxSetup(PlayerFrigates: 2, PlayerDestroyers: 0, RivalFrigates: 2, RivalDestroyers: 0,
-                PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 400), seed: 5);
+                PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 1200), seed: 5);
             var player = FleetOf(sim, Side.Player);
             var rival = FleetOf(sim, Side.Rival);
             sim.Issue(new PlanFlightCommand(player.Id, new FlightRequest(null, rival.Position, 1, style, HoldStyle.Drift, 0, TargetFleetId: rival.Id)));
-            sim.StepMany(24);
+            while (sim.World.Hour < 30) sim.Step();
             return sim.World.Battles.Sum(b => b.For(Side.Player).RailShots);
         }
-        Assert.True(Shots(ArrivalStyle.FastPass) < Shots(ArrivalStyle.Brake));
+        var fast = Shots(ArrivalStyle.FastPass); var brake = Shots(ArrivalStyle.Brake);
+        Assert.True(fast < brake, $"fast {fast} brake {brake}");
     }
 
     [Fact]

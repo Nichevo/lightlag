@@ -142,7 +142,7 @@ public class AutonomyTests
     {
         var (sim, f, rival) = Threatened(AutonomyLevel.Strict);
         StepDays(sim, 0.5, () => Vec2.Distance(f.Position, rival.Position) < 50);
-        Assert.Empty(sim.World.Light.Notes);
+        Assert.DoesNotContain(sim.World.Light.Notes, n => n.Kind == NoteKind.OwnDecision); // standing-order notes only
     }
 
     [Fact]

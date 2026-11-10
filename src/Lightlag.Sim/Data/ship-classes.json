@@ -1,13 +1,13 @@
 {
-  "_comment": "Ship classes and combat numbers. Speeds in Mm per hour (600 Mm/h is about 167 km/s), acceleration in Mm per hour per hour (25 is about 0.2 g), ranges in Mm (1 Mm = 1000 km). Supplies are the one stock of fuel and ammo; each 1 Mm/h of speed gained or lost burns suppliesPerDeltaV, each railgun shot burns suppliesPerShot. Missiles are counted on their own and reloaded at home.",
+  "_comment": "Ship classes and combat numbers. Speeds in Mm per hour (600 Mm/h is about 167 km/s), acceleration in Mm per hour per hour (15 is about 0.12 g), ranges in Mm (1 Mm = 1000 km). Supplies are the one stock of fuel and ammo; each 1 Mm/h of speed gained or lost burns suppliesPerDeltaV, each railgun shot burns suppliesPerShot. Missiles are counted on their own and reloaded at home.",
   "classes": [
     { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate",
-      "maxSpeedMmPerHour": 600, "accelMmPerHour2": 25, "supplies": 60, "suppliesPerDeltaV": 0.025,
+      "maxSpeedMmPerHour": 600, "accelMmPerHour2": 15, "supplies": 60, "suppliesPerDeltaV": 0.025,
       "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 80,
       "sensorMm": 30, "signatureSize": 1.0, "heatCapacity": 100, "heatSinks": 2, "shield": 20,
       "role": "Fast and cheap, short legs. Railgun pair and point defence: strong up close." },
     { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer",
-      "maxSpeedMmPerHour": 400, "accelMmPerHour2": 12, "supplies": 160, "suppliesPerDeltaV": 0.025,
+      "maxSpeedMmPerHour": 400, "accelMmPerHour2": 8, "supplies": 160, "suppliesPerDeltaV": 0.025,
       "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 160,
       "sensorMm": 40, "signatureSize": 2.0, "heatCapacity": 160, "heatSinks": 3, "shield": 40,
       "role": "Long range, slower. Missile racks (4 salvos of 4) and point defence." }

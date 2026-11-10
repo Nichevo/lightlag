@@ -353,7 +353,7 @@ public static class Mind
 
         private bool AtHome(Fleet f) => _home != null && Economy.InOrbitAt(f, _home) && f.Flight == null;
 
-        private bool Busy(Fleet f) => f.Maneuvering || f.Retreating || f.JoinFleetId != null || OrderOnItsWay(f);
+        private bool Busy(Fleet f) => f.Maneuvering || f.Retreating || f.Resupplying || f.JoinFleetId != null || OrderOnItsWay(f);
 
         /// <summary>Under light lag: an order to this fleet has been sent and not yet arrived.</summary>
         private bool OrderOnItsWay(Fleet f) => _w.Light.InTransit.Any(t => t.Command is IFleetCommand fc && fc.FleetId == f.Id);

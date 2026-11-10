@@ -70,6 +70,9 @@ public sealed class WorkOrder
     public string Key { get; set; } = "";
     public bool Paid { get; set; }
 
+    /// <summary>Ship orders: waiting because an enemy fleet in orbit blockades the shipyard.</summary>
+    public bool Blockaded { get; set; }
+
     /// <summary>Ship orders: the fleet the new ship flies out to join (null: the fleet at the shipyard).</summary>
     public int? JoinFleetId { get; set; }
     public double HoursLeft { get; set; }
@@ -223,7 +226,16 @@ public static class Economy
         var w = sim.World;
         var order = w.Orders.Find(o => o.Side == side && o.Kind == kind);
         if (order == null) return;
-        if (kind == OrderKind.Ship && ShipyardOf(w, side) == null) return;
+        var yard = ShipyardOf(w, side);
+        if (kind == OrderKind.Ship && yard == null) return;
+        // An enemy fleet in orbit over the shipyard blockades it: nothing is launched, the build waits.
+        if (kind == OrderKind.Ship && Blockaded(w, yard!))
+        {
+            if (order.Paid && !order.Blockaded) sim.Log.Info("economy", $"{side} shipyard is blockaded: building paused", new { side = side.ToString(), order.Id });
+            order.Blockaded = true;
+            return;
+        }
+        order.Blockaded = false;
         var state = Of(w, side);
         if (!order.Paid)
         {
@@ -364,6 +376,41 @@ public static class Economy
     /// shipyard down: railguns every hour, a missile from each destroyer every few hours. Shipyards mend
     /// slowly when left alone.
     /// </summary>
+    /// <summary>
+    /// Why a side's fleets are or are not wearing down this enemy shipyard, in a line for the player:
+    /// the damage a day and days left, or what stops it (no armed fleet in orbit, or defenders near).
+    /// </summary>
+    public static string? BombardStatus(World w, Body b, Side side)
+    {
+        if (!b.Shipyard || b.Owner is not Side owner || owner == side) return null;
+        var y = E.Shipyard;
+        var range = GameData.Combat.ContactRangeMm;
+        var attackers = w.Fleets.Where(f => f.Side == side && InOrbitAt(f, b)).ToList();
+        if (attackers.Count == 0)
+        {
+            var near = w.Fleets.FirstOrDefault(f => f.Side == side && f.LeftOrbitBodyId == b.Id);
+            return near != null
+                ? $"Not under attack: {near.Name} left orbit to fight. Shipyards are only worn down from orbit: select it and press O"
+                : "Not under attack: park an armed fleet in orbit here (O) with no defenders within " + $"{range * 1000:#,0} km";
+        }
+        if (w.Fleets.Any(f => f.Side == owner && Vec2.Distance(f.Position, b.Position) <= range))
+            return $"Not under attack: defended. A rival fleet is within {range * 1000:#,0} km; beat it or draw it off first";
+        double perDay = 0;
+        foreach (var s in attackers.SelectMany(w.ShipsOf))
+        {
+            var cls = GameData.ShipClass(s.ClassId);
+            if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Supplies >= cls.Railguns * y.RailSuppliesPerHour) perDay += cls.Railguns * y.RailDamagePerHour * 24;
+            if (s.Missiles > 0 && s.Disabled != Module.Missiles) perDay += y.MissileDamage * 24 / Math.Max(1, y.MissileEveryHours);
+        }
+        if (perDay <= 0) return "Not under attack: the fleet in orbit has no working weapons, ammunition or supplies left";
+        return $"Under attack and blockaded (it can't build): about {perDay / y.Armour:P0} of its armour a day, {b.ShipyardArmour / perDay:0.#} days to go";
+    }
+
+    /// <summary>An armed enemy fleet holds orbit over this shipyard: it can't launch ships.</summary>
+    public static bool Blockaded(World w, Body yard) =>
+        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard)
+            && w.ShipsOf(f).Any(s => GameData.ShipClass(s.ClassId) is var c && (c.Railguns > 0 && s.Disabled != Module.Railguns || s.Missiles > 0)));
+
     private static void Bombard(Simulation sim)
     {
         var w = sim.World;

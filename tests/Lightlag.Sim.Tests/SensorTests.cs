@@ -35,7 +35,7 @@ public class SensorTests
         var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 5000));
         var player = FleetOf(sim, Side.Player);
         Assert.False(Sensors.Sees(sim.World, Side.Rival, player));
-        sim.Issue(new PlanFlightCommand(player.Id, new FlightRequest(null, player.Position + new Vec2(0, 20000), 1, ArrivalStyle.Brake, HoldStyle.Drift, 0)));
+        sim.Issue(new PlanFlightCommand(player.Id, new FlightRequest(null, player.Position + new Vec2(0, 60000), 1, ArrivalStyle.Brake, HoldStyle.Drift, 0)));
         sim.Step();
         Assert.True(player.Thrusting);
         Assert.Equal(SignatureState.Burn, Sensors.StateOf(player));
@@ -79,7 +79,7 @@ public class SensorTests
     {
         var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 5000));
         var player = FleetOf(sim, Side.Player);
-        sim.Issue(new PlanFlightCommand(player.Id, new FlightRequest(null, player.Position + new Vec2(0, 20000), 1, ArrivalStyle.Brake, HoldStyle.Drift, 0)));
+        sim.Issue(new PlanFlightCommand(player.Id, new FlightRequest(null, player.Position + new Vec2(0, 60000), 1, ArrivalStyle.Brake, HoldStyle.Drift, 0)));
         // Burn, then coast: the rival keeps the sighting from the burn but loses sight once the engines stop.
         sim.Step();
         var burnEnd = player.Flight!.Legs[0].End;

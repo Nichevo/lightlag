@@ -42,10 +42,16 @@ public class MindTests
     public void The_rival_builds_claims_and_gives_its_fleets_jobs()
     {
         var sim = NewGame(7, GameOptions.VsRival(Difficulty.Normal));
-        Days(sim, 60); // ships cost more since M8, so the first claims leave a little later
+        // Ships cost more since M8 and fly on gentler engines, so the first claims leave a little later.
+        var claimed = false;
+        for (var d = 0; d < 90 && !(d >= 60 && claimed); d++)
+        {
+            Days(sim, 1);
+            claimed |= sim.World.Minds[0].Jobs.Any(j => j.Kind == JobKind.Claim);
+        }
         var rival = Economy.Of(sim.World, Side.Rival);
         Assert.True(rival.Totals.ShipsBuilt > 0);
-        Assert.Contains(sim.World.Minds[0].Jobs, j => j.Kind == JobKind.Claim);
+        Assert.True(claimed);
         Assert.NotEmpty(sim.World.Minds[0].Thoughts);
         Assert.True(Economy.Claimable(sim.World).Count(b => b.Owner == Side.Rival) + rival.Totals.PlanetsClaimed > 1);
     }
