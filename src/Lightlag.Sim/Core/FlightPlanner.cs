@@ -225,14 +225,27 @@ public static class FlightPlanner
         double Speed(double? fraction) => Math.Clamp(fraction ?? req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
 
         var points = req.Waypoints!;
+        var start = p;
+        var reached = new List<double>();
         for (var i = 0; i < points.Count; i++)
         {
             var wp = points[i];
-            var stretch = Stretch(p, v, t, a, Speed(wp.SpeedFraction), wp.Stop ? ArrivalStyle.Brake : ArrivalStyle.FastPass, (_, _) => wp.Point);
+            var cruiseHere = Speed(wp.SpeedFraction);
+            var endSpeed = 0.0;
+            if (!wp.Stop)
+            {
+                // Fly through at a speed the turn onto the next stretch allows, not flat out.
+                var prev = i == 0 ? start : points[i - 1].Point;
+                var next = i + 1 < points.Count ? points[i + 1].Point : aimFrom(wp.Point, t);
+                var nextCruise = Speed(i + 1 < points.Count ? points[i + 1].SpeedFraction : null);
+                endSpeed = CornerSpeed(prev, wp.Point, next, a, Math.Min(cruiseHere, nextCruise));
+            }
+            var stretch = Stretch(p, v, t, a, cruiseHere, endSpeed, (_, _) => wp.Point);
             if (stretch == null) return FlightPlan.Fail($"Cannot reach waypoint {i + 1}", perf.DeltaVLeft);
             legs.AddRange(stretch.Legs);
             dv += stretch.DeltaV;
             (p, v, t) = (stretch.EndP, stretch.EndV, stretch.EndT);
+            reached.Add(t);
             if (wp.Stop && wp.WaitHours > 0)
             {
                 legs.Add(new FlightLeg(t, t + wp.WaitHours, p, Vec2.Zero, Vec2.Zero));
@@ -240,26 +253,48 @@ public static class FlightPlanner
             }
         }
         var cruise = Speed(null);
-        var last = Stretch(p, v, t, a, cruise, req.Arrival, aimFrom);
+        var last = Stretch(p, v, t, a, cruise, EndSpeed(req.Arrival), aimFrom);
         if (last == null) return FlightPlan.Fail("Cannot reach the target from the last waypoint", perf.DeltaVLeft);
         legs.AddRange(last.Legs);
         dv += last.DeltaV;
         var plan = Finish(w, req, body, enemy, perf, legs, last.Aim, cruise, depart, dv);
-        plan.Flight?.Waypoints.AddRange(points.Select(x => x.Point));
+        if (plan.Flight is Flight flight)
+        {
+            flight.Waypoints.AddRange(points.Select(x => x.Point));
+            flight.WaypointPlan.AddRange(points);
+            flight.WaypointHours.AddRange(reached);
+        }
         return plan;
+    }
+
+    /// <summary>
+    /// How fast to pass a waypoint so the turn onto the next stretch stays tight: straight on keeps full
+    /// speed, a sharp corner slows right down. The turn's swing past the corner is kept to about a
+    /// quarter of the shorter stretch.
+    /// </summary>
+    private static double CornerSpeed(Vec2 prev, Vec2 at, Vec2 next, double a, double cruise)
+    {
+        var inDir = (at - prev).Normalized();
+        var outDir = (next - at).Normalized();
+        if (inDir == Vec2.Zero || outDir == Vec2.Zero) return 0;
+        var cos = Math.Clamp(Vec2.Dot(inDir, outDir), -1, 1);
+        var halfSin = Math.Sqrt((1 - cos) / 2); // sin of half the turn angle
+        if (halfSin < 1e-6) return cruise;
+        var shorter = Math.Min(Vec2.Distance(prev, at), Vec2.Distance(at, next));
+        return Math.Min(cruise, Math.Sqrt(0.25 * shorter * a / (2 * halfSin)));
     }
 
     /// <summary>
     /// Fly from a point at a velocity to a (possibly moving) aim point: a curving burn if already
     /// moving, otherwise burn, coast and (when braking) brake, timed to meet the target where it will be.
     /// </summary>
-    private static StretchPlan? Stretch(Vec2 p, Vec2 v, double t, double a, double cruise, ArrivalStyle arrival, Func<Vec2, double, Vec2> aimFrom)
+    private static StretchPlan? Stretch(Vec2 p, Vec2 v, double t, double a, double cruise, double endSpeed, Func<Vec2, double, Vec2> aimFrom)
     {
         var legs = new List<FlightLeg>();
         double dv = 0;
         if (v.Length > 1e-9)
         {
-            if (Redirect(p, v, t, a, cruise, arrival, aimFrom) is { } turn)
+            if (Redirect(p, v, t, a, cruise, endSpeed, aimFrom) is { } turn)
                 return Ended(turn.Legs, turn.Aim, turn.DeltaV, p, v, t);
             // Cannot curve onto it (too close to stop in time, say): brake to a stop first.
             var tb = v.Length / a;
@@ -271,7 +306,7 @@ public static class FlightPlanner
             t = brake.End;
         }
 
-        double Gap(double hour) => t + Profile(Vec2.Distance(aimFrom(p, hour), p), cruise, a, arrival).Total - hour;
+        double Gap(double hour) => t + Profile(Vec2.Distance(aimFrom(p, hour), p), cruise, a, endSpeed).Total - hour;
         var lo = t;
         var hi = t;
         if (Gap(lo) > 0)
@@ -291,7 +326,7 @@ public static class FlightPlanner
         }
         var aim = aimFrom(p, hi);
         var distance = Vec2.Distance(aim, p);
-        var profile = Profile(distance, cruise, a, arrival);
+        var profile = Profile(distance, cruise, a, endSpeed);
         if (distance > 1e-9)
         {
             var dir = (aim - p).Normalized();
@@ -307,7 +342,7 @@ public static class FlightPlanner
                 s = coast.End;
                 q = coast.PositionAt(s);
             }
-            if (arrival == ArrivalStyle.Brake) legs.Add(new FlightLeg(s, s + profile.AccelHours, q, vel, dir * -a));
+            if (profile.BrakeHours > 0) legs.Add(new FlightLeg(s, s + profile.BrakeHours, q, vel, dir * -a));
             dv += profile.DeltaV;
         }
         return Ended(legs, aim, dv, p, v, t);
@@ -326,7 +361,10 @@ public static class FlightPlanner
     /// when that does not work out (too close to brake in time, or it never settles), and the fleet
     /// brakes to a stop first instead.
     /// </summary>
-    private static Turn? Redirect(Vec2 p, Vec2 v, double now, double a, double cruise, ArrivalStyle arrival, Func<Vec2, double, Vec2> aimFrom)
+    private static Turn? Redirect(Vec2 p, Vec2 v, double now, double a, double cruise, ArrivalStyle arrival, Func<Vec2, double, Vec2> aimFrom) =>
+        Redirect(p, v, now, a, cruise, EndSpeed(arrival), aimFrom);
+
+    private static Turn? Redirect(Vec2 p, Vec2 v, double now, double a, double cruise, double endSpeed, Func<Vec2, double, Vec2> aimFrom)
     {
         var speed = cruise;
         var aim = aimFrom(p, now);
@@ -337,31 +375,47 @@ public static class FlightPlanner
             if (dir == Vec2.Zero) return null;
             Vec2 p1 = p, vd = dir * speed;
             double t1 = 0;
-            for (var i = 0; i < 30; i++)
+            for (var i = 0; i < 200; i++)
             {
                 vd = dir * speed;
                 t1 = (vd - v).Length / a;
                 p1 = p + (v + vd) * (0.5 * t1);
                 var next = (aim - p1).Normalized();
                 if (next == Vec2.Zero) return null;
-                dir = next;
+                // Damped, so a slow turn out of a fast or opposite heading settles instead of see-sawing.
+                var blended = (dir + (next - dir) * 0.5).Normalized();
+                dir = blended == Vec2.Zero ? next : blended;
             }
             vd = dir * speed;
             t1 = (vd - v).Length / a;
             p1 = p + (v + vd) * (0.5 * t1);
             var d = Vec2.Distance(aim, p1);
-            if (Vec2.Dot(aim - p1, vd) <= 0) return null;
+            if (d > 1e-6 && Vec2.Dot((aim - p1).Normalized(), dir) < 0.9999)
+            {
+                // No heading at this speed ends the turn pointing at the aim: try a slower course.
+                speed *= 0.7;
+                if (speed < cruise * 0.02) return null;
+                continue;
+            }
+            if (Vec2.Dot(aim - p1, vd) <= 0)
+            {
+                // The turn at this speed swings past the aim point: turn onto a slower course instead.
+                speed *= 0.7;
+                if (speed < cruise * 0.02) return null;
+                continue;
+            }
 
-            var brakeDist = arrival == ArrivalStyle.Brake ? speed * speed / (2 * a) : 0;
+            var end = Math.Min(endSpeed, speed);
+            var brakeDist = (speed * speed - end * end) / (2 * a);
             if (d < brakeDist)
             {
-                // Too close to stop at this speed: go slower and try again.
-                speed = Math.Sqrt(2 * a * d) * 0.9;
-                if (speed < cruise * 0.05) return null;
+                // Too close to slow down in time at this speed: go slower and try again.
+                speed = Math.Sqrt(2 * a * d + end * end) * 0.9;
+                if (speed < cruise * 0.02) return null;
                 continue;
             }
             var coast = (d - brakeDist) / speed;
-            var brake = arrival == ArrivalStyle.Brake ? speed / a : 0;
+            var brake = (speed - end) / a;
             var arrive = now + t1 + coast + brake;
             var newAim = aimFrom(p1, arrive);
             if (Vec2.Distance(newAim, aim) > 1e-3)
@@ -378,7 +432,7 @@ public static class FlightPlanner
             if (coast > 0) { legs.Add(new FlightLeg(t, t + coast, p1, vd, Vec2.Zero)); t += coast; }
             if (brake > 0) legs.Add(new FlightLeg(t, t + brake, p1 + vd * coast, vd, dir * -a));
             if (legs.Count == 0) return null;
-            return new Turn(legs, aim, speed, (vd - v).Length + (arrival == ArrivalStyle.Brake ? speed : 0));
+            return new Turn(legs, aim, speed, (vd - v).Length + (speed - end));
         }
         return null;
     }
@@ -428,26 +482,37 @@ public static class FlightPlanner
     public static FlightPlan PlanRoute(World w, Fleet fleet, FlightRequest req) =>
         req.Route == RouteKind.Wait ? PlanWait(w, fleet, req) : Plan(w, fleet, req with { DepartTick = w.Tick });
 
-    private readonly record struct ProfileResult(double AccelHours, double CoastHours, double Peak, double DeltaV, double Total);
+    private readonly record struct ProfileResult(double AccelHours, double CoastHours, double Peak, double DeltaV, double Total)
+    {
+        public double BrakeHours { get; init; } = AccelHours;
+    }
 
-    /// <summary>Burn, coast, brake timings for a distance, starting from rest.</summary>
-    private static ProfileResult Profile(double d, double cruise, double a, ArrivalStyle arrival)
+    /// <summary>Speed at the end of a stretch: 0 to brake to a stop, infinity to fly through at full speed.</summary>
+    private static double EndSpeed(ArrivalStyle arrival) => arrival == ArrivalStyle.Brake ? 0 : double.PositiveInfinity;
+
+    private static ProfileResult Profile(double d, double cruise, double a, ArrivalStyle arrival) => Profile(d, cruise, a, EndSpeed(arrival));
+
+    /// <summary>
+    /// Burn, coast, brake timings for a distance, starting from rest and ending at endSpeed (0 = stop,
+    /// infinity = no brake). BrakeHours is how long the final brake takes (down to endSpeed).
+    /// </summary>
+    private static ProfileResult Profile(double d, double cruise, double a, double endSpeed)
     {
         if (d <= 1e-9) return new ProfileResult(0, 0, 0, 0, 0);
-        if (arrival == ArrivalStyle.Brake)
+        var full = Math.Min(cruise, Math.Sqrt(2 * d * a));
+        if (endSpeed >= full)
         {
-            var peak = Math.Min(cruise, Math.Sqrt(d * a));
-            var ta = peak / a;
-            var coast = Math.Max(0, (d - peak * peak / a) / peak);
-            return new ProfileResult(ta, coast, peak, 2 * peak, 2 * ta + coast);
+            // No braking: burn up to speed and coast through.
+            var ta = full / a;
+            var coast = Math.Max(0, (d - full * full / (2 * a)) / full);
+            return new ProfileResult(ta, coast, full, full, ta + coast) { BrakeHours = 0 };
         }
-        else
-        {
-            var peak = Math.Min(cruise, Math.Sqrt(2 * d * a));
-            var ta = peak / a;
-            var coast = Math.Max(0, (d - peak * peak / (2 * a)) / peak);
-            return new ProfileResult(ta, coast, peak, peak, ta + coast);
-        }
+        var peak = Math.Min(cruise, Math.Sqrt((2 * d * a + endSpeed * endSpeed) / 2));
+        var up = peak / a;
+        var down = (peak - endSpeed) / a;
+        var cruiseDist = d - peak * peak / (2 * a) - (peak * peak - endSpeed * endSpeed) / (2 * a);
+        var coastHours = Math.Max(0, cruiseDist / peak);
+        return new ProfileResult(up, coastHours, peak, peak + (peak - endSpeed), up + coastHours + down) { BrakeHours = down };
     }
 
     /// <summary>Where a body will be at a future game hour (circular orbits, so this is exact).</summary>

@@ -439,6 +439,29 @@ public partial class MapView : Node2D
         return null;
     }
 
+    public static readonly Color SpeedUp = new("6be38a");
+    public static readonly Color Braking = new("c48bff");
+
+    /// <summary>Green where a burn is speeding the fleet up, violet where it is braking.</summary>
+    private static Color BurnColor(FlightLeg leg, double hour) =>
+        Vec2.Dot(leg.A, leg.VelocityAt(hour)) >= 0 ? SpeedUp : Braking;
+
+    /// <summary>Waypoints of a flight not reached yet (older saves only have the points).</summary>
+    private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
+        ? flight.WaypointsAhead(DrawHour).Select(w => w.Point).ToList()
+        : flight.Waypoints;
+
+    /// <summary>A not-yet-reached waypoint of the selected fleet's current route under a screen point.</summary>
+    public int? HitTestFlightWaypoint(Vector2 screen)
+    {
+        if (SelectedId is not int id || Sim.World.FindFleet(id) is not { Side: Side.Player, Flight: Flight flight }) return null;
+        if (flight.WaypointPlan.Count == 0) return null;
+        var ahead = flight.WaypointsAhead(Sim.World.Hour).Select(w => w.Point).ToList();
+        for (var i = ahead.Count - 1; i >= 0; i--)
+            if (Camera.ToScreen(ahead[i]).DistanceTo(screen) <= 12) return i;
+        return null;
+    }
+
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
     public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
 
@@ -514,12 +537,42 @@ public partial class MapView : Node2D
             const int n = 24;
             var pts = new Vector2[n + 1];
             for (var i = 0; i <= n; i++) pts[i] = Camera.ToScreen(leg.PositionAt(from + (leg.End - from) * i / n));
-            DrawPolyline(pts, new Color(baseColor, leg.IsBurn ? alpha : alpha * 0.55f), leg.IsBurn ? 2.5f : 1.2f, true);
+            if (!leg.IsBurn)
+            {
+                DrawPolyline(pts, new Color(baseColor, alpha * 0.55f), 1.2f, true);
+                continue;
+            }
+            // Your own routes show what the engines do: speeding up or braking (a turn brakes, then speeds up).
+            var colored = ok && f.Side == Side.Player;
+            var colors = new Color[n];
+            for (var i = 0; i < n; i++)
+                colors[i] = colored ? BurnColor(leg, from + (leg.End - from) * (i + 0.5) / n) : baseColor;
+            var startAt = 0;
+            for (var i = 1; i <= n; i++)
+            {
+                if (i < n && colors[i] == colors[startAt]) continue;
+                DrawPolyline(pts[startAt..(i + 1)], new Color(colors[startAt], alpha), 2.5f, true);
+                startAt = i;
+            }
+            // Burns are short next to the coasts: zoomed out, mark each with a dot so it can still be seen.
+            if (pts[0].DistanceTo(pts[n]) < 10) DrawCircle(pts[n / 2], 3.5f, new Color(colors[n / 2], Math.Min(1f, alpha + 0.2f)));
         }
         var end = Camera.ToScreen(flight.Target);
         DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);
         if (!preview)
-            foreach (var wp in flight.Waypoints) DrawDiamond(Camera.ToScreen(wp), 5, new Color(baseColor, alpha), false);
+        {
+            var ahead = AheadPoints(flight);
+            var stops = flight.WaypointPlan.Count > 0 ? flight.WaypointsAhead(DrawHour).Select(w => w.Stop).ToList() : null;
+            var mine = f.Id == SelectedId && f.Side == Side.Player && PlannerWaypoints == null;
+            for (var i = 0; i < ahead.Count; i++)
+            {
+                var at = Camera.ToScreen(ahead[i]);
+                DrawDiamond(at, mine ? 7 : 5, new Color(baseColor, mine ? 0.9f : alpha), stops?[i] == true);
+                if (mine) DrawString(_font, at + new Vector2(10, -6), $"{i + 1}", HorizontalAlignment.Left, -1, 12, new Color(baseColor, 0.9f));
+            }
+            if (mine && ahead.Count > 0)
+                DrawString(_font, Camera.ToScreen(ahead[^1]) + new Vector2(10, 10), "drag to change", HorizontalAlignment.Left, -1, 11, new Color(baseColor, 0.6f));
+        }
         if (flight.Arrival == ArrivalStyle.FastPass)
         {
             // Carries on past the target.

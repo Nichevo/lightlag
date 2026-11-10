@@ -20,6 +20,7 @@ public partial class FleetPanel : PanelContainer
     private Button _orbit = null!;
     private Button _drift = null!;
     private Button _stop = null!;
+    private Button _route = null!;
     private Button _engage = null!;
     private Button _hold = null!;
     private CheckBox _retreat = null!;
@@ -48,10 +49,11 @@ public partial class FleetPanel : PanelContainer
         _buttons.AddThemeConstantOverride("separation", 4);
         _orbit = Ui.SmallButton("Orbit", () => _screen.OrderHold(HoldStyle.Orbit), "Orbit the nearest planet or moon (O)");
         _drift = Ui.SmallButton("Drift", () => _screen.OrderHold(HoldStyle.Drift), "Engines cold: stay put (G)");
+        _route = Ui.SmallButton("Change route", () => _screen.EditRoute(), "Open this fleet's route in the planner to change the target, speed or waypoints (C). You can also drag a waypoint on the map");
         _stop = Ui.SmallButton("Stop", () => _screen.OrderStop(), "Cancel the flight and brake to a stop (X)");
         _split = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet");
         _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one (M). To merge fleets further apart, drag a box round them and Gather");
-        foreach (var b in new[] { _orbit, _drift, _stop, _split, _merge }) _buttons.AddChild(b);
+        foreach (var b in new[] { _orbit, _drift, _route, _stop, _split, _merge }) _buttons.AddChild(b);
         box.AddChild(_buttons);
 
         // Standing orders: what the fleet does when enemies come into contact.
@@ -174,6 +176,7 @@ public partial class FleetPanel : PanelContainer
         _orbit.Disabled = flying || (f.Hold == HoldStyle.Orbit && f.Flight == null);
         _drift.Disabled = flying || (f.Hold == HoldStyle.Drift && f.Flight == null);
         _stop.Disabled = f.Flight == null && f.Velocity.Length < 1e-9;
+        _route.Disabled = !_screen.CanEditRoute;
         _split.Disabled = picked == 0 || picked == ships.Count;
         var candidate = _screen.MergeCandidate();
         _merge.Disabled = candidate == null;
@@ -353,6 +356,13 @@ public partial class PlannerPanel : PanelContainer
         box.AddChild(_shipsRow);
         var hint = Ui.Label("Waypoints: Ctrl+right-click the map to add, drag to move", 13, Ui.Dim);
         box.AddChild(hint);
+        var key = new HBoxContainer();
+        key.AddThemeConstantOverride("separation", 10);
+        key.AddChild(Ui.Label("Line:", 13, Ui.Dim));
+        key.AddChild(Ui.Label("speeding up", 13, MapView.SpeedUp));
+        key.AddChild(Ui.Label("braking", 13, MapView.Braking));
+        key.AddChild(Ui.Label("coasting (thin)", 13, Ui.Player));
+        box.AddChild(key);
         _waypointBox = new VBoxContainer();
         _waypointBox.AddThemeConstantOverride("separation", 2);
         box.AddChild(_waypointBox);
@@ -467,7 +477,7 @@ public partial class PlannerPanel : PanelContainer
         var s = _screen.Settings;
         var w = sim.World;
         var fleet = w.FindFleet(p.FleetId);
-        _title.Text = $"Route: {fleet?.Name} to {p.TargetName}";
+        _title.Text = $"{(p.Editing ? "Change route" : "Route")}: {fleet?.Name} to {p.TargetName}";
         _title.AddThemeColorOverride("font_color", p.TargetFleetId != null ? Ui.Danger : Ui.Player);
         Mark(_direct, s.Route == RouteKind.Direct);
         Mark(_wait, s.Route == RouteKind.Wait);

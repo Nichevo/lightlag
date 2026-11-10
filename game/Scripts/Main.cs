@@ -314,7 +314,22 @@ public partial class Main : Node
             game.Camera.Center = from + (to - from) * 0.5;
             game.Camera.FitRadius(Vec2.Distance(from, to) * 0.7, instant: true);
             await Shoot("16-waypoints");
+
+            // Sent on its way: the waypoints still ahead stay on the map, and can be dragged to reopen the route.
+            game.ConfirmPlan();
+            Sim.StepMany(24);
+            game.Select(fleet.Id);
+            await Shoot("16b-waypoints-flying");
+            game.EditRoute();
+            await Shoot("16c-change-route");
             game.CancelPlanning();
+            if (fleet.Flight?.WaypointPlan.Count > 0)
+            {
+                // Close up on the first corner: braking into it, then speeding up onto the next stretch.
+                game.Camera.Center = fleet.Flight.WaypointPlan[0].Point;
+                game.Camera.FitRadius(2500, instant: true);
+                await Shoot("16d-route-colours");
+            }
 
             // A split at home: the new fleet sits a little ahead on the orbit; both picked with a box.
             StartNewGame(8);

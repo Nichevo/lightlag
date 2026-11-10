@@ -86,6 +86,16 @@ public sealed class Flight
     /// <summary>Points the route was asked to pass through (for drawing).</summary>
     public List<Vec2> Waypoints { get; set; } = new();
 
+    /// <summary>The waypoints with their settings, so the route can be opened and changed in flight.</summary>
+    public List<Waypoint> WaypointPlan { get; set; } = new();
+
+    /// <summary>Game hour each waypoint is reached (same order as WaypointPlan).</summary>
+    public List<double> WaypointHours { get; set; } = new();
+
+    /// <summary>The waypoints not reached yet at this hour.</summary>
+    public IEnumerable<Waypoint> WaypointsAhead(double hour) =>
+        WaypointPlan.Where((_, i) => i >= WaypointHours.Count || WaypointHours[i] > hour);
+
     public double EndHour => Legs.Count > 0 ? Legs[^1].End : ArriveHour;
 
     public Flight Copy()
@@ -93,6 +103,8 @@ public sealed class Flight
         var f = (Flight)MemberwiseClone();
         f.Legs = new List<FlightLeg>(Legs);
         f.Waypoints = new List<Vec2>(Waypoints);
+        f.WaypointPlan = new List<Waypoint>(WaypointPlan);
+        f.WaypointHours = new List<double>(WaypointHours);
         return f;
     }
 }

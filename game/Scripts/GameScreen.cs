@@ -451,6 +451,31 @@ public partial class GameScreen : Node2D
 
     public void CancelPlanning() => Planner = null;
 
+    /// <summary>Can the selected fleet's current route be opened in the planner and changed?</summary>
+    public bool CanEditRoute => MyFleet is { Flight: not null, Retreating: false, Maneuvering: false };
+
+    /// <summary>
+    /// Open the selected fleet's current route in the planner: same target, settings and the waypoints it
+    /// has not reached yet. Optionally start dragging one of those waypoints.
+    /// </summary>
+    public void EditRoute(int? grab = null)
+    {
+        if (!CanEditRoute || MyFleet is not Fleet f || f.Flight is not Flight fl) return;
+        Settings.Speed = fl.SpeedFraction;
+        Settings.Arrival = fl.Arrival;
+        if (fl.TargetBodyId != null) Settings.Hold = fl.HoldAfter;
+        Settings.Route = fl.Started ? RouteKind.Direct : fl.Route;
+        Planner = null; // don't carry over waypoints from an earlier plan
+        if (fl.TargetFleetId is int enemy && Sim.World.FindFleet(enemy) != null) StartPlanning(null, fl.Target, enemy);
+        else StartPlanning(fl.TargetBodyId, fl.Target);
+        if (Planner == null) return;
+        foreach (var wp in fl.WaypointsAhead(Sim.World.Hour))
+            Planner.Waypoints.Add(new WaypointDraft { Point = wp.Point, Stop = wp.Stop, Speed = wp.SpeedFraction, WaitHours = wp.WaitHours });
+        Planner.Editing = true;
+        Replan();
+        if (grab is int g && g < Planner.Waypoints.Count) _draggingWaypoint = g;
+    }
+
     /// <summary>Work the plan out again (after a setting changes, and a few times a second as things move).</summary>
     public void Replan()
     {
@@ -544,6 +569,11 @@ public partial class GameScreen : Node2D
                     _draggingWaypoint = grabbed;
                     break;
                 }
+                if (left.Pressed && Planner == null && CanEditRoute && _map.HitTestFlightWaypoint(left.Position) is int ahead)
+                {
+                    EditRoute(ahead); // grabbing a waypoint of a route already flying reopens it in the planner
+                    break;
+                }
                 if (left.Pressed)
                 {
                     var hit = _map.HitTest(left.Position);
@@ -608,6 +638,7 @@ public partial class GameScreen : Node2D
             case Key.O: OrderHold(HoldStyle.Orbit); break;
             case Key.G: OrderHold(HoldStyle.Drift); break;
             case Key.X: OrderStop(); break;
+            case Key.C when Planner == null: EditRoute(); break;
             case Key.M: OrderMerge(); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
@@ -713,6 +744,9 @@ public sealed class PlannerState(int fleetId, int? targetBodyId, Vec2 point, str
     public string TargetName { get; } = targetName;
     public int? TargetFleetId { get; init; }
     public FlightPlan? Plan { get; set; }
+
+    /// <summary>Opened from a route the fleet is already flying (Go replaces it).</summary>
+    public bool Editing { get; set; }
     public List<WaypointDraft> Waypoints { get; } = new();
 }
 
