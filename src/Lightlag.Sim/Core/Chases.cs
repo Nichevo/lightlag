@@ -14,13 +14,14 @@ public static class Chases
     public static ChaseOrder Order(World w, Fleet f, int targetId, ChaseMode mode, double speedFraction)
     {
         var s = Sensors.Find(w, f.Side, targetId);
+        var own = w.FindFleet(targetId) is { } t && t.Side == f.Side ? t : null; // joining one of its own fleets
         return new ChaseOrder
         {
             TargetFleetId = targetId,
             Mode = mode,
             SpeedFraction = speedFraction,
             TargetAt = Sensors.Predict(w, f.Side, targetId, w.Hour) ?? Vec2.Zero,
-            TargetVelocity = s?.Velocity ?? Vec2.Zero,
+            TargetVelocity = own?.Velocity ?? s?.Velocity ?? Vec2.Zero,
             PlannedHour = w.Hour,
         };
     }
@@ -40,6 +41,11 @@ public static class Chases
         {
             var c = f.Chase!;
             var target = w.FindFleet(c.TargetFleetId);
+            if (c.Mode == ChaseMode.Join)
+            {
+                Join(sim, f, c, target);
+                continue;
+            }
             var s = Sensors.Find(w, f.Side, c.TargetFleetId);
             if (target == null || s == null || f.Retreating)
             {
@@ -82,6 +88,47 @@ public static class Chases
                 c.Problem = plan.Problem;
                 sim.Log.Warn("fleet", $"{f.Name} cannot keep up the chase", new { fleetId = f.Id, targetFleetId = target.Id, problem = plan.Problem });
             }
+        }
+    }
+
+    /// <summary>Joining one of its own fleets that is moving: merge once alongside, else re-aim when it changes course.</summary>
+    private static void Join(Simulation sim, Fleet f, ChaseOrder c, Fleet? into)
+    {
+        var w = sim.World;
+        var now = w.Hour;
+        if (into == null || into.Side != f.Side || f.Retreating)
+        {
+            f.Chase = null;
+            f.JoinFleetId = null;
+            sim.Log.Info("fleet", $"{f.Name} stops flying to join: that fleet is gone", new { fleetId = f.Id, targetFleetId = c.TargetFleetId });
+            return;
+        }
+        var gap = Vec2.Distance(f.Position, into.Position);
+        if (gap <= FlightPlanner.JoinDistanceMm * 4 && (f.Velocity - into.Velocity).Length <= 2)
+        {
+            f.Chase = null;
+            f.Flight = null;
+            sim.Log.Info("fleet", $"{f.Name} catches up and joins {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
+            Fleets.Absorb(w, into, f);
+            return;
+        }
+        if (f.Maneuvering) return;
+        var turned = (into.Velocity - c.TargetVelocity).Length > Math.Max(0.5, 0.02 * into.Velocity.Length)
+                     || Vec2.Distance(into.Position, Expected(c, now)) > ReaimDriftMm;
+        if (!turned && f.Flight != null) return;
+        var plan = FlightPlanner.PlanChase(w, f, into, ChaseMode.Join, c.SpeedFraction, FleetPerformance.Of(w, f));
+        c.TargetAt = into.Position;
+        c.TargetVelocity = into.Velocity;
+        c.PlannedHour = now;
+        if (plan is { Ok: true, Flight: Flight flight })
+        {
+            f.Flight = flight;
+            c.Problem = null;
+        }
+        else if (c.Problem != plan.Problem)
+        {
+            c.Problem = plan.Problem;
+            sim.Log.Warn("fleet", $"{f.Name} cannot catch up with {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id, problem = plan.Problem });
         }
     }
 }

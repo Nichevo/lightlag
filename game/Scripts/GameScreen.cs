@@ -226,6 +226,15 @@ public partial class GameScreen : Node2D
     /// <summary>The engagement on screen: your fleet and the enemy fleet (null when the map is shown).</summary>
     public (int Mine, int Enemy)? Engagement { get; private set; }
     public EngagementInfo? EngagementNow { get; private set; }
+
+    /// <summary>How hard the engagement screen's approach choices burn (share of top speed).</summary>
+    public double EngagementBurn { get; private set; } = 1.0;
+
+    public void SetEngagementBurn(double burn)
+    {
+        EngagementBurn = burn;
+        _engagementAge = 1; // work the choices out again now
+    }
     private double _engagementAge;
 
     /// <summary>Open the engagement screen for one of your fleets (against the given enemy, or the one it is most concerned with).</summary>
@@ -296,7 +305,7 @@ public partial class GameScreen : Node2D
         }
         _main.RunGuarded("engagement", () =>
         {
-            EngagementNow = Engagement_.Of(w, mine, enemyId);
+            EngagementNow = Engagement_.Of(w, mine, enemyId, EngagementBurn);
             Engagements = Engagement_.All(w, Side.Player);
         });
         _map.Engagement = EngagementNow;
@@ -668,6 +677,14 @@ public partial class GameScreen : Node2D
     {
         if (Group.Count >= 2) { OrderGather(); return; }
         if (MyFleet is Fleet f && MergeCandidate() is Fleet other) Sim.Issue(new MergeFleetsCommand(f.Id, other.Id));
+    }
+
+    /// <summary>Send the selected fleet to join another of ours (merging at once if they are together).</summary>
+    public void OrderJoin(int intoId)
+    {
+        if (MyFleet is not Fleet f || Sim.World.FindFleet(intoId) is not Fleet into) return;
+        Sim.Issue(new GatherFleetsCommand(into.Id, new List<int> { f.Id }, Settings.Speed));
+        _main.Toast($"{f.Name} flies to join {into.Name}");
     }
 
     /// <summary>Merge the picked fleets into the largest: close ones at once, the rest fly to it first.</summary>

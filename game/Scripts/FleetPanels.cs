@@ -17,6 +17,7 @@ public partial class FleetPanel : PanelContainer
     private HBoxContainer _buttons = null!;
     private Button _split = null!;
     private Button _merge = null!;
+    private MenuButton _join = null!;
     private Button _orbit = null!;
     private Button _drift = null!;
     private Button _stop = null!;
@@ -54,6 +55,12 @@ public partial class FleetPanel : PanelContainer
         _split = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet");
         _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one (M). To merge fleets further apart, drag a box round them and Gather");
         foreach (var b in new[] { _orbit, _drift, _route, _stop, _split, _merge }) _buttons.AddChild(b);
+        _join = new MenuButton { Text = "Join ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Fly to another of your fleets and merge into it: to where it will stop, or on intercept tracks if it is drifting on" };
+        _join.AddThemeFontSizeOverride("font_size", 15);
+        _join.AboutToPopup += FillJoinMenu;
+        _join.GetPopup().IdPressed += id => Main.Instance.RunGuarded("join order", () => _screen.OrderJoin((int)id));
+        _buttons.AddChild(_join);
         box.AddChild(_buttons);
 
         // Standing orders: what the fleet does when enemies come into contact.
@@ -188,9 +195,23 @@ public partial class FleetPanel : PanelContainer
         _stop.Disabled = f.Flight == null && f.Velocity.Length < 1e-9;
         _route.Disabled = !_screen.CanEditRoute;
         _split.Disabled = picked == 0 || picked == ships.Count;
+        _join.Disabled = !mine || !sim.World.Fleets.Any(o => o.Side == f.Side && o.Id != f.Id);
         var candidate = _screen.MergeCandidate();
         _merge.Disabled = candidate == null;
         _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
+    }
+
+    private void FillJoinMenu()
+    {
+        var popup = _join.GetPopup();
+        popup.Clear();
+        var sim = Main.Instance.Sim;
+        if (sim == null || _screen.SelectedFleet is not Fleet f) return;
+        foreach (var o in sim.World.Fleets.Where(o => o.Side == f.Side && o.Id != f.Id).OrderBy(o => Vec2.Distance(o.Position, f.Position)))
+        {
+            var moving = o.Velocity.Length > 1e-9 ? $", moving at {Format.Speed(o.Velocity.Length)}" : "";
+            popup.AddItem($"{o.Name} ({o.ShipIds.Count} ships), {Format.Distance(Vec2.Distance(o.Position, f.Position))} away{moving}", o.Id);
+        }
     }
 
     public static string StateText(SignatureState state) => state switch

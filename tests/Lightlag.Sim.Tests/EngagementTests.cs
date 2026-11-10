@@ -199,4 +199,46 @@ public class EngagementTests
         Sensors.Update(sim);
         Assert.False(Sensors.Find(w, Side.Player, theirs.Id)!.Visible);
     }
+
+    [Fact]
+    public void A_harder_burn_closes_sooner_for_more_fuel()
+    {
+        var sim = Sandbox(new SandboxSetup(2, 0, 2, 0, 1, 1, Stance.Hold, Stance.Hold, 400));
+        var w = sim.World;
+        var mine = w.Fleets.First(f => f.Side == Side.Player);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        FlightPlan Plan(double burn)
+        {
+            var o = Engagement.Of(w, mine, theirs.Id, burn)!.Options.Single(x => x.Key == "engage");
+            Assert.Null(o.Problem);
+            return FlightPlanner.Plan(w, mine, o.Request!);
+        }
+        var gentle = Plan(0.4);
+        var hard = Plan(1.0);
+        Assert.True(hard.Flight!.ArriveHour < gentle.Flight!.ArriveHour, $"hard {hard.Flight.ArriveHour - w.Hour:0.00} h {hard.DeltaV:0} dv, gentle {gentle.Flight.ArriveHour - w.Hour:0.00} h {gentle.DeltaV:0} dv, cruise {hard.Flight.CruiseSpeed:0}/{gentle.Flight.CruiseSpeed:0}");
+        Assert.True(hard.DeltaV > gentle.DeltaV);
+    }
+
+    [Fact]
+    public void A_fleet_can_catch_up_with_and_join_a_drifting_fleet()
+    {
+        var sim = Sandbox(new SandboxSetup(3, 0, 1, 0, 1, 1, Stance.Hold, Stance.Hold, 3000));
+        var w = sim.World;
+        var lead = w.Fleets.First(f => f.Side == Side.Player);
+        sim.Issue(new SplitFleetCommand(lead.Id, new List<int> { lead.ShipIds[^1] }));
+        sim.StepMany(1);
+        var straggler = w.Fleets.Last(f => f.Side == Side.Player);
+        Assert.NotEqual(lead.Id, straggler.Id);
+        // The lead drifts on at 50 Mm/h; the straggler is told to join it.
+        lead.Flight = null;
+        lead.Hold = HoldStyle.Drift;
+        lead.OrbitBodyId = null;
+        lead.Velocity = new Vec2(50, 0);
+        sim.Issue(new GatherFleetsCommand(lead.Id, new List<int> { straggler.Id }, 1.0));
+        sim.StepMany(1);
+        Assert.Equal(ChaseMode.Join, straggler.Chase?.Mode);
+        for (var i = 0; i < 200 && w.FindFleet(straggler.Id) != null; i++) sim.Step();
+        Assert.Null(w.FindFleet(straggler.Id));
+        Assert.Equal(3, lead.ShipIds.Count);
+    }
 }

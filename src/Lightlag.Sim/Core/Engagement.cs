@@ -66,6 +66,9 @@ public sealed class EngagementInfo
     public TimeWindow? TheirMissiles { get; init; }
     public List<IncomingSalvo> Salvos { get; init; } = new();
     public List<ApproachOption> Options { get; init; } = new();
+
+    /// <summary>How hard the approach choices burn, as a share of the fleet's top speed.</summary>
+    public double Burn { get; init; } = 1;
 }
 
 public static class Engagement
@@ -115,7 +118,8 @@ public static class Engagement
         return list.OrderBy(p => p.Gap).ThenBy(p => p.Mine).ThenBy(p => p.Enemy).ToList();
     }
 
-    public static EngagementInfo? Of(World w, Fleet mine, int enemyId)
+    /// <param name="burn">How hard to burn for the approach choices: a share of the fleet's top speed (0.1 to 1).</param>
+    public static EngagementInfo? Of(World w, Fleet mine, int enemyId, double burn = 1.0)
     {
         var s = Sensors.Find(w, mine.Side, enemyId);
         if (s == null || !mine.Position.IsFinite) return null;
@@ -190,8 +194,8 @@ public static class Engagement
         // Their sensor research is unknown, so this is a floor on how far they see you.
         var theirSensor = known ? classes.Max(k => k.SensorMm) : GameData.ShipClasses.Values.Max(k => k.SensorMm);
         var ourSensor = Sensors.SensorOf(w, mine);
-        // Out of sight but on a known track: the sensors know where to look (if they kept course).
-        var cue = s.Visible ? 1 : Math.Max(1, GameData.Sensors.CuedFactor);
+        // A known track (in sight now, or seen before): the sensors know where to look, as long as they keep course.
+        var cue = Math.Max(1, GameData.Sensors.CuedFactor);
         double Spot(SignatureState st) => Sensors.Range(ourSensor, theirSize * Sensors.StateFactor(st)) * cue;
         var spotCold = Spot(SignatureState.Cold);
         bool? theyMissiles = known ? classes.Any(k => k.Missiles > 0) : null;
@@ -232,7 +236,8 @@ public static class Engagement
             TheyHaveMissiles = theyMissiles,
             TheyHaveRailguns = theyRails,
             Salvos = Salvos(w, mine, enemyId),
-            Options = Options(w, mine, enemyId, s, perf),
+            Options = Options(w, mine, enemyId, s, perf, Math.Clamp(burn, 0.1, 1.0)),
+            Burn = Math.Clamp(burn, 0.1, 1.0),
         };
         return info;
     }
@@ -261,7 +266,7 @@ public static class Engagement
             .OrderBy(x => x.ImpactHours).ToList();
     }
 
-    private static List<ApproachOption> Options(World w, Fleet mine, int enemyId, Sighting s, FleetPerformance perf)
+    private static List<ApproachOption> Options(World w, Fleet mine, int enemyId, Sighting s, FleetPerformance perf, double burn)
     {
         var list = new List<ApproachOption>();
         var enemy = w.FindFleet(enemyId);
@@ -284,24 +289,25 @@ public static class Engagement
                 : new ApproachOption(key, label, "", plan.Problem ?? "Cannot do that", null, current));
         }
 
+        double Peak(Flight f) => f.Legs.Count == 0 ? 0 : f.Legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
         var ships = w.ShipsOf(mine).ToList();
         var hasRails = ships.Any(x => GameData.ShipClass(x.ClassId).Railguns > 0 && x.Disabled != Module.Railguns);
         var hasMissiles = ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
 
-        Chase("engage", "Brake and engage", ChaseMode.GunRange, 1.0,
-            p => $"Close to railgun range and keep pace: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.",
+        Chase("engage", "Burn and engage", ChaseMode.GunRange, burn,
+            p => $"Burn at {burn:P0} thrust, peaking at {FlightPlanner.Kms(Peak(p.Flight!))}, then brake to {C.EngageRangeMm * 0.75 * 1000:#,0} km and keep pace: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.",
             hasRails ? null : "No working railguns in this fleet");
-        Chase("missiles", "Hold at missile range", ChaseMode.MissileRange, 1.0,
+        Chase("missiles", "Hold at missile range", ChaseMode.MissileRange, burn,
             p => $"Sit inside missile range ({C.Missile.LaunchRangeMm * 0.8 * 1000:#,0} km) out of their railguns' reach: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.",
             hasMissiles ? null : "No missiles left in this fleet");
-        Chase("burn", "Burn past", ChaseMode.Overtake, 1.0, p =>
+        Chase("burn", "Burn past", ChaseMode.Overtake, burn, p =>
         {
             var last = p.Flight!.Legs[^1];
             var pass = (last.VelocityAt(last.End) - s.Velocity).Length;
             var inRange = pass > 1e-6 ? 2 * C.Railgun.RangeMm / pass : double.PositiveInfinity;
             return $"Fly past {FlightPlanner.OvertakePassMm * 1000:#,0} km to one side of them (never into them) at {FlightPlanner.Kms(pass)} faster than they move: about {When(inRange)} in railgun range each way, passes in {When(p.Flight.ArriveHour - w.Hour)}, {Fuel(p)}.";
         });
-        Chase("shadow", "Shadow them", ChaseMode.ShadowMissiles, 1.0,
+        Chase("shadow", "Shadow them", ChaseMode.ShadowMissiles, burn,
             p => $"Keep pace just outside their missile range ({C.Missile.LaunchRangeMm * 1.1 * 1000:#,0} km): watch without being shot at, {Fuel(p)}.");
 
         // Running: home, or straight away from them.

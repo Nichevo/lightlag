@@ -45,7 +45,7 @@
     "forgetAfterHours": 720,
     "_identifyComment": "Counting ships is easy once a fleet is in sight; telling which class each ship is (and so what it carries) needs a close look: within identifyMm of one of your fleets or planets (longer with sensor research).",
     "identifyMm": 50,
-    "_cueComment": "A fleet already seen leaves a predicted track. Sensors that know where to look see cuedFactor times as far, as long as the fleet is still within cueRadiusMm of where it was predicted to be, plus cueGrowthMmPerHour for each hour since it was last seen (it may have burned). A fleet never seen, or one that changed course well off its track, gets no help.",
+    "_cueComment": "A fleet already seen leaves a predicted track. Sensors that know where to look see cuedFactor times as far, as long as the fleet is still within cueRadiusMm of where it was predicted to be, plus cueGrowthMmPerHour for each hour since it was last seen (it may have burned). The same holds a contact already in sight, so a fleet near the edge of spotting range does not flicker in and out. A fleet never seen, or one that changed course well off its track, gets no help.",
     "cuedFactor": 3,
     "cueRadiusMm": 30,
     "cueGrowthMmPerHour": 1
