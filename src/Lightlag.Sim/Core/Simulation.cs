@@ -381,7 +381,8 @@ public sealed class Simulation
     }
 }
 
-public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit }
+public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley }
 
 /// <summary>Something to draw for a moment: a railgun shot (from, to), point defence killing a missile, a missile striking.</summary>
-public sealed record CombatEffect(double Hour, EffectKind Kind, Vec2 From, Vec2 To, Side Side);
+/// <summary>Something to draw for a moment. Width: how wide a volley's fan is at the target (Mm).</summary>
+public sealed record CombatEffect(double Hour, EffectKind Kind, Vec2 From, Vec2 To, Side Side, double Width = 0);

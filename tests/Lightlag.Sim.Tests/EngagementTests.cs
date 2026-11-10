@@ -58,7 +58,7 @@ public class EngagementTests
             var sim = Sandbox(new SandboxSetup(3, 0, 3, 0, 1, 1, Stance.Engage, Stance.Hold, 5), seed: 21);
             var w = sim.World;
             var rival = w.Fleets.First(f => f.Side == Side.Rival);
-            rival.Dodge = dodge;
+            rival.Dodge = dodge ? DodgeMode.Sidestep : DodgeMode.Off;
             var before = w.ShipsOf(rival).Sum(s => s.Supplies);
             sim.StepMany(3);
             var hits = w.Battles.Sum(b => b.For(Side.Player).RailHits);
@@ -72,5 +72,46 @@ public class EngagementTests
         var dodging = Run(true, out var fuelDodging, out var cost);
         Assert.True(dodging < plain * 0.8, $"hit rate {dodging:0.000} dodging vs {plain:0.000}");
         Assert.True(fuelDodging >= cost * 0.5, $"fuel {fuelDodging:0.00}, dodges should cost about {cost:0.00}");
+    }
+
+    [Fact]
+    public void Sidestep_beats_aimed_fire_a_fan_beats_a_sidestep_and_a_hard_burn_beats_both()
+    {
+        const double far = 200; // seconds: time enough to dodge fully
+        var sidestepFocused = Combat.DodgeFactor(DodgeMode.Sidestep, FireMode.Focused, far);
+        var sidestepSpread = Combat.DodgeFactor(DodgeMode.Sidestep, FireMode.Spread, far);
+        var hardSpread = Combat.DodgeFactor(DodgeMode.HardBurn, FireMode.Spread, far);
+        Assert.True(sidestepFocused < 0.6);
+        Assert.True(sidestepSpread > 0.85);
+        Assert.True(hardSpread < sidestepSpread);
+        Assert.Equal(1, Combat.DodgeFactor(DodgeMode.Off, FireMode.Focused, far));
+    }
+
+    [Fact]
+    public void Dodging_does_less_close_up()
+    {
+        var far = Combat.DodgeFactor(DodgeMode.HardBurn, FireMode.Focused, 120);
+        var near = Combat.DodgeFactor(DodgeMode.HardBurn, FireMode.Focused, 10);
+        Assert.True(near > far + 0.3, $"near {near:0.00} far {far:0.00}");
+    }
+
+    [Fact]
+    public void Spread_fire_sends_more_slugs_and_the_guns_cool_longer()
+    {
+        int Shots(FireMode mode, out double readyIn)
+        {
+            var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, 1, 1, Stance.Hold, Stance.Hold, 5), seed: 4);
+            var w = sim.World;
+            var mine = w.Fleets.First(f => f.Side == Side.Player);
+            mine.Fire = mode;
+            readyIn = 0;
+            for (var i = 0; i < 2000 && w.Battles.Sum(b => b.For(Side.Player).RailShots) == 0; i++) sim.Step();
+            readyIn = w.ShipsOf(mine).First().RailsReadyHour - w.Hour;
+            return w.Battles.Sum(b => b.For(Side.Player).RailShots);
+        }
+        var focused = Shots(FireMode.Focused, out var focusedWait);
+        var spread = Shots(FireMode.Spread, out var spreadWait);
+        Assert.True(spread >= focused * 3, $"{spread} vs {focused}");
+        Assert.True(spreadWait > focusedWait * 2, $"{spreadWait} vs {focusedWait}");
     }
 }

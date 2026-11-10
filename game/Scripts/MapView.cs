@@ -261,6 +261,20 @@ public partial class MapView : Node2D
                     DrawDashedLine(from, to, new Color(mine, 0.7f * fade), 1, 3);
                     DrawArc(to, 3 + 6 * (1 - fade), 0, Mathf.Tau, 12, new Color(1, 1, 1, 0.9f * fade), 1.5f, true);
                     break;
+                case EffectKind.Volley:
+                {
+                    // The fan of slugs: from the guns out to the target, as wide as the spread there.
+                    var dir = (to - from).Normalized();
+                    var across = new Vector2(-dir.Y, dir.X);
+                    var half = Mathf.Max((float)(e.Width * Camera.Scale) / 2, e.Width > 1 ? 6f : 1.5f);
+                    var tip = to + dir * half * 0.5f;
+                    var incoming = e.Side != Side.Player;
+                    var c = incoming ? new Color(1f, 0.4f, 0.35f) : mine;
+                    DrawColoredPolygon(new[] { from, tip + across * half, tip - across * half }, new Color(c, 0.12f * fade));
+                    DrawLine(from, tip + across * half, new Color(c, 0.4f * fade), 1);
+                    DrawLine(from, tip - across * half, new Color(c, 0.4f * fade), 1);
+                    break;
+                }
                 case EffectKind.MissileHit:
                     DrawCircle(to, 4 + 10 * (1 - fade), new Color(1, 0.6f, 0.2f, 0.8f * fade));
                     break;

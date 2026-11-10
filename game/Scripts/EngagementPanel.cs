@@ -16,11 +16,10 @@ public partial class EngagementPanel : Control
     private VBoxContainer _options = null!;
     private readonly List<(Button Button, string Key)> _optionButtons = new();
     private Label _defence = null!, _ships = null!;
-    private CheckBox _dodge = null!;
+    private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
     private PanelContainer _headPanel = null!, _rightPanel = null!, _leftPanel = null!, _bottomPanel = null!;
-    private bool _updating;
 
     public EngagementPanel() : this(null!) { }
     public EngagementPanel(GameScreen screen) => _screen = screen;
@@ -50,15 +49,21 @@ public partial class EngagementPanel : Control
         right.AddChild(_options);
 
         right.AddChild(Ui.Label("Defences", 16, Ui.Text));
-        _dodge = new CheckBox { Text = "Dodge railgun fire", FocusMode = FocusModeEnum.None };
-        _dodge.TooltipText = $"Sidestep slugs: each one aimed at this fleet hits {GameData.Combat.DodgeFactor:P0} as often and costs "
-                             + $"{FlightPlanner.Kms(GameData.Combat.DodgeDeltaV)} of fuel. Stops below {GameData.Combat.DodgeStopsBelow:P0} supplies.";
-        _dodge.Toggled += on =>
-        {
-            if (_updating || _screen.EngagementNow is not EngagementInfo e) return;
-            Main.Instance.Sim!.Issue(new SetDodgeCommand(e.Mine.Id, on));
-        };
-        right.AddChild(_dodge);
+        var c = GameData.Combat;
+        var sp = c.Spread;
+        _dodgeOff = Ui.SmallButton("Off", () => SetDodge(DodgeMode.Off), "Fly straight: no fuel spent on dodging");
+        _sidestep = Ui.SmallButton("Sidestep", () => SetDodge(DodgeMode.Sidestep),
+            $"Jink as slugs come in: aimed slugs hit {c.DodgeFactor:P0} as often" + (sp != null ? $", a spread's fan still {sp.SidestepVsSpread:P0}" : "")
+            + $". Costs {FlightPlanner.Kms(c.DodgeDeltaV)} of fuel per slug. Works less close up, where slugs arrive too fast to dodge.");
+        _hardBurn = Ui.SmallButton("Hard burn", () => SetDodge(DodgeMode.HardBurn),
+            sp == null ? "" : $"Burn hard out of the line of fire: aimed slugs hit {sp.HardVsFocused:P0} as often, a spread's fan {sp.HardVsSpread:P0}. "
+                              + $"Costs {sp.HardCost:0}x the fuel of a sidestep. Works less close up.");
+        right.AddChild(Row("Dodge", _dodgeOff, _sidestep, _hardBurn));
+        _focused = Ui.SmallButton("Focused", () => SetFire(FireMode.Focused), "Aimed slugs: the most hits on a ship flying straight");
+        _spread = Ui.SmallButton("Spread", () => SetFire(FireMode.Spread),
+            sp == null ? "" : $"Each gun fires {sp.SlugsPerGun} slugs at once in a fan {sp.FanMm * 1000:#,0} km wide: each hits less often but a sidestep hardly helps. "
+                              + $"The guns then cool for {sp.Cooldown:0} reloads.");
+        right.AddChild(Row("Railguns", _focused, _spread));
         _engage = Ui.SmallButton("Engage", () => SetStance(Stance.Engage), "Close in and fight whatever comes into contact");
         _hold = Ui.SmallButton("Hold course", () => SetStance(Stance.Hold), "Keep course and fire only at what comes into reach");
         var stance = new HBoxContainer();
@@ -104,6 +109,27 @@ public partial class EngagementPanel : Control
         _timeline.CustomMinimumSize = new Vector2(timelineW, 150);
         _bottomPanel.Size = _bottomPanel.GetCombinedMinimumSize();
         _bottomPanel.Position = new Vector2(16, size.Y - _bottomPanel.Size.Y - 60);
+    }
+
+    private static HBoxContainer Row(string label, params Button[] buttons)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 4);
+        var l = Ui.Label(label, 13, Ui.Dim);
+        l.CustomMinimumSize = new Vector2(64, 0);
+        row.AddChild(l);
+        foreach (var b in buttons) row.AddChild(b);
+        return row;
+    }
+
+    private void SetDodge(DodgeMode mode)
+    {
+        if (_screen.EngagementNow is EngagementInfo e) Main.Instance.Sim!.Issue(new SetDodgeCommand(e.Mine.Id, mode));
+    }
+
+    private void SetFire(FireMode mode)
+    {
+        if (_screen.EngagementNow is EngagementInfo e) Main.Instance.Sim!.Issue(new SetFireModeCommand(e.Mine.Id, mode));
     }
 
     private void SetStance(Stance stance)
@@ -158,9 +184,12 @@ public partial class EngagementPanel : Control
         }
 
         // Defences.
-        _updating = true;
-        _dodge.ButtonPressed = f.Dodge;
-        _updating = false;
+        static Color On(bool on) => on ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        _dodgeOff.Modulate = On(f.Dodge == DodgeMode.Off);
+        _sidestep.Modulate = On(f.Dodge == DodgeMode.Sidestep);
+        _hardBurn.Modulate = On(f.Dodge == DodgeMode.HardBurn);
+        _focused.Modulate = On(f.Fire == FireMode.Focused);
+        _spread.Modulate = On(f.Fire == FireMode.Spread);
         _engage.Modulate = f.Stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
         _hold.Modulate = f.Stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
         var ships = w.ShipsOf(f).ToList();
@@ -169,7 +198,8 @@ public partial class EngagementPanel : Control
         var pd = ships.Count(s => GameData.ShipClass(s.ClassId).PointDefence > 0 && s.Disabled != Module.PointDefence);
         var lines = new List<string>
         {
-            f.Dodge ? (Combat.Dodging(w, f) ? "Dodging: on" : $"Dodging: stopped, supplies below {GameData.Combat.DodgeStopsBelow:P0}") : "Dodging: off",
+            f.Dodge == DodgeMode.Off ? "Not dodging" : Combat.Dodging(w, f) ? $"Dodging ({(f.Dodge == DodgeMode.HardBurn ? "hard burn" : "sidestep")})" : $"Dodging stopped: supplies below {GameData.Combat.DodgeStopsBelow:P0}",
+            IncomingLine(w, e),
             $"Supplies {supplies:P0} · fuel for {Format.Speed(FleetPerformance.Of(w, f).DeltaVLeft)} of speed change",
             $"Armour {armour:P0} on average",
             $"Point defence on {pd} of {ships.Count} ships, reach {Km(GameData.Combat.PointDefence.RangeMm)}",
@@ -195,6 +225,19 @@ public partial class EngagementPanel : Control
         _timeline.Info = e;
         _timeline.QueueRedraw();
         Layout();
+    }
+
+    /// <summary>What railgun fire is coming in, and how much this fleet's dodge does against it at this range.</summary>
+    private static string IncomingLine(World w, EngagementInfo e)
+    {
+        var enemy = w.FindFleet(e.EnemyId);
+        if (enemy == null || !e.InSight || enemy.LastVolley is not FireMode fire || w.Hour - enemy.LastVolleyHour > 0.05)
+            return "No railgun fire coming in";
+        var d = Vec2.Distance(e.Mine.Position, enemy.Position);
+        var secs = Combat.SlugSeconds(d, enemy, e.Mine);
+        string Cut(DodgeMode m) => $"{1 - Combat.DodgeFactor(m, fire, secs):P0}";
+        return $"Incoming: {(fire == FireMode.Spread ? "spread fans" : "aimed slugs")}, arriving in {secs:0} s. "
+               + $"A sidestep cuts hits by {Cut(DodgeMode.Sidestep)}, a hard burn by {Cut(DodgeMode.HardBurn)}.";
     }
 
     private void Choose(string key)

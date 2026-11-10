@@ -15,6 +15,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(MergeFleetsCommand), "mergeFleets")]
 [JsonDerivedType(typeof(SetStanceCommand), "setStance")]
 [JsonDerivedType(typeof(SetDodgeCommand), "setDodge")]
+[JsonDerivedType(typeof(SetFireModeCommand), "setFireMode")]
 [JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
 [JsonDerivedType(typeof(QueueOrderCommand), "queueOrder")]
@@ -145,6 +146,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Chase = fleet.Chase?.Copy();
         created.Stance = fleet.Stance;
         created.Dodge = fleet.Dodge;
+        created.Fire = fleet.Fire;
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
         Fleets.Arrange(world, fleet);
@@ -202,6 +204,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         ahead.OrbitAngle = fleet.OrbitAngle;
         ahead.Stance = fleet.Stance;
         ahead.Dodge = fleet.Dodge;
+        ahead.Fire = fleet.Fire;
         ahead.Facing = fleet.Facing;
         ahead.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
         Fleets.Arrange(world, fleet);
@@ -270,14 +273,25 @@ public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWh
     }
 }
 
-/// <summary>Turn dodging railgun fire on or off for a fleet.</summary>
-public sealed record SetDodgeCommand(int FleetId, bool Dodge) : GameCommand
+/// <summary>How a fleet dodges railgun fire.</summary>
+public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand
 {
     public override void Apply(World world, Simulation sim)
     {
         if (GetFleet(world, sim, FleetId, "Dodge order") is not Fleet fleet) return;
         fleet.Dodge = Dodge;
-        sim.Log.Info("fleet", $"{fleet.Name} " + (Dodge ? "will dodge railgun fire" : "stops dodging"), new { FleetId, Dodge, Source });
+        sim.Log.Info("fleet", $"{fleet.Name} dodging: {Dodge}", new { FleetId, Dodge = Dodge.ToString(), Source });
+    }
+}
+
+/// <summary>How a fleet fires its railguns: focused or spread.</summary>
+public sealed record SetFireModeCommand(int FleetId, FireMode Fire) : GameCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Fire mode order") is not Fleet fleet) return;
+        fleet.Fire = Fire;
+        sim.Log.Info("fleet", $"{fleet.Name} railguns: {Fire}", new { FleetId, Fire = Fire.ToString(), Source });
     }
 }
 

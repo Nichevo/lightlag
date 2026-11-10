@@ -186,8 +186,47 @@ public static class Combat
         }
     }
 
-    /// <summary>Is this fleet sidestepping railgun fire now? (Set to dodge, and supplies not yet low.)</summary>
-    public static bool Dodging(World w, Fleet f) => f.Dodge && C.DodgeFactor < 1 && SupplyShare(w, f) >= C.DodgeStopsBelow;
+    /// <summary>Is this fleet dodging railgun fire now? (Set to dodge, and supplies not yet low.)</summary>
+    public static bool Dodging(World w, Fleet f) => f.Dodge != DodgeMode.Off && C.DodgeFactor < 1 && SupplyShare(w, f) >= C.DodgeStopsBelow;
+
+    /// <summary>How long a slug takes to reach its target (seconds): slug speed plus the closing speed.</summary>
+    public static double SlugSeconds(double distanceMm, Fleet shooter, Fleet target)
+    {
+        var gap = target.Position - shooter.Position;
+        var closing = gap.Length > 1e-9 ? Math.Max(0, -Vec2.Dot(gap, target.Velocity - shooter.Velocity) / gap.Length) : 0;
+        var speed = (C.Spread?.SlugSpeedMmPerHour ?? 180) + closing;
+        return distanceMm / speed * 3600;
+    }
+
+    /// <summary>
+    /// How much a dodge cuts the hit chance (1: not at all). A sidestep beats aimed fire but hardly helps
+    /// against a fan; a hard burn helps against both. Close up, or closing fast, a slug arrives before
+    /// the ship can move far, so the dodge does less.
+    /// </summary>
+    public static double DodgeFactor(DodgeMode dodge, FireMode fire, double slugSeconds)
+    {
+        var s = C.Spread;
+        double full = dodge switch
+        {
+            DodgeMode.Off => 1,
+            DodgeMode.HardBurn when s != null => fire == FireMode.Spread ? s.HardVsSpread : s.HardVsFocused,
+            _ => s != null && fire == FireMode.Spread ? s.SidestepVsSpread : C.DodgeFactor,
+        };
+        var time = Math.Clamp(slugSeconds / (s?.FullDodgeSeconds ?? 1e-9), 0, 1);
+        return 1 - (1 - full) * time;
+    }
+
+    /// <summary>
+    /// Computer-run fleets pick their fire and dodge from what they can see: a fan against a fleet seen
+    /// jinking, aimed fire otherwise; a hard burn while spread fire is coming in and there is fuel to spare.
+    /// </summary>
+    private static void AutoTactics(World w, Fleet shooter, Fleet target)
+    {
+        if (Mind.Of(w, shooter.Side) != null)
+            shooter.Fire = target.Dodge == DodgeMode.Sidestep && Dodging(w, target) ? FireMode.Spread : FireMode.Focused;
+        if (Mind.Of(w, target.Side) != null)
+            target.Dodge = shooter.LastVolley == FireMode.Spread && SupplyShare(w, target) > 0.5 ? DodgeMode.HardBurn : DodgeMode.Sidestep;
+    }
 
     /// <summary>Supplies left as a share of full, across the fleet.</summary>
     public static double SupplyShare(World w, Fleet f)
@@ -264,8 +303,19 @@ public static class Combat
         var stats = battle.For(ship.Side);
         battle.Action(t1);
         fleet.LastBurnHour = t1; // firing heats the ships up: they stay easier to see for a while
-        ship.RailsReadyHour = t1 + rail.ReloadSeconds * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
-        for (var i = 0; i < cls.Railguns; i++)
+        AutoTactics(w, fleet, targetFleet);
+        var spread = C.Spread;
+        var mode = spread != null ? fleet.Fire : FireMode.Focused;
+        var slugs = cls.Railguns * (mode == FireMode.Spread ? spread!.SlugsPerGun : 1);
+        var cooldown = mode == FireMode.Spread ? spread!.Cooldown : 1; // a burst heats the guns: they wait longer
+        ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
+        fleet.LastVolley = mode;
+        fleet.LastVolleyHour = t1;
+        var fan = spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm;
+        sim.AddEffect(new CombatEffect(t1, EffectKind.Volley, ship.Position, target.Position, ship.Side, fan));
+        var side = (target.Position - ship.Position).Normalized();
+        side = new Vec2(-side.Y, side.X);
+        for (var i = 0; i < slugs; i++)
         {
             if (ship.Supplies < rail.SuppliesPerShot) break;
             ship.Supplies -= rail.SuppliesPerShot;
@@ -274,15 +324,16 @@ public static class Combat
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
             var evasion = GameData.ShipClass(target.ClassId).Evasion;
             var chance = rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
+            if (mode == FireMode.Spread) chance *= spread!.Accuracy;
             if (Dodging(w, targetFleet))
             {
-                chance *= C.DodgeFactor;
-                sim.BurnFuel(targetFleet, C.DodgeDeltaV);
+                chance *= DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet));
+                sim.BurnFuel(targetFleet, C.DodgeDeltaV * (targetFleet.Dodge == DodgeMode.HardBurn && spread != null ? spread.HardCost : 1));
                 targetFleet.LastBurnHour = t1;
             }
             var hit = sim.Rng.NextDouble() < chance;
             // Misses are drawn landing a little off the target, on a fixed pattern (no extra dice).
-            var off = new Vec2(DetMath.Cos(i * 2.1 + t1 * 977), DetMath.Sin(i * 2.1 + t1 * 977)) * 0.6;
+            var off = side * (fan * 0.5 * DetMath.Sin(i * 2.1 + t1 * 977));
             sim.AddEffect(new CombatEffect(t1, hit ? EffectKind.RailHit : EffectKind.RailMiss, ship.Position, target.Position + (hit ? Vec2.Zero : off), ship.Side));
             if (hit)
             {
