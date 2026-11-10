@@ -47,6 +47,9 @@ public sealed class World
     /// <summary>Ships being built and upgrades being researched, in queue order (see Economy).</summary>
     public List<WorkOrder> Orders { get; set; } = new();
 
+    /// <summary>Messenger drones in flight (see Drones).</summary>
+    public List<Drone> Drones { get; set; } = new();
+
     /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
     public List<Station> Stations { get; set; } = new();
 

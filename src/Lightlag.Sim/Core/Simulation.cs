@@ -132,6 +132,7 @@ public sealed class Simulation
             var t1 = World.Hour;
             Combat.Steer(this, t0, t1);
             MoveFleets(t0, t1);
+            Drones.Move(this, t1 - t0);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Light.Relay(this);
@@ -144,6 +145,7 @@ public sealed class Simulation
             // Fleets still braking after a fight finish braking (otherwise they would drift on for ever).
             Combat.Steer(this, t0, World.Hour);
             MoveFleets(t0, World.Hour);
+            Drones.Move(this, World.Hour - t0);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Light.Relay(this);

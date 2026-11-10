@@ -260,6 +260,13 @@ public static class Mind
             var flag = Light.Flagship(_w, _side);
             foreach (var f in Mine().ToList())
             {
+                // Orders stuck behind a planet for six hours go by drone.
+                if (Drones.Blocked(_w, f.Id).Any(t => t.Side == _side && _w.Hour - t.ArriveHour >= 6)
+                    && Drones.CanSend(_w, _side, f.Id) == null)
+                {
+                    Do(new SendDroneCommand(_side, f.Id));
+                    Note($"Sends a drone to {f.Name}: a planet blocks its orders");
+                }
                 var carries = flag != null && flag.FleetId == f.Id;
                 var cover = !carries ? CoverStyle.Loose : _m.Personality == Personality.Turtle ? CoverStyle.Close : CoverStyle.Screen;
                 var fireAt = FireAt.Nearest;

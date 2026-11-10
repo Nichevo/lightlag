@@ -784,6 +784,14 @@ public partial class GameScreen : Node2D
         if (Sim.World.FindShip(shipId) is Ship s && s.Side == Side.Player) Sim.Issue(new SetProtectCommand(s.FleetId, s.Id, on));
     }
 
+    public void SendDrone()
+    {
+        if (MyFleet is not Fleet f) return;
+        if (Drones.CanSend(Sim.World, Side.Player, f.Id) is string problem) { _main.Toast(problem); return; }
+        Sim.Issue(new SendDroneCommand(Side.Player, f.Id));
+        _main.Toast($"Drone away to {f.Name}");
+    }
+
     public void ToggleRadioSilence() =>
         Sim.Issue(new SetRadioSilenceCommand(Side.Player, !Economy.Of(Sim.World, Side.Player).RadioSilence));
 

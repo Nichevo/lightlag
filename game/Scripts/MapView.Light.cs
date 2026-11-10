@@ -73,6 +73,16 @@ public partial class MapView
             if (r > 12 && r < 20000) DrawDashedCircle(at, r, CommandRing, "Command range");
             DrawFlagMark(at + new Vector2(-14, -18), Ui.Player);
         }
+        // Our messenger drones (and enemy ones we would see only if close: not drawn).
+        foreach (var d in w.Drones)
+        {
+            if (d.Side != Side.Player) continue;
+            var at = Camera.ToScreen(d.Position);
+            DrawCircle(at, 3, Ui.Player);
+            if (w.FindFleet(d.TargetFleetId) is Fleet tf && _drawn.TryGetValue(tf.Id, out var tp))
+                DrawDashedLine(at, Camera.ToScreen(tp), new Color(Ui.Player, 0.35f), 1, 3);
+            DrawString(_font, at + new Vector2(6, -4), "drone", HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
+        }
         // Enemy fleets taken to carry the rival flagship: a red flag, with a question mark while it is only a guess.
         foreach (var s in w.Picture)
         {

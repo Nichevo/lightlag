@@ -42,6 +42,8 @@
   "flagships": { "screenChance": 0.6, "closeChance": 0.85, "closeDodge": 0.5, "pdProtectFactor": 1.3, "pdOtherFactor": 0.9, "closePdFactor": 1.15,
     "unshotAccuracy": 1.15, "unshotHours": 0.05, "escortScreenMm": 5, "suspectAt": 0.5, "signalPerHour": 0.12, "tightBeamLeak": 0.4,
     "coverPerHour": 0.06, "decayPerHour": 0.01, "maxGuess": 0.95 },
+  "_dronesComment": "Messenger drones carry orders to a fleet a planet cuts off from the flagship: they fly at speedMmPerHour straight to it (round anything in the way), cost Industry, and hand the orders over within reachMm. An enemy fleet with railguns within shotRangeMm shoots one down at killPerHour (a chance of killPerHour x the hours it stays in reach). At 20,000 Mm an hour (about 2 % of light speed) a drone crosses an AU in about 7.5 hours.",
+  "drones": { "speedMmPerHour": 20000, "cost": 5, "shotRangeMm": 40, "killPerHour": 3, "reachMm": 1 },
   "sensors": {
     "cold": 1,
     "orbit": 3,

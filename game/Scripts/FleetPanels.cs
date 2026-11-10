@@ -165,9 +165,13 @@ public partial class FleetPanel : PanelContainer
         _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
             "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
         box.AddChild(_engagementButton);
+        _droneButton = Ui.SmallButton("Send orders by drone", () => _screen.SendDrone(),
+            $"A planet blocks the signal to this fleet. A messenger drone flies the orders there instead: slower than light, {Drones.D.Cost:0} Industry, and easy to shoot down");
+        box.AddChild(_droneButton);
     }
 
     private Button _engagementButton = null!;
+    private Button _droneButton = null!;
 
     private Fleet? _fleet;
 
@@ -299,6 +303,7 @@ public partial class FleetPanel : PanelContainer
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
         _missionRow.Visible = mine;
         _coverRow.Visible = mine && w.Light.On;
+        _droneButton.Visible = mine && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
         _mission.Text = MissionText(w, f) + " ▾";

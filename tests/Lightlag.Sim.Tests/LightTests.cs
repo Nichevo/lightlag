@@ -292,4 +292,28 @@ public class LightTests
         Assert.True(Light.InCommandGap(w, Side.Player));
         Assert.Null(w.Winner);
     }
+
+    [Fact]
+    public void A_drone_carries_orders_round_a_planet_in_the_way()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var lone = FrigateAtTamber(sim);
+        var end = w.Tick + 60 * GameTime.TicksPerDay;
+        while (Light.SignalClear(w, Side.Player, lone.Position) && w.Tick < end) sim.Step();
+        Assert.False(Light.SignalClear(w, Side.Player, lone.Position));
+        sim.Issue(new SetHoldCommand(lone.Id, HoldStyle.Drift));
+        sim.Step();
+        Assert.Null(Drones.CanSend(w, Side.Player, lone.Id));
+        var industry = Economy.Of(w, Side.Player).Industry;
+        sim.Issue(new SendDroneCommand(Side.Player, lone.Id));
+        sim.Step();
+        Assert.Single(w.Drones);
+        Assert.Empty(Drones.Pending(w, Side.Player, lone.Id));
+        Assert.True(Economy.Of(w, Side.Player).Industry < industry + 1);
+        // Tamber is 4 to 6 AU out: at 20,000 Mm/h the drone takes one to two days.
+        for (var i = 0; i < 4 * 24 && w.Drones.Count > 0; i++) sim.Step();
+        Assert.Empty(w.Drones);
+        Assert.Equal(HoldStyle.Drift, lone.Hold);
+    }
 }
