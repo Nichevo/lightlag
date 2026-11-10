@@ -3,12 +3,12 @@
   "classes": [
     { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate",
       "maxSpeedMmPerHour": 600, "accelMmPerHour2": 25, "supplies": 60, "suppliesPerDeltaV": 0.025,
-      "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 40,
+      "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 80,
       "sensorMm": 30, "signatureSize": 1.0,
       "role": "Fast and cheap, short legs. Railgun pair and point defence: strong up close." },
     { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer",
       "maxSpeedMmPerHour": 400, "accelMmPerHour2": 12, "supplies": 160, "suppliesPerDeltaV": 0.025,
-      "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 80,
+      "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 160,
       "sensorMm": 40, "signatureSize": 2.0,
       "role": "Long range, slower. Missile racks (4 salvos of 4) and point defence." }
   ],
@@ -33,7 +33,9 @@
                 "sidestepVsSpread": 0.9, "hardVsFocused": 0.4, "hardVsSpread": 0.5, "hardCost": 3,
                 "slugSpeedMmPerHour": 900, "fullDodgeSeconds": 80 }
   },
-  "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters), warm (coasting within warmHours of a burn: the engines are still hot) or burn (main engines firing). With these numbers a frigate sees a cold frigate at about 30,000 km (so cold ships can still creep inside missile range), a warm one at 1.5 million km and a burn at about 9.5 million km; a home planet sees five times as far (a burn about a third of an AU away). Planets block the line of sight. Your home planet's sensors use planetSensorMm. Sightings no longer updated are forgotten after forgetAfterHours.",
+  "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters), warm (coasting within warmHours of a burn: the engines are still hot) or burn (main engines firing). With these numbers a frigate sees a cold frigate at about 30,000 km (so cold ships can still creep inside missile range), a warm one at 1.5 million km and a burn at about 9.5 million km; a home planet sees five times as far (a burn about a third of an AU away). Planets block the line of sight. Your shipyard planet, and any body with a sensor station, sees out to planetSensorMm; other bodies you hold see like a destroyer (planetBareSensorMm). Sightings no longer updated are forgotten after forgetAfterHours.",
+  "_lightComment": "Light lag. Signals and orders travel at speedKmPerSecond (real light speed), times the game's light speed setting. Each side commands from its flagship; fleets within commandRangeAu of it count as live, with no lag.",
+  "light": { "speedKmPerSecond": 299792.458, "commandRangeAu": 0.2 },
   "sensors": {
     "cold": 1,
     "orbit": 3,
@@ -42,6 +44,7 @@
     "burn": 100000,
     "extraShip": 0.25,
     "planetSensorMm": 150,
+    "planetBareSensorMm": 40,
     "forgetAfterHours": 720,
     "_identifyComment": "Counting ships is easy once a fleet is in sight; telling which class each ship is (and so what it carries) needs a close look: within identifyMm of one of your fleets or planets (longer with sensor research).",
     "identifyMm": 50,

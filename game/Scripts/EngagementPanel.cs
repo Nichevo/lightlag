@@ -277,6 +277,29 @@ public partial class EngagementPanel : Control
 
     private static string Km(double mm) => Format.Distance(mm);
 
+    /// <summary>
+    /// Under light lag: how long orders take, how old the picture is, and the order deadline: the last
+    /// moment an order sent now still reaches the fleet before contact. Choices made here go out together
+    /// as its battle plan.
+    /// </summary>
+    private static string LagLine(World w, Fleet f, EngagementInfo e)
+    {
+        var me = Lightlag.Sim.Core.Side.Player;
+        var lag = Light.DelayHours(w, me, f.Position);
+        if (lag <= 0) return "";
+        var line = $"\nOrders take {Format.Lag(lag)} to reach {f.Name}; this picture is {Format.Lag(Light.AgeHours(w, me, e.EnemyId))} old.";
+        if (!Light.SignalClear(w, me, f.Position)) return line + " A planet blocks the signal: orders wait until it clears.";
+        // Contact is worked out on their track carried on to now, so only the order's own trip counts.
+        if (e.ContactInHours is double contact && contact > 0)
+        {
+            var left = contact - lag;
+            line += left > 0
+                ? $" Order deadline: send within {Format.Lag(left)} to reach it before contact. Choices made here go out together as its battle plan."
+                : " Too late for orders before contact: it fights by its standing orders and autonomy.";
+        }
+        return line;
+    }
+
     public void Refresh(Simulation sim, EngagementInfo e)
     {
         var w = sim.World;
@@ -287,7 +310,8 @@ public partial class EngagementPanel : Control
             ? "they are as close as they will get"
             : $"closest pass in {When(e.ClosestInHours)} at {Km(e.ClosestGap)}";
         _header.Text = $"ENGAGEMENT: {f.Name} and {e.EnemyName} ({e.EnemyShips} ships, {seen})\n"
-                       + $"{Km(e.Gap)} apart, {how}; {pass}, if neither changes course.";
+                       + $"{Km(e.Gap)} apart, {how}; {pass}, if neither changes course."
+                       + LagLine(w, f, e);
         RefreshTabs(e);
 
         // Approach options.

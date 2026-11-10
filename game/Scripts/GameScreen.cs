@@ -175,7 +175,7 @@ public partial class GameScreen : Node2D
             // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
             // battle time, which runs 360 times slower: 1x is then one game minute per second.
             var cost = Sim.PeekStepHours();
-            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick ? BattleSlowdown : 1);
+            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick && SlowForBattle() ? BattleSlowdown : 1);
             _accum += delta * rate / cost;
             var switched = false;
             var ok = _main.RunGuarded("running the simulation", () =>
@@ -202,6 +202,7 @@ public partial class GameScreen : Node2D
             _sinceAutosave += delta;
             WatchBattles();
             WatchSightings();
+            WatchNotes();
             WatchChasers();
             WatchEconomy();
             // Pausing, or switching in or out of battle time: show where things really are now, so the
@@ -250,7 +251,7 @@ public partial class GameScreen : Node2D
     }
 
     /// <summary>Draw the simulation exactly as it is now: no blending back towards the step before.</summary>
-    private void SnapToNow()
+    public void SnapToNow()
     {
         _map.BeforeStep();
         _accum = 0;
@@ -282,7 +283,7 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         if (w.FindFleet(mineId) is not { Side: Side.Player } mine) return;
         var enemy = enemyId ?? Engagement_.EnemyFor(w, mine);
-        if (enemy is not int e || Sensors.Find(w, Side.Player, e) == null)
+        if (enemy is not int e || Sensors.Find(w, Side.Player, e, seat: true) == null)
         {
             _main.Toast($"{mine.Name} has no enemy fleet in sight or on record");
             return;
@@ -352,7 +353,7 @@ public partial class GameScreen : Node2D
         if (_engagementAge < 0.25 && EngagementNow != null) { _map.Engagement = EngagementNow; return; }
         _engagementAge = 0;
         var w = Sim.World;
-        if (w.FindFleet(mineId) is not Fleet mine || Sensors.Find(w, Side.Player, enemyId) == null)
+        if (w.FindFleet(mineId) is not Fleet mine || Sensors.Find(w, Side.Player, enemyId, seat: true) == null)
         {
             CloseEngagement();
             _map.Engagement = null;
@@ -374,7 +375,7 @@ public partial class GameScreen : Node2D
     public void GoToSighting(int fleetId)
     {
         var w = Sim.World;
-        var s = Sensors.Find(w, Side.Player, fleetId);
+        var s = Sensors.Find(w, Side.Player, fleetId, seat: true);
         if (s == null || w.FindFleet(fleetId) is not Fleet f) return;
         Select(fleetId);
         if (s.Visible || RevealAll) _follow = f.Id;
@@ -426,7 +427,7 @@ public partial class GameScreen : Node2D
         if (mine != null) { _follow = mine.Id; Select(mine.Id); }
         else { _follow = null; _camera.Center = center; }
         _camera.FitRadius(Math.Max(spread * 2.5, 300));
-        var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id) != null);
+        var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id, seat: true) != null);
         if (mine != null) OpenEngagement(mine.Id, theirs?.Id);
     }
 
@@ -553,11 +554,32 @@ public partial class GameScreen : Node2D
 
     // ---- Battles ------------------------------------------------------------------------------
 
+    /// <summary>Has news of something that happened at this hour and place reached your flagship yet?</summary>
+    private bool Heard(double hour, Vec2 where) => Sim.World.Hour - hour >= Light.DelayHours(Sim.World, Side.Player, where) - 1e-9;
+
+    /// <summary>
+    /// Should battle time slow the clock? Without light lag, whenever the game runs in battle time. With
+    /// it, only when you could know: a battle whose news has reached you, or enemies close to a fleet
+    /// within your command range. A far battle you have not heard of yet runs at the normal speed.
+    /// </summary>
+    private bool SlowForBattle()
+    {
+        var w = Sim.World;
+        if (!w.Light.On) return true;
+        if (w.ActiveBattle is Battle b && Heard(b.StartHour, b.Where)) return true;
+        var near = GameData.Combat.ContactRangeMm * 2;
+        foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player && Light.DelayHours(w, Side.Player, f.Position) <= 0))
+            if (w.Fleets.Any(e => e.Side != Side.Player && Vec2.Distance(e.Position, mine.Position) <= near)
+                || w.Missiles.Any(m => Vec2.Distance(m.Position, mine.Position) <= near))
+                return true;
+        return false;
+    }
+
     /// <summary>Pause when a battle starts (so orders can be given), and show the report when it ends.</summary>
     private void WatchBattles()
     {
         var w = Sim.World;
-        if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen)
+        if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen && Heard(b.StartHour, b.Where))
         {
             _lastBattleSeen = b.Id;
             // The same fleets meeting again soon after a contact ended (drifting in and out of range): no new pause.
@@ -578,8 +600,8 @@ public partial class GameScreen : Node2D
                     onClick: FocusBattle);
             }
         }
-        var last = w.Battles.Count > 0 ? w.Battles[^1] : null;
-        if (last is { EndHour: not null } && last.Id != _lastReportShown)
+        var last = w.Battles.LastOrDefault(x => x.EndHour is double end && Heard(end, x.Where));
+        if (last != null && last.Id > _lastReportShown)
         {
             _lastReportShown = last.Id;
             Report = last;
@@ -595,11 +617,27 @@ public partial class GameScreen : Node2D
         }
     }
 
+    private int _lastNoteId;
+
+    /// <summary>Decisions our fleets made for themselves: a News line once the news reaches the flagship.</summary>
+    private void WatchNotes()
+    {
+        var w = Sim.World;
+        foreach (var n in w.Light.Notes)
+        {
+            if (n.Id <= _lastNoteId || n.Side != Side.Player || n.ArriveHour > w.Hour + 1e-9) continue;
+            _lastNoteId = Math.Max(_lastNoteId, n.Id);
+            if (n.ArriveHour < w.Hour - 1) continue; // already heard before the game was loaded
+            var ago = w.Hour - n.Hour > 0.02 ? $" ({Format.Hours(w.Hour - n.Hour)} ago)" : "";
+            _main.AddNews(n.Text + ago, GoToFleet(n.FleetId));
+        }
+    }
+
     /// <summary>A new enemy fleet in sight: say so, and pause if asked to.</summary>
     private void WatchSightings()
     {
         var w = Sim.World;
-        foreach (var s in w.Sightings)
+        foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own))
         {
             if (s.SeenBy != Side.Player || !s.Visible) continue;
             var seenBefore = _lastInSight.ContainsKey(s.FleetId);
@@ -628,7 +666,7 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         if (w.Tick == _chaseCheckedTick) return;
         _chaseCheckedTick = w.Tick;
-        foreach (var s in w.Sightings.Where(s => s.SeenBy == Side.Player && s.Visible))
+        foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && s.Visible))
             foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player))
             {
                 if (Sensors.HeadingFor(s, mine, w.Hour) is not double eta) continue;
@@ -724,6 +762,22 @@ public partial class GameScreen : Node2D
     }
 
     // ---- Fleet orders -----------------------------------------------------------------------
+
+    public void BuildStation(int bodyId, string kind)
+    {
+        if (Economy.CanBuildStation(Sim.World, Side.Player, bodyId, kind) is string problem) { _main.Toast(problem); return; }
+        Sim.Issue(new BuildStationCommand(Side.Player, bodyId, kind));
+    }
+
+    public void OrderMission(Mission mission, int? bodyId, int? escortFleetId)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetMissionCommand(f.Id, mission, bodyId, escortFleetId));
+    }
+
+    public void OrderAutonomy(AutonomyLevel level)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetAutonomyCommand(f.Id, level));
+    }
 
     public void OrderHold(HoldStyle hold)
     {
@@ -1150,7 +1204,7 @@ public partial class GameScreen : Node2D
         if (_map.HitTest(at) is int hit && Sim.World.FindFleet(hit) is Fleet enemy && enemy.Side != Side.Player)
         {
             // Aim at where it is thought to be: in sight, or guessed from the last sighting.
-            var guess = Sensors.Predict(Sim.World, Side.Player, enemy.Id, Sim.World.Hour) ?? enemy.Position;
+            var guess = Sensors.Predict(Sim.World, Side.Player, enemy.Id, Sim.World.Hour, seat: true) ?? enemy.Position;
             StartPlanning(null, guess, enemy.Id);
             if (goNow) ConfirmPlan();
             return;

@@ -65,11 +65,23 @@ public sealed class Simulation
         var rng = new SimRandom(seed);
         var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng);
         if (sandbox == null) Mind.Setup(world, options, seed);
+        if (sandbox == null && options?.Light is LightSetup light)
+        {
+            world.Light.On = light.On;
+            world.Light.SpeedFactor = light.SpeedFactor;
+        }
+        if (sandbox == null && options?.Autonomy is AutonomyLevel level)
+        {
+            foreach (var s in world.Sides) s.DefaultAutonomy = level;
+            foreach (var f in world.Fleets) f.Autonomy = level;
+        }
+        Light.ChooseFlagships(world);
         world.Random = rng.Save();
         if (sandbox != null) scenario = Scenarios.BattleSandbox;
         var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox, Options = options };
         var sim = new Simulation(world, rng, log, build, replay);
         Sensors.Update(sim);
+        Light.Relay(sim);
         Stats.RecordDay(world);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
         log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox, options });
@@ -102,6 +114,7 @@ public sealed class Simulation
     public void Step()
     {
         ApplyPending();
+        Light.Deliver(this);
 
         var t0 = World.Hour;
         var velocities = World.Fleets.Select(f => (f, f.Velocity)).ToList();
@@ -120,6 +133,7 @@ public sealed class Simulation
             MoveFleets(t0, t1);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
+            Light.Relay(this);
             Combat.Fire(this, t0, t1);
         }
         else
@@ -131,6 +145,7 @@ public sealed class Simulation
             MoveFleets(t0, World.Hour);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
+            Light.Relay(this);
             // Contacts between fleets that can't fight yet start (or end) a battle at the hour.
             Combat.UpdateContacts(this, World.Hour);
         }
@@ -141,6 +156,7 @@ public sealed class Simulation
         Chases.Update(this);
         Economy.Update(this);
         Mind.Update(this);
+        Autonomy.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
 
         if (World.Tick % GameTime.TicksPerDay == 0)
@@ -160,8 +176,16 @@ public sealed class Simulation
         {
             var command = _pending.Dequeue();
             Replay.Commands.Add(new RecordedCommand(World.Tick, command, World.Sub));
-            command.Apply(World, this);
+            // Under light lag an order to a far fleet (or home) is sent now and takes effect when it arrives.
+            if (!Light.Send(this, command)) Carry(command);
         }
+    }
+
+    /// <summary>Carries out an order that has reached its fleet (or home), now or after its light arrives.</summary>
+    public void Carry(GameCommand command)
+    {
+        command.Apply(World, this);
+        Autonomy.Heard(this, command);
     }
 
     /// <summary>How much game time the next step will probably take (for the screen's clock; the step itself decides).</summary>

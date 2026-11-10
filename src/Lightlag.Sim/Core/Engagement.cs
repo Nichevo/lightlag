@@ -31,6 +31,9 @@ public sealed class EngagementInfo
     public double Closing { get; init; }
     public double ClosestInHours { get; init; }
     public double ClosestGap { get; init; }
+
+    /// <summary>Hours until they come within contact range (battle time) on these tracks, 0 if they are, null if not within two days.</summary>
+    public double? ContactInHours { get; init; }
     public double LookAheadHours { get; init; }
     public double OurTopSpeed { get; init; }
     public bool WeHaveMissiles { get; init; }
@@ -78,12 +81,12 @@ public static class Engagement
     /// <summary>The enemy fleet your fleet is most concerned with: in a battle with it, else the nearest one seen.</summary>
     public static int? EnemyFor(World w, Fleet mine)
     {
-        if (mine.Chase is { } c && Sensors.Find(w, mine.Side, c.TargetFleetId) != null) return c.TargetFleetId;
+        if (mine.Chase is { } c && Sensors.Find(w, mine.Side, c.TargetFleetId, seat: true) != null) return c.TargetFleetId;
         int? best = null;
         var bestD = double.MaxValue;
-        foreach (var s in w.Sightings)
+        foreach (var s in Sensors.Known(w, seat: true))
         {
-            if (s.SeenBy != mine.Side) continue;
+            if (s.SeenBy != mine.Side || s.Own) continue;
             var d = Vec2.Distance(s.Guess(w.Hour), mine.Position);
             if (!s.Visible) d *= 3; // prefer what is in sight
             if (d < bestD) { bestD = d; best = s.FleetId; }
@@ -124,9 +127,9 @@ public static class Engagement
         foreach (var mine in w.Fleets)
         {
             if (mine.Side != side || !mine.Position.IsFinite || !w.ShipsOf(mine).Any()) continue;
-            foreach (var s in w.Sightings)
+            foreach (var s in Sensors.Known(w, seat: true))
             {
-                if (s.SeenBy != side) continue;
+                if (s.SeenBy != side || s.Own) continue;
                 var gap = Vec2.Distance(s.Guess(w.Hour), mine.Position);
                 var chased = mine.Chase?.TargetFleetId == s.FleetId;
                 if (gap > near && !chased && Sensors.HeadingFor(s, mine, w.Hour) == null) continue;
@@ -140,10 +143,10 @@ public static class Engagement
     /// <param name="burn">How hard to burn for the approach choices: a share of the fleet's top speed (0.1 to 1).</param>
     public static EngagementInfo? Of(World w, Fleet mine, int enemyId, double burn = 1.0)
     {
-        var s = Sensors.Find(w, mine.Side, enemyId);
+        var s = Sensors.Find(w, mine.Side, enemyId, seat: true);
         if (s == null || !mine.Position.IsFinite) return null;
         var now = w.Hour;
-        Vec2 Them(double t) => Sensors.Predict(w, mine.Side, enemyId, now + t) ?? s.Guess(now + t);
+        Vec2 Them(double t) => Sensors.Predict(w, mine.Side, enemyId, now + t, seat: true) ?? s.Guess(now + t);
         Vec2 Us(double t) => Combat.PredictFleet(w, mine, now + t);
         double GapAt(double t) => Vec2.Distance(Us(t), Them(t));
 
@@ -176,6 +179,9 @@ public static class Engagement
             var g = GapAt(t);
             if (g < closest) { closest = g; closestT = t; }
         }
+        double? contactT = null;
+        for (var i = 0; i <= 960 && contactT == null; i++)
+            if (GapAt(i * 0.05) <= GameData.Combat.ContactRangeMm) contactT = i * 0.05;
         // Rounded up to a fixed step so the timeline's scale holds still while time runs.
         var want = Math.Clamp(Math.Max(closestT * 1.6, closestT + 0.25), 0.25, 48);
         var ahead = new[] { 0.25, 0.5, 1, 2, 3, 6, 12, 24, 48 }.First(x => x >= want - 1e-9);
@@ -234,6 +240,7 @@ public static class Engagement
             Closing = closing,
             ClosestInHours = closestT,
             ClosestGap = closest,
+            ContactInHours = contactT,
             LookAheadHours = ahead,
             OurTopSpeed = perf.MaxSpeed,
             WeHaveMissiles = weMissiles,

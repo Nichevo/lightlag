@@ -45,6 +45,9 @@ public static class FlightPlanner
     public static FlightPlan Plan(World w, Fleet fleet, FlightRequest req)
     {
         int? from = fleet.Hold == HoldStyle.Orbit && fleet.Velocity.Length <= 1e-9 ? fleet.OrbitBodyId : null;
+        // A fleet redirected while it is still climbing out of, or settling into, a body (a flight between
+        // moons skims them) leaves from that body, so it may pass through its surface on the way out.
+        from ??= w.Bodies.FirstOrDefault(b => b.Radius > 0 && Vec2.Distance(fleet.Position, b.Position) < b.Radius)?.Id;
         FlightPlan Straight(FlightRequest r)
         {
             var p = PlanStraight(w, fleet, r);

@@ -22,9 +22,33 @@ public partial class FleetPanel : PanelContainer
     private Button _drift = null!;
     private Button _stop = null!;
     private Button _route = null!;
-    private Button _engage = null!;
-    private Button _hold = null!;
+    private OptionButton _stance = null!;
+
+    /// <summary>The standing orders offered, in the menu's order, with what each does.</summary>
+    private static readonly (Stance Stance, string Name, string Tip)[] Stances =
+    {
+        (Stance.Engage, "Engage", "Close to railgun range and fire"),
+        (Stance.EngageIfStronger, "Engage if stronger", "Close in and fight only when this fleet clearly outguns what it meets; otherwise keep course"),
+        (Stance.Hold, "Hold course", "Keep course; fire at whatever comes in range"),
+        (Stance.HoldPosition, "Hold position", "Stop where it is on contact and fire without chasing"),
+        (Stance.Avoid, "Avoid contact", "Fly home as soon as an enemy is seen coming for it"),
+        (Stance.ReturnHome, "Return home", "Break off on contact and fly home"),
+    };
     private CheckBox _retreat = null!;
+    private HBoxContainer _missionRow = null!;
+    private MenuButton _mission = null!;
+    private OptionButton _autonomy = null!;
+
+    /// <summary>The autonomy levels, in the menu's order, with what each does.</summary>
+    private static readonly (AutonomyLevel Level, string Name, string Tip)[] Levels =
+    {
+        (AutonomyLevel.Strict, "Strict", "Only its standing orders: it waits for yours, however long they take"),
+        (AutonomyLevel.Sensible, "Sensible", "When cut off, it runs from a stronger enemy if your orders could not reach it in time"),
+        (AutonomyLevel.Free, "Free", "When cut off, it runs from danger at once and goes after weaker enemies near it"),
+    };
+
+    // Mission menu ids: small numbers for the plain missions; raids and escorts carry the body or fleet id.
+    private const int MissionNone = 1, MissionHold = 2, MissionPatrol = 3, MissionScout = 4, RaidBase = 1000, EscortBase = 100000;
     private HBoxContainer _orders = null!;
     private readonly Dictionary<int, (CheckBox Box, Label Supplies)> _rows = new();
     private string _shipKey = "";
@@ -69,15 +93,44 @@ public partial class FleetPanel : PanelContainer
         var label = Ui.Label("In contact", 13, Ui.Dim);
         label.CustomMinimumSize = new Vector2(70, 0);
         _orders.AddChild(label);
-        _engage = Ui.SmallButton("Engage", () => SetStance(Stance.Engage, null), "Close to railgun range and fire");
-        _hold = Ui.SmallButton("Hold", () => SetStance(Stance.Hold, null), "Keep course; fire at whatever comes in range");
+        _stance = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "What the fleet does when enemies come into contact" };
+        _stance.AddThemeFontSizeOverride("font_size", 13);
+        for (var i = 0; i < Stances.Length; i++)
+        {
+            _stance.AddItem(Stances[i].Name, i);
+            _stance.SetItemTooltip(i, Stances[i].Tip);
+        }
+        _stance.ItemSelected += i => SetStance(Stances[i].Stance, null);
         _retreat = new CheckBox { Text = "Retreat when damaged", FocusMode = FocusModeEnum.None, TooltipText = "Fly home when the fleet's armour falls below half" };
         _retreat.AddThemeFontSizeOverride("font_size", 13);
         _retreat.Pressed += () => SetStance(null, _retreat.ButtonPressed);
-        _orders.AddChild(_engage);
-        _orders.AddChild(_hold);
+        _orders.AddChild(_stance);
         _orders.AddChild(_retreat);
         box.AddChild(_orders);
+
+        // Mission and autonomy: what the fleet does without orders, and how much it decides when cut off.
+        _missionRow = new HBoxContainer();
+        _missionRow.AddThemeConstantOverride("separation", 4);
+        var missionLabel = Ui.Label("Mission", 13, Ui.Dim);
+        missionLabel.CustomMinimumSize = new Vector2(70, 0);
+        _missionRow.AddChild(missionLabel);
+        _mission = new MenuButton { Text = "None ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "A job the fleet carries out by itself: hold or patrol a place, raid an enemy planet, escort a fleet, or scout. A direct move order ends it" };
+        _mission.AddThemeFontSizeOverride("font_size", 13);
+        _mission.AboutToPopup += FillMissionMenu;
+        _mission.GetPopup().IdPressed += id => Main.Instance.RunGuarded("mission order", () => PickMission((int)id));
+        _missionRow.AddChild(_mission);
+        _missionRow.AddChild(Ui.Label("Autonomy", 13, Ui.Dim));
+        _autonomy = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "How much the fleet decides for itself when it is cut off from your flagship" };
+        _autonomy.AddThemeFontSizeOverride("font_size", 13);
+        for (var i = 0; i < Levels.Length; i++)
+        {
+            _autonomy.AddItem(Levels[i].Name, i);
+            _autonomy.SetItemTooltip(i, Levels[i].Tip);
+        }
+        _autonomy.ItemSelected += i => { if (_fleet != null) _screen.OrderAutonomy(Levels[i].Level); };
+        _missionRow.AddChild(_autonomy);
+        box.AddChild(_missionRow);
         _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
             "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
         box.AddChild(_engagementButton);
@@ -120,7 +173,7 @@ public partial class FleetPanel : PanelContainer
         var perf = FleetPerformance.Of(w, f);
         _title.Text = f.Name + (mine ? "" : "  (rival)");
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
-        var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f);
+        var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f, seat: true);
         var lines = new List<string>();
         if (mine)
         {
@@ -130,9 +183,9 @@ public partial class FleetPanel : PanelContainer
             lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change");
             lines.Add(SignatureLine(w, f));
         }
-        else if (Sensors.Find(w, Side.Player, f.Id) is Sighting sighting || _screen.RevealAll)
+        else if (Sensors.Find(w, Side.Player, f.Id, seat: true) is Sighting sighting || _screen.RevealAll)
         {
-            sighting = Sensors.Find(w, Side.Player, f.Id);
+            sighting = Sensors.Find(w, Side.Player, f.Id, seat: true);
             if (seen) lines.Add($"In sight: {StateText(Sensors.StateOf(f))} · {Motion(w, f)}");
             else if (sighting != null)
             {
@@ -185,9 +238,13 @@ public partial class FleetPanel : PanelContainer
         _buttons.Visible = mine;
         _orders.Visible = mine;
         _engagementButton.Visible = mine && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
-        _engage.Modulate = f.Stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
-        _hold.Modulate = f.Stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        var at = Array.FindIndex(Stances, x => x.Stance == f.Stance);
+        if (at >= 0 && _stance.Selected != at) _stance.Select(at);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
+        _missionRow.Visible = mine;
+        _mission.Text = MissionText(w, f) + " ▾";
+        var level = Array.FindIndex(Levels, x => x.Level == f.Autonomy);
+        if (level >= 0 && _autonomy.Selected != level) _autonomy.Select(level);
         var flying = f.Flight is { Started: true } || f.Velocity.Length > 1e-9;
         var picked = Checked().Count;
         _orbit.Disabled = flying || (f.Hold == HoldStyle.Orbit && f.Flight == null);
@@ -200,6 +257,61 @@ public partial class FleetPanel : PanelContainer
         _merge.Disabled = candidate == null;
         _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
     }
+
+    /// <summary>The body a hold or patrol is about: where the fleet is, or where it is going, else the nearest planet.</summary>
+    private static Body? PlaceOf(World w, Fleet f)
+    {
+        if (f.Flight?.TargetBodyId is int to && w.FindBody(to) is Body target) return target;
+        if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int at && w.FindBody(at) is Body b) return b;
+        return w.Bodies.Where(b => b.Kind is BodyKind.Planet or BodyKind.Moon).OrderBy(b => Vec2.Distance(b.Position, f.Position)).FirstOrDefault();
+    }
+
+    private void FillMissionMenu()
+    {
+        var popup = _mission.GetPopup();
+        popup.Clear();
+        var sim = Main.Instance.Sim;
+        if (sim == null || _screen.SelectedFleet is not Fleet f) return;
+        var w = sim.World;
+        if (f.Mission != Mission.None) popup.AddItem("End the mission", MissionNone);
+        if (PlaceOf(w, f) is Body place)
+        {
+            popup.AddItem($"Hold {place.Name}", MissionHold);
+            var planet = place.Kind == BodyKind.Moon && place.ParentId is int p && w.FindBody(p) is Body parent ? parent : place;
+            var moons = w.Bodies.Count(m => m.ParentId == planet.Id && m.Kind == BodyKind.Moon);
+            popup.AddItem(moons > 0 ? $"Patrol {planet.Name} and its moons" : $"Patrol {planet.Name}", MissionPatrol);
+        }
+        popup.AddItem("Scout the planets (avoids contact)", MissionScout);
+        foreach (var b in w.Bodies.Where(b => b.Owner is Side o && o != f.Side).OrderBy(b => Vec2.Distance(b.Position, f.Position)))
+            popup.AddItem($"Raid {b.Name}", RaidBase + b.Id);
+        foreach (var o in w.Fleets.Where(o => o.Side == f.Side && o.Id != f.Id).OrderBy(o => Vec2.Distance(o.Position, f.Position)))
+            popup.AddItem($"Escort {o.Name} ({o.ShipIds.Count} ships)", EscortBase + o.Id);
+    }
+
+    private void PickMission(int id)
+    {
+        var w = Main.Instance.Sim?.World;
+        if (w == null || _fleet == null) return;
+        var place = PlaceOf(w, _fleet);
+        switch (id)
+        {
+            case MissionNone: _screen.OrderMission(Mission.None, null, null); break;
+            case MissionHold: _screen.OrderMission(Mission.Hold, place?.Id, null); break;
+            case MissionPatrol: _screen.OrderMission(Mission.Patrol, place?.Id, null); break;
+            case MissionScout: _screen.OrderMission(Mission.Scout, null, null); break;
+            case >= EscortBase: _screen.OrderMission(Mission.Escort, null, id - EscortBase); break;
+            case >= RaidBase: _screen.OrderMission(Mission.Raid, id - RaidBase, null); break;
+        }
+    }
+
+    /// <summary>The mission in a few words, e.g. "Patrol Tamber" or "Escort Fleet 1".</summary>
+    public static string MissionText(World w, Fleet f) => f.Mission switch
+    {
+        Mission.None => "None",
+        Mission.Escort => $"Escort {w.FindFleet(f.MissionFleetId ?? -1)?.Name ?? "?"}",
+        Mission.Scout => "Scout",
+        _ => $"{f.Mission} {w.FindBody(f.MissionBodyId ?? -1)?.Name ?? "?"}",
+    };
 
     private void FillJoinMenu()
     {
@@ -256,7 +368,7 @@ public partial class FleetPanel : PanelContainer
                 : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
         if (f.Chase is ChaseOrder c)
         {
-            var who = Sensors.Find(w, f.Side, c.TargetFleetId)?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
+            var who = Sensors.Find(w, f.Side, c.TargetFleetId, seat: true)?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
             var how = FlightPlanner.ChaseName(c.Mode);
             var text = f.Flight is Flight cf
                 ? $"Chasing {who} ({how}), there {GameTime.Format(cf.ArriveHour)}"
@@ -586,7 +698,7 @@ public partial class PlannerPanel : PanelContainer
     /// <summary>Both fleets' speeds, so it is clear why a chase can or cannot work.</summary>
     private static string ChaseInfo(World w, Fleet? fleet, int targetId, PlanSettings s)
     {
-        var sighting = Sensors.Find(w, Side.Player, targetId);
+        var sighting = Sensors.Find(w, Side.Player, targetId, seat: true);
         if (fleet == null || sighting == null) return "";
         var theirs = sighting.Velocity.Length;
         var seen = sighting.Visible ? "in sight" : $"last seen {Format.Hours(w.Hour - sighting.Hour)} ago, assumed still on that track";

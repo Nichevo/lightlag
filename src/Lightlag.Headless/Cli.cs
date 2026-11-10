@@ -11,7 +11,7 @@ public static class Cli
     public const string Usage = """
         Lightlag headless runner
 
-          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--data-dir DIR] [--lenient]
+          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--lag 1|0.1] [--autonomy strict|sensible|free] [--data-dir DIR] [--lenient]
                   Plays N games, computer against computer (--pilot ai, the default; easy; easy-v-normal; test-v-ai, a random test pilot against the rival; or test, the test pilot on both sides), and writes a summary to <data>/nightly/<time>_batch/.
                   Rule checks run every tick and a broken rule counts as a crash, unless --lenient.
                   Stops starting new games after M minutes. The newest summary is also copied to

@@ -6,8 +6,27 @@ public enum HoldStyle { Orbit, Drift }
 /// <summary>How a flight ends: brake to a stop at the target, or fly through it at speed (cheaper, faster, no stop).</summary>
 public enum ArrivalStyle { Brake, FastPass }
 
-/// <summary>Standing order: Engage closes to weapon range and fires (breaking off any flight); Hold keeps its course and fires at what comes in range.</summary>
-public enum Stance { Engage, Hold }
+/// <summary>
+/// Standing order for contact. Engage closes to weapon range and fires (breaking off any flight); Hold
+/// keeps its course and fires at what comes in range; EngageIfStronger engages only when the fleet
+/// outguns what it meets (else holds course); HoldPosition stops where it is and fires without
+/// chasing; Avoid flies home as soon as an enemy is seen coming for it; ReturnHome breaks off and
+/// flies home on contact.
+/// </summary>
+public enum Stance { Engage, Hold, EngageIfStronger, HoldPosition, Avoid, ReturnHome }
+
+/// <summary>
+/// A fleet's standing mission, carried out without further orders: Hold a body; Patrol a planet and its
+/// moons; Raid an enemy-held body; Escort one of its own fleets; Scout the planets in turn.
+/// </summary>
+public enum Mission { None, Hold, Patrol, Raid, Escort, Scout }
+
+/// <summary>
+/// How much a fleet decides for itself when command is far away. Strict: only its standing orders
+/// (reflexes). Sensible: also runs from a stronger enemy when an order could not arrive in time.
+/// Free: whenever cut off, also runs from danger and goes after weaker enemies near it.
+/// </summary>
+public enum AutonomyLevel { Strict, Sensible, Free }
 
 /// <summary>How a fleet fires its railguns: Focused (aimed slugs) or Spread (a burst in a fan, harder to dodge, then the guns cool).</summary>
 public enum FireMode { Focused, Spread }
@@ -112,6 +131,19 @@ public sealed class Fleet
 
     /// <summary>Chasing an enemy fleet: re-aimed whenever it is seen to change course.</summary>
     public ChaseOrder? Chase { get; set; }
+
+    /// <summary>Its mission, the body or fleet it is about, how far through it is, and when it moves on.</summary>
+    public Mission Mission { get; set; }
+    public int? MissionBodyId { get; set; }
+    public int? MissionFleetId { get; set; }
+    public int MissionLeg { get; set; }
+    public double MissionUntil { get; set; }
+
+    /// <summary>How much it decides for itself when cut off from command.</summary>
+    public AutonomyLevel Autonomy { get; set; } = AutonomyLevel.Sensible;
+
+    /// <summary>When the last direct order from command reached it (its own choices wait a while after one).</summary>
+    public double LastOrderHour { get; set; } = -1e9;
 
     public bool InFlight => Flight != null;
 }
@@ -266,6 +298,7 @@ public static class Fleets
             Name = side == Side.Player ? $"Fleet {number}" : $"Rival fleet {number}",
             Side = side,
             Position = position,
+            Autonomy = w.Sides[(int)side].DefaultAutonomy,
         };
         foreach (var s in ships)
         {

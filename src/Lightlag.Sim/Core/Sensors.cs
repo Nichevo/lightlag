@@ -13,6 +13,10 @@ public enum SignatureState { Cold, Orbit, Burn, Warm }
 public sealed class Sighting
 {
     public Side SeenBy { get; set; }
+
+    /// <summary>A report on one of the side's own fleets (only in a light-lag picture, see Light).</summary>
+    public bool Own { get; set; }
+
     public int FleetId { get; set; }
     public string Name { get; set; } = "";
     public int Ships { get; set; }
@@ -40,6 +44,13 @@ public sealed class Sighting
 
     /// <summary>Where it would be at this hour if it kept going as last seen.</summary>
     public Vec2 Guess(double hour) => Position + Velocity * Math.Max(0, hour - Hour);
+
+    public Sighting Copy()
+    {
+        var c = (Sighting)MemberwiseClone();
+        c.Classes = new List<string>(Classes);
+        return c;
+    }
 }
 
 /// <summary>
@@ -131,13 +142,13 @@ public static class Sensors
     public static double Range(double sensorMm, double signature) => sensorMm * Math.Sqrt(Math.Max(0, signature));
 
     /// <summary>Is the straight line between two points clear of every planet, moon and the star?</summary>
-    public static bool LineOfSight(World w, Vec2 from, Vec2 to, int? ignoreBodyId = null)
+    public static bool LineOfSight(World w, Vec2 from, Vec2 to, int? ignoreBodyId = null, int? alsoIgnore = null)
     {
         var d = to - from;
         var len2 = Vec2.Dot(d, d);
         foreach (var b in w.Bodies)
         {
-            if (b.Id == ignoreBodyId) continue;
+            if (b.Id == ignoreBodyId || b.Id == alsoIgnore) continue;
             var t = len2 > 1e-18 ? Math.Clamp(Vec2.Dot(b.Position - from, d) / len2, 0, 1) : 0;
             if (t <= 0 || t >= 1) continue; // the body is not between them
             var closest = from + d * t;
@@ -147,37 +158,56 @@ public static class Sensors
     }
 
     /// <summary>Can this side see that fleet right now?</summary>
-    public static bool Sees(World w, Side side, Fleet f) =>
-        f.Side == side || (Find(w, side, f.Id) is { Visible: true });
+    /// <summary>
+    /// Is this fleet in sight of the side? By default, as its fleets out there see it (for fighting and
+    /// chasing); with seat set, as the side's command knows it, which under light lag is the picture the
+    /// last reports carried home (for the player's map and the rival's plans).
+    /// </summary>
+    public static bool Sees(World w, Side side, Fleet f, bool seat = false) =>
+        f.Side == side || (Find(w, side, f.Id, seat) is { Visible: true });
 
-    public static Sighting? Find(World w, Side seenBy, int fleetId) =>
-        w.Sightings.Find(s => s.SeenBy == seenBy && s.FleetId == fleetId);
+    public static Sighting? Find(World w, Side seenBy, int fleetId, bool seat = false) =>
+        Known(w, seat).Find(s => s.SeenBy == seenBy && s.FleetId == fleetId);
+
+    /// <summary>The sightings as the fleets see them now, or (seat) as command knows them (see Light).</summary>
+    public static List<Sighting> Known(World w, bool seat) => seat && w.Light.On ? w.Picture : w.Sightings;
 
     /// <summary>
     /// Where this side expects an enemy fleet to be at an hour: circling with it if it is seen holding
     /// orbit, otherwise in a straight line from where it was last seen. Null if it has never been seen.
     /// </summary>
-    public static Vec2? Predict(World w, Side side, int fleetId, double hour)
+    public static Vec2? Predict(World w, Side side, int fleetId, double hour, bool seat = false)
     {
         if (w.FindFleet(fleetId) is Fleet f && f.Side == side) return Combat.PredictFleet(w, f, hour);
-        var s = Find(w, side, fleetId);
+        var s = Find(w, side, fleetId, seat);
         if (s == null) return null;
-        if (s.Visible && s.State == SignatureState.Orbit && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
+        if (s.Visible && s.State == SignatureState.Orbit && (!seat || !w.Light.On) && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
             return FlightPlanner.PredictHoldPosition(w, orbiting, hour);
         return s.Guess(hour);
     }
+
+    /// <summary>How far a body the side holds sees: full range at the shipyard or with a sensor station, else like a ship.</summary>
+    public static double PlanetSensorOf(World w, Side side, Body b)
+    {
+        var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || Economy.Stations(w, side, Economy.SensorStation).Any(x => x.Body.Id == b.Id);
+        return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.Factor(w, side, Tech.LongSensors);
+    }
+
+    /// <summary>How a fleet is really moving now: a fleet in orbit moves with its body (its Velocity is zero).</summary>
+    public static Vec2 MotionOf(World w, Fleet f) =>
+        f.Flight == null && f.Hold == HoldStyle.Orbit ? FlightPlanner.PredictHoldPosition(w, f, w.Hour + 1) - FlightPlanner.PredictHoldPosition(w, f, w.Hour) : f.Velocity;
 
     /// <summary>
     /// Does this enemy fleet look as if it is coming for that fleet? Judged only from what was seen: its
     /// track, relative to the fleet, closes on it and passes close by. Returns the hours until it gets
     /// there, or null. Ignores enemies that are barely moving or more than a month away.
     /// </summary>
-    public static double? HeadingFor(Sighting s, Fleet mine, double hour)
+    public static double? HeadingFor(Sighting s, Fleet mine, double hour, Vec2? mineVelocity = null)
     {
         var them = s.Guess(hour);
         var gap = mine.Position - them;
         var d = gap.Length;
-        var rel = s.Velocity - mine.Velocity;
+        var rel = s.Velocity - (mineVelocity ?? mine.Velocity);
         if (d < 1e-6 || rel.Length < 5) return null;
         var closing = Vec2.Dot(gap, rel) / d;
         if (closing <= rel.Length * 0.5) return null;
@@ -199,7 +229,7 @@ public static class Sensors
             foreach (var f in w.Fleets.Where(f => f.Side == side))
                 if (f.Position.IsFinite) observers.Add((f.Position, SensorOf(w, f), null));
             foreach (var b in w.Bodies.Where(b => b.Owner == side))
-                observers.Add((b.Position, S.PlanetSensorMm * Tech.Factor(w, side, Tech.LongSensors), b.Id));
+                observers.Add((b.Position, PlanetSensorOf(w, side, b), b.Id));
 
             foreach (var enemy in w.Fleets.Where(f => f.Side != side))
             {

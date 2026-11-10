@@ -1,0 +1,112 @@
+using Godot;
+using Lightlag.Sim.Core;
+using Side = Lightlag.Sim.Core.Side;
+
+namespace Lightlag.Game;
+
+/// <summary>
+/// Light lag on the map. Your command sits on your flagship: fleets inside its command range (the
+/// dashed ring) are live; every other fleet, yours included, is drawn where it was when the light now
+/// arriving left it, labelled with how old that news is, with a faint guess of where it is now. Orders
+/// still on their way show under the fleet they are going to. Debug view (F7) shows the truth.
+/// </summary>
+public partial class MapView
+{
+    private static readonly Color CommandRing = new(Ui.Player, 0.3f);
+
+    /// <summary>Is the map showing the delayed picture (light lag on, not the debug view)?</summary>
+    public bool Lagging => Sim.World.Light.On && !RevealAll;
+
+    /// <summary>The latest news of this fleet at your flagship (null without light lag, or none yet).</summary>
+    private Sighting? News(Fleet f) => Sim.World.Light.On ? Light.Known(Sim.World, Side.Player, f.Id) : null;
+
+    /// <summary>Is this fleet live (inside your command range, so the map shows it as it is)?</summary>
+    private bool Live(Fleet f) => !Lagging || Light.DelayHours(Sim.World, Side.Player, f.Position) <= 0;
+
+    /// <summary>Moves each fleet that isn't live (and its ships) to where the news of it puts it.</summary>
+    private void ApplyLag()
+    {
+        if (!Lagging) return;
+        var w = Sim.World;
+        foreach (var f in w.Fleets)
+        {
+            if (Live(f) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var at)) continue;
+            var shift = s.Position - f.Position;
+            _drawn[f.Id] = at + shift;
+            foreach (var id in f.ShipIds)
+                if (_drawn.TryGetValue(id, out var p)) _drawn[id] = p + shift;
+        }
+    }
+
+    /// <summary>Under light lag: is the fleet on your map at all (yours that you have news of; enemies your command knows are in sight)?</summary>
+    private bool ShownLagging(Fleet f) =>
+        f.Side == Side.Player ? Live(f) || News(f) != null : Sensors.Sees(Sim.World, Side.Player, f, seat: true);
+
+    /// <summary>The command range ring, the flagship mark, news ages and orders on their way.</summary>
+    /// <summary>Your stations: a small tag under the body (relays and sensor stations, and those still being built).</summary>
+    private void DrawStations()
+    {
+        var w = Sim.World;
+        var row = new Dictionary<int, int>();
+        foreach (var st in w.Stations)
+        {
+            if (st.Side != Side.Player || !_drawn.TryGetValue(st.BodyId, out var p) || w.FindBody(st.BodyId) is not Body b) continue;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 100)) continue;
+            row[b.Id] = row.GetValueOrDefault(b.Id) + 1;
+            var name = st.Kind == Economy.Relay ? "relay" : "sensors";
+            var text = w.Hour >= st.ReadyHour ? $"◆ {name}" : $"◇ {name} (building)";
+            var y = (float)Math.Max(8, b.Radius * Camera.Scale) + 12 * row[b.Id] + 6;
+            DrawString(_font, at + new Vector2(-24, y), text, HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
+        }
+    }
+
+    private void DrawLag()
+    {
+        var w = Sim.World;
+        DrawStations();
+        if (!w.Light.On) return;
+        if (Light.Flagship(w, Side.Player) is Ship flag && _drawn.TryGetValue(flag.Id, out var fp))
+        {
+            var at = Camera.ToScreen(fp);
+            var r = (float)(Light.CommandRangeMm(w, Side.Player) * Camera.Scale);
+            if (r > 12 && r < 20000) DrawDashedCircle(at, r, CommandRing, "Command range");
+            DrawFlagMark(at + new Vector2(-14, -18), Ui.Player);
+        }
+        if (RevealAll) return;
+        foreach (var f in w.Fleets)
+        {
+            if (Live(f) || !Shown(f) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var p)) continue;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 300)) continue;
+            var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var age = Math.Max(0, w.Hour - s.Hour);
+            // Where it should be now if it kept going: a hollow mark at the end of a faint line.
+            var now = Camera.ToScreen(s.Guess(w.Hour));
+            if (at.DistanceTo(now) > 6)
+            {
+                DrawDashedLine(at, now, new Color(color, 0.3f), 1, 4);
+                DrawArc(now, 6, 0, Mathf.Tau, 16, new Color(color, 0.45f), 1, true);
+            }
+            DrawString(_font, at + new Vector2(12, 8), $"seen {Format.Lag(age)} ago", HorizontalAlignment.Left, -1, 11, new Color(color, 0.75f));
+        }
+        var row = new Dictionary<int, int>();
+        foreach (var t in w.Light.InTransit)
+        {
+            if (t.Side != Side.Player || t.Command is not IFleetCommand fc || w.FindFleet(fc.FleetId) is not Fleet f
+                || !_drawn.TryGetValue(f.Id, out var p)) continue;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 300)) continue;
+            row[f.Id] = row.GetValueOrDefault(f.Id) + 1;
+            DrawString(_font, at + new Vector2(12, 8 + 13 * row[f.Id]), $"order arrives in {Format.Lag(t.ArriveHour - w.Hour)}",
+                HorizontalAlignment.Left, -1, 11, new Color(Ui.Text, 0.85f));
+        }
+    }
+
+    /// <summary>A small pennant: the flagship.</summary>
+    private void DrawFlagMark(Vector2 at, Color color)
+    {
+        DrawLine(at, at + new Vector2(0, 12), color, 1.5f);
+        for (var i = 0; i <= 6; i++) DrawLine(at + new Vector2(0, i), at + new Vector2(9, 3), color, 1);
+    }
+}

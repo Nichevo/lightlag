@@ -131,6 +131,7 @@ public partial class MapView : Node2D
                 p = prev + (p - prev) * t;
             _drawn[f.Id] = p;
         }
+        ApplyLag();
         SyncPlanets();
     }
 
@@ -227,6 +228,7 @@ public partial class MapView : Node2D
         DrawLastSeen();
         if (RevealAll) DrawMindJobs();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
+        DrawLag();
         DrawMissiles();
         DrawEffects();
         if (SelectionBox is Rect2 box)
@@ -449,7 +451,7 @@ public partial class MapView : Node2D
         var apart = ShipsApart;
         var ships = Sim.World.ShipsOf(f).ToList();
         // Enemy ships show as plain blips until a close look tells their class.
-        var known = f.Side == Side.Player || RevealAll || Sensors.Find(Sim.World, Side.Player, f.Id) is { Classes.Count: > 0 };
+        var known = f.Side == Side.Player || RevealAll || Sensors.Find(Sim.World, Side.Player, f.Id, seat: true) is { Classes.Count: > 0 };
         if (apart)
         {
             foreach (var s in ships)
@@ -568,7 +570,7 @@ public partial class MapView : Node2D
     }
 
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
-    public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
+    public bool Shown(Fleet f) => RevealAll || (Lagging ? ShownLagging(f) : f.Side == Side.Player || Sensors.Sees(Sim.World, Side.Player, f));
 
     /// <summary>The engagement screen's overlay (null when it is closed).</summary>
     public EngagementInfo? Engagement { get; set; }
@@ -658,14 +660,14 @@ public partial class MapView : Node2D
         _trackTick = w.Tick;
         foreach (var f in w.Fleets)
         {
-            if (f.Side == Side.Player || !Sensors.Sees(w, Side.Player, f) || !f.Position.IsFinite) continue;
+            if (f.Side == Side.Player || !Sensors.Sees(w, Side.Player, f, seat: Lagging) || !f.Position.IsFinite) continue;
             if (!_tracks.TryGetValue(f.Id, out var list)) _tracks[f.Id] = list = new();
-            list.Add((f.Position, f.Thrusting || f.Warm && w.Hour - f.LastBurnHour < 1.01, w.Tick));
+            list.Add((Lagging && News(f) is Sighting news ? news.Position : f.Position, f.Thrusting || f.Warm && w.Hour - f.LastBurnHour < 1.01, w.Tick));
         }
         foreach (var (id, list) in _tracks.ToList())
         {
             list.RemoveAll(p => w.Tick - p.Tick > TrackHours);
-            if (list.Count == 0 || w.FindFleet(id) == null && Sensors.Find(w, Side.Player, id) == null) _tracks.Remove(id);
+            if (list.Count == 0 || w.FindFleet(id) == null && Sensors.Find(w, Side.Player, id, seat: Lagging) == null) _tracks.Remove(id);
         }
     }
 
@@ -718,9 +720,9 @@ public partial class MapView : Node2D
     private void DrawLastSeen()
     {
         var w = Sim.World;
-        foreach (var s in w.Sightings)
+        foreach (var s in Sensors.Known(w, seat: Lagging))
         {
-            if (s.SeenBy != Side.Player || s.Visible) continue;
+            if (s.SeenBy != Side.Player || s.Visible || s.Own) continue;
             if (RevealAll && w.FindFleet(s.FleetId) != null) continue;
             var at = Camera.ToScreen(s.Position);
             var guess = Camera.ToScreen(s.Guess(DrawHour));
@@ -901,9 +903,9 @@ public partial class MapView : Node2D
             var d = Camera.ToScreen(p).DistanceTo(screen);
             if (d < bestD) { bestD = d; best = s.FleetId; }
         }
-        foreach (var sight in Sim.World.Sightings)
+        foreach (var sight in Sensors.Known(Sim.World, seat: Lagging))
         {
-            if (sight.SeenBy != Side.Player || sight.Visible) continue;
+            if (sight.SeenBy != Side.Player || sight.Visible || sight.Own) continue;
             var d = Math.Min(Camera.ToScreen(sight.Position).DistanceTo(screen), Camera.ToScreen(sight.Guess(DrawHour)).DistanceTo(screen));
             if (d < bestD) { bestD = d; best = sight.FleetId; }
         }

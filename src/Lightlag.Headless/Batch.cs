@@ -12,14 +12,15 @@ public sealed record GameResult(
     string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
-public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour)
+public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
+    int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0)
 {
     public static SideEnd Of(World w, Side side)
     {
         var t = Stats.Of(w, side);
         return new SideEnd(Economy.Claimable(w).Count(b => b.Owner == side), w.Ships.Count(s => s.Side == side),
             Math.Round(Stats.Power(w, side)), t.ShipsBuilt, t.ShipsLost, t.Battles, t.PlanetsClaimed,
-            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0));
+            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions);
     }
 }
 
@@ -38,6 +39,11 @@ public static class Batch
         var pilot = opts.Get("pilot") ?? "ai";
         if (pilot is not ("ai" or "test" or "easy" or "easy-v-normal" or "test-v-ai"))
             throw new ArgumentException("--pilot must be ai, easy, easy-v-normal, test-v-ai or test");
+        // --lag 1 plays with real light lag, --lag 0.1 with light ten times slower; off by default.
+        _light = opts.Get("lag") is string lag
+            ? new LightSetup(true, double.Parse(lag, System.Globalization.CultureInfo.InvariantCulture)) : null;
+        // --autonomy strict|sensible|free: what fleets decide for themselves when cut off (default sensible).
+        _autonomy = opts.Get("autonomy") is string a ? Enum.Parse<AutonomyLevel>(a, ignoreCase: true) : null;
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -86,7 +92,14 @@ public static class Batch
         return results.Any(r => r.Outcome != "ok") ? 1 : 0;
     }
 
-    private static GameOptions? OptionsFor(string pilot) => pilot switch
+    private static LightSetup? _light;
+
+    private static GameOptions? OptionsFor(string pilot) =>
+        _light == null && _autonomy == null ? BaseOptions(pilot) : (BaseOptions(pilot) ?? new GameOptions()) with { Light = _light, Autonomy = _autonomy };
+
+    private static AutonomyLevel? _autonomy;
+
+    private static GameOptions? BaseOptions(string pilot) => pilot switch
     {
         "test" => null,
         "easy" => GameOptions.AiVsAi(Difficulty.Easy),
@@ -158,6 +171,14 @@ public static class Batch
         md.AppendLine();
         md.AppendLine($"- Build: {build}");
         md.AppendLine($"- Scenario: {scenario}, {days} game days each, rule checks every tick ({(strict ? "strict" : "lenient")})");
+        md.AppendLine(_light is { On: true } l ? $"- Light lag: on, light at {l.SpeedFactor:0.##} x real speed" : "- Light lag: off");
+        if (_autonomy is AutonomyLevel level) md.AppendLine($"- Fleet autonomy: {level}");
+        var ended = results.Where(r => r.Player != null && r.Rival != null).ToList();
+        if (_light is { On: true } && ended.Count > 0)
+            md.AppendLine($"- Under lag, per game: battles more than 5 light-minutes from the flagship: player {ended.Average(r => r.Player!.LaggedBattles):0.0}, "
+                          + $"rival {ended.Average(r => r.Rival!.LaggedBattles):0.0} (of {ended.Average(r => r.Player!.Battles):0.0} and {ended.Average(r => r.Rival!.Battles):0.0}); "
+                          + $"flagship in battle: player {ended.Average(r => r.Player!.FlagshipBattles):0.0}, rival {ended.Average(r => r.Rival!.FlagshipBattles):0.0}; "
+                          + $"fleets' own decisions: player {ended.Average(r => r.Player!.OwnDecisions):0.0}, rival {ended.Average(r => r.Rival!.OwnDecisions):0.0}");
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
         if (results.Count > 0)
         {

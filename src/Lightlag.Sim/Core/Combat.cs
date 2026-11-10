@@ -30,6 +30,10 @@ public sealed class BattleSide
     public List<string> ShipsLost { get; set; } = new();
     public List<string> Knocked { get; set; } = new();   // "FF-1: railguns"
     public List<string> Fleets { get; set; } = new();
+
+    /// <summary>Light lag from this side's flagship to the battle when it started (hours), and whether the flagship's fleet fought.</summary>
+    public double LagHours { get; set; }
+    public bool Flagship { get; set; }
 }
 
 /// <summary>A battle: from first contact until no enemies are in contact and no missiles fly.</summary>
@@ -135,7 +139,23 @@ public static class Combat
         {
             var enemy = NearestEnemyFleet(w, f, C.ContactRangeMm);
             if (enemy != null && f.RetreatWhenDamaged && !f.Retreating && ArmourShare(w, f) < C.RetreatBelowArmour)
-                Retreat(sim, f);
+                Retreat(sim, f, "is badly damaged and retreats");
+            if (!f.Retreating && !GoingHome(w, f))
+            {
+                if (f.Stance == Stance.ReturnHome && enemy != null)
+                    Retreat(sim, f, $"meets {enemy.Name} and breaks off for home");
+                else if (f.Stance == Stance.Avoid && Threat(w, f) is string threat)
+                    Retreat(sim, f, $"avoids {threat} and heads home");
+            }
+            if (f.Stance == Stance.HoldPosition && enemy != null && !f.Maneuvering && !f.Retreating
+                && (f.Flight != null || f.Velocity.Length > 1e-6))
+            {
+                // Hold position: stop the flight and brake where it is (the brake below does the rest).
+                f.Maneuvering = true;
+                f.Flight = null;
+                Fleets.EnterDrift(f);
+                sim.Log.Info("combat", $"{f.Name} holds position", new { fleetId = f.Id, enemyId = enemy.Id });
+            }
 
             var wantsToClose = enemy != null && WouldEngage(w, f, enemy);
             if (!wantsToClose && !f.Maneuvering) continue;
@@ -241,11 +261,49 @@ public static class Combat
     /// retreating.) An Engage fleet breaks off a flight to fight; a Hold fleet keeps its course.
     /// </summary>
     public static bool WouldEngage(World w, Fleet f, Fleet enemy) =>
-        f.Stance == Stance.Engage && !f.Retreating && Chases.LetsEngage(f)
+        (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && Chases.LetsEngage(f)
         && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
-        && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3;
+        && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
+        && (f.Stance == Stance.Engage || Stronger(w, f));
 
-    private static void Retreat(Simulation sim, Fleet f)
+    /// <summary>How much more power a fleet set to engage-if-stronger wants than the enemies in contact.</summary>
+    public const double StrongerBy = 1.2;
+
+    /// <summary>Does this fleet clearly outgun every enemy it can see in contact range, taken together?</summary>
+    public static bool Stronger(World w, Fleet f)
+    {
+        double theirs = 0;
+        foreach (var o in w.Fleets)
+            if (o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, o))
+                theirs += Stats.Power(w, o);
+        return Stats.Power(w, f) >= theirs * StrongerBy;
+    }
+
+    /// <summary>Hours of warning an avoiding fleet wants before an enemy reaches it.</summary>
+    public const double AvoidWarningHours = 12;
+
+    /// <summary>
+    /// The enemy an avoiding fleet should run from, if any: one in contact range, or one it sees coming
+    /// for it within the warning time.
+    /// </summary>
+    public static string? Threat(World w, Fleet f)
+    {
+        if (NearestEnemyFleet(w, f, C.ContactRangeMm) is Fleet near) return near.Name;
+        foreach (var s in w.Sightings)
+            if (s.SeenBy == f.Side && s.Visible && Sensors.HeadingFor(s, f, w.Hour, Sensors.MotionOf(w, f)) is double eta && eta <= AvoidWarningHours)
+                return s.Name;
+        return null;
+    }
+
+    /// <summary>Is the fleet at home, or already on its way there?</summary>
+    public static bool GoingHome(World w, Fleet f)
+    {
+        var home = Economy.HomeOf(w, f.Side);
+        if (home == null) return true;
+        return f.Flight?.TargetBodyId == home.Id || f.Flight == null && f.Hold == HoldStyle.Orbit && f.OrbitBodyId == home.Id;
+    }
+
+    internal static void Retreat(Simulation sim, Fleet f, string why)
     {
         var w = sim.World;
         f.Retreating = true;
@@ -263,11 +321,11 @@ public static class Combat
         if (plan is { Ok: true, Flight: Flight flight })
         {
             f.Flight = flight;
-            sim.Log.Info("combat", $"{f.Name} is badly damaged and retreats to {home.Name}", new { fleetId = f.Id, armour = ArmourShare(w, f) });
+            sim.Log.Info("combat", $"{f.Name} {why}", new { fleetId = f.Id, home = home.Name, armour = ArmourShare(w, f), stance = f.Stance.ToString() });
         }
         else
         {
-            sim.Log.Info("combat", $"{f.Name} is badly damaged but has no fuel to retreat", new { fleetId = f.Id });
+            sim.Log.Info("combat", $"{f.Name} has no fuel to fly home", new { fleetId = f.Id, why });
         }
     }
 
@@ -486,6 +544,7 @@ public static class Combat
             }
             sim.Log.Info("combat", $"{target.Name} is destroyed", new { shipId = target.Id, by = by.ToString() });
             RemoveShip(w, target);
+            if (Economy.Of(w, target.Side).FlagshipId == target.Id) Light.Succeed(sim, target.Side, target.Position);
             return;
         }
         if (target.Disabled == null && sim.Rng.NextDouble() < C.ModuleHitChance)
@@ -545,6 +604,7 @@ public static class Combat
             battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, FightingSinceHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
+            foreach (var side in new[] { Side.Player, Side.Rival }) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
             {
                 battleId = battle.Id, a = inContact[0].A.Id, b = inContact[0].B.Id,
@@ -557,13 +617,25 @@ public static class Combat
         {
             if (!battle.For(a.Side).Fleets.Contains(a.Name)) battle.For(a.Side).Fleets.Add(a.Name);
             if (!battle.For(b.Side).Fleets.Contains(b.Name)) battle.For(b.Side).Fleets.Add(b.Name);
+            foreach (var f in new[] { a, b })
+                if (!battle.For(f.Side).Flagship && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id)
+                {
+                    battle.For(f.Side).Flagship = true;
+                    sim.Log.Info("combat", $"{f.Side} flagship in battle", new { battleId = battle.Id, fleetId = f.Id, shipId = flag.Id });
+                }
         }
         if (inContact.Count == 0 && w.Missiles.Count == 0)
         {
             battle.EndHour = t1;
             if (w.Loop)
                 foreach (var side in new[] { Side.Player, Side.Rival })
-                    if (battle.For(side).Fleets.Count > 0) Economy.Of(w, side).Totals.Battles++;
+                    if (battle.For(side).Fleets.Count > 0)
+                    {
+                        var t = Economy.Of(w, side).Totals;
+                        t.Battles++;
+                        if (battle.For(side).LagHours > 5.0 / 60) t.LaggedBattles++;
+                        if (battle.For(side).Flagship) t.FlagshipBattles++;
+                    }
             var p = battle.For(Side.Player);
             var r = battle.For(Side.Rival);
             sim.Log.Info("combat", "Battle over", new

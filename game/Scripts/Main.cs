@@ -72,12 +72,15 @@ public partial class Main : Node
         SetScreen(new TitleScreen());
     }
 
+    /// <summary>Light lag for new games, chosen on the title screen: real light speed, ten times slower, or off.</summary>
+    public LightSetup LightChoice { get; set; } = new(true, 1.0);
+
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
         RunGuarded("starting a new game", () =>
         {
-            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty));
+            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with { Light = LightChoice });
             SetScreen(new GameScreen());
         });
     }
@@ -253,6 +256,42 @@ public partial class Main : Node
     }
 
     /// <summary>
+    /// Light lag: a frigate sent off towards Rust is out of command range, so the map shows it where its
+    /// news left it, with its age, and an order to it still on its way. Light is ten times slower here so
+    /// the delays read clearly. Afterwards the first game is restored for the remaining pictures.
+    /// </summary>
+    private async Task ShootLightLag(Func<string, Task> shoot)
+    {
+        var keep = Sim!;
+        var choice = LightChoice;
+        LightChoice = new LightSetup(true, 0.1);
+        StartNewGame(7);
+        var game = (GameScreen)_screen!;
+        game.TogglePause();
+        var w = Sim!.World;
+        var home = w.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+        var frigate = w.ShipsOf(home).First(s => s.ClassId == "gun-frigate");
+        Sim.Issue(new SplitFleetCommand(home.Id, new List<int> { frigate.Id }));
+        Sim.Step();
+        var lone = w.FleetOf(frigate)!;
+        var rust = w.Bodies.First(b => b.Key == "rust");
+        Sim.Issue(new PlanFlightCommand(lone.Id, new FlightRequest(rust.Id, Vec2.Zero, 0.8, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick)));
+        Sim.Step();
+        while (Light.DelayHours(w, Lightlag.Sim.Core.Side.Player, lone.Position) < 0.25 && lone.InFlight) Sim.Step();
+        Sim.Issue(new SetHoldCommand(lone.Id, HoldStyle.Drift));
+        Sim.ApplyPending();
+        game.SnapToNow();
+        game.Camera.Center = (Light.Seat(w, Lightlag.Sim.Core.Side.Player) + lone.Position) * 0.5;
+        game.Camera.FitRadius(Vec2.Distance(Light.Seat(w, Lightlag.Sim.Core.Side.Player), lone.Position) * 0.75, instant: true);
+        game.Select(lone.Id);
+        await shoot("29-light-lag");
+        LightChoice = choice;
+        Sim = keep;
+        SetScreen(new GameScreen());
+        ((GameScreen)_screen!).TogglePause();
+    }
+
+    /// <summary>
     /// CI runs the game under a virtual screen with --screenshots=DIR to photograph a set of map views,
     /// so changes to how the map looks can be checked without a person at the PC.
     /// </summary>
@@ -322,6 +361,10 @@ public partial class Main : Node
             game.OpenMenu();
             await Shoot("28-game-menu");
             game.CloseMenu();
+
+            await ShootLightLag(Shoot);
+            game = (GameScreen)_screen!;
+            fleet = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player && f.InFlight);
 
             // A change of course mid-flight: the planner shows the curving turn onto the new heading.
             game.Select(fleet.Id);

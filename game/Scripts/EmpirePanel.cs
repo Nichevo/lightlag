@@ -24,7 +24,22 @@ public partial class EmpirePanel : PanelContainer
         Ui.StylePanel(this, 14);
         _box = new VBoxContainer { CustomMinimumSize = new Vector2(380, 0) };
         _box.AddThemeConstantOverride("separation", 4);
-        AddChild(_box);
+        // Scrolls when the panel would run off the bottom of the screen.
+        _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _scroll.AddChild(_box);
+        AddChild(_scroll);
+    }
+
+    private ScrollContainer _scroll = null!;
+
+    /// <summary>As tall as the contents, but no taller than the screen allows.</summary>
+    private void FitHeight()
+    {
+        var room = GetViewportRect().Size.Y - Position.Y - 150;
+        var want = new Vector2(_box.GetCombinedMinimumSize().X + 12, Mathf.Min(_box.GetCombinedMinimumSize().Y, Mathf.Max(200, room)));
+        if (_scroll.CustomMinimumSize == want) return;
+        _scroll.CustomMinimumSize = want;
+        Size = Vector2.Zero; // shrink back to the new minimum
     }
 
     public void Refresh(Simulation sim)
@@ -37,6 +52,7 @@ public partial class EmpirePanel : PanelContainer
             Rebuild(w);
         }
         foreach (var (label, text) in _live) label.Text = text(w);
+        FitHeight();
     }
 
     /// <summary>Everything that changes which buttons and rows exist.</summary>
@@ -45,7 +61,9 @@ public partial class EmpirePanel : PanelContainer
         + "|" + string.Join(",", Economy.Of(w, Side.Player).Researched)
         + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner
         + "|" + string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => o.JoinFleetId))
-        + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"));
+        + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"))
+        + "|" + string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id))
+        + "|" + string.Join(",", w.Stations.Where(st => st.Side == Side.Player).Select(st => $"{st.Id}{(w.Hour >= st.ReadyHour ? "r" : "")}"));
 
     private void Rebuild(World w)
     {
@@ -112,6 +130,43 @@ public partial class EmpirePanel : PanelContainer
             info.AutowrapMode = TextServer.AutowrapMode.WordSmart;
             info.CustomMinimumSize = new Vector2(185, 0);
             row.AddChild(info);
+        }
+
+        // Stations on the bodies you hold.
+        if (GameData.Economy.Stations is { Count: > 0 } kinds)
+        {
+            Heading("Stations");
+            Live(12, Ui.Dim, _ => string.Join("\n", kinds.Select(k => $"{k.Name} ({k.Cost:0}, {k.Days:0} d): {k.Effect}"
+                + (k.Id == Economy.Relay && !w.Light.On ? " (light lag only)" : ""))));
+            foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player).OrderBy(b => b.Id))
+            {
+                var row = Row();
+                var name = Ui.Label(b.Name, 13, Ui.Text);
+                name.CustomMinimumSize = new Vector2(110, 0);
+                row.AddChild(name);
+                foreach (var k in kinds)
+                {
+                    if (k.Id == Economy.SensorStation && b.Shipyard) continue; // the shipyard planet already sees full range
+                    var st = w.Stations.Find(x => x.Side == Side.Player && x.BodyId == b.Id && x.Kind == k.Id);
+                    if (st != null)
+                    {
+                        var stId = st.Id;
+                        var label = Ui.Label("", 12, Ui.Dim);
+                        label.CustomMinimumSize = new Vector2(130, 0);
+                        row.AddChild(label);
+                        _live.Add((label, w2 => w2.Stations.Find(x => x.Id == stId) is Station s2
+                            ? w2.Hour >= s2.ReadyHour ? $"{k.Name} ✓" : $"{k.Name}: {Format.Hours(s2.ReadyHour - w2.Hour)}" : ""));
+                        continue;
+                    }
+                    if (w.Winner != null) continue;
+                    var bodyId = b.Id;
+                    var kind = k.Id;
+                    var button = Ui.SmallButton($"{k.Name} · {k.Cost:0}", () => _screen.BuildStation(bodyId, kind),
+                        $"Build a {k.Name.ToLowerInvariant()} at {b.Name}: {k.Cost:0} Industry, {k.Days:0} days. {k.Effect}. The order goes out at light speed.");
+                    button.CustomMinimumSize = new Vector2(130, 26);
+                    row.AddChild(button);
+                }
+            }
         }
 
         // Claims under way.

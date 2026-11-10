@@ -15,11 +15,14 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(MergeFleetsCommand), "mergeFleets")]
 [JsonDerivedType(typeof(SetStanceCommand), "setStance")]
 [JsonDerivedType(typeof(SetDodgeCommand), "setDodge")]
+[JsonDerivedType(typeof(SetMissionCommand), "setMission")]
+[JsonDerivedType(typeof(SetAutonomyCommand), "setAutonomy")]
 [JsonDerivedType(typeof(SetFireModeCommand), "setFireMode")]
 [JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
 [JsonDerivedType(typeof(QueueOrderCommand), "queueOrder")]
 [JsonDerivedType(typeof(CancelOrderCommand), "cancelOrder")]
+[JsonDerivedType(typeof(BuildStationCommand), "buildStation")]
 [JsonDerivedType(typeof(SetOrderFleetCommand), "setOrderFleet")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
@@ -30,6 +33,13 @@ public abstract record GameCommand
 
     public abstract void Apply(World world, Simulation sim);
 
+    /// <summary>
+    /// The side giving the order and where it takes effect, for light lag (null: it takes effect at once,
+    /// like debug commands). Fleet orders go to the fleet; see Light.
+    /// </summary>
+    public virtual (Side Side, Vec2 At)? Destination(World world) =>
+        this is IFleetCommand fc && world.FindFleet(fc.FleetId) is Fleet f ? (f.Side, f.Position) : null;
+
     protected Fleet? GetFleet(World world, Simulation sim, int fleetId, string what)
     {
         var fleet = world.FindFleet(fleetId);
@@ -38,8 +48,14 @@ public abstract record GameCommand
     }
 }
 
+/// <summary>An order to one fleet: under light lag it travels to that fleet.</summary>
+public interface IFleetCommand
+{
+    int FleetId { get; }
+}
+
 /// <summary>Fly a fleet to a body (it ends in orbit there, or drifting) or to a point in space.</summary>
-public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : GameCommand
+public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -72,7 +88,7 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
 }
 
 /// <summary>Cancel the flight. A moving fleet brakes to a stop if it has the fuel, otherwise it drifts on.</summary>
-public sealed record StopFleetCommand(int FleetId) : GameCommand
+public sealed record StopFleetCommand(int FleetId) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -97,7 +113,7 @@ public sealed record StopFleetCommand(int FleetId) : GameCommand
 }
 
 /// <summary>Orbit the nearest body, or drift with engines cold. The fleet must be stopped.</summary>
-public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand
+public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -125,7 +141,7 @@ public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand
 }
 
 /// <summary>Take some ships out of a fleet into a new fleet that carries on doing the same thing.</summary>
-public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCommand
+public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -150,6 +166,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Fire = fleet.Fire;
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
+        created.Autonomy = fleet.Autonomy;
         Fleets.Arrange(world, fleet);
         Fleets.SetApart(world, created);
         sim.Log.Info("fleet", $"{created.Name} splits from {fleet.Name}", new { fleetId = fleet.Id, newFleetId = created.Id, ShipIds, Source });
@@ -157,7 +174,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
 }
 
 /// <summary>Join another fleet into this one. Both must be stopped and close together.</summary>
-public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCommand
+public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -177,7 +194,7 @@ public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCom
 /// "Fast ships go ahead": the ships faster than the fleet's slowest split off and fly the same order at
 /// their own pace, then wait at the destination and join the slower ships when they arrive.
 /// </summary>
-public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : GameCommand
+public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -204,6 +221,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         ahead.OrbitRadius = fleet.OrbitRadius;
         ahead.OrbitAngle = fleet.OrbitAngle;
         ahead.Stance = fleet.Stance;
+        ahead.Autonomy = fleet.Autonomy;
         ahead.Dodge = fleet.Dodge;
         ahead.Fire = fleet.Fire;
         ahead.Facing = fleet.Facing;
@@ -236,7 +254,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
 /// Bring fleets together into one: those already close join now; the others fly to it (to its
 /// destination if it is flying) and join when they get there.
 /// </summary>
-public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, double SpeedFraction) : GameCommand
+public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, double SpeedFraction) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -263,7 +281,7 @@ public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, d
 }
 
 /// <summary>Set a fleet's standing orders: engage or hold, and whether to retreat when badly damaged.</summary>
-public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWhenDamaged) : GameCommand
+public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWhenDamaged) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -275,7 +293,7 @@ public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWh
 }
 
 /// <summary>How a fleet dodges railgun fire.</summary>
-public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand
+public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -286,7 +304,7 @@ public sealed record SetDodgeCommand(int FleetId, DodgeMode Dodge) : GameCommand
 }
 
 /// <summary>How a fleet fires its railguns: focused or spread.</summary>
-public sealed record SetFireModeCommand(int FleetId, FireMode Fire) : GameCommand
+public sealed record SetFireModeCommand(int FleetId, FireMode Fire) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -314,5 +332,32 @@ public sealed record DebugBreakRuleCommand : GameCommand
         Fleets.EnterDrift(f);
         f.Velocity = Vec2.Zero;
         f.Position = new Vec2(double.NaN, 0);
+    }
+}
+
+/// <summary>Give a fleet a mission (or None to end it). The body or fleet it is about, where the mission needs one.</summary>
+public sealed record SetMissionCommand(int FleetId, Mission Mission, int? BodyId = null, int? EscortFleetId = null) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Mission") is not Fleet fleet) return;
+        fleet.Mission = Mission;
+        fleet.MissionBodyId = BodyId;
+        fleet.MissionFleetId = EscortFleetId;
+        fleet.MissionLeg = 0;
+        fleet.MissionUntil = 0;
+        sim.Log.Info("fleet", $"{fleet.Name} mission: {Mission}", new { FleetId, Mission, BodyId, EscortFleetId, Source });
+        Autonomy.Start(sim, fleet);
+    }
+}
+
+/// <summary>Set how much a fleet decides for itself when cut off from command.</summary>
+public sealed record SetAutonomyCommand(int FleetId, AutonomyLevel Level) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Autonomy") is not Fleet fleet) return;
+        fleet.Autonomy = Level;
+        sim.Log.Info("fleet", $"{fleet.Name} autonomy: {Level}", new { FleetId, Level, Source });
     }
 }
