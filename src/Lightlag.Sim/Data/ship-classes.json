@@ -26,7 +26,11 @@
     "_dodgeComment": "A fleet set to dodge sidesteps railgun fire: each slug aimed at it hits dodgeFactor times as often and costs the fleet dodgeDeltaV Mm/h of speed change (fuel). It stops dodging when its supplies fall below dodgeStopsBelow of full, to keep fuel to get home.",
     "dodgeFactor": 0.55,
     "dodgeDeltaV": 0.6,
-    "dodgeStopsBelow": 0.3
+    "dodgeStopsBelow": 0.3,
+    "_spreadComment": "Spread fire: each railgun fires slugsPerGun slugs at once in a fan fanMm wide at the target (focused fire: focusFanMm), each hitting accuracy times as often, then the guns cool for cooldown reloads. A sidestep (dodgeFactor above) barely helps against a fan (sidestepVsSpread). A hard burn dodges harder: hits x hardVsFocused against focused fire and x hardVsSpread against a spread, costing hardCost times the sidestep's fuel per slug. A dodge needs time: slugs fly at slugSpeedMmPerHour plus the closing speed, and a dodge only works fully when a slug takes fullDodgeSeconds or more to arrive, less the closer and faster the shooter.",
+    "spread": { "slugsPerGun": 4, "accuracy": 0.55, "cooldown": 3, "fanMm": 2.0, "focusFanMm": 0.3,
+                "sidestepVsSpread": 0.9, "hardVsFocused": 0.4, "hardVsSpread": 0.5, "hardCost": 3,
+                "slugSpeedMmPerHour": 180, "fullDodgeSeconds": 80 }
   },
   "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters), warm (coasting within warmHours of a burn: the engines are still hot) or burn (main engines firing). With these numbers a frigate sees a cold frigate at about 30,000 km (so cold ships can still creep inside missile range), a warm one at 1.5 million km and a burn at about 9.5 million km; a home planet sees five times as far (a burn about a third of an AU away). Planets block the line of sight. Your home planet's sensors use planetSensorMm. Sightings no longer updated are forgotten after forgetAfterHours.",
   "sensors": {

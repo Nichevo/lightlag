@@ -60,7 +60,12 @@ public sealed record PointDefenceData(double RangeMm, double ShotSeconds, double
 public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
     double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay,
-    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3);
+    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null);
+
+/// <summary>Spread railgun fire and hard-burn dodging. See ship-classes.json.</summary>
+public sealed record SpreadData(int SlugsPerGun, double Accuracy, double Cooldown, double FanMm, double FocusFanMm,
+    double SidestepVsSpread, double HardVsFocused, double HardVsSpread, double HardCost,
+    double SlugSpeedMmPerHour = 180, double FullDodgeSeconds = 80);
 
 /// <summary>Detection numbers (passive sensors). See ship-classes.json for what each means.</summary>
 public sealed record SensorData(double Cold, double Orbit, double Burn, double ExtraShip, double PlanetSensorMm, double ForgetAfterHours,

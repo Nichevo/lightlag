@@ -9,6 +9,12 @@ public enum ArrivalStyle { Brake, FastPass }
 /// <summary>Standing order: Engage closes to weapon range and fires (breaking off any flight); Hold keeps its course and fires at what comes in range.</summary>
 public enum Stance { Engage, Hold }
 
+/// <summary>How a fleet fires its railguns: Focused (aimed slugs) or Spread (a burst in a fan, harder to dodge, then the guns cool).</summary>
+public enum FireMode { Focused, Spread }
+
+/// <summary>How a fleet dodges railgun fire: not at all, a cheap sidestep, or a hard burn that clears a fan (costs more fuel).</summary>
+public enum DodgeMode { Off, Sidestep, HardBurn }
+
 /// <summary>Direct leaves now; Wait leaves when the trip is shortest (the target swings closer).</summary>
 public enum RouteKind { Direct, Wait }
 
@@ -81,8 +87,15 @@ public sealed class Fleet
     /// <summary>What the fleet does when enemies come into contact.</summary>
     public Stance Stance { get; set; } = Stance.Engage;
 
-    /// <summary>Sidestep railgun fire (costs fuel per slug; stops when supplies run low).</summary>
-    public bool Dodge { get; set; } = true;
+    /// <summary>Dodge railgun fire (costs fuel per slug; stops when supplies run low).</summary>
+    public DodgeMode Dodge { get; set; } = DodgeMode.Sidestep;
+
+    /// <summary>How its railguns fire.</summary>
+    public FireMode Fire { get; set; } = FireMode.Focused;
+
+    /// <summary>How it was last seen firing its railguns, and when (what enemies can tell about its fire).</summary>
+    public FireMode? LastVolley { get; set; }
+    public double LastVolleyHour { get; set; } = -1e9;
 
     /// <summary>Break off and fly home when the fleet's armour falls below half.</summary>
     public bool RetreatWhenDamaged { get; set; } = true;
