@@ -23,6 +23,7 @@ namespace Lightlag.Game;
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
 ///   E                  empire: build, research, claims B               sight shadows / sensor coverage / off
 ///   F5 / F9            quick save / quick load        F8              report a problem
+///   Z                  zoom right in on the selection (also the Zoom in button)
 ///   Ctrl+Shift+F12     test crash                     Ctrl+Shift+F11  break a rule on purpose
 /// </summary>
 public partial class GameScreen : Node2D
@@ -411,6 +412,20 @@ public partial class GameScreen : Node2D
         if (body.Kind == BodyKind.Star) _camera.FitRadius(1.8 * Physics.MmPerAu);
         else if (moons > 0) _camera.FitRadius(moons * 1.15);
         else _camera.SetScale(60 / body.Radius);
+    }
+
+    /// <summary>
+    /// Zoom right down on the selection and follow it: a planet or moon nearly fills the screen; a fleet is
+    /// shown close enough to see each ship. Nothing selected: does nothing.
+    /// </summary>
+    public void ZoomToSelected()
+    {
+        if (_selected is not int id) { _main.Toast("Select a fleet or a planet first"); return; }
+        _follow = id;
+        if (Sim.World.FindBody(id) is Body body)
+            _camera.SetScale(_camera.ScreenSize.Y * 0.35 / body.Radius);
+        else if (Sim.World.FindFleet(id) != null)
+            _camera.SetScale(30 / Fleets.FormationSpacing);
     }
 
     /// <summary>Select a body or fleet (a ship selects its fleet).</summary>
@@ -966,6 +981,7 @@ public partial class GameScreen : Node2D
             case Key.Minus or Key.KpSubtract: SetSpeed(_speed - 1); break;
             case Key.Home or Key.H: ShowWholeSystem(); break;
             case Key.F when _selected is int id: Follow(id, zoom: !key.ShiftPressed); break;
+            case Key.Z: ZoomToSelected(); break;
             case Key.Enter or Key.KpEnter: ConfirmPlan(); break;
             case Key.O: OrderHold(HoldStyle.Orbit); break;
             case Key.G: OrderHold(HoldStyle.Drift); break;
