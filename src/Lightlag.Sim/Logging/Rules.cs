@@ -69,15 +69,27 @@ public sealed class RuleBook
         .Add("ship-class-known", w => w.Ships.Where(s => !GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => $"ship {s.Id} {s.Name} has unknown class '{s.ClassId}'"))
         .Add("battle-step-in-range", w => w.Sub is < 0 or >= GameTime.SubSteps ? new[] { $"battle step {w.Sub}" } : Array.Empty<string>())
-        .Add("armour-in-range", w => w.Ships.Where(s => GameData.ShipClasses.TryGetValue(s.ClassId, out var c)
-                && !(s.Armour > 0 && s.Armour <= c.Armour + 1e-6) || s.Missiles < 0)
+        .Add("armour-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
+                && !(s.Armour > 0 && s.Armour <= Tech.MaxArmour(w, s) + 1e-6) || s.Missiles < 0)
             .Select(s => $"ship {s.Id} {s.Name} has armour {s.Armour} and {s.Missiles} missiles"))
         .Add("missiles-sane", w => w.Missiles.Where(m => !m.Position.IsFinite || !m.Velocity.IsFinite || m.DeltaVLeft < -1e-9)
             .Select(m => $"missile {m.Id} is at {m.Position} moving {m.Velocity} with {m.DeltaVLeft} fuel"))
-        .Add("battle-not-endless", w => w.ActiveBattle is { } b && w.Hour - b.StartHour > 30 * 24
+        .Add("battle-not-endless", w => w.ActiveBattle is { } b && w.Hour - b.StartHour > 30 * 24 && !Combat.Standoff(w)
             ? new[] { $"battle {b.Id} has gone on since {GameTime.Format(b.StartHour)}" } : Array.Empty<string>())
         .Add("ship-speed-sane", w => w.Ships.Where(s => !(s.MaxSpeed > 0 && double.IsFinite(s.MaxSpeed)))
-            .Select(s => $"ship {s.Id} {s.Name} has max speed {s.MaxSpeed}"));
+            .Select(s => $"ship {s.Id} {s.Name} has max speed {s.MaxSpeed}"))
+        .Add("industry-sane", w => w.Sides.Where(s => !(double.IsFinite(s.Industry) && s.Industry >= -1e-6))
+            .Select(s => $"{s.Side} has {s.Industry} Industry"))
+        .Add("orders-sane", w => w.Orders.Where(o => !double.IsFinite(o.HoursLeft) || o.HoursLeft > o.TotalHours + 1e-6
+                || (o.Kind == OrderKind.Ship ? !GameData.ShipClasses.ContainsKey(o.Key) : !GameData.ResearchById.ContainsKey(o.Key)))
+            .Select(o => $"order {o.Id} ({o.Kind} {o.Key}) has {o.HoursLeft} of {o.TotalHours} hours left"))
+        .Add("claims-sane", w => w.Bodies.Where(b => b.ClaimHours < 0 || b.ClaimHours > GameData.Economy.ClaimDays * 24
+                || (b.ClaimSide == null && b.ClaimHours != 0) || (b.ClaimSide != null && b.ClaimSide == b.Owner))
+            .Select(b => $"{b.Name} claim by {b.ClaimSide} at {b.ClaimHours} hours (owner {b.Owner})"))
+        .Add("shipyards-sane", w => w.Bodies.Where(b => b.Shipyard && (b.Owner == null || !(b.ShipyardArmour > 0)
+                || b.ShipyardArmour > GameData.Economy.Shipyard.Armour + 1e-6))
+            .Select(b => $"{b.Name} shipyard has armour {b.ShipyardArmour} and owner {b.Owner}"))
+        .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>());
 
     private static IEnumerable<string> PositionsFinite(World w)
     {

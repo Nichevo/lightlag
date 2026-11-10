@@ -23,6 +23,9 @@ public partial class Hud : CanvasLayer
     private readonly List<Action> _fleetMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
+    private Button _empireButton = null!;
+    private EmpirePanel _empire = null!;
+    private EndPanel _end = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -59,7 +62,13 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_fleets);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
+        _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
+        bar.AddChild(_empireButton);
         AddChild(bar);
+
+        _empire = new EmpirePanel(_screen);
+        _empire.Position = new Vector2(16, 56);
+        AddChild(_empire);
 
         _status = Ui.Label("", 13, Ui.Dim);
         _status.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.KeepSize, 16);
@@ -73,7 +82,7 @@ public partial class Hud : CanvasLayer
         AddChild(_scaleBar);
 
         var help = Ui.Label("Wheel zoom · WASD, arrows or right-drag pan · click select · drag a box or Shift+click to pick several · Tab next fleet · double-click follow\n"
-            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · X stop · M merge or gather · R report · P pause on contact · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
+            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · X stop · M merge or gather · E empire · R report · P pause on contact · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -115,6 +124,12 @@ public partial class Hud : CanvasLayer
         _plannerPanel.GrowHorizontal = Control.GrowDirection.Begin;
         _plannerPanel.Position += new Vector2(0, 60);
         AddChild(_plannerPanel);
+
+        _end = new EndPanel(_screen);
+        _end.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
+        _end.GrowHorizontal = Control.GrowDirection.Both;
+        _end.GrowVertical = Control.GrowDirection.Both;
+        AddChild(_end);
         _ = main;
     }
 
@@ -137,6 +152,22 @@ public partial class Hud : CanvasLayer
                        + (sim.RuleViolations > 0 ? $" · rule failures: {sim.RuleViolations}" : "")
                        + (_screen.Paused ? "\nPAUSED" : "");
         _scaleBar.QueueRedraw();
+
+        var w = sim.World;
+        _empireButton.Visible = w.Loop;
+        if (w.Loop)
+        {
+            var me = Economy.Of(w, Side.Player);
+            var held = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
+            var attacked = Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double h } && w.Hour - h <= 24;
+            _empireButton.Text = $"Industry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/day) · planets {held}/{Economy.Claimable(w).Count()}"
+                                 + (attacked ? " · SHIPYARD UNDER ATTACK" : "") + " · Empire ▾";
+            _empireButton.Modulate = attacked ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
+        }
+        _empire.Visible = w.Loop && _screen.ShowEmpire;
+        if (_empire.Visible) _empire.Refresh(sim);
+        _end.Visible = w.Winner != null && _screen.ShowEnd;
+        if (_end.Visible) _end.Refresh(w);
 
         var fleet = _screen.SelectedFleet;
         _fleetPanel.Visible = fleet != null;
@@ -202,7 +233,18 @@ public partial class Hud : CanvasLayer
             }
             var moons = sim.World.Bodies.Count(m => m.ParentId == b.Id && m.Kind == BodyKind.Moon);
             if (moons > 0) lines.Add($"Moons: {moons}");
-            if (b.Owner is Side owner) lines.Add(owner == Side.Player ? "Your home: fleets in orbit refill supplies" : "Rival home");
+            var w = sim.World;
+            if (b.Owner is Side owner)
+                lines.Add((owner == Side.Player ? "Yours" : "Held by the rival")
+                          + (b.Shipyard ? $" · shipyard, armour {b.ShipyardArmour / GameData.Economy.Shipyard.Armour * 100:0} %" : "")
+                          + (owner == Side.Player ? (b.Shipyard ? ": fleets here refill, repair and rearm" : ": fleets here refill supplies") : ""));
+            if (w.Loop && b.Industry > 0) lines.Add($"Industry: {b.Industry:0} a day for whoever holds it");
+            if (b.ClaimSide is Side claimer)
+                lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {GameData.Economy.ClaimDays:0} days");
+            else if (w.Loop && b.Industry > 0 && b.Owner != Side.Player && !b.Shipyard)
+                lines.Add($"Hold orbit here {GameData.Economy.ClaimDays:0} days with no enemy in orbit to claim it");
+            else if (b.Shipyard && b.Owner == Side.Rival)
+                lines.Add("Park an armed fleet in orbit with no defenders near to wear the shipyard down");
             if (_screen.SelectedFleet == null && sim.World.Fleets.Any(f => f.Side == Side.Player)) lines.Add("Select a fleet, then right-click here to fly");
             lines.Add(_screen.IsFollowing(b.Id) ? "Following" : "Double-click or F to follow");
             return string.Join("\n", lines);

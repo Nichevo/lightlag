@@ -20,6 +20,7 @@ namespace Lightlag.Game;
 ///   Ctrl+right click   add a waypoint to the route    Drag a waypoint move it (the route replans live)
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
+///   E                  empire: build, research, claims
 ///   F5 / F9            quick save / quick load        F8              report a problem
 ///   Ctrl+Shift+F12     test crash                     Ctrl+Shift+F11  break a rule on purpose
 /// </summary>
@@ -68,7 +69,23 @@ public partial class GameScreen : Node2D
     /// <summary>The battle whose report is open, if any.</summary>
     public Battle? Report { get; private set; }
 
-    public bool InBattle => Sim.World.ActiveBattle != null || Sim.World.Sub != 0;
+    /// <summary>Battle time is running (a standoff, where nobody can fight, runs at normal speed).</summary>
+    public bool InBattle => Sim.World.Sub != 0 || (Sim.World.ActiveBattle != null && !Combat.Standoff(Sim.World));
+
+    /// <summary>The empire panel (E): Industry, shipyard, research, claims.</summary>
+    public bool ShowEmpire { get; set; }
+
+    /// <summary>The win or lose panel is open (it opens once, when the game ends).</summary>
+    public bool ShowEnd { get; private set; }
+    private bool _endSeen;
+    public void CloseEnd() => ShowEnd = false;
+    public void OpenEnd() { _endSeen = true; ShowEnd = true; }
+
+    private readonly Dictionary<int, Side?> _owners = new();
+    private readonly HashSet<int> _knownShips = new();
+    private int _researchSeen = -1;
+    private double? _yardAttackSeen;
+    private readonly HashSet<int> _claimsWarned = new();
 
     /// <summary>The route planner's choices, kept between plans.</summary>
     public PlanSettings Settings { get; } = new();
@@ -134,6 +151,7 @@ public partial class GameScreen : Node2D
             _sinceAutosave += delta;
             WatchBattles();
             WatchSightings();
+            WatchEconomy();
         }
         if (_sinceAutosave >= AutosaveEverySeconds)
         {
@@ -304,6 +322,64 @@ public partial class GameScreen : Node2D
             _main.Toast($"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}" + (PauseOnContact ? ". Paused." : ""));
             if (PauseOnContact) _paused = true;
         }
+    }
+
+    /// <summary>Says when ships are launched, research finishes, planets change hands, and when the game ends.</summary>
+    private void WatchEconomy()
+    {
+        var w = Sim.World;
+        if (!w.Loop) return;
+        var first = _researchSeen < 0;
+        var me = Economy.Of(w, Side.Player);
+        if (!first && me.Researched.Count > _researchSeen)
+            _main.Toast($"Research done: {GameData.Research(me.Researched[^1]).Name}");
+        _researchSeen = me.Researched.Count;
+
+        foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
+            if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
+                _main.Toast($"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}");
+
+        foreach (var b in Economy.Claimable(w))
+        {
+            var had = _owners.TryGetValue(b.Id, out var o) ? o : b.Owner;
+            if (!first && had != b.Owner)
+            {
+                var text = b.Owner == Side.Player ? $"You claimed {b.Name}" : had == Side.Player ? $"You lost {b.Name} to the rival" : $"The rival claimed {b.Name}";
+                _main.Toast(text);
+            }
+            _owners[b.Id] = b.Owner;
+            if (b.ClaimSide == Side.Rival && b.Owner == Side.Player)
+            {
+                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {GameData.Economy.ClaimDays:0} days"); _paused = true; }
+            }
+            else _claimsWarned.Remove(b.Id);
+        }
+
+        if (Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double hit } yard && (_yardAttackSeen == null || hit - _yardAttackSeen > 24))
+        {
+            if (!first) { _main.Toast($"Your shipyard at {yard.Name} is under attack!"); _paused = true; }
+            _yardAttackSeen = hit;
+        }
+
+        if (w.Winner != null && !_endSeen)
+        {
+            _endSeen = true;
+            ShowEnd = true;
+            _paused = true;
+        }
+    }
+
+    public void Queue(OrderKind kind, string key)
+    {
+        if (Economy.CanQueue(Sim.World, Side.Player, kind, key) is string problem) { _main.Toast(problem); return; }
+        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key));
+        _main.RunGuarded("queueing an order", Sim.ApplyPending);
+    }
+
+    public void CancelOrder(int orderId)
+    {
+        Sim.Issue(new CancelOrderCommand(Side.Player, orderId));
+        _main.RunGuarded("cancelling an order", Sim.ApplyPending);
     }
 
     public void ShowLastReport() => Report = Sim.World.Battles.LastOrDefault();
@@ -537,6 +613,7 @@ public partial class GameScreen : Node2D
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
+            case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
                 _main.Log.Info("save", "Quick save");

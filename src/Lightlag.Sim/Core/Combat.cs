@@ -39,6 +39,12 @@ public sealed class Battle
     public double StartHour { get; set; }
     public double? EndHour { get; set; }
     public Vec2 Where { get; set; }
+
+    /// <summary>
+    /// The last time anything happened: a shot, a launch, a missile in flight or a fleet closing in.
+    /// After an hour with nothing, the battle is a standoff and time runs at the normal speed again.
+    /// </summary>
+    public double LastActionHour { get; set; }
     public BattleSide[] Sides { get; set; } = { new(), new() };
 
     public BattleSide For(Side s) => Sides[(int)s];
@@ -60,7 +66,9 @@ public static class Combat
     /// </summary>
     public static bool BattlePossible(World w)
     {
-        if (w.Missiles.Count > 0 || w.ActiveBattle != null) return true;
+        if (w.Missiles.Count > 0) return true;
+        var standoff = Standoff(w);
+        if (w.ActiveBattle != null && !standoff) return true;
         var to = w.Hour + 1;
         var ends = new Dictionary<int, (Vec2 A, Vec2 B, double Margin)>();
         foreach (var f in w.Fleets)
@@ -81,7 +89,13 @@ public static class Combat
                 var dv = (a1 - a0) - (b1 - b0);
                 var s = dv.Length > 1e-12 ? Math.Clamp(-(r0.X * dv.X + r0.Y * dv.Y) / (dv.X * dv.X + dv.Y * dv.Y), 0, 1) : 0;
                 var closest = (r0 + dv * s).Length;
-                if (closest <= C.ContactRangeMm + 50 + ma + mb) return true;
+                if (!(closest <= C.ContactRangeMm + 50 + ma + mb)) continue;
+                // Fleets already close together only need battle time if something can change: one is
+                // flying closer, manoeuvring, or would close in to fight. Parked or drifting neighbours that
+                // can't (or won't) fight are checked once an hour instead.
+                if (r0.Length > C.ContactRangeMm + 50) return true;
+                if (ma > 0 || mb > 0 || WouldEngage(w, a, b) || WouldEngage(w, b, a)) return true;
+                if ((a.Flight is { Started: true } || b.Flight is { Started: true }) && closest < r0.Length - 1) return true;
             }
         }
         return false;
@@ -106,11 +120,15 @@ public static class Combat
             if (enemy != null && f.RetreatWhenDamaged && !f.Retreating && ArmourShare(w, f) < C.RetreatBelowArmour)
                 Retreat(sim, f);
 
-            var flying = f.Flight is { Started: true };
-            var wantsToClose = enemy != null && f.Stance == Stance.Engage && !f.Retreating && !flying && HasWorking(w, f, Module.Railguns);
+            var wantsToClose = enemy != null && WouldEngage(w, f, enemy);
             if (!wantsToClose && !f.Maneuvering) continue;
 
             var perf = FleetPerformance.Of(w, f);
+            if (perf.DeltaVLeft <= 1e-6)
+            {
+                f.Maneuvering = false; // out of fuel: it drifts on as it is
+                continue;
+            }
             Vec2 desired;
             if (wantsToClose)
             {
@@ -145,12 +163,18 @@ public static class Combat
         }
     }
 
+    /// <summary>Would this fleet close in to fight that enemy? (Engage stance, sees it, has railguns and fuel, isn't flying or retreating.)</summary>
+    public static bool WouldEngage(World w, Fleet f, Fleet enemy) =>
+        f.Stance == Stance.Engage && !f.Retreating && f.Flight is not { Started: true }
+        && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
+        && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3;
+
     private static void Retreat(Simulation sim, Fleet f)
     {
         var w = sim.World;
         f.Retreating = true;
         f.Maneuvering = false;
-        var home = w.Bodies.FirstOrDefault(b => b.Owner == f.Side);
+        var home = Economy.HomeOf(w, f.Side);
         if (home == null) return;
         var req = new FlightRequest(home.Id, home.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick);
         var plan = FlightPlanner.Plan(w, f, req);
@@ -200,7 +224,8 @@ public static class Combat
         if (target == null) return;
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
-        ship.RailsReadyHour = t1 + rail.ReloadSeconds / 3600;
+        battle.LastActionHour = t1;
+        ship.RailsReadyHour = t1 + rail.ReloadSeconds * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
         for (var i = 0; i < cls.Railguns; i++)
         {
             if (ship.Supplies < rail.SuppliesPerShot) break;
@@ -225,6 +250,7 @@ public static class Combat
         var m = C.Missile;
         var target = NearestEnemyShip(w, ship, m.LaunchRangeMm);
         if (target == null) return;
+        battle.LastActionHour = t1;
         var count = Math.Min(m.Salvo, ship.Missiles);
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
@@ -303,7 +329,7 @@ public static class Combat
             .Sum(s => GameData.ShipClass(s.ClassId).PointDefence);
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
-        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1);
+        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2);
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
@@ -376,7 +402,15 @@ public static class Combat
 
     // ---- Contacts and battle records --------------------------------------------------------
 
-    private static void UpdateContacts(Simulation sim, double t1)
+    /// <summary>
+    /// A battle where nothing has happened for an hour: the fleets are in contact but out of reach of
+    /// each other's weapons, or out of ammunition. Time runs at normal speed until someone moves in.
+    /// </summary>
+    public static bool Standoff(World w) =>
+        w.ActiveBattle is { } b && w.Missiles.Count == 0 && w.Hour - b.LastActionHour >= 1;
+
+    /// <summary>Starts, updates or ends the battle from who is in contact with whom.</summary>
+    public static void UpdateContacts(Simulation sim, double t1)
     {
         var w = sim.World;
         var inContact = new List<(Fleet A, Fleet B)>();
@@ -390,7 +424,7 @@ public static class Combat
         var battle = w.ActiveBattle;
         if (battle == null && inContact.Count > 0)
         {
-            battle = new Battle { Id = w.NextId++, StartHour = t1, Where = inContact[0].A.Position };
+            battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
@@ -400,6 +434,7 @@ public static class Combat
             });
         }
         if (battle == null) return;
+        if (w.Missiles.Count > 0 || inContact.Any(p => p.A.Maneuvering || p.B.Maneuvering)) battle.LastActionHour = t1;
         foreach (var (a, b) in inContact)
         {
             if (!battle.For(a.Side).Fleets.Contains(a.Name)) battle.For(a.Side).Fleets.Add(a.Name);
@@ -470,7 +505,7 @@ public static class Combat
         foreach (var s in w.ShipsOf(f))
         {
             have += Math.Max(0, s.Armour);
-            full += GameData.ShipClass(s.ClassId).Armour;
+            full += Tech.MaxArmour(w, s);
         }
         return full > 0 ? have / full : 1;
     }
@@ -481,8 +516,9 @@ public static class Combat
         foreach (var s in w.ShipsOf(f))
         {
             var cls = GameData.ShipClass(s.ClassId);
-            s.Armour = Math.Min(cls.Armour, s.Armour + cls.Armour * C.RepairPerDay * hours / 24);
-            if (s.Armour >= cls.Armour * 0.5) s.Disabled = null;
+            var max = Tech.MaxArmour(w, s);
+            s.Armour = Math.Min(max, s.Armour + max * C.RepairPerDay * hours / 24);
+            if (s.Armour >= max * 0.5) s.Disabled = null;
             if (s.Missiles < cls.Missiles && s.Supplies >= 1 && w.Hour % 6 < hours)
             {
                 s.Missiles++;

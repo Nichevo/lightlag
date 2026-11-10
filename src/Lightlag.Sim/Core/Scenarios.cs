@@ -15,7 +15,9 @@ public static class Scenarios
     public static World Create(string name, ulong seed, SimRandom rng)
     {
         if (!All.Contains(name)) throw new ArgumentException($"Unknown scenario '{name}'. Known: {string.Join(", ", All)}");
-        return FromData(GameData.LoadSystem(name + ".json"), seed, rng);
+        var w = FromData(GameData.LoadSystem(name + ".json"), seed, rng);
+        Economy.Start(w);
+        return w;
     }
 
     /// <summary>
@@ -27,8 +29,8 @@ public static class Scenarios
         var data = GameData.LoadSystem(TestSystem + ".json");
         var w = FromData(data with { Ships = new() }, seed, rng);
         w.Scenario = BattleSandbox;
-        w.Bodies.Single(b => b.Key == "verdant").Owner = Side.Player;
-        w.Bodies.Single(b => b.Key == "rust").Owner = Side.Rival;
+        Economy.AddShipyard(w.Bodies.Single(b => b.Key == "verdant"), Side.Player);
+        Economy.AddShipyard(w.Bodies.Single(b => b.Key == "rust"), Side.Rival);
         w.MissileBrain[(int)Side.Player] = Math.Clamp(setup.PlayerBrain, 1, 2);
         w.MissileBrain[(int)Side.Rival] = Math.Clamp(setup.RivalBrain, 1, 2);
 
@@ -52,18 +54,7 @@ public static class Scenarios
         var ships = new List<Ship>();
         void Add(string classId, int count)
         {
-            var cls = GameData.ShipClass(classId);
-            for (var i = 1; i <= count; i++)
-            {
-                var ship = new Ship
-                {
-                    Id = w.NextId++, Name = $"{cls.Short}-{(side == Side.Player ? "" : "R")}{i}", Side = side, ClassId = cls.Id,
-                    MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies,
-                    Armour = cls.Armour, Missiles = cls.Missiles,
-                };
-                ships.Add(ship);
-                w.Ships.Add(ship);
-            }
+            for (var i = 1; i <= count; i++) ships.Add(Economy.NewShip(w, side, classId));
         }
         Add("gun-frigate", Math.Clamp(frigates, 0, 12));
         Add("missile-destroyer", Math.Clamp(destroyers, 0, 12));
@@ -90,6 +81,7 @@ public static class Scenarios
                 OrbitRadius = parent != null ? radius : 0,
                 OrbitPeriodDays = parent != null ? Physics.OrbitPeriodHours(radius, parent.Gm) / 24 : 0,
                 Angle = parent != null ? rng.Range(0, Math.PI * 2) : 0,
+                Industry = d.Industry ?? 0,
             };
             ids[d.Id] = b;
             w.Bodies.Add(b);
@@ -106,32 +98,14 @@ public static class Scenarios
 
         Simulation.UpdateBodyPositions(w);
 
-        // Each side's ships start as one fleet per start body, in orbit, and that body is their home.
-        var counters = new Dictionary<string, int>();
+        // Each side's ships start as one fleet per start body, in orbit, and that body is their home with a shipyard.
         foreach (var start in (data.Ships ?? new()).GroupBy(g => (g.Side, g.Near)))
         {
             var near = ids[start.Key.Near];
-            near.Owner = start.Key.Side;
+            if (!near.Shipyard) Economy.AddShipyard(near, start.Key.Side);
             var ships = new List<Ship>();
             foreach (var group in start)
-            {
-                var cls = GameData.ShipClass(group.Class);
-                for (var i = 0; i < group.Count; i++)
-                {
-                    var key = $"{group.Side}:{cls.Id}";
-                    counters[key] = counters.GetValueOrDefault(key) + 1;
-                    var ship = new Ship
-                    {
-                        Id = w.NextId++,
-                        Name = $"{cls.Short}-{(group.Side == Side.Player ? "" : "R")}{counters[key]}",
-                        Side = group.Side, ClassId = cls.Id,
-                        MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies,
-                        Armour = cls.Armour, Missiles = cls.Missiles,
-                    };
-                    ships.Add(ship);
-                    w.Ships.Add(ship);
-                }
-            }
+                for (var i = 0; i < group.Count; i++) ships.Add(Economy.NewShip(w, group.Side, group.Class));
             var fleet = Fleets.Create(w, start.Key.Side, ships, near.Position);
             fleet.Hold = HoldStyle.Orbit;
             fleet.OrbitBodyId = near.Id;

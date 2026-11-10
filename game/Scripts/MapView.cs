@@ -170,8 +170,21 @@ public partial class MapView : Node2D
             var at = Camera.ToScreen(_drawn[b.Id]);
             if (!Camera.OnScreen(at, 100)) continue;
             var r = (float)ScreenRadius(b);
-            var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : Ui.Dim;
-            DrawString(_font, at + new Vector2(r + 5, 5), b.Name, HorizontalAlignment.Left, -1, b.Kind == BodyKind.Moon ? 12 : 14, color);
+            // Held planets take their side's colour; a shipyard is marked; a claim shows as a filling ring.
+            var side = b.Owner is Side o ? (o == Side.Player ? Ui.Player : Ui.Rival) : (Color?)null;
+            var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
+            var name = b.Name + (b.Shipyard ? " · shipyard" : "");
+            if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
+            if (b.ClaimSide is Side claimer)
+            {
+                var share = (float)(b.ClaimHours / (GameData.Economy.ClaimDays * 24));
+                var cc = claimer == Side.Player ? Ui.Player : Ui.Rival;
+                DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
+                DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
+                name += $" · claiming {share * 100:0} %";
+            }
+            var gap = b.ClaimSide != null ? 14 : 5; // clear of the claim ring
+            DrawString(_font, at + new Vector2(r + gap, 5), name, HorizontalAlignment.Left, -1, b.Kind == BodyKind.Moon ? 12 : 14, color);
             if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
         }
 
