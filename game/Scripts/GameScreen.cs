@@ -250,7 +250,7 @@ public partial class GameScreen : Node2D
     }
 
     /// <summary>Draw the simulation exactly as it is now: no blending back towards the step before.</summary>
-    private void SnapToNow()
+    public void SnapToNow()
     {
         _map.BeforeStep();
         _accum = 0;
@@ -282,7 +282,7 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         if (w.FindFleet(mineId) is not { Side: Side.Player } mine) return;
         var enemy = enemyId ?? Engagement_.EnemyFor(w, mine);
-        if (enemy is not int e || Sensors.Find(w, Side.Player, e) == null)
+        if (enemy is not int e || Sensors.Find(w, Side.Player, e, seat: true) == null)
         {
             _main.Toast($"{mine.Name} has no enemy fleet in sight or on record");
             return;
@@ -352,7 +352,7 @@ public partial class GameScreen : Node2D
         if (_engagementAge < 0.25 && EngagementNow != null) { _map.Engagement = EngagementNow; return; }
         _engagementAge = 0;
         var w = Sim.World;
-        if (w.FindFleet(mineId) is not Fleet mine || Sensors.Find(w, Side.Player, enemyId) == null)
+        if (w.FindFleet(mineId) is not Fleet mine || Sensors.Find(w, Side.Player, enemyId, seat: true) == null)
         {
             CloseEngagement();
             _map.Engagement = null;
@@ -374,7 +374,7 @@ public partial class GameScreen : Node2D
     public void GoToSighting(int fleetId)
     {
         var w = Sim.World;
-        var s = Sensors.Find(w, Side.Player, fleetId);
+        var s = Sensors.Find(w, Side.Player, fleetId, seat: true);
         if (s == null || w.FindFleet(fleetId) is not Fleet f) return;
         Select(fleetId);
         if (s.Visible || RevealAll) _follow = f.Id;
@@ -426,7 +426,7 @@ public partial class GameScreen : Node2D
         if (mine != null) { _follow = mine.Id; Select(mine.Id); }
         else { _follow = null; _camera.Center = center; }
         _camera.FitRadius(Math.Max(spread * 2.5, 300));
-        var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id) != null);
+        var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id, seat: true) != null);
         if (mine != null) OpenEngagement(mine.Id, theirs?.Id);
     }
 
@@ -599,7 +599,7 @@ public partial class GameScreen : Node2D
     private void WatchSightings()
     {
         var w = Sim.World;
-        foreach (var s in w.Sightings)
+        foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own))
         {
             if (s.SeenBy != Side.Player || !s.Visible) continue;
             var seenBefore = _lastInSight.ContainsKey(s.FleetId);
@@ -628,7 +628,7 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         if (w.Tick == _chaseCheckedTick) return;
         _chaseCheckedTick = w.Tick;
-        foreach (var s in w.Sightings.Where(s => s.SeenBy == Side.Player && s.Visible))
+        foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && s.Visible))
             foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player))
             {
                 if (Sensors.HeadingFor(s, mine, w.Hour) is not double eta) continue;
@@ -1150,7 +1150,7 @@ public partial class GameScreen : Node2D
         if (_map.HitTest(at) is int hit && Sim.World.FindFleet(hit) is Fleet enemy && enemy.Side != Side.Player)
         {
             // Aim at where it is thought to be: in sight, or guessed from the last sighting.
-            var guess = Sensors.Predict(Sim.World, Side.Player, enemy.Id, Sim.World.Hour) ?? enemy.Position;
+            var guess = Sensors.Predict(Sim.World, Side.Player, enemy.Id, Sim.World.Hour, seat: true) ?? enemy.Position;
             StartPlanning(null, guess, enemy.Id);
             if (goNow) ConfirmPlan();
             return;

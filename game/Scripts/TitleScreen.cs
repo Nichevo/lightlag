@@ -19,6 +19,27 @@ public partial class TitleScreen : Control
         if (page == _saves) _saves.Refresh();
     }
 
+    /// <summary>Light lag for the next new game: real light speed (the test default), ten times slower light, or off.</summary>
+    private static Control LightPicker(Main main)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 8);
+        row.AddChild(Ui.Label("Light lag:", 15, Ui.Dim));
+        var pick = new OptionButton { TooltipText = "How long news and orders take to cross the system. Real light: Tamber is about 45 minutes from Verdant." };
+        pick.AddItem("real light speed");
+        pick.AddItem("light 10x slower (test)");
+        pick.AddItem("off");
+        pick.Selected = !main.LightChoice.On ? 2 : main.LightChoice.SpeedFactor < 0.5 ? 1 : 0;
+        pick.ItemSelected += i => main.LightChoice = i switch
+        {
+            1 => new Lightlag.Sim.Core.LightSetup(true, 0.1),
+            2 => new Lightlag.Sim.Core.LightSetup(false, 1.0),
+            _ => new Lightlag.Sim.Core.LightSetup(true, 1.0),
+        };
+        row.AddChild(pick);
+        return row;
+    }
+
     public override void _Ready()
     {
         var main = Main.Instance;
@@ -37,6 +58,7 @@ public partial class TitleScreen : Control
         col.AddChild(cont);
         col.AddChild(Ui.Button("New game: Normal rival", () => main.StartNewGame()));
         col.AddChild(Ui.Button("New game: Easy rival", () => main.StartNewGame(difficulty: Lightlag.Sim.Core.Difficulty.Easy), 16));
+        col.AddChild(LightPicker(main));
         col.AddChild(Ui.Button("Load game", () => ShowPage(_saves), 16));
         col.AddChild(Ui.Button("How to play", () => ShowPage(_help), 16));
         col.AddChild(Ui.Button("Battle sandbox", () => main.ShowSandboxSetup()));

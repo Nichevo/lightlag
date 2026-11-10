@@ -319,7 +319,7 @@ public partial class Hud : CanvasLayer
                 Item($"      {s.Name}  {GameData.ShipClass(s.ClassId).Name}", () => _screen.PickShip(shipId));
             }
         }
-        var rivals = w.Sightings.Where(s => s.SeenBy == Side.Player && w.FindFleet(s.FleetId) != null).OrderByDescending(s => s.Visible).ToList();
+        var rivals = Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && w.FindFleet(s.FleetId) != null).OrderByDescending(s => s.Visible).ToList();
         if (rivals.Count > 0) popup.AddSeparator("Rival fleets you know of");
         foreach (var s in rivals)
         {
@@ -442,6 +442,16 @@ public static class Format
         var days = hours / 24;
         if (days < 730) return $"{days:#,0} days";
         return $"{days / 365.25:0.#} years";
+    }
+
+    /// <summary>A light-lag delay or age: "under a minute", "18 min", "1 h 12 min".</summary>
+    public static string Lag(double hours)
+    {
+        var minutes = (int)Math.Round(hours * 60);
+        if (minutes < 1) return "under a minute";
+        if (minutes < 60) return $"{minutes} min";
+        if (hours < 48) return $"{minutes / 60} h {minutes % 60:00} min";
+        return Hours(hours);
     }
 
     public static string Title(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];

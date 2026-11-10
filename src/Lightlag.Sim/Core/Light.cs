@@ -134,14 +134,13 @@ public static class Light
         {
             var key = $"{(int)snap.SeenBy}:{snap.FleetId}";
             live.Add(key);
+            var delay = DelayHours(w, snap.SeenBy, snap.Position);
+            // Live news (within command range) goes every step; news from afar every few minutes.
             if (marks.TryGetValue(key, out var last) && last.Visible == snap.Visible
-                && (snap.Hour - last.Hour < ReportEveryHours - 1e-9)) return;
+                && (snap.Hour <= last.Hour || delay > 0 && snap.Hour - last.Hour < ReportEveryHours - 1e-9)) return;
             if (last != null && !snap.Visible && !last.Visible) return; // nothing new about a fleet out of sight
             marks[key] = new ReportMark(snap.Hour, snap.Visible);
-            w.Light.Reports.Add(new Report
-            {
-                To = snap.SeenBy, ArriveHour = now + DelayHours(w, snap.SeenBy, snap.Position), Snapshot = snap.Copy(),
-            });
+            w.Light.Reports.Add(new Report { To = snap.SeenBy, ArriveHour = now + delay, Snapshot = snap.Copy() });
         }
         foreach (var s in w.Sightings) Send(s);
         foreach (var f in w.Fleets)

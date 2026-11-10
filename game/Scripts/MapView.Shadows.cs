@@ -57,7 +57,10 @@ public partial class MapView
     }
 
     /// <summary>A dashed circle, skipped when it is too small to read or wholly off screen.</summary>
-    private void DrawDashedCircle(Vector2 at, float r)
+    private void DrawDashedCircle(Vector2 at, float r) => DrawDashedCircle(at, r, BurnEdge, null);
+
+    /// <summary>A dashed circle in a colour, with an optional label at its top.</summary>
+    private void DrawDashedCircle(Vector2 at, float r, Color color, string? label)
     {
         var size = Camera.ScreenSize;
         if (r < 8 || at.X + r < 0 || at.Y + r < 0 || at.X - r > size.X || at.Y - r > size.Y) return;
@@ -66,8 +69,9 @@ public partial class MapView
         {
             var a0 = Mathf.Tau * i / dashes;
             var a1 = Mathf.Tau * (i + 1) / dashes;
-            DrawLine(at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * r, at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * r, BurnEdge, 1);
+            DrawLine(at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * r, at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * r, color, 1);
         }
+        if (label != null) DrawString(_font, at + new Vector2(-40, r + 16), label, HorizontalAlignment.Left, -1, 11, color);
     }
 
     private void WorkOutShadows()

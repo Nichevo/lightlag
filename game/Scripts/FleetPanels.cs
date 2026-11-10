@@ -120,7 +120,7 @@ public partial class FleetPanel : PanelContainer
         var perf = FleetPerformance.Of(w, f);
         _title.Text = f.Name + (mine ? "" : "  (rival)");
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
-        var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f);
+        var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f, seat: true);
         var lines = new List<string>();
         if (mine)
         {
@@ -130,9 +130,9 @@ public partial class FleetPanel : PanelContainer
             lines.Add($"Top speed {Format.Speed(perf.MaxSpeed)} (slowest ship) · fuel for {Format.Speed(perf.DeltaVLeft)} of speed change");
             lines.Add(SignatureLine(w, f));
         }
-        else if (Sensors.Find(w, Side.Player, f.Id) is Sighting sighting || _screen.RevealAll)
+        else if (Sensors.Find(w, Side.Player, f.Id, seat: true) is Sighting sighting || _screen.RevealAll)
         {
-            sighting = Sensors.Find(w, Side.Player, f.Id);
+            sighting = Sensors.Find(w, Side.Player, f.Id, seat: true);
             if (seen) lines.Add($"In sight: {StateText(Sensors.StateOf(f))} · {Motion(w, f)}");
             else if (sighting != null)
             {
@@ -256,7 +256,7 @@ public partial class FleetPanel : PanelContainer
                 : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
         if (f.Chase is ChaseOrder c)
         {
-            var who = Sensors.Find(w, f.Side, c.TargetFleetId)?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
+            var who = Sensors.Find(w, f.Side, c.TargetFleetId, seat: true)?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
             var how = FlightPlanner.ChaseName(c.Mode);
             var text = f.Flight is Flight cf
                 ? $"Chasing {who} ({how}), there {GameTime.Format(cf.ArriveHour)}"
@@ -586,7 +586,7 @@ public partial class PlannerPanel : PanelContainer
     /// <summary>Both fleets' speeds, so it is clear why a chase can or cannot work.</summary>
     private static string ChaseInfo(World w, Fleet? fleet, int targetId, PlanSettings s)
     {
-        var sighting = Sensors.Find(w, Side.Player, targetId);
+        var sighting = Sensors.Find(w, Side.Player, targetId, seat: true);
         if (fleet == null || sighting == null) return "";
         var theirs = sighting.Velocity.Length;
         var seen = sighting.Visible ? "in sight" : $"last seen {Format.Hours(w.Hour - sighting.Hour)} ago, assumed still on that track";
