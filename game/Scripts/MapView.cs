@@ -537,11 +537,12 @@ public partial class MapView : Node2D
         if (!preview)
         {
             var ahead = AheadPoints(flight);
+            var stops = flight.WaypointPlan.Count > 0 ? flight.WaypointsAhead(DrawHour).Select(w => w.Stop).ToList() : null;
             var mine = f.Id == SelectedId && f.Side == Side.Player && PlannerWaypoints == null;
             for (var i = 0; i < ahead.Count; i++)
             {
                 var at = Camera.ToScreen(ahead[i]);
-                DrawDiamond(at, mine ? 7 : 5, new Color(baseColor, mine ? 0.9f : alpha), false);
+                DrawDiamond(at, mine ? 7 : 5, new Color(baseColor, mine ? 0.9f : alpha), stops?[i] == true);
                 if (mine) DrawString(_font, at + new Vector2(10, -6), $"{i + 1}", HorizontalAlignment.Left, -1, 12, new Color(baseColor, 0.9f));
             }
             if (mine && ahead.Count > 0)
