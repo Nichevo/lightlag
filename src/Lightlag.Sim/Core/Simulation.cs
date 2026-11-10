@@ -134,6 +134,8 @@ public sealed class Simulation
             Combat.Steer(this, t0, t1);
             MoveFleets(t0, t1);
             Drones.Move(this, t1 - t0);
+            Heat.Update(this, t1 - t0);
+            DroppedMissiles.Update(this, t1 - t0);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Light.Relay(this);
@@ -147,6 +149,8 @@ public sealed class Simulation
             Combat.Steer(this, t0, World.Hour);
             MoveFleets(t0, World.Hour);
             Drones.Move(this, World.Hour - t0);
+            Heat.Update(this, World.Hour - t0);
+            DroppedMissiles.Update(this, World.Hour - t0);
             UpdateFacing(velocities, World.Hour);
             Sensors.Update(this);
             Light.Relay(this);

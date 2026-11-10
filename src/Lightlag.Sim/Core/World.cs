@@ -50,6 +50,9 @@ public sealed class World
     /// <summary>Messenger drones in flight (see Drones).</summary>
     public List<Drone> Drones { get; set; } = new();
 
+    /// <summary>Missiles dropped to drift dark until their timer runs out (see DroppedMissiles).</summary>
+    public List<Missile> Dropped { get; set; } = new();
+
     /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
     public List<Station> Stations { get; set; } = new();
 
@@ -168,6 +171,12 @@ public sealed class Ship
     /// <summary>When an enemy last fired at it (ships not under fire aim steadier).</summary>
     public double LastTargetedHour { get; set; } = -1e9;
     public double SalvoReadyHour { get; set; }
+
+    /// <summary>Heat (see Heat): how hot it is, whether it has overheated, heat sinks left, and its shield.</summary>
+    public double Heat { get; set; }
+    public bool Overheated { get; set; }
+    public int HeatSinks { get; set; }
+    public double Shield { get; set; }
 }
 
 public enum Module { Engines, Railguns, Missiles, PointDefence }

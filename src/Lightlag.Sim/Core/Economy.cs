@@ -91,6 +91,7 @@ public static class Tech
     public const string Automation = "automation";
     public const string CommandUplink = "command-uplink";
     public const string TightBeam = "tight-beam";
+    public const string DeflectorGrid = "deflector-grid";
 
     /// <summary>Research that only matters with light lag on.</summary>
     public static bool LagOnly(string id) => id is CommandUplink or TightBeam;
@@ -311,6 +312,7 @@ public static class Economy
             MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies, Missiles = cls.Missiles,
         };
         ship.Armour = Tech.MaxArmour(w, ship);
+        Heat.Fit(w, ship);
         w.Ships.Add(ship);
         return ship;
     }

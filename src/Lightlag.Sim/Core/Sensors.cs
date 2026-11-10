@@ -102,7 +102,7 @@ public static class Sensors
     {
         var state = StateOf(f);
         var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) : 1;
-        return SizeOf(w, f) * StateFactor(state) * quiet;
+        return SizeOf(w, f) * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f));
     }
 
     /// <summary>The fleet's best sensor range (for a signature of 1).</summary>

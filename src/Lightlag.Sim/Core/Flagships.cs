@@ -4,7 +4,7 @@ namespace Lightlag.Sim.Core;
 public enum CoverStyle { Loose, Screen, Close }
 
 /// <summary>What a fleet's guns and missiles go for: the nearest ship, or the ship it takes to be the enemy flagship.</summary>
-public enum FireAt { Nearest, Flagship }
+public enum FireAt { Nearest, Flagship, Largest, Weakest, Engines, Split }
 
 /// <summary>What a side believes about a sighted fleet carrying the enemy flagship.</summary>
 public enum FlagKnown { Unknown, Suspected, Confirmed, Cleared }

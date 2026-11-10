@@ -28,6 +28,10 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(CancelOrderCommand), "cancelOrder")]
 [JsonDerivedType(typeof(BuildStationCommand), "buildStation")]
 [JsonDerivedType(typeof(SetOrderFleetCommand), "setOrderFleet")]
+[JsonDerivedType(typeof(SetHeatCommand), "setHeat")]
+[JsonDerivedType(typeof(EjectHeatSinksCommand), "ejectHeatSinks")]
+[JsonDerivedType(typeof(SetFireControlCommand), "setFireControl")]
+[JsonDerivedType(typeof(DropMissilesCommand), "dropMissiles")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

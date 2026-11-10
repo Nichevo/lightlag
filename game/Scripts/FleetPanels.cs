@@ -920,7 +920,9 @@ public partial class ReportPanel : PanelContainer
         var lines = new List<string> { $"{who}: {(s.Fleets.Count > 0 ? string.Join(", ", s.Fleets) : "no fleets")}" };
         if (s.RailShots > 0) lines.Add($"  Railguns: {s.RailHits} hits from {s.RailShots} shots");
         if (s.MissilesFired > 0)
-            lines.Add($"  Missiles: {s.MissilesFired} fired, {s.MissileHits} hit, {s.ShotDown} shot down, {s.Dodged} dodged, {s.RanDry} ran dry or lost their target");
+            lines.Add($"  Missiles: {s.MissilesFired} fired, {s.MissileHits} hit, {s.ShotDown} shot down, {s.Dodged} dodged, "
+                      + (s.Decoyed > 0 ? $"{s.Decoyed} drawn off by heat sinks, " : "") + $"{s.RanDry} ran dry or lost their target");
+        if (s.ShieldSoaked > 0) lines.Add($"  Shields soaked: {s.ShieldSoaked:0} damage");
         lines.Add($"  Damage done: {s.DamageDealt:0}");
         if (s.Knocked.Count > 0) lines.Add($"  Knocked out: {string.Join(", ", s.Knocked)}");
         lines.Add(s.ShipsLost.Count > 0 ? $"  Ships lost: {string.Join(", ", s.ShipsLost)}" : "  Ships lost: none");

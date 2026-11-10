@@ -248,14 +248,37 @@ public static class Mind
                 }
             }
             Spend();
-            if (_w.Light.On) FlagshipWar();
+            FireControlAll();
+        }
+
+        /// <summary>Its firing rule and missile timing by personality (raiders finish off and hold missiles close,
+        /// turtles go for the largest and launch far, expanders split fire); fleets running from a chaser drop missiles behind them.</summary>
+        private void FireControlAll()
+        {
+            var rule = _m.Personality switch { Personality.Raider => FireAt.Weakest, Personality.Turtle => FireAt.Largest, _ => FireAt.Split };
+            var launch = _m.Personality switch { Personality.Raider => MissileLaunch.Close, Personality.Turtle => MissileLaunch.Far, _ => MissileLaunch.Mid };
+            foreach (var f in Mine().ToList())
+            {
+                if (f.MissileLaunch != launch) Do(new SetFireControlCommand(f.Id, f.LongShots, launch));
+                if (f.Retreating && _w.ShipsOf(f).Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles)
+                    && _w.Fleets.Any(e => e.Side != _side && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm * 1.5 && Sensors.Sees(_w, _side, e))
+                    && !_w.Dropped.Any(d => d.Side == _side && Vec2.Distance(d.Position, f.Position) <= GameData.Heat.DropSeekMm * 2))
+                {
+                    Do(new DropMissilesCommand(f.Id, 0.25));
+                    Note($"{f.Name} drops missiles behind it as it runs");
+                }
+            }
+            if (_w.Light.On) FlagshipWar(rule);
+            else
+                foreach (var f in Mine().ToList())
+                    if (f.FireAt != rule) Do(new SetCoverCommand(f.Id, f.Cover, rule));
         }
 
         /// <summary>
         /// Under light lag: the fleet with its flagship screens it (Turtles keep close), and fleets near a
         /// fleet it takes to carry the enemy flagship go for it when they clearly outgun that fleet.
         /// </summary>
-        private void FlagshipWar()
+        private void FlagshipWar(FireAt rule)
         {
             var flag = Light.Flagship(_w, _side);
             foreach (var f in Mine().ToList())
@@ -269,7 +292,7 @@ public static class Mind
                 }
                 var carries = flag != null && flag.FleetId == f.Id;
                 var cover = !carries ? CoverStyle.Loose : _m.Personality == Personality.Turtle ? CoverStyle.Close : CoverStyle.Screen;
-                var fireAt = FireAt.Nearest;
+                var fireAt = rule;
                 var near = _known.Where(s => s.Flag is FlagKnown.Suspected or FlagKnown.Confirmed
                         && Vec2.Distance(s.Guess(_w.Hour), f.Position) <= GameData.Combat.ContactRangeMm * 2)
                     .OrderByDescending(s => s.FlagScore).FirstOrDefault();

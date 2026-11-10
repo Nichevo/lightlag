@@ -143,6 +143,14 @@ public sealed class Fleet
     public CoverStyle Cover { get; set; }
     public FireAt FireAt { get; set; }
 
+    /// <summary>Heat: where its radiators are, and whether ships throw heat sinks on their own (running hot, missiles closing).</summary>
+    public RadiatorMode Radiators { get; set; }
+    public bool AutoSinks { get; set; } = true;
+
+    /// <summary>Railguns fire beyond their normal reach (forces the enemy to dodge, rarely hits), and when missiles launch.</summary>
+    public bool LongShots { get; set; }
+    public MissileLaunch MissileLaunch { get; set; }
+
     /// <summary>How much it decides for itself when cut off from command.</summary>
     public AutonomyLevel Autonomy { get; set; } = AutonomyLevel.Sensible;
 

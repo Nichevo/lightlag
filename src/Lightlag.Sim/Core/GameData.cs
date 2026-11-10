@@ -52,7 +52,8 @@ public sealed record StartShipsData([property: JsonPropertyName("class")] string
 public sealed record ShipClass(
     string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, double AccelMmPerHour2,
     double Supplies, double SuppliesPerDeltaV, double Armour, double Evasion, int Railguns, int PointDefence,
-    int Missiles, double Cost, string Role, double SensorMm, double SignatureSize)
+    int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
+    double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0)
 {
     /// <summary>Total speed change a full load of supplies buys.</summary>
     public double FullDeltaV => Supplies / SuppliesPerDeltaV;
@@ -84,7 +85,7 @@ public sealed record SensorData(double Cold, double Orbit, double Burn, double E
     double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
     double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0);
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null);
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -105,6 +106,7 @@ public static class GameData
     public static LightData Light => _file.Value.Light ?? new LightData();
     public static FlagshipData Flagships => _file.Value.Flagships ?? new FlagshipData();
     public static DroneData Drones => _file.Value.Drones ?? new DroneData();
+    public static HeatData Heat => _file.Value.Heat ?? new HeatData();
     public static BattleRecordData Recording => _file.Value.Recording ?? new BattleRecordData();
     public static EconomyData Economy => _economy.Value;
     public static AiData Ai => _ai.Value;

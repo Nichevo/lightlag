@@ -70,7 +70,7 @@ public class CombatTests
         var battle = Fight(sim);
         var rival = battle.For(Side.Rival);
         Assert.True(rival.MissilesFired > 0);
-        Assert.Equal(rival.MissilesFired, rival.MissileHits + rival.ShotDown + rival.Dodged + rival.RanDry);
+        Assert.Equal(rival.MissilesFired, rival.MissileHits + rival.ShotDown + rival.Dodged + rival.RanDry + rival.Decoyed);
         Assert.True(rival.ShotDown > 0, "point defence never stopped a missile");
         Assert.True(battle.For(Side.Player).ShipsLost.Count > 0 || rival.DamageDealt > 0);
     }
