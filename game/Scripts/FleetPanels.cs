@@ -345,8 +345,8 @@ public partial class PlannerPanel : PanelContainer
         speedRow.AddChild(_speedLabel);
         box.AddChild(speedRow);
 
-        _brake = Choice("Brake", "Stop at the target", () => s.Arrival = ArrivalStyle.Brake);
-        _pass = Choice("Fast pass", "Fly through at speed: quicker and half the fuel, but no stop", () => s.Arrival = ArrivalStyle.FastPass);
+        _brake = Choice("Stop", "Brake to a stop at the target (then orbit or drift)", () => s.Arrival = ArrivalStyle.Brake);
+        _pass = Choice("Fly by", "Fly past the target at speed without stopping or going into orbit: quicker and half the fuel", () => s.Arrival = ArrivalStyle.FastPass);
         box.AddChild(Row("Arrive", _brake, _pass));
         _orbit = Choice("Orbit", "Circle the planet or moon on arrival", () => s.Hold = HoldStyle.Orbit);
         _drift = Choice("Drift", "Sit with engines cold on arrival", () => s.Hold = HoldStyle.Drift);
