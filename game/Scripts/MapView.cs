@@ -544,6 +544,8 @@ public partial class MapView : Node2D
             // Your own routes show what the engines do: speeding up, braking, or coasting with engines off.
             var color = ok && f.Side == Side.Player ? LegColor(leg) ?? baseColor : baseColor;
             DrawPolyline(pts, new Color(color, leg.IsBurn ? alpha : alpha * 0.55f), leg.IsBurn ? 2.5f : 1.2f, true);
+            // Burns are short next to the coasts: zoomed out, mark each with a dot so it can still be seen.
+            if (leg.IsBurn && pts[0].DistanceTo(pts[n]) < 10) DrawCircle(pts[n / 2], 3.5f, new Color(color, Math.Min(1f, alpha + 0.2f)));
         }
         var end = Camera.ToScreen(flight.Target);
         DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);

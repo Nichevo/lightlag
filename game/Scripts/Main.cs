@@ -323,6 +323,13 @@ public partial class Main : Node
             game.EditRoute();
             await Shoot("16c-change-route");
             game.CancelPlanning();
+            if (fleet.Flight?.WaypointPlan.Count > 0)
+            {
+                // Close up on the first corner: braking into it, then speeding up onto the next stretch.
+                game.Camera.Center = fleet.Flight.WaypointPlan[0].Point;
+                game.Camera.FitRadius(2500, instant: true);
+                await Shoot("16d-route-colours");
+            }
 
             // A split at home: the new fleet sits a little ahead on the orbit; both picked with a box.
             StartNewGame(8);
