@@ -19,6 +19,8 @@ public partial class EngagementPanel : Control
     private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
+    private VBoxContainer _right = null!;
+    private ScrollContainer _rightScroll = null!;
     private PanelContainer _headPanel = null!, _rightPanel = null!, _leftPanel = null!, _bottomPanel = null!;
 
     public EngagementPanel() : this(null!) { }
@@ -76,7 +78,10 @@ public partial class EngagementPanel : Control
         _defence.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _defence.CustomMinimumSize = new Vector2(380, 0);
         right.AddChild(_defence);
-        _rightPanel = Ui.Panel(right, 12);
+        _right = right;
+        _rightScroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _rightScroll.AddChild(right);
+        _rightPanel = Ui.Panel(_rightScroll, 12);
         AddChild(_rightPanel);
 
         // Left: the ships on both sides.
@@ -100,9 +105,13 @@ public partial class EngagementPanel : Control
         var size = GetViewportRect().Size;
         Position = Vector2.Zero;
         Size = size;
-        foreach (var p in new[] { _headPanel, _rightPanel, _leftPanel, _bottomPanel }) p.Size = p.GetCombinedMinimumSize();
+        _headPanel.Size = _headPanel.GetCombinedMinimumSize();
         _headPanel.Position = new Vector2(Mathf.Max(16, (size.X - _headPanel.Size.X) / 2), 56);
         var top = _headPanel.Position.Y + _headPanel.Size.Y + 10;
+        // The choices scroll when the screen is too short for them all.
+        var want = _right.GetCombinedMinimumSize();
+        _rightScroll.CustomMinimumSize = new Vector2(want.X + 12, Mathf.Min(want.Y, size.Y - top - 50));
+        foreach (var p in new[] { _rightPanel, _leftPanel, _bottomPanel }) p.Size = p.GetCombinedMinimumSize();
         _rightPanel.Position = new Vector2(size.X - _rightPanel.Size.X - 16, top);
         _leftPanel.Position = new Vector2(16, top);
         var timelineW = Mathf.Clamp(size.X - _rightPanel.Size.X - 64, 500, 1100);
@@ -319,7 +328,9 @@ public partial class EngagementTimeline : Control
             var x = X(s.ImpactHours);
             var c = s.Ours ? Ui.Player : Ui.Danger;
             DrawCircle(new Vector2(x, y4 + 9), 5, c);
-            DrawString(_font, new Vector2(x + 7, y4 + 13), $"{s.Count} {(s.Ours ? "yours" : "at you")}, {When(s.ImpactHours)}", HorizontalAlignment.Left, -1, 11, c);
+            var label = $"{s.Count} {(s.Ours ? "yours" : "at you")}, {When(s.ImpactHours)}";
+            var lx = Math.Min(x + 7, labelW + width - _font.GetStringSize(label, HorizontalAlignment.Left, -1, 11).X);
+            DrawString(_font, new Vector2(lx, y4 + 13 + (lx < x ? 12 : 0)), label, HorizontalAlignment.Left, -1, 11, c);
         }
     }
 }

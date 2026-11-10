@@ -415,6 +415,12 @@ public partial class Main : Node
             battle.OpenEngagement(mine.Id, theirs.Id);
             battle.Camera.SetScale(battle.Camera.TargetScale, instant: true);
             await Shoot("21-engagement");
+            // Closer in, the railguns: spread fans from your guns, aimed fire coming back.
+            Sim.Issue(new SetFireModeCommand(mine.Id, FireMode.Spread));
+            for (var i = 0; i < 20000 && !Sim.Effects.Any(e => e.Kind == EffectKind.Volley && e.Hour >= Sim.World.Hour - 1e-9); i++) Sim.Step();
+            battle.OpenEngagement(mine.Id, theirs.Id);
+            battle.Camera.FitRadius(15, instant: true);
+            await Shoot("22-railgun-fans");
             battle.CloseEngagement();
             var end = Sim.World.Tick + 72;
             while ((Sim.World.ActiveBattle != null || Sim.World.Sub != 0) && Sim.World.Tick < end) Sim.Step();
