@@ -151,6 +151,7 @@ public sealed class Simulation
         Chases.Update(this);
         Economy.Update(this);
         Mind.Update(this);
+        Autonomy.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
 
         if (World.Tick % GameTime.TicksPerDay == 0)
@@ -171,8 +172,15 @@ public sealed class Simulation
             var command = _pending.Dequeue();
             Replay.Commands.Add(new RecordedCommand(World.Tick, command, World.Sub));
             // Under light lag an order to a far fleet (or home) is sent now and takes effect when it arrives.
-            if (!Light.Send(this, command)) command.Apply(World, this);
+            if (!Light.Send(this, command)) Carry(command);
         }
+    }
+
+    /// <summary>Carries out an order that has reached its fleet (or home), now or after its light arrives.</summary>
+    public void Carry(GameCommand command)
+    {
+        command.Apply(World, this);
+        Autonomy.Heard(this, command);
     }
 
     /// <summary>How much game time the next step will probably take (for the screen's clock; the step itself decides).</summary>

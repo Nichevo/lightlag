@@ -186,17 +186,21 @@ public static class Sensors
         return s.Guess(hour);
     }
 
+    /// <summary>How a fleet is really moving now: a fleet in orbit moves with its body (its Velocity is zero).</summary>
+    public static Vec2 MotionOf(World w, Fleet f) =>
+        f.Flight == null && f.Hold == HoldStyle.Orbit ? FlightPlanner.PredictHoldPosition(w, f, w.Hour + 1) - FlightPlanner.PredictHoldPosition(w, f, w.Hour) : f.Velocity;
+
     /// <summary>
     /// Does this enemy fleet look as if it is coming for that fleet? Judged only from what was seen: its
     /// track, relative to the fleet, closes on it and passes close by. Returns the hours until it gets
     /// there, or null. Ignores enemies that are barely moving or more than a month away.
     /// </summary>
-    public static double? HeadingFor(Sighting s, Fleet mine, double hour)
+    public static double? HeadingFor(Sighting s, Fleet mine, double hour, Vec2? mineVelocity = null)
     {
         var them = s.Guess(hour);
         var gap = mine.Position - them;
         var d = gap.Length;
-        var rel = s.Velocity - mine.Velocity;
+        var rel = s.Velocity - (mineVelocity ?? mine.Velocity);
         if (d < 1e-6 || rel.Length < 5) return null;
         var closing = Vec2.Dot(gap, rel) / d;
         if (closing <= rel.Length * 0.5) return null;

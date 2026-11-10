@@ -15,6 +15,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(MergeFleetsCommand), "mergeFleets")]
 [JsonDerivedType(typeof(SetStanceCommand), "setStance")]
 [JsonDerivedType(typeof(SetDodgeCommand), "setDodge")]
+[JsonDerivedType(typeof(SetMissionCommand), "setMission")]
+[JsonDerivedType(typeof(SetAutonomyCommand), "setAutonomy")]
 [JsonDerivedType(typeof(SetFireModeCommand), "setFireMode")]
 [JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
@@ -163,6 +165,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Fire = fleet.Fire;
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
+        created.Autonomy = fleet.Autonomy;
         Fleets.Arrange(world, fleet);
         Fleets.SetApart(world, created);
         sim.Log.Info("fleet", $"{created.Name} splits from {fleet.Name}", new { fleetId = fleet.Id, newFleetId = created.Id, ShipIds, Source });
@@ -217,6 +220,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         ahead.OrbitRadius = fleet.OrbitRadius;
         ahead.OrbitAngle = fleet.OrbitAngle;
         ahead.Stance = fleet.Stance;
+        ahead.Autonomy = fleet.Autonomy;
         ahead.Dodge = fleet.Dodge;
         ahead.Fire = fleet.Fire;
         ahead.Facing = fleet.Facing;
@@ -327,5 +331,32 @@ public sealed record DebugBreakRuleCommand : GameCommand
         Fleets.EnterDrift(f);
         f.Velocity = Vec2.Zero;
         f.Position = new Vec2(double.NaN, 0);
+    }
+}
+
+/// <summary>Give a fleet a mission (or None to end it). The body or fleet it is about, where the mission needs one.</summary>
+public sealed record SetMissionCommand(int FleetId, Mission Mission, int? BodyId = null, int? EscortFleetId = null) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Mission") is not Fleet fleet) return;
+        fleet.Mission = Mission;
+        fleet.MissionBodyId = BodyId;
+        fleet.MissionFleetId = EscortFleetId;
+        fleet.MissionLeg = 0;
+        fleet.MissionUntil = 0;
+        sim.Log.Info("fleet", $"{fleet.Name} mission: {Mission}", new { FleetId, Mission, BodyId, EscortFleetId, Source });
+        Autonomy.Start(sim, fleet);
+    }
+}
+
+/// <summary>Set how much a fleet decides for itself when cut off from command.</summary>
+public sealed record SetAutonomyCommand(int FleetId, AutonomyLevel Level) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Autonomy") is not Fleet fleet) return;
+        fleet.Autonomy = Level;
+        sim.Log.Info("fleet", $"{fleet.Name} autonomy: {Level}", new { FleetId, Level, Source });
     }
 }

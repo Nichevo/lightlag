@@ -286,7 +286,7 @@ public static class Combat
     {
         if (NearestEnemyFleet(w, f, C.ContactRangeMm) is Fleet near) return near.Name;
         foreach (var s in w.Sightings)
-            if (s.SeenBy == f.Side && s.Visible && Sensors.HeadingFor(s, f, w.Hour) is double eta && eta <= AvoidWarningHours)
+            if (s.SeenBy == f.Side && s.Visible && Sensors.HeadingFor(s, f, w.Hour, Sensors.MotionOf(w, f)) is double eta && eta <= AvoidWarningHours)
                 return s.Name;
         return null;
     }
@@ -299,7 +299,7 @@ public static class Combat
         return f.Flight?.TargetBodyId == home.Id || f.Flight == null && f.Hold == HoldStyle.Orbit && f.OrbitBodyId == home.Id;
     }
 
-    private static void Retreat(Simulation sim, Fleet f, string why)
+    internal static void Retreat(Simulation sim, Fleet f, string why)
     {
         var w = sim.World;
         f.Retreating = true;

@@ -202,6 +202,7 @@ public partial class GameScreen : Node2D
             _sinceAutosave += delta;
             WatchBattles();
             WatchSightings();
+            WatchNotes();
             WatchChasers();
             WatchEconomy();
             // Pausing, or switching in or out of battle time: show where things really are now, so the
@@ -616,6 +617,22 @@ public partial class GameScreen : Node2D
         }
     }
 
+    private int _lastNoteId;
+
+    /// <summary>Decisions our fleets made for themselves: a News line once the news reaches the flagship.</summary>
+    private void WatchNotes()
+    {
+        var w = Sim.World;
+        foreach (var n in w.Light.Notes)
+        {
+            if (n.Id <= _lastNoteId || n.Side != Side.Player || n.ArriveHour > w.Hour + 1e-9) continue;
+            _lastNoteId = Math.Max(_lastNoteId, n.Id);
+            if (n.ArriveHour < w.Hour - 1) continue; // already heard before the game was loaded
+            var ago = w.Hour - n.Hour > 0.02 ? $" ({Format.Hours(w.Hour - n.Hour)} ago)" : "";
+            _main.AddNews(n.Text + ago, GoToFleet(n.FleetId));
+        }
+    }
+
     /// <summary>A new enemy fleet in sight: say so, and pause if asked to.</summary>
     private void WatchSightings()
     {
@@ -745,6 +762,16 @@ public partial class GameScreen : Node2D
     }
 
     // ---- Fleet orders -----------------------------------------------------------------------
+
+    public void OrderMission(Mission mission, int? bodyId, int? escortFleetId)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetMissionCommand(f.Id, mission, bodyId, escortFleetId));
+    }
+
+    public void OrderAutonomy(AutonomyLevel level)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetAutonomyCommand(f.Id, level));
+    }
 
     public void OrderHold(HoldStyle hold)
     {

@@ -18,6 +18,10 @@ public sealed class LightState
     /// <summary>Sighting reports on their way home to each side's command.</summary>
     public List<Report> Reports { get; set; } = new();
 
+    /// <summary>What fleets decided for themselves, on its way home (and kept a while after it arrives).</summary>
+    public List<FleetNote> Notes { get; set; } = new();
+    public int NextNoteId { get; set; } = 1;
+
     /// <summary>When each report stream ("side:fleetId") last sent, and whether it was in sight then.</summary>
     public Dictionary<string, ReportMark> LastSent { get; set; } = new();
 }
@@ -32,6 +36,9 @@ public sealed class Report
 }
 
 public sealed record ReportMark(double Hour, bool Visible);
+
+/// <summary>A fleet's own decision and why, reaching its side's command at ArriveHour.</summary>
+public sealed record FleetNote(int Id, Side Side, int FleetId, double Hour, double ArriveHour, string Text);
 
 /// <summary>An order travelling at light speed from a side's flagship to where it takes effect.</summary>
 public sealed class Transit
@@ -223,7 +230,7 @@ public static class Light
         foreach (var t in due)
         {
             w.Light.InTransit.Remove(t);
-            t.Command.Apply(w, sim);
+            sim.Carry(t.Command);
         }
     }
 }
