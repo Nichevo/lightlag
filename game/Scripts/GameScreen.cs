@@ -21,8 +21,9 @@ namespace Lightlag.Game;
 ///   Ctrl+right click   add a waypoint to the route    Drag a waypoint move it (the route replans live)
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
-///   E                  empire: build, research, claims B               sight shadows behind planets on / off
+///   E                  empire: build, research, claims B               sight shadows / sensor coverage / off
 ///   F5 / F9            quick save / quick load        F8              report a problem
+///   Z                  zoom right in on the selection (also the Zoom in button)
 ///   Ctrl+Shift+F12     test crash                     Ctrl+Shift+F11  break a rule on purpose
 /// </summary>
 public partial class GameScreen : Node2D
@@ -66,6 +67,9 @@ public partial class GameScreen : Node2D
 
     /// <summary>Debug view (F7): every fleet is drawn, seen or not.</summary>
     public bool RevealAll { get; private set; }
+    /// <summary>What the map shows of your sensors: shadows, full coverage or nothing (B cycles).</summary>
+    public MapView.SightView Sight { get => _map.Sight; set => _map.Sight = value; }
+
     public void ToggleRevealAll() { RevealAll = !RevealAll; _map.RevealAll = RevealAll; }
 
     /// <summary>Map panning with the keyboard, in screen pixels per real second (Shift for faster).</summary>
@@ -410,6 +414,20 @@ public partial class GameScreen : Node2D
         else _camera.SetScale(60 / body.Radius);
     }
 
+    /// <summary>
+    /// Zoom right down on the selection and follow it: a planet or moon nearly fills the screen; a fleet is
+    /// shown close enough to see each ship. Nothing selected: does nothing.
+    /// </summary>
+    public void ZoomToSelected()
+    {
+        if (_selected is not int id) { _main.Toast("Select a fleet or a planet first"); return; }
+        _follow = id;
+        if (Sim.World.FindBody(id) is Body body)
+            _camera.SetScale(_camera.ScreenSize.Y * 0.35 / body.Radius);
+        else if (Sim.World.FindFleet(id) != null)
+            _camera.SetScale(30 / Fleets.FormationSpacing);
+    }
+
     /// <summary>Select a body or fleet (a ship selects its fleet).</summary>
     public void Select(int? id)
     {
@@ -683,8 +701,13 @@ public partial class GameScreen : Node2D
     public void OrderJoin(int intoId)
     {
         if (MyFleet is not Fleet f || Sim.World.FindFleet(intoId) is not Fleet into) return;
+        if (Fleets.JoinProblem(Sim.World, f, into, Settings.Speed) is string problem)
+        {
+            _main.Toast($"{f.Name} cannot join {into.Name}: {problem}", onClick: GoToFleet(f.Id));
+            return;
+        }
         Sim.Issue(new GatherFleetsCommand(into.Id, new List<int> { f.Id }, Settings.Speed));
-        _main.Toast($"{f.Name} flies to join {into.Name}");
+        _main.Toast(Fleets.CanJoin(f, into) ? $"{f.Name} joins {into.Name}" : $"{f.Name} flies to join {into.Name}");
     }
 
     /// <summary>Merge the picked fleets into the largest: close ones at once, the rest fly to it first.</summary>
@@ -693,8 +716,16 @@ public partial class GameScreen : Node2D
         var group = Group;
         if (group.Count < 2) return;
         var into = group[0];
-        Sim.Issue(new GatherFleetsCommand(into.Id, group.Skip(1).Select(f => f.Id).ToList(), Settings.Speed));
-        _main.Toast($"Gathering {group.Count} fleets into {into.Name}");
+        var stuck = group.Skip(1).Select(f => (f, Problem: Fleets.JoinProblem(Sim.World, f, into, Settings.Speed)))
+            .Where(x => x.Problem != null).ToList();
+        if (stuck.Count == group.Count - 1)
+        {
+            _main.Toast($"Cannot gather into {into.Name}: {stuck[0].f.Name}: {stuck[0].Problem}");
+            return;
+        }
+        Sim.Issue(new GatherFleetsCommand(into.Id, group.Skip(1).Where(f => stuck.All(x => x.f != f)).Select(f => f.Id).ToList(), Settings.Speed));
+        _main.Toast($"Gathering {group.Count - stuck.Count} fleets into {into.Name}"
+                    + string.Concat(stuck.Select(x => $". {x.f.Name} cannot join: {x.Problem}")));
         Select(into.Id);
     }
 
@@ -963,6 +994,7 @@ public partial class GameScreen : Node2D
             case Key.Minus or Key.KpSubtract: SetSpeed(_speed - 1); break;
             case Key.Home or Key.H: ShowWholeSystem(); break;
             case Key.F when _selected is int id: Follow(id, zoom: !key.ShiftPressed); break;
+            case Key.Z: ZoomToSelected(); break;
             case Key.Enter or Key.KpEnter: ConfirmPlan(); break;
             case Key.O: OrderHold(HoldStyle.Orbit); break;
             case Key.G: OrderHold(HoldStyle.Drift); break;
@@ -975,8 +1007,18 @@ public partial class GameScreen : Node2D
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
             case Key.B:
-                _map.ShowShadows = !_map.ShowShadows;
-                _main.Toast(_map.ShowShadows ? "Showing sight shadows: grey areas planets hide from your sensors" : "Sight shadows hidden (B to show)");
+                _map.Sight = _map.Sight switch
+                {
+                    MapView.SightView.Shadows => MapView.SightView.Coverage,
+                    MapView.SightView.Coverage => MapView.SightView.Off,
+                    _ => MapView.SightView.Shadows,
+                };
+                _main.Toast(_map.Sight switch
+                {
+                    MapView.SightView.Coverage => "Sensor coverage: what your ships and planets can see, and what bodies hide (B)",
+                    MapView.SightView.Off => "Sight shadows hidden (B to show)",
+                    _ => "Sight shadows: grey areas planets hide from your sensors (B)",
+                });
                 break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;

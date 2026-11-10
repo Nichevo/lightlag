@@ -324,6 +324,27 @@ public class FleetTests
     }
 
     [Fact]
+    public void A_join_that_cannot_be_flown_is_refused_up_front_and_changes_nothing()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0] }));
+        sim.Step();
+        var other = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        sim.Issue(new PlanFlightCommand(other.Id, To(vela)));
+        StepUntilArrived(sim, other);
+
+        Assert.Null(Fleets.JoinProblem(sim.World, fleet, other, 1));
+        Assert.Null(fleet.Flight);
+
+        foreach (var s in sim.World.ShipsOf(fleet)) s.Supplies = 0;
+        Assert.Contains("supplies", Fleets.JoinProblem(sim.World, fleet, other, 1));
+        Assert.Null(fleet.Flight);
+        Assert.Null(fleet.Chase);
+    }
+
+    [Fact]
     public void Fleets_close_together_gather_at_once()
     {
         var sim = NewGame();

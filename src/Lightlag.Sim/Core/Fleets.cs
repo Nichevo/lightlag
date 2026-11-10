@@ -375,21 +375,34 @@ public static class Fleets
     /// <summary>Plan a flight for a fleet to where another fleet will be stopped. Returns why not, or null when on its way.</summary>
     public static string? FlyToJoin(World world, Fleet f, Fleet into, double speedFraction)
     {
+        var (flight, chase, problem) = PlanJoin(world, f, into, speedFraction);
+        if (problem != null) return problem;
+        f.Flight = flight;
+        f.Chase = chase ? Chases.Order(world, f, into.Id, ChaseMode.Join, speedFraction) : null;
+        return null;
+    }
+
+    /// <summary>
+    /// Why this fleet could not set off to join that one now (null if it can, or is already with it).
+    /// Changes nothing: the screen asks this before it says the order is under way.
+    /// </summary>
+    public static string? JoinProblem(World world, Fleet f, Fleet into, double speedFraction)
+    {
+        if (f.Id == into.Id) return "it is the same fleet";
+        if (f.Side != into.Side) return "they are on different sides";
+        return CanJoin(f, into) ? null : PlanJoin(world, f, into, speedFraction).Problem;
+    }
+
+    private static (Flight? Flight, bool Chase, string? Problem) PlanJoin(World world, Fleet f, Fleet into, double speedFraction)
+    {
         if (Meeting(world, into, speedFraction) is not FlightRequest request)
         {
             // It is drifting on: chase it on intercept tracks, matching its speed, and join on arrival.
-            var perf = FleetPerformance.Of(world, f);
-            var chase = FlightPlanner.PlanChase(world, f, into, ChaseMode.Join, speedFraction, perf);
-            if (!chase.Ok || chase.Flight == null) return chase.Problem ?? "no intercept";
-            f.Flight = chase.Flight;
-            f.Chase = Chases.Order(world, f, into.Id, ChaseMode.Join, speedFraction);
-            return null;
+            var chase = FlightPlanner.PlanChase(world, f, into, ChaseMode.Join, speedFraction, FleetPerformance.Of(world, f));
+            return chase.Ok && chase.Flight != null ? (chase.Flight, true, null) : (null, false, chase.Problem ?? "no intercept");
         }
         var plan = FlightPlanner.Plan(world, f, request);
-        if (!plan.Ok || plan.Flight == null) return plan.Problem ?? "no route";
-        f.Flight = plan.Flight;
-        f.Chase = null;
-        return null;
+        return plan.Ok && plan.Flight != null ? (plan.Flight, false, null) : (null, false, plan.Problem ?? "no route");
     }
 
     public static bool CanJoin(Fleet f, Fleet into)

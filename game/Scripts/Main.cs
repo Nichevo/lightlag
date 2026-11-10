@@ -293,6 +293,7 @@ public partial class Main : Node
                 ("24-tamber-close", () => { game.Follow(Key("tamber"), false); game.Camera.SetScale(0.8); }),
                 ("25-pale-shadow", () => { game.Follow(Key("pale"), false); game.Camera.SetScale(2.4); }),
                 ("26-rust-close", () => { game.Follow(Key("rust"), false); game.Camera.SetScale(17); }),
+                ("27-coverage", () => { game.Follow(Key("verdant"), false); game.Camera.SetScale(0.6); game.Sight = MapView.SightView.Coverage; }),
                 ("10-rust-orbit", () =>
                 {
                     var rival = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Rival);
@@ -311,6 +312,7 @@ public partial class Main : Node
             foreach (var (name, setup) in views)
             {
                 game.Select(null);
+                game.Sight = MapView.SightView.Shadows;
                 setup();
                 game.Camera.SetScale(game.Camera.TargetScale, instant: true);
                 await Shoot(name);
