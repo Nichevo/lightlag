@@ -36,6 +36,30 @@ public sealed class EngagementInfo
     public bool WeHaveMissiles { get; init; }
     public bool WeHaveRailguns { get; init; }
 
+    /// <summary>"1 Gun frigate, 1 Missile destroyer" once seen close enough to tell, else null.</summary>
+    public string? EnemyClasses { get; init; }
+    public double ClassesSeenHoursAgo { get; init; }
+
+    /// <summary>Whether they carry missiles and railguns, from a close look (null: not known yet).</summary>
+    public bool? TheyHaveMissiles { get; init; }
+    public bool? TheyHaveRailguns { get; init; }
+
+    /// <summary>How far this fleet's own sensors pick the enemy up when it coasts cold, has warm engines, or burns.</summary>
+    public double SpotCold { get; init; }
+    public double SpotWarm { get; init; }
+    public double SpotBurn { get; init; }
+
+    /// <summary>Spotting ranges above include the help from knowing their track (Cued); this is the cold range without it.</summary>
+    public double SpotColdUncued { get; init; }
+    public bool Cued { get; init; }
+
+    /// <summary>When the enemy, coasting as predicted, comes within cold spotting range of this fleet (null: not in the look-ahead).</summary>
+    public TimeWindow? SpotWindow { get; init; }
+
+    /// <summary>What your fleet is doing now on their sensors, and how far their ships would see it (more with sensor research you can't know about).</summary>
+    public SignatureState OurState { get; init; }
+    public double TheySeeUsAt { get; init; }
+
     public TimeWindow? OurRailguns { get; init; }
     public TimeWindow? OurMissiles { get; init; }
     public TimeWindow? TheirRailguns { get; init; }
@@ -64,6 +88,33 @@ public static class Engagement
         return best;
     }
 
+    /// <summary>One engagement you could look at: your fleet, an enemy fleet, and the gap between them now.</summary>
+    public sealed record Pair(int Mine, int Enemy, string MineName, string EnemyName, double Gap, bool InSight);
+
+    /// <summary>
+    /// Every engagement worth a look for one side, nearest first: each of its fleets against each enemy
+    /// fleet it knows of that is within a few contact ranges, heading for it, or being chased by it.
+    /// Fleets with nothing near are left out.
+    /// </summary>
+    public static List<Pair> All(World w, Side side)
+    {
+        var list = new List<Pair>();
+        var near = C.ContactRangeMm * 3;
+        foreach (var mine in w.Fleets)
+        {
+            if (mine.Side != side || !mine.Position.IsFinite || !w.ShipsOf(mine).Any()) continue;
+            foreach (var s in w.Sightings)
+            {
+                if (s.SeenBy != side) continue;
+                var gap = Vec2.Distance(s.Guess(w.Hour), mine.Position);
+                var chased = mine.Chase?.TargetFleetId == s.FleetId;
+                if (gap > near && !chased && Sensors.HeadingFor(s, mine, w.Hour) == null) continue;
+                list.Add(new Pair(mine.Id, s.FleetId, mine.Name, s.Name, gap, s.Visible));
+            }
+        }
+        return list.OrderBy(p => p.Gap).ThenBy(p => p.Mine).ThenBy(p => p.Enemy).ToList();
+    }
+
     public static EngagementInfo? Of(World w, Fleet mine, int enemyId)
     {
         var s = Sensors.Find(w, mine.Side, enemyId);
@@ -86,13 +137,25 @@ public static class Engagement
             var g = GapAt(t);
             if (g < closest) { closest = g; closestT = t; }
         }
+        // When the gap barely changes (matching speed at the end of a chase, say), take the first time it
+        // gets that close, so the closest pass does not jump between nearly equal moments as time runs.
+        var nearEnough = closest + Math.Max(0.05, closest * 0.02);
+        for (var i = 0; i <= 960; i++)
+        {
+            var t = i * 0.05;
+            if (t >= closestT) break;
+            var g = GapAt(t);
+            if (g <= nearEnough) { closest = g; closestT = t; break; }
+        }
         for (var i = -20; i <= 20; i++) // finer around it
         {
             var t = Math.Max(0, closestT + i * 0.0025);
             var g = GapAt(t);
             if (g < closest) { closest = g; closestT = t; }
         }
-        var ahead = Math.Clamp(Math.Max(closestT * 1.6, closestT + 0.25), 0.25, 48);
+        // Rounded up to a fixed step so the timeline's scale holds still while time runs.
+        var want = Math.Clamp(Math.Max(closestT * 1.6, closestT + 0.25), 0.25, 48);
+        var ahead = new[] { 0.25, 0.5, 1, 2, 3, 6, 12, 24, 48 }.First(x => x >= want - 1e-9);
 
         TimeWindow? Window(double range)
         {
@@ -117,6 +180,23 @@ public static class Engagement
         var closing = gapVec.Length > 1e-9 ? -Vec2.Dot(gapVec, rel) / gapVec.Length : 0;
         var perf = FleetPerformance.Of(w, mine);
 
+        // Spotting: this fleet's sensors against the enemy's size, and theirs against ours. Worked out from
+        // the classes seen on a close look; before that, from the ship count, assuming the smallest
+        // ships (the hardest to spot) carrying the best sensors.
+        var classes = s.Classes.Select(GameData.ShipClass).ToList();
+        var known = classes.Count > 0;
+        var extra = 1 + GameData.Sensors.ExtraShip * Math.Max(0, s.Ships - 1);
+        var theirSize = (known ? classes.Max(k => k.SignatureSize) : GameData.ShipClasses.Values.Min(k => k.SignatureSize)) * extra;
+        // Their sensor research is unknown, so this is a floor on how far they see you.
+        var theirSensor = known ? classes.Max(k => k.SensorMm) : GameData.ShipClasses.Values.Max(k => k.SensorMm);
+        var ourSensor = Sensors.SensorOf(w, mine);
+        // Out of sight but on a known track: the sensors know where to look (if they kept course).
+        var cue = s.Visible ? 1 : Math.Max(1, GameData.Sensors.CuedFactor);
+        double Spot(SignatureState st) => Sensors.Range(ourSensor, theirSize * Sensors.StateFactor(st)) * cue;
+        var spotCold = Spot(SignatureState.Cold);
+        bool? theyMissiles = known ? classes.Any(k => k.Missiles > 0) : null;
+        bool? theyRails = known ? classes.Any(k => k.Railguns > 0) : null;
+
         var info = new EngagementInfo
         {
             Mine = mine,
@@ -135,10 +215,22 @@ public static class Engagement
             OurTopSpeed = perf.MaxSpeed,
             WeHaveMissiles = weMissiles,
             WeHaveRailguns = weRails,
+            SpotCold = spotCold,
+            SpotColdUncued = spotCold / cue,
+            Cued = cue > 1,
+            SpotWarm = Spot(SignatureState.Warm),
+            SpotBurn = Spot(SignatureState.Burn),
+            SpotWindow = s.Visible ? null : Window(spotCold),
+            OurState = Sensors.StateOf(mine),
+            TheySeeUsAt = Sensors.Range(theirSensor, Sensors.Signature(w, mine)),
             OurRailguns = weRails ? Window(C.Railgun.RangeMm) : null,
             OurMissiles = weMissiles ? Window(C.Missile.LaunchRangeMm) : null,
-            TheirRailguns = Window(C.Railgun.RangeMm),
-            TheirMissiles = Window(C.Missile.LaunchRangeMm),
+            TheirRailguns = theyRails == false ? null : Window(C.Railgun.RangeMm),
+            TheirMissiles = theyMissiles == false ? null : Window(C.Missile.LaunchRangeMm),
+            EnemyClasses = Sensors.Describe(s),
+            ClassesSeenHoursAgo = known ? now - s.ClassesHour : 0,
+            TheyHaveMissiles = theyMissiles,
+            TheyHaveRailguns = theyRails,
             Salvos = Salvos(w, mine, enemyId),
             Options = Options(w, mine, enemyId, s, perf),
         };
@@ -202,12 +294,12 @@ public static class Engagement
         Chase("missiles", "Hold at missile range", ChaseMode.MissileRange, 1.0,
             p => $"Sit inside missile range ({C.Missile.LaunchRangeMm * 0.8 * 1000:#,0} km) out of their railguns' reach: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.",
             hasMissiles ? null : "No missiles left in this fleet");
-        Chase("burn", "Burn through", ChaseMode.Overtake, 1.0, p =>
+        Chase("burn", "Burn past", ChaseMode.Overtake, 1.0, p =>
         {
             var last = p.Flight!.Legs[^1];
             var pass = (last.VelocityAt(last.End) - s.Velocity).Length;
             var inRange = pass > 1e-6 ? 2 * C.Railgun.RangeMm / pass : double.PositiveInfinity;
-            return $"Fly straight through at {FlightPlanner.Kms(pass)} faster than them: about {When(inRange)} in railgun range each way, passes in {When(p.Flight.ArriveHour - w.Hour)}, {Fuel(p)}.";
+            return $"Fly past {FlightPlanner.OvertakePassMm * 1000:#,0} km to one side of them (never into them) at {FlightPlanner.Kms(pass)} faster than they move: about {When(inRange)} in railgun range each way, passes in {When(p.Flight.ArriveHour - w.Hour)}, {Fuel(p)}.";
         });
         Chase("shadow", "Shadow them", ChaseMode.ShadowMissiles, 1.0,
             p => $"Keep pace just outside their missile range ({C.Missile.LaunchRangeMm * 1.1 * 1000:#,0} km): watch without being shot at, {Fuel(p)}.");

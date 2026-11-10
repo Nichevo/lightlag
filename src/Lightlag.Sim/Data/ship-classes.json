@@ -12,13 +12,14 @@
       "sensorMm": 40, "signatureSize": 2.0,
       "role": "Long range, slower. Missile racks (4 salvos of 4) and point defence." }
   ],
+  "_rangesComment": "Reach, longest first: contact (battle time) 100,000 km, missile launch 60,000 km, railguns 40,000 km (hits fall off with range, so fleets that engage close to engageRangeMm x 0.75), point defence 12,000 km (last-ditch, inside railgun reach). Railgun slugs fly at slugSpeedMmPerHour (250 km/s) plus the closing speed.",
   "combat": {
     "contactRangeMm": 100,
-    "engageRangeMm": 4,
-    "railgun": { "rangeMm": 8, "reloadSeconds": 30, "accuracy": 0.6, "damage": 10, "suppliesPerShot": 0.05 },
+    "engageRangeMm": 20,
+    "railgun": { "rangeMm": 40, "reloadSeconds": 30, "accuracy": 0.6, "damage": 10, "suppliesPerShot": 0.05 },
     "missile": { "launchRangeMm": 60, "salvo": 4, "salvoReloadSeconds": 360, "accelMmPerHour2": 1500, "deltaV": 600,
                  "damage": 50, "lifetimeHours": 1.0, "hitRadiusMm": 0.3 },
-    "pointDefence": { "rangeMm": 30, "shotSeconds": 10, "killChance": 0.006, "brain2KillFactor": 0.7 },
+    "pointDefence": { "rangeMm": 12, "shotSeconds": 10, "killChance": 0.016, "brain2KillFactor": 0.7 },
     "brain2DodgeFactor": 0.5,
     "moduleHitChance": 0.15,
     "retreatBelowArmour": 0.5,
@@ -28,9 +29,9 @@
     "dodgeDeltaV": 0.6,
     "dodgeStopsBelow": 0.3,
     "_spreadComment": "Spread fire: each railgun fires slugsPerGun slugs at once in a fan fanMm wide at the target (focused fire: focusFanMm), each hitting accuracy times as often, then the guns cool for cooldown reloads. A sidestep (dodgeFactor above) barely helps against a fan (sidestepVsSpread). A hard burn dodges harder: hits x hardVsFocused against focused fire and x hardVsSpread against a spread, costing hardCost times the sidestep's fuel per slug. A dodge needs time: slugs fly at slugSpeedMmPerHour plus the closing speed, and a dodge only works fully when a slug takes fullDodgeSeconds or more to arrive, less the closer and faster the shooter.",
-    "spread": { "slugsPerGun": 4, "accuracy": 0.55, "cooldown": 3, "fanMm": 2.0, "focusFanMm": 0.3,
+    "spread": { "slugsPerGun": 4, "accuracy": 0.55, "cooldown": 3, "fanMm": 10.0, "focusFanMm": 1.5,
                 "sidestepVsSpread": 0.9, "hardVsFocused": 0.4, "hardVsSpread": 0.5, "hardCost": 3,
-                "slugSpeedMmPerHour": 180, "fullDodgeSeconds": 80 }
+                "slugSpeedMmPerHour": 900, "fullDodgeSeconds": 80 }
   },
   "_sensorsComment": "Passive sensors only. A sensor sees a fleet out to sensorMm x sqrt(signature). A fleet's signature is its largest ship's signatureSize, plus a quarter for each other ship, times the factor for what it is doing: cold (drifting or coasting, engines off), orbit (holding orbit with small thrusters), warm (coasting within warmHours of a burn: the engines are still hot) or burn (main engines firing). With these numbers a frigate sees a cold frigate at about 30,000 km (so cold ships can still creep inside missile range), a warm one at 1.5 million km and a burn at about 9.5 million km; a home planet sees five times as far (a burn about a third of an AU away). Planets block the line of sight. Your home planet's sensors use planetSensorMm. Sightings no longer updated are forgotten after forgetAfterHours.",
   "sensors": {
@@ -41,6 +42,12 @@
     "burn": 100000,
     "extraShip": 0.25,
     "planetSensorMm": 150,
-    "forgetAfterHours": 720
+    "forgetAfterHours": 720,
+    "_identifyComment": "Counting ships is easy once a fleet is in sight; telling which class each ship is (and so what it carries) needs a close look: within identifyMm of one of your fleets or planets (longer with sensor research).",
+    "identifyMm": 50,
+    "_cueComment": "A fleet already seen leaves a predicted track. Sensors that know where to look see cuedFactor times as far, as long as the fleet is still within cueRadiusMm of where it was predicted to be, plus cueGrowthMmPerHour for each hour since it was last seen (it may have burned). A fleet never seen, or one that changed course well off its track, gets no help.",
+    "cuedFactor": 3,
+    "cueRadiusMm": 30,
+    "cueGrowthMmPerHour": 1
   }
 }

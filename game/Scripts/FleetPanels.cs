@@ -439,7 +439,7 @@ public partial class PlannerPanel : PanelContainer
         ChaseMode.MissileRange => $"Close to missile range ({GapText(mode)})",
         ChaseMode.ShadowGuns => $"Shadow outside their guns ({GapText(mode)})",
         ChaseMode.ShadowMissiles => $"Shadow outside their missiles ({GapText(mode)})",
-        ChaseMode.Overtake => "Overtake (fly through them)",
+        ChaseMode.Overtake => "Overtake (fly past them)",
         _ => mode.ToString(),
     };
 
@@ -453,7 +453,7 @@ public partial class PlannerPanel : PanelContainer
         ChaseMode.MissileRange => "Sit just inside missile launch range and keep pace: destroyers fire, their railguns cannot reach",
         ChaseMode.ShadowGuns => "Keep pace just outside the reach of their railguns",
         ChaseMode.ShadowMissiles => "Keep pace just outside their missile launch range: watch them without being shot at",
-        ChaseMode.Overtake => "Fly through them faster than they are moving (the speed setting sets how much faster), then carry on",
+        ChaseMode.Overtake => "Fly past them, to one side so you never hit them, faster than they are moving (the speed setting sets how much faster), then carry on",
         _ => "",
     };
 

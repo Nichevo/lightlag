@@ -20,7 +20,10 @@ public class SensorTests
     public void Cold_fleets_are_seen_only_close_up()
     {
         // One cold frigate each: a frigate sees another cold frigate out to its sensor range (30 Mm).
+        // (Sightings cleared: the sandbox tells each side where the other is, which helps spotting.)
         var far = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 40));
+        far.World.Sightings.Clear();
+        Sensors.Update(far);
         Assert.False(Sensors.Sees(far.World, Side.Player, FleetOf(far, Side.Rival)));
         var near = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 20));
         Assert.True(Sensors.Sees(near.World, Side.Player, FleetOf(near, Side.Rival)));
@@ -74,6 +77,7 @@ public class SensorTests
     {
         // 58 Mm is inside missile range, but cold frigates only show up at about 49 Mm to a destroyer.
         var sim = Sandbox(new SandboxSetup(3, 0, 0, 1, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 58));
+        sim.World.Sightings.Clear(); // never seen: no track to search along
         sim.StepMany(6);
         Assert.Empty(sim.World.Missiles);
         Assert.True(sim.World.Battles.Count == 0);

@@ -55,7 +55,8 @@ public class EngagementTests
     {
         double Run(bool dodge, out double fuelUsed, out double dodgeCost)
         {
-            var sim = Sandbox(new SandboxSetup(3, 0, 3, 0, 1, 1, Stance.Engage, Stance.Hold, 5), seed: 21);
+            // 20,000 km apart: slugs take about 80 s to arrive, time enough to dodge.
+            var sim = Sandbox(new SandboxSetup(3, 0, 3, 0, 1, 1, Stance.Engage, Stance.Hold, 20), seed: 21);
             var w = sim.World;
             var rival = w.Fleets.First(f => f.Side == Side.Rival);
             rival.Dodge = dodge ? DodgeMode.Sidestep : DodgeMode.Off;
@@ -113,5 +114,89 @@ public class EngagementTests
         var spread = Shots(FireMode.Spread, out var spreadWait);
         Assert.True(spread >= focused * 3, $"{spread} vs {focused}");
         Assert.True(spreadWait > focusedWait * 2, $"{spreadWait} vs {focusedWait}");
+    }
+
+    [Fact]
+    public void All_lists_near_or_closing_engagements_and_skips_far_quiet_ones()
+    {
+        var sim = Sandbox(new SandboxSetup(2, 1, 2, 0, 1, 1, Stance.Hold, Stance.Hold, 200));
+        var w = sim.World;
+        var mine = w.Fleets.First(f => f.Side == Side.Player);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        mine.Velocity = Vec2.Zero;
+        theirs.Velocity = Vec2.Zero;
+        Sensors.Reveal(w, Side.Player, theirs);
+
+        var near = Engagement.All(w, Side.Player);
+        var pair = Assert.Single(near);
+        Assert.Equal((mine.Id, theirs.Id), (pair.Mine, pair.Enemy));
+        Assert.InRange(pair.Gap, 199, 201);
+
+        // Far away and drifting off: nothing to look at.
+        theirs.Position = mine.Position + new Vec2(5000, 0);
+        theirs.Velocity = new Vec2(10, 0);
+        Sensors.Reveal(w, Side.Player, theirs);
+        Assert.Empty(Engagement.All(w, Side.Player));
+
+        // Far away but heading this way: listed.
+        theirs.Velocity = new Vec2(-200, 0);
+        Sensors.Reveal(w, Side.Player, theirs);
+        Assert.Single(Engagement.All(w, Side.Player));
+    }
+
+    [Fact]
+    public void Ship_classes_are_told_only_on_a_close_look()
+    {
+        var sim = Sandbox(new SandboxSetup(2, 1, 1, 1, 1, 1, Stance.Hold, Stance.Hold, 400));
+        var w = sim.World;
+        var mine = w.Fleets.First(f => f.Side == Side.Player);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        w.Sightings.Clear();
+        // Burning far off: seen and counted, but not told apart.
+        theirs.Thrusting = true;
+        Sensors.Update(sim);
+        var s = Sensors.Find(w, Side.Player, theirs.Id);
+        Assert.NotNull(s);
+        Assert.Equal(2, s!.Ships);
+        Assert.Empty(s.Classes);
+        Assert.Null(Engagement.Of(w, mine, theirs.Id)!.TheyHaveMissiles);
+
+        // Close up: classes and what they carry.
+        theirs.Position = mine.Position + new Vec2(GameData.Sensors.IdentifyMm * 0.5, 0);
+        Sensors.Update(sim);
+        Assert.Equal(2, s.Classes.Count);
+        var e = Engagement.Of(w, mine, theirs.Id)!;
+        Assert.True(e.TheyHaveMissiles);
+        Assert.Contains("Missile destroyer", e.EnemyClasses);
+    }
+
+    [Fact]
+    public void A_known_track_lets_sensors_spot_a_cold_fleet_further_off()
+    {
+        var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, 1, 1, Stance.Hold, Stance.Hold, 400));
+        var w = sim.World;
+        var mine = w.Fleets.First(f => f.Side == Side.Player);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        mine.Velocity = theirs.Velocity = Vec2.Zero;
+        // Cold, twice as far as a frigate sees a cold frigate unaided.
+        var plain = Sensors.Range(Sensors.SensorOf(w, mine), Sensors.Signature(w, theirs));
+        theirs.Position = mine.Position + new Vec2(plain * 2, 0);
+        foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player)) b.Owner = null; // no planet sensors
+
+        w.Sightings.Clear();
+        Sensors.Update(sim);
+        Assert.Null(Sensors.Find(w, Side.Player, theirs.Id));
+
+        // Seen once, where it still is: the sensors know where to look.
+        Sensors.Reveal(w, Side.Player, theirs);
+        Sensors.Find(w, Side.Player, theirs.Id)!.Visible = false;
+        Sensors.Update(sim);
+        Assert.True(Sensors.Find(w, Side.Player, theirs.Id)!.Visible);
+
+        // Far off its predicted track: no help.
+        Sensors.Find(w, Side.Player, theirs.Id)!.Position = theirs.Position + new Vec2(0, 500);
+        Sensors.Find(w, Side.Player, theirs.Id)!.Visible = false;
+        Sensors.Update(sim);
+        Assert.False(Sensors.Find(w, Side.Player, theirs.Id)!.Visible);
     }
 }

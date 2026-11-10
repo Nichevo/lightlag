@@ -29,6 +29,15 @@ public sealed class Sighting
     /// <summary>In sight right now.</summary>
     public bool Visible { get; set; }
 
+    /// <summary>
+    /// Each ship's class, sorted, once the fleet has been seen close enough to tell (empty until then).
+    /// Kept from the last close look, so it can be out of date if the fleet has changed since.
+    /// </summary>
+    public List<string> Classes { get; set; } = new();
+
+    /// <summary>When the classes were last seen (meaningless while Classes is empty).</summary>
+    public double ClassesHour { get; set; }
+
     /// <summary>Where it would be at this hour if it kept going as last seen.</summary>
     public Vec2 Guess(double hour) => Position + Velocity * Math.Max(0, hour - Hour);
 }
@@ -86,6 +95,34 @@ public static class Sensors
         double best = 0;
         foreach (var s in w.ShipsOf(f)) best = Math.Max(best, GameData.ShipClass(s.ClassId).SensorMm);
         return best * Tech.Factor(w, f.Side, Tech.LongSensors);
+    }
+
+    /// <summary>
+    /// How much further sensors see a fleet because its track is known: CuedFactor while it is still near
+    /// where the old sighting says it should be (the search box grows the longer ago it was seen), else 1.
+    /// </summary>
+    public static double Cue(World w, Sighting? s, Vec2 actual, double hour)
+    {
+        if (s == null || s.Visible || S.CuedFactor <= 1) return 1;
+        return Vec2.Distance(s.Guess(hour), actual) <= CueRadius(s, hour) ? S.CuedFactor : 1;
+    }
+
+    public static double CueRadius(Sighting s, double hour) => S.CueRadiusMm + S.CueGrowthMmPerHour * Math.Max(0, hour - s.Hour);
+
+    /// <summary>How close one of this side's fleets or planets must be to tell an enemy ship's class.</summary>
+    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.Factor(w, side, Tech.LongSensors);
+
+    public static List<string> ClassesOf(World w, Fleet f) => w.ShipsOf(f).Select(s => s.ClassId).OrderBy(c => c, StringComparer.Ordinal).ToList();
+
+    /// <summary>"1 Gun frigate, 2 Missile destroyers" from a sighting's classes, or null if not identified yet.</summary>
+    public static string? Describe(Sighting s)
+    {
+        if (s.Classes.Count == 0) return null;
+        return string.Join(", ", s.Classes.GroupBy(c => c).Select(g =>
+        {
+            var name = GameData.ShipClasses.TryGetValue(g.Key, out var k) ? k.Name : g.Key;
+            return $"{g.Count()} {name}{(g.Count() > 1 ? "s" : "")}";
+        }));
     }
 
     /// <summary>How far a sensor of this strength sees a fleet with this signature.</summary>
@@ -166,8 +203,14 @@ public static class Sensors
             {
                 if (!enemy.Position.IsFinite) continue;
                 var signature = Signature(w, enemy);
-                var seen = observers.Any(o => Vec2.Distance(o.At, enemy.Position) <= Range(o.Sensor, signature)
-                                              && LineOfSight(w, o.At, enemy.Position, o.Body));
+                var cue = Cue(w, Find(w, side, enemy.Id), enemy.Position, now);
+                var nearest = double.PositiveInfinity;
+                foreach (var o in observers)
+                {
+                    var d = Vec2.Distance(o.At, enemy.Position);
+                    if (d <= Range(o.Sensor, signature) * cue && d < nearest && LineOfSight(w, o.At, enemy.Position, o.Body)) nearest = d;
+                }
+                var seen = !double.IsPositiveInfinity(nearest);
                 var sighting = Find(w, side, enemy.Id);
                 if (!seen)
                 {
@@ -194,6 +237,11 @@ public static class Sensors
                 sighting.Velocity = enemy.Velocity;
                 sighting.State = StateOf(enemy);
                 sighting.Hour = now;
+                if (nearest <= IdentifyRange(w, side))
+                {
+                    sighting.Classes = ClassesOf(w, enemy);
+                    sighting.ClassesHour = now;
+                }
             }
         }
 
@@ -215,5 +263,7 @@ public static class Sensors
         s.State = StateOf(enemy);
         s.Hour = w.Hour;
         s.SpottedHour = w.Hour;
+        s.Classes = ClassesOf(w, enemy);
+        s.ClassesHour = w.Hour;
     }
 }
