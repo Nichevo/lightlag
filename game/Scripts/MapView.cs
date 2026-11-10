@@ -849,7 +849,12 @@ public partial class MapView : Node2D
     /// <summary>Orders given while paused only reach the simulation on its next tick; show them now anyway.</summary>
     private IEnumerable<(Fleet, Flight)> PendingFlights()
     {
+        // Several orders to one fleet while paused: only the last one counts, so only it is drawn.
+        var last = new Dictionary<int, GameCommand>();
         foreach (var c in Sim.PendingCommands)
+            if (c is PlanFlightCommand pf) last[pf.FleetId] = c;
+            else if (c is SendAheadCommand sa) last[sa.FleetId] = c;
+        foreach (var c in last.Values)
         {
             var (fleetId, request) = c switch
             {
