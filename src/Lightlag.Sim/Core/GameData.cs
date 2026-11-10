@@ -59,7 +59,8 @@ public sealed record PointDefenceData(double RangeMm, double ShotSeconds, double
 /// <summary>Combat numbers shared by every ship. See ship-classes.json for units.</summary>
 public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
-    double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay);
+    double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay,
+    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3);
 
 /// <summary>Detection numbers (passive sensors). See ship-classes.json for what each means.</summary>
 public sealed record SensorData(double Cold, double Orbit, double Burn, double ExtraShip, double PlanetSensorMm, double ForgetAfterHours,

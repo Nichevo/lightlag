@@ -14,6 +14,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SplitFleetCommand), "splitFleet")]
 [JsonDerivedType(typeof(MergeFleetsCommand), "mergeFleets")]
 [JsonDerivedType(typeof(SetStanceCommand), "setStance")]
+[JsonDerivedType(typeof(SetDodgeCommand), "setDodge")]
 [JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
 [JsonDerivedType(typeof(QueueOrderCommand), "queueOrder")]
@@ -143,6 +144,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Flight = fleet.Flight?.Copy();
         created.Chase = fleet.Chase?.Copy();
         created.Stance = fleet.Stance;
+        created.Dodge = fleet.Dodge;
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
         Fleets.Arrange(world, fleet);
@@ -199,6 +201,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         ahead.OrbitRadius = fleet.OrbitRadius;
         ahead.OrbitAngle = fleet.OrbitAngle;
         ahead.Stance = fleet.Stance;
+        ahead.Dodge = fleet.Dodge;
         ahead.Facing = fleet.Facing;
         ahead.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
         Fleets.Arrange(world, fleet);
@@ -264,6 +267,17 @@ public sealed record SetStanceCommand(int FleetId, Stance Stance, bool RetreatWh
         fleet.Stance = Stance;
         fleet.RetreatWhenDamaged = RetreatWhenDamaged;
         sim.Log.Info("fleet", $"{fleet.Name} standing orders: {Stance}" + (RetreatWhenDamaged ? ", retreat when damaged" : ""), new { FleetId, Stance, RetreatWhenDamaged, Source });
+    }
+}
+
+/// <summary>Turn dodging railgun fire on or off for a fleet.</summary>
+public sealed record SetDodgeCommand(int FleetId, bool Dodge) : GameCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Dodge order") is not Fleet fleet) return;
+        fleet.Dodge = Dodge;
+        sim.Log.Info("fleet", $"{fleet.Name} " + (Dodge ? "will dodge railgun fire" : "stops dodging"), new { FleetId, Dodge, Source });
     }
 }
 

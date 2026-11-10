@@ -412,6 +412,10 @@ public partial class Main : Node
             battle.FocusSandbox();
             battle.Camera.SetScale(battle.Camera.TargetScale, instant: true);
             await Shoot("12-battle");
+            battle.OpenEngagement(mine.Id, theirs.Id);
+            battle.Camera.SetScale(battle.Camera.TargetScale, instant: true);
+            await Shoot("21-engagement");
+            battle.CloseEngagement();
             var end = Sim.World.Tick + 72;
             while ((Sim.World.ActiveBattle != null || Sim.World.Sub != 0) && Sim.World.Tick < end) Sim.Step();
             battle.ShowLastReport();

@@ -189,6 +189,7 @@ public partial class MapView : Node2D
         if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
         RecordTracks();
         DrawTracks();
+        DrawEngagement();
         DrawLastSeen();
         if (RevealAll) DrawMindJobs();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
@@ -523,6 +524,72 @@ public partial class MapView : Node2D
 
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
     public bool Shown(Fleet f) => f.Side == Side.Player || RevealAll || Sensors.Sees(Sim.World, Side.Player, f);
+
+    /// <summary>The engagement screen's overlay (null when it is closed).</summary>
+    public EngagementInfo? Engagement { get; set; }
+
+    /// <summary>
+    /// Engagement screen: weapon reach around your fleet (solid) and around the enemy (dashed, what it
+    /// could carry), both fleets' courses ahead if nothing changes, and where they pass closest.
+    /// </summary>
+    private void DrawEngagement()
+    {
+        if (Engagement is not EngagementInfo e) return;
+        var w = Sim.World;
+        var c = GameData.Combat;
+        if (!_drawn.TryGetValue(e.Mine.Id, out var mineWorld)) mineWorld = e.Mine.Position;
+        var me = Camera.ToScreen(mineWorld);
+        var enemyWorld = _drawn.TryGetValue(e.EnemyId, out var ew) && Shown(w.FindFleet(e.EnemyId)!) ? ew : e.EnemyAt;
+        var them = Camera.ToScreen(enemyWorld);
+        var scale = (float)Camera.Scale;
+
+        void Ring(Vector2 at, double mm, Color color, string label, bool dashed)
+        {
+            var r = (float)mm * scale;
+            if (r < 6 || r > 20000) return;
+            if (dashed)
+            {
+                const int n = 72;
+                for (var i = 0; i < n; i += 2)
+                {
+                    var a0 = Mathf.Tau * i / n;
+                    var a1 = Mathf.Tau * (i + 1) / n;
+                    DrawLine(at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * r, at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * r, color, 1);
+                }
+            }
+            else DrawArc(at, r, 0, Mathf.Tau, 96, color, 1.2f, true);
+            DrawString(_font, at + new Vector2(4, -r - 4), label, HorizontalAlignment.Left, -1, 11, color);
+        }
+
+        Ring(me, c.Railgun.RangeMm, new Color(Ui.Player, 0.6f), e.WeHaveRailguns ? "your railguns" : "railgun range", false);
+        Ring(me, c.PointDefence.RangeMm, new Color(Ui.Player, 0.35f), "your point defence", false);
+        if (e.WeHaveMissiles) Ring(me, c.Missile.LaunchRangeMm, new Color(Ui.Player, 0.3f), "your missile range", false);
+        Ring(them, c.Railgun.RangeMm, new Color(Ui.Rival, 0.55f), "their railguns", true);
+        Ring(them, c.Missile.LaunchRangeMm, new Color(Ui.Rival, 0.3f), "their missiles, if they carry any", true);
+
+        // Courses ahead: both fleets, as dots, out to the look-ahead.
+        const int steps = 40;
+        for (var i = 1; i <= steps; i++)
+        {
+            var t = w.Hour + e.LookAheadHours * i / steps;
+            var a = Camera.ToScreen(Combat.PredictFleet(w, e.Mine, t));
+            DrawCircle(a, 1.6f, new Color(Ui.Player, 0.6f));
+            if (Sensors.Predict(w, Side.Player, e.EnemyId, t) is Vec2 b) DrawCircle(Camera.ToScreen(b), 1.6f, new Color(Ui.Rival, 0.6f));
+        }
+        if (e.ClosestInHours > 1e-3)
+        {
+            var t = w.Hour + e.ClosestInHours;
+            var a = Camera.ToScreen(Combat.PredictFleet(w, e.Mine, t));
+            var b = Sensors.Predict(w, Side.Player, e.EnemyId, t) is Vec2 bw ? Camera.ToScreen(bw) : a;
+            var gold = new Color(1f, 0.83f, 0.47f);
+            DrawLine(a, b, gold, 2);
+            DrawArc(a, 5, 0, Mathf.Tau, 16, gold, 1.5f, true);
+            var when = e.ClosestInHours < 1 / 60.0 ? $"{e.ClosestInHours * 3600:0} s" : e.ClosestInHours < 2 ? $"{e.ClosestInHours * 60:0} min" : $"{e.ClosestInHours:0.#} h";
+            DrawString(_font, a + new Vector2(10, 18), $"Closest pass in {when} · {Format.Distance(e.ClosestGap)}", HorizontalAlignment.Left, -1, 12, gold);
+        }
+        if (!e.InSight)
+            DrawString(_font, them + new Vector2(12, 24), "predicted position", HorizontalAlignment.Left, -1, 11, new Color(Ui.Rival, 0.7f));
+    }
 
     // Recent track of each enemy fleet you have seen: where it was each hour, and whether it was burning.
     private readonly Dictionary<int, List<(Vec2 At, bool Burn, long Tick)>> _tracks = new();
