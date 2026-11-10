@@ -442,13 +442,9 @@ public partial class MapView : Node2D
     public static readonly Color SpeedUp = new("6be38a");
     public static readonly Color Braking = new("c48bff");
 
-    /// <summary>Green while a burn speeds the fleet up, violet while it brakes; null for a coast.</summary>
-    private static Color? LegColor(FlightLeg leg)
-    {
-        if (!leg.IsBurn) return null;
-        var v = leg.VelocityAt((leg.Start + leg.End) / 2);
-        return Vec2.Dot(leg.A, v) >= 0 ? SpeedUp : Braking;
-    }
+    /// <summary>Green where a burn is speeding the fleet up, violet where it is braking.</summary>
+    private static Color BurnColor(FlightLeg leg, double hour) =>
+        Vec2.Dot(leg.A, leg.VelocityAt(hour)) >= 0 ? SpeedUp : Braking;
 
     /// <summary>Waypoints of a flight not reached yet (older saves only have the points).</summary>
     private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
@@ -541,11 +537,25 @@ public partial class MapView : Node2D
             const int n = 24;
             var pts = new Vector2[n + 1];
             for (var i = 0; i <= n; i++) pts[i] = Camera.ToScreen(leg.PositionAt(from + (leg.End - from) * i / n));
-            // Your own routes show what the engines do: speeding up, braking, or coasting with engines off.
-            var color = ok && f.Side == Side.Player ? LegColor(leg) ?? baseColor : baseColor;
-            DrawPolyline(pts, new Color(color, leg.IsBurn ? alpha : alpha * 0.55f), leg.IsBurn ? 2.5f : 1.2f, true);
+            if (!leg.IsBurn)
+            {
+                DrawPolyline(pts, new Color(baseColor, alpha * 0.55f), 1.2f, true);
+                continue;
+            }
+            // Your own routes show what the engines do: speeding up or braking (a turn brakes, then speeds up).
+            var colored = ok && f.Side == Side.Player;
+            var colors = new Color[n];
+            for (var i = 0; i < n; i++)
+                colors[i] = colored ? BurnColor(leg, from + (leg.End - from) * (i + 0.5) / n) : baseColor;
+            var startAt = 0;
+            for (var i = 1; i <= n; i++)
+            {
+                if (i < n && colors[i] == colors[startAt]) continue;
+                DrawPolyline(pts[startAt..(i + 1)], new Color(colors[startAt], alpha), 2.5f, true);
+                startAt = i;
+            }
             // Burns are short next to the coasts: zoomed out, mark each with a dot so it can still be seen.
-            if (leg.IsBurn && pts[0].DistanceTo(pts[n]) < 10) DrawCircle(pts[n / 2], 3.5f, new Color(color, Math.Min(1f, alpha + 0.2f)));
+            if (pts[0].DistanceTo(pts[n]) < 10) DrawCircle(pts[n / 2], 3.5f, new Color(colors[n / 2], Math.Min(1f, alpha + 0.2f)));
         }
         var end = Camera.ToScreen(flight.Target);
         DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);
