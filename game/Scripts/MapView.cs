@@ -451,6 +451,15 @@ public partial class MapView : Node2D
         ? flight.WaypointsAhead(DrawHour).Select(w => w.Point).ToList()
         : flight.Waypoints;
 
+    /// <summary>Is the end of the route being planned, or else of the selected fleet's current route, under a screen point?</summary>
+    public bool HitTestRouteEnd(Vector2 screen)
+    {
+        Vec2? end = Preview?.Flight?.Target;
+        if (end == null && PlannerWaypoints == null && SelectedId is int id && Sim.World.FindFleet(id) is { Side: Side.Player, Flight: Flight f })
+            end = f.Target;
+        return end is Vec2 e && Camera.ToScreen(e).DistanceTo(screen) <= 12;
+    }
+
     /// <summary>A not-yet-reached waypoint of the selected fleet's current route under a screen point.</summary>
     public int? HitTestFlightWaypoint(Vector2 screen)
     {
