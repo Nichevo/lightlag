@@ -1,0 +1,41 @@
+{
+  "_comment": "The computer rival. It plays by the player's rules: it only knows what its own sensors have seen, plus what anyone can see on the map (planets, who holds them, claims in progress). It thinks every thinkHours (Easy also skips a step now and then (slipChance), wants extraRatio more strength, never gathers for a strike, never chains claims and only defends its own planets): picks a goal, gives each fleet a job, and pulls back from fights it expects to lose. Power is a rough fighting value per ship (its cost, less for damage and empty missile racks); unseen enemy ships are guessed from what the enemy earns. attackRatio is how much stronger it wants to be before attacking; each game rolls a value between min and max (moved by the personality), and it drifts by up to nerveDrift each day within nerveRange of that roll. Claim groups that take a planet move on to another within chainClaimAu; at most claimGroups claim at once. When the home fleet is too small to strike but would be big enough with the claim groups back, it calls them home and starts no claims for gatherDays. A strike flies at the fastest speed that still arrives with strikeSuppliesLeft of its supplies. Of the enemy power it has not seen elsewhere, it assumes homeShareSeen guards the enemy shipyard when it has fresh eyes there, else homeShareUnseen. Distances are in AU.",
+  "thinkHours": { "easy": 24, "normal": 6 },
+  "easy": { "extraRatio": 0.35, "slipChance": 0.4 },
+  "attackRatio": { "min": 1.2, "max": 1.8 },
+  "nerveDrift": 0.04,
+  "nerveRange": 0.25,
+  "firstProbeDay": { "min": 20, "max": 40 },
+  "threatRadiusAu": 0.6,
+  "dangerRadiusAu": 0.35,
+  "dangerRatio": 1.25,
+  "refitSupplies": 0.35,
+  "refitArmour": 0.6,
+  "enemyShipValue": 60,
+  "enemyBuildShare": 0.65,
+  "claimGroupShips": 2,
+  "probeDays": 12,
+  "probeDistanceAu": 0.25,
+  "chainClaimAu": 0.35,
+  "gatherDays": 12,
+  "strikeSuppliesLeft": 0.6,
+  "homeShareSeen": 0.5,
+  "homeShareUnseen": 0.85,
+  "personalities": {
+    "raider": {
+      "name": "Raider", "frigateShare": 0.75, "ratio": 0.9, "claimWeight": 0.9, "huntWeight": 1.6, "guardShare": 0.25,
+      "probeEarly": 0.7, "takeHeldWeight": 1.4, "claimGroups": 2,
+      "research": ["fast-railguns", "quiet-drives", "efficient-drives", "long-sensors", "heavy-armour", "automation", "point-defence-2", "missile-brain-2"]
+    },
+    "expander": {
+      "name": "Expander", "frigateShare": 0.55, "ratio": 1.1, "claimWeight": 1.6, "huntWeight": 0.8, "guardShare": 0.3,
+      "probeEarly": 1.0, "takeHeldWeight": 0.8, "claimGroups": 3,
+      "research": ["automation", "efficient-drives", "long-sensors", "heavy-armour", "point-defence-2", "missile-brain-2", "fast-railguns", "quiet-drives"]
+    },
+    "turtle": {
+      "name": "Turtle", "frigateShare": 0.4, "ratio": 1.15, "claimWeight": 0.8, "huntWeight": 0.6, "guardShare": 0.45,
+      "probeEarly": 1.2, "takeHeldWeight": 0.6, "claimGroups": 2,
+      "research": ["heavy-armour", "point-defence-2", "missile-brain-2", "automation", "long-sensors", "fast-railguns", "efficient-drives", "quiet-drives"]
+    }
+  }
+}

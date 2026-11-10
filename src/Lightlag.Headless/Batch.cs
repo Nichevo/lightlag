@@ -8,7 +8,20 @@ namespace Lightlag.Headless;
 
 public sealed record GameResult(
     int Index, ulong Seed, string Outcome, long Ticks, double Seconds, int RuleFailures,
-    int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null);
+    int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
+    string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null);
+
+/// <summary>One side at the end of a batch game (for the summary).</summary>
+public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour)
+{
+    public static SideEnd Of(World w, Side side)
+    {
+        var t = Stats.Of(w, side);
+        return new SideEnd(Economy.Claimable(w).Count(b => b.Owner == side), w.Ships.Count(s => s.Side == side),
+            Math.Round(Stats.Power(w, side)), t.ShipsBuilt, t.ShipsLost, t.Battles, t.PlanetsClaimed,
+            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0));
+    }
+}
 
 /// <summary>Runs many games back to back and writes the morning summary.</summary>
 public static class Batch
@@ -22,6 +35,9 @@ public static class Batch
         var minutes = opts.GetLong("minutes") ?? (nightly ? 360 : 60);
         var scenario = opts.Get("scenario") ?? Scenarios.TestSystem;
         var strict = !opts.Has("lenient");
+        var pilot = opts.Get("pilot") ?? "ai";
+        if (pilot is not ("ai" or "test" or "easy" or "easy-v-normal" or "test-v-ai"))
+            throw new ArgumentException("--pilot must be ai, easy, easy-v-normal, test-v-ai or test");
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -40,13 +56,15 @@ public static class Batch
                 break;
             }
             var seed = firstSeed + (ulong)i;
-            var r = PlayOne(i + 1, seed, scenario, days, strict, build, logPath, runPaths);
+            var r = PlayOne(i + 1, seed, scenario, days, strict, build, logPath, runPaths, pilot);
             results.Add(r);
             Console.WriteLine($"  game {r.Index,4}  seed {r.Seed,-12} {r.Outcome,-9} {r.Seconds,7:0.00}s  rules {r.RuleFailures}  errors {r.Errors}"
+                              + (r.Winner != null ? $"  {r.Winner} wins day {r.WinDay} ({r.WinReason})" : "  no winner")
+                              + (r.PlayerMind != null ? $"  [{r.PlayerMind} v {r.RivalMind}]" : "")
                               + (r.Error != null ? $"  {r.Error}" : ""));
         }
 
-        var summary = Summarise(build, scenario, days, strict, started, clock.Elapsed, games, results, runDir);
+        var summary = Summarise(build, scenario, days, strict, started, clock.Elapsed, games, results, runDir, pilot);
         File.WriteAllText(Path.Combine(runDir, "summary.md"), summary);
         File.WriteAllText(Path.Combine(runDir, "summary.json"), Json.Serialize(new
         {
@@ -68,25 +86,54 @@ public static class Batch
         return results.Any(r => r.Outcome != "ok") ? 1 : 0;
     }
 
+    private static GameOptions? OptionsFor(string pilot) => pilot switch
+    {
+        "test" => null,
+        "easy" => GameOptions.AiVsAi(Difficulty.Easy),
+        "easy-v-normal" => new GameOptions(new List<AiSetup> { new(Side.Player, Difficulty.Easy), new(Side.Rival, Difficulty.Normal) }),
+        "test-v-ai" => GameOptions.VsRival(Difficulty.Normal),
+        _ => GameOptions.AiVsAi(),
+    };
+
+    private static string Describe(string pilot) => pilot switch
+    {
+        "test" => "test pilot on both sides",
+        "easy" => "computer on both sides, Easy",
+        "easy-v-normal" => "player side Easy computer, rival Normal computer",
+        "test-v-ai" => "player side test pilot, rival Normal computer",
+        _ => "computer on both sides, Normal",
+    };
+
     private static GameResult PlayOne(int index, ulong seed, string scenario, int days, bool strict,
-                                      BuildInfo build, string logPath, DataPaths runPaths)
+                                      BuildInfo build, string logPath, DataPaths runPaths, string pilotKind)
     {
         using var log = new GameLog(build, logPath);
         var timer = Stopwatch.StartNew();
         Simulation? sim = null;
         try
         {
-            sim = Simulation.NewGame(scenario, seed, log, build);
+            var options = OptionsFor(pilotKind);
+            sim = Simulation.NewGame(scenario, seed, log, build, options: options);
             sim.StrictRules = strict;
             sim.RuleCheckEveryTicks = 1;
-            var pilot = new TestPilot(seed);
             var end = (long)days * GameTime.TicksPerDay;
-            pilot.PlayUntil(sim, end);
+            // The test pilot plays any side the computer does not. The game stops when someone wins.
+            var testPilot = options?.Ai is { Count: 2 } ? null : new TestPilot(seed);
+            while ((sim.World.Tick < end || sim.World.Sub != 0) && sim.World.Winner == null)
+            {
+                testPilot?.Act(sim);
+                sim.Step();
+            }
+            Stats.RecordDay(sim.World);
             log.Info("game", $"Game finished at {GameTime.Format(sim.World.Tick)}", new { hash = sim.StateHash() });
             var w = sim.World;
+            Directory.CreateDirectory(Path.Combine(runPaths.Root, "stats"));
+            File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}.csv"), Stats.ToCsv(w));
+            string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
-                w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null);
+                w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null, w.WinReason,
+                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival));
         }
         catch (Exception ex)
         {
@@ -99,7 +146,7 @@ public static class Batch
     }
 
     public static string Summarise(BuildInfo build, string scenario, int days, bool strict, DateTime started,
-                                   TimeSpan elapsed, int requested, List<GameResult> results, string runDir)
+                                   TimeSpan elapsed, int requested, List<GameResult> results, string runDir, string pilot = "ai")
     {
         var bad = results.Where(r => r.Outcome != "ok").ToList();
         var md = new StringBuilder();
@@ -118,9 +165,13 @@ public static class Batch
             md.AppendLine($"- Time per game: average {results.Average(r => r.Seconds):0.00}s, slowest {slowest.Seconds:0.00}s (seed {slowest.Seed}). Target is under 60s.");
             md.AppendLine($"- Rule failures: {results.Sum(r => r.RuleFailures)}; log errors: {results.Sum(r => r.Errors)}; warnings: {results.Sum(r => r.Warnings)}");
             var won = results.Where(r => r.Winner != null).ToList();
-            md.AppendLine($"- Games won (test pilot on both sides): player {won.Count(r => r.Winner == "Player")}, rival {won.Count(r => r.Winner == "Rival")}, nobody {results.Count - won.Count}"
+            var who = Describe(pilot);
+            md.AppendLine($"- Games won ({who}): player {won.Count(r => r.Winner == "Player")}, rival {won.Count(r => r.Winner == "Rival")}, nobody {results.Count - won.Count}"
                           + (won.Count > 0 ? $"; average win on day {won.Average(r => r.WinDay ?? 0):0}" : ""));
+            if (won.Count > 0)
+                md.AppendLine($"- How games were won: " + string.Join(", ", won.GroupBy(r => r.WinReason ?? "?").Select(g => $"{g.Count()} {g.Key}")));
         }
+        AppendBalance(md, results);
         md.AppendLine($"- Folder: `{runDir}`");
         if (bad.Count > 0)
         {
@@ -135,5 +186,30 @@ public static class Batch
             md.AppendLine("Each report folder has a README, save.json and replay.json. Replay one with `Lightlag.Headless replay <folder>/replay.json`.");
         }
         return md.ToString();
+    }
+
+    /// <summary>Balance tables for computer-vs-computer runs: personalities, and how games went on average.</summary>
+    private static void AppendBalance(StringBuilder md, List<GameResult> results)
+    {
+        var ai = results.Where(r => r.PlayerMind != null && r.Player != null && r.Rival != null).ToList();
+        if (ai.Count == 0) return;
+        md.AppendLine();
+        md.AppendLine("## Balance");
+        md.AppendLine();
+        md.AppendLine("| Personality | Games | Wins | Win % | Avg planets at end | Ships built | Ships lost | Battles |");
+        md.AppendLine("|---|---|---|---|---|---|---|---|");
+        var rows = ai.SelectMany(r => new[]
+        {
+            (Name: r.PlayerMind!.Split(' ')[0], Won: r.Winner == "Player", End: r.Player!),
+            (Name: r.RivalMind!.Split(' ')[0], Won: r.Winner == "Rival", End: r.Rival!),
+        }).GroupBy(x => x.Name).OrderBy(g => g.Key);
+        foreach (var g in rows)
+            md.AppendLine($"| {g.Key} | {g.Count()} | {g.Count(x => x.Won)} | {100.0 * g.Count(x => x.Won) / g.Count():0} | "
+                          + $"{g.Average(x => x.End.Planets):0.0} | {g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Battles):0.0} |");
+        md.AppendLine();
+        md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "
+                      + $"{ai.Average(r => r.Player!.ShipsLost + r.Rival!.ShipsLost):0.0} ships lost, "
+                      + $"{ai.Average(r => r.Player!.Planets + r.Rival!.Planets):0.0} of 12 planets held at the end. "
+                      + "Day-by-day numbers for each game are in the `stats` folder (CSV).");
     }
 }

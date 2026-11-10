@@ -195,6 +195,7 @@ public partial class MapView : Node2D
         DrawPlannerWaypoints();
         if (SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
         DrawLastSeen();
+        if (RevealAll) DrawMindJobs();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
         DrawMissiles();
         if (SelectionBox is Rect2 box)
@@ -406,6 +407,26 @@ public partial class MapView : Node2D
         {
             var radius = apart ? (float)(Fleets.FormationSpacing * 1.6 * Camera.Scale) + 14 : 14f;
             DrawArc(at, radius, 0, Mathf.Tau, 48, color, 1.5f, true);
+        }
+    }
+
+    /// <summary>Debug (F7): each computer-run fleet's job, as a faint line to its target and a tag.</summary>
+    private void DrawMindJobs()
+    {
+        var w = Sim.World;
+        foreach (var m in w.Minds)
+        {
+            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            foreach (var job in m.Jobs)
+            {
+                if (w.FindFleet(job.FleetId) is not Fleet f || !_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) continue;
+                var target = job.BodyId is int b && w.FindBody(b) is Body body ? body.Position
+                    : job.EnemyFleetId is int e && w.FindFleet(e) is Fleet enemy ? enemy.Position : job.Point;
+                var at = Camera.ToScreen(p);
+                var to = Camera.ToScreen(target);
+                if (at.DistanceTo(to) > 6) DrawDashedLine(at, to, new Color(color, 0.35f), 1, 8);
+                DrawString(_font, at + new Vector2(12, 36), $"[{job.Kind}]", HorizontalAlignment.Left, -1, 11, new Color(Ui.Text, 0.75f));
+            }
         }
     }
 

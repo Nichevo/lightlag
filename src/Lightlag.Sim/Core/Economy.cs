@@ -24,6 +24,9 @@ public sealed class SideState
 
     /// <summary>When this side started holding more than half the planets (null while it doesn't).</summary>
     public double? MajoritySinceHour { get; set; }
+
+    /// <summary>Running totals for the game statistics (see Stats).</summary>
+    public SideTotals Totals { get; set; } = new();
 }
 
 public enum OrderKind { Ship, Research }
@@ -130,7 +133,9 @@ public static class Economy
         if (!w.Loop || w.Winner != null) return;
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
-            Of(w, side).Industry += IncomePerDay(w, side) / 24;
+            var earned = IncomePerDay(w, side) / 24;
+            Of(w, side).Industry += earned;
+            Of(w, side).Totals.IndustryEarned += earned;
             Work(sim, side, OrderKind.Ship);
             Work(sim, side, OrderKind.Research);
         }
@@ -151,6 +156,7 @@ public static class Economy
             var cost = CostOf(order);
             if (state.Industry < cost) return;
             state.Industry -= cost;
+            state.Totals.IndustrySpent += cost;
             order.Paid = true;
             order.HoursLeft = order.TotalHours;
             sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost });
@@ -179,6 +185,7 @@ public static class Economy
         var w = sim.World;
         var yard = ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
+        Of(w, side).Totals.ShipsBuilt++;
         var target = joinFleetId is int j && w.FindFleet(j) is Fleet t && t.Side == side ? t : null;
         Fleet? waiting;
         if (target != null)
@@ -269,6 +276,8 @@ public static class Economy
             if (b.ClaimHours < need) continue;
             var before = b.Owner;
             b.Owner = side;
+            Of(w, side).Totals.PlanetsClaimed++;
+            if (before is Side loser) Of(w, loser).Totals.PlanetsLost++;
             b.ClaimSide = null;
             b.ClaimHours = 0;
             sim.Log.Info("economy", $"{side} claims {b.Name}", new { side = side.ToString(), bodyId = b.Id, from = before?.ToString() });
@@ -313,6 +322,7 @@ public static class Economy
                     sim.Log.Info("economy", $"{b.Name} shipyard is under attack", new { bodyId = b.Id, attacker = attackers[0].Side.ToString() });
                 b.LastBombardedHour = w.Hour;
                 b.ShipyardArmour -= damage;
+                Of(w, attackers[0].Side).Totals.ShipyardDamage += damage;
                 if (b.ShipyardArmour <= 0)
                 {
                     b.ShipyardArmour = 0;
@@ -441,7 +451,11 @@ public sealed record CancelOrderCommand(Side Side, int OrderId) : GameCommand
             return;
         }
         world.Orders.Remove(order);
-        if (order.Paid) Economy.Of(world, Side).Industry += Economy.CostOf(order);
+        if (order.Paid)
+        {
+            Economy.Of(world, Side).Industry += Economy.CostOf(order);
+            Economy.Of(world, Side).Totals.IndustrySpent -= Economy.CostOf(order);
+        }
         sim.Log.Info("economy", $"{Side} cancels {Economy.NameOf(order)}", new { side = Side.ToString(), OrderId, refunded = order.Paid, Source });
     }
 }

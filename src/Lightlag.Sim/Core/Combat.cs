@@ -45,6 +45,17 @@ public sealed class Battle
     /// After an hour with nothing, the battle is a standoff and time runs at the normal speed again.
     /// </summary>
     public double LastActionHour { get; set; }
+
+    /// <summary>When the fighting last started: the battle's start, or the end of its last standoff.</summary>
+    public double FightingSinceHour { get; set; }
+
+    /// <summary>Something happened at this hour (a shot, a launch, a missile flying, a fleet closing in).</summary>
+    public void Action(double hour)
+    {
+        if (hour - LastActionHour >= 1) FightingSinceHour = hour; // a standoff turned back into a fight
+        LastActionHour = hour;
+    }
+
     public BattleSide[] Sides { get; set; } = { new(), new() };
 
     public BattleSide For(Side s) => Sides[(int)s];
@@ -224,7 +235,7 @@ public static class Combat
         if (target == null) return;
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
-        battle.LastActionHour = t1;
+        battle.Action(t1);
         ship.RailsReadyHour = t1 + rail.ReloadSeconds * Tech.Factor(w, ship.Side, Tech.FastRailguns) / 3600;
         for (var i = 0; i < cls.Railguns; i++)
         {
@@ -250,7 +261,7 @@ public static class Combat
         var m = C.Missile;
         var target = NearestEnemyShip(w, ship, m.LaunchRangeMm);
         if (target == null) return;
-        battle.LastActionHour = t1;
+        battle.Action(t1);
         var count = Math.Min(m.Salvo, ship.Missiles);
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
@@ -362,10 +373,16 @@ public static class Combat
         var w = sim.World;
         target.Armour -= amount;
         battle.For(by).DamageDealt += amount;
+        if (w.Loop) Economy.Of(w, by).Totals.DamageDealt += amount;
         var lost = battle.For(target.Side);
         if (target.Armour <= 0)
         {
             lost.ShipsLost.Add(target.Name);
+            if (w.Loop)
+            {
+                Economy.Of(w, target.Side).Totals.ShipsLost++;
+                Economy.Of(w, by).Totals.ShipsKilled++;
+            }
             sim.Log.Info("combat", $"{target.Name} is destroyed", new { shipId = target.Id, by = by.ToString() });
             RemoveShip(w, target);
             return;
@@ -424,7 +441,7 @@ public static class Combat
         var battle = w.ActiveBattle;
         if (battle == null && inContact.Count > 0)
         {
-            battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, Where = inContact[0].A.Position };
+            battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, FightingSinceHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
@@ -434,7 +451,7 @@ public static class Combat
             });
         }
         if (battle == null) return;
-        if (w.Missiles.Count > 0 || inContact.Any(p => p.A.Maneuvering || p.B.Maneuvering)) battle.LastActionHour = t1;
+        if (w.Missiles.Count > 0 || inContact.Any(p => p.A.Maneuvering || p.B.Maneuvering)) battle.Action(t1);
         foreach (var (a, b) in inContact)
         {
             if (!battle.For(a.Side).Fleets.Contains(a.Name)) battle.For(a.Side).Fleets.Add(a.Name);
@@ -443,6 +460,9 @@ public static class Combat
         if (inContact.Count == 0 && w.Missiles.Count == 0)
         {
             battle.EndHour = t1;
+            if (w.Loop)
+                foreach (var side in new[] { Side.Player, Side.Rival })
+                    if (battle.For(side).Fleets.Count > 0) Economy.Of(w, side).Totals.Battles++;
             var p = battle.For(Side.Player);
             var r = battle.For(Side.Rival);
             sim.Log.Info("combat", "Battle over", new

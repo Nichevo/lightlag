@@ -10,6 +10,8 @@ namespace Lightlag.Sim.Logging;
 ///   save.json      the game at that moment (load it to continue from there)
 ///   replay.json    the whole game so far, to watch it happen again exactly
 ///   log-tail.jsonl the last few hundred log lines
+///   stats.csv      each side at the end of each game day (full games only)
+///   rival-mind.md  what the computer rival is doing and why (full games only)
 ///   error.txt      the full exception (crash reports only)
 ///   screenshot.png (F8 reports from the game; the game adds it)
 /// Writing a report must never throw: every part is tried separately and failures are noted inside.
@@ -71,6 +73,10 @@ public static class Reports
         if (sim == null) return;
         Try(problems, "save.json", () => sim.ToSave().WriteTo(Path.Combine(dir, "save.json")));
         Try(problems, "replay.json", () => sim.Replay.WriteTo(Path.Combine(dir, "replay.json")));
+        if (!sim.World.Loop) return;
+        Try(problems, "stats.csv", () => File.WriteAllText(Path.Combine(dir, "stats.csv"), Stats.ToCsv(sim.World)));
+        if (sim.World.Minds.Count > 0)
+            Try(problems, "rival-mind.md", () => File.WriteAllText(Path.Combine(dir, "rival-mind.md"), Mind.Describe(sim.World)));
     }
 
     private static void AppendFacts(StringBuilder md, GameLog log, Simulation? sim)
@@ -83,6 +89,9 @@ public static class Reports
             md.AppendLine($"- Seed: {sim.World.Seed}");
             md.AppendLine($"- Game time: {GameTime.Format(sim.World.Tick)} (tick {sim.World.Tick})");
             md.AppendLine($"- Rule failures this game: {sim.RuleViolations}");
+            foreach (var m in sim.World.Minds)
+                md.AppendLine($"- {m.Side} run by the computer: {m.Difficulty}, {m.Personality}, attack ratio {m.Ratio:0.00}");
+            if (sim.World.Loop) md.AppendLine($"- So far: {Stats.Summary(sim.World).Replace(Environment.NewLine, " ")}");
         }
         else
         {

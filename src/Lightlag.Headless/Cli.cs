@@ -11,8 +11,8 @@ public static class Cli
     public const string Usage = """
         Lightlag headless runner
 
-          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--data-dir DIR] [--lenient]
-                  Plays N games with the test pilot and writes a summary to <data>/nightly/<time>_batch/.
+          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--data-dir DIR] [--lenient]
+                  Plays N games, computer against computer (--pilot ai, the default; easy; easy-v-normal; test-v-ai, a random test pilot against the rival; or test, the test pilot on both sides), and writes a summary to <data>/nightly/<time>_batch/.
                   Rule checks run every tick and a broken rule counts as a crash, unless --lenient.
                   Stops starting new games after M minutes. The newest summary is also copied to
                   <data>/nightly/latest-summary.md (the "morning summary").
@@ -24,6 +24,9 @@ public static class Cli
 
           replay  <replay.json | save.json> [--until-tick T]
                   Replays a game and checks it matches what was recorded. Exit code 0 = exact.
+
+          ai-trace [--seed S] [--days D] [--every N] [--easy]
+                  Plays one computer-vs-computer game and prints each side's goal and fleet jobs every N days.
 
           logs    <file.jsonl | folder> [--level warn] [--area rule] [--text words] [--seed S] [--days A-B] [--max N]
                   Searches game logs. --level shows that level and worse.
@@ -48,6 +51,7 @@ public static class Cli
                 "battles" => BattleSweep.Run(opts),
                 "replay" => RunReplay(opts),
                 "logs" => LogSearch.Run(opts),
+                "ai-trace" => AiTrace.Run(opts),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}"),
             };
         }

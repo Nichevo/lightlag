@@ -15,7 +15,7 @@ public partial class TitleScreen : Control
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 14);
         col.AddChild(Ui.Label("LIGHTLAG", 64, Ui.Player));
-        col.AddChild(Ui.Label("Milestone 5: the loop (Industry, shipyard, research, claims, winning)", 16, Ui.Dim));
+        col.AddChild(Ui.Label("Milestone 6: the rival (a computer opponent that plays by your rules)", 16, Ui.Dim));
         col.AddChild(new Control { CustomMinimumSize = new Vector2(0, 24) });
 
         var latest = SaveSlots.Latest(main.Paths);
@@ -23,7 +23,8 @@ public partial class TitleScreen : Control
             () => main.LoadGame(latest!));
         cont.Disabled = latest == null;
         col.AddChild(cont);
-        col.AddChild(Ui.Button("New test game", () => main.StartNewGame()));
+        col.AddChild(Ui.Button("New game: Normal rival", () => main.StartNewGame()));
+        col.AddChild(Ui.Button("New game: Easy rival", () => main.StartNewGame(difficulty: Lightlag.Sim.Core.Difficulty.Easy), 16));
         col.AddChild(Ui.Button("Battle sandbox", () => main.ShowSandboxSetup()));
         col.AddChild(Ui.Button("Open reports folder", () => OS.ShellOpen(main.Paths.Root), 16));
         col.AddChild(Ui.Button("Quit", () => main.Quit(), 16));

@@ -75,6 +75,7 @@ public static class GameData
     private static readonly Lazy<ShipClassFile> _file = new(LoadShipClassFile);
     private static readonly Lazy<IReadOnlyDictionary<string, ShipClass>> _classes = new(LoadShipClasses);
     private static readonly Lazy<EconomyData> _economy = new(LoadEconomy);
+    private static readonly Lazy<AiData> _ai = new(LoadAi);
     private static readonly Lazy<IReadOnlyDictionary<string, ResearchData>> _research =
         new(() => _economy.Value.Research.ToDictionary(r => r.Id));
 
@@ -82,6 +83,7 @@ public static class GameData
     public static CombatData Combat => _file.Value.Combat;
     public static SensorData Sensors => _file.Value.Sensors;
     public static EconomyData Economy => _economy.Value;
+    public static AiData Ai => _ai.Value;
     public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;
 
     public static ResearchData Research(string id) =>
@@ -129,6 +131,24 @@ public static class GameData
             if (!(r.Cost > 0 && r.Days > 0 && r.Factor > 0)) throw new InvalidDataException($"economy.json: research '{r.Id}' needs cost, days and factor above 0");
         }
         return e;
+    }
+
+    private static AiData LoadAi()
+    {
+        var a = Json.Deserialize<AiData>(ReadText("ai.json"));
+        if (a.ThinkHours == null || a.Easy == null || a.AttackRatio == null || a.FirstProbeDay == null || a.Personalities == null)
+            throw new InvalidDataException("ai.json: thinkHours, easy, attackRatio, firstProbeDay or personalities is missing");
+        if (!(a.ThinkHours.Easy >= 1 && a.ThinkHours.Normal >= 1)) throw new InvalidDataException("ai.json: thinkHours must be at least 1");
+        if (!(a.AttackRatio.Min >= 1 && a.AttackRatio.Max >= a.AttackRatio.Min)) throw new InvalidDataException("ai.json: attackRatio needs 1 <= min <= max");
+        foreach (var p in Enum.GetValues<Personality>())
+        {
+            if (!a.Personalities.TryGetValue(p.ToString().ToLowerInvariant(), out var d))
+                throw new InvalidDataException($"ai.json: personality '{p.ToString().ToLowerInvariant()}' is missing");
+            if (d.ClaimGroups < 1) throw new InvalidDataException($"ai.json: {d.Name} needs claimGroups of at least 1");
+            foreach (var r in d.Research)
+                if (!ResearchById.ContainsKey(r)) throw new InvalidDataException($"ai.json: {d.Name} lists unknown research '{r}'");
+        }
+        return a;
     }
 
     private static IReadOnlyDictionary<string, ShipClass> LoadShipClasses()

@@ -45,6 +45,12 @@ public sealed class World
     public string? WinReason { get; set; }
     public double? WinHour { get; set; }
 
+    /// <summary>Game statistics: each side at the end of each day (see Stats).</summary>
+    public List<DayRecord> History { get; set; } = new();
+
+    /// <summary>Computer-run sides: their settings, plans and memory (see Mind).</summary>
+    public List<MindState> Minds { get; set; } = new();
+
     public int NextId { get; set; } = 1;
 
     /// <summary>How many fleets each side has numbered so far, so new fleets get fresh numbers.</summary>

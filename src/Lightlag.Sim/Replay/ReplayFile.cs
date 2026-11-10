@@ -22,6 +22,9 @@ public sealed class ReplayFile
 
     /// <summary>For battle sandbox games: the fleets that were set up.</summary>
     public SandboxSetup? Sandbox { get; set; }
+
+    /// <summary>Choices made at the start, such as which sides the computer runs.</summary>
+    public GameOptions? Options { get; set; }
     public List<RecordedCommand> Commands { get; set; } = new();
     public List<Checkpoint> Checkpoints { get; set; } = new();
 
@@ -46,7 +49,7 @@ public static class ReplayRunner
     /// <param name="onTick">Called after each tick, e.g. to draw or inspect the game.</param>
     public static ReplayResult Run(ReplayFile replay, GameLog log, long? untilTick = null, Action<Simulation>? onTick = null)
     {
-        var sim = Simulation.NewGame(replay.Scenario, replay.Seed, log, sandbox: replay.Sandbox);
+        var sim = Simulation.NewGame(replay.Scenario, replay.Seed, log, sandbox: replay.Sandbox, options: replay.Options);
         var end = untilTick ?? replay.LastTick;
         var commands = replay.Commands.OrderBy(c => c.Tick).ThenBy(c => c.Sub).ToList();
         var checkpoints = replay.Checkpoints.ToDictionary(c => c.Tick, c => c.Hash);

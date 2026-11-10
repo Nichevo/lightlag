@@ -38,8 +38,24 @@ Results go to `data\nightly\<time>_nightly\` (summary, log, a crash report per f
 summary is copied to `data\nightly\latest-summary.md`. After that a battle sweep fights every fleet mix
 with every approach and missile brain in the sandbox and writes `data\nightly\latest-battles.md` (win rates)
 and a `battles.csv`. Its last section is the ambush sweep: drifting in cold against burning in, from
-near and far, to answer "is hiding worth its slowness?". Until the rival AI exists, a "test pilot"
-plays both sides at random (flights, claims, attacks on shipyards, building and research) so there is
-something to simulate; the summary counts which side won and on what day.
+near and far, to answer "is hiding worth its slowness?".
+
+The games are computer against computer: the rival AI (M6) runs both sides, each with its own randomly
+picked personality. The summary counts who won, how and on what day, and has a balance table by
+personality. Each game's day-by-day numbers go to `stats\game-NNN-seed-S.csv` in the run folder.
+Other match-ups for a batch run: `--pilot easy` (both Easy), `--pilot easy-v-normal` (an Easy player side
+against a Normal rival), `--pilot test-v-ai` (the old random test pilot against the rival) and
+`--pilot test` (the test pilot on both sides).
+
+To watch one game's AI decisions: `Lightlag.Headless ai-trace --seed S --days D --every N [--easy]` prints
+each side's goal and each fleet's job every N days.
+
+## Stats and the rival's thinking in reports
+
+In a full game, an F8 report also holds `stats.csv` (each side at the end of each day: Industry, income,
+planets, ships, power, research, ships built, lost and destroyed, battles, Industry earned and spent,
+planets claimed and lost, shipyard armour) and `rival-mind.md` (the rival's personality, attack ratio,
+guesses, fleet jobs and recent thoughts). In the game, F7 shows every fleet plus each rival fleet's job
+on the map and a "rival mind" panel.
 
 Target: under a minute per headless game, so a night covers hundreds of games.

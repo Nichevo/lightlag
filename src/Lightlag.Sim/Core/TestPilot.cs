@@ -1,7 +1,7 @@
 namespace Lightlag.Sim.Core;
 
 /// <summary>
-/// A stand-in player for headless runs until the real rival AI exists (M6): every so often it sends
+/// A careless stand-in player for headless runs and tests (it plays any side the computer rival does not run): every so often it sends
 /// fleets to random bodies (sometimes to claim a planet or attack the enemy shipyard), splits, merges and
 /// gathers them, and queues ships and research. It issues ordinary commands, so its games replay like any other.
 /// Its own random numbers are separate from the world's, so it never changes how the world rolls.
@@ -30,7 +30,7 @@ public sealed class TestPilot
         var world = sim.World;
         if (world.Tick % GameTime.TicksPerDay != 0 || world.Sub != 0) return;
         if (world.Loop) Manage(sim);
-        foreach (var fleet in world.Fleets.ToList())
+        foreach (var fleet in world.Fleets.Where(f => Mind.Of(world, f.Side) == null).ToList())
         {
             // A fleet part way through claiming a planet usually stays to finish.
             if (fleet.OrbitBodyId is int at && world.FindBody(at) is { ClaimSide: Side claimer } && claimer == fleet.Side && _rng.Chance(0.85)) continue;
@@ -86,7 +86,7 @@ public sealed class TestPilot
     private void Manage(Simulation sim)
     {
         var world = sim.World;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in new[] { Side.Player, Side.Rival }.Where(s => Mind.Of(world, s) == null))
         {
             var orders = world.Orders.Where(o => o.Side == side).ToList();
             if (orders.Count(o => o.Kind == OrderKind.Ship) < 2 && _rng.Chance(0.5))
