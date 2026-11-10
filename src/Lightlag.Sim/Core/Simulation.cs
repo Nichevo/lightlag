@@ -70,6 +70,11 @@ public sealed class Simulation
             world.Light.On = light.On;
             world.Light.SpeedFactor = light.SpeedFactor;
         }
+        if (sandbox == null && options?.Autonomy is AutonomyLevel level)
+        {
+            foreach (var s in world.Sides) s.DefaultAutonomy = level;
+            foreach (var f in world.Fleets) f.Autonomy = level;
+        }
         Light.ChooseFlagships(world);
         world.Random = rng.Save();
         if (sandbox != null) scenario = Scenarios.BattleSandbox;

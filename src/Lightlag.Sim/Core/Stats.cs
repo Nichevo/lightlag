@@ -14,6 +14,13 @@ public sealed class SideTotals
     public int PlanetsClaimed { get; set; }
     public int PlanetsLost { get; set; }
     public int Battles { get; set; }
+
+    /// <summary>Battles that started more than five light-minutes from the side's flagship, and battles its flagship fought in.</summary>
+    public int LaggedBattles { get; set; }
+    public int FlagshipBattles { get; set; }
+
+    /// <summary>Decisions its fleets made for themselves (see Autonomy).</summary>
+    public int OwnDecisions { get; set; }
     public double DamageDealt { get; set; }
     public double ShipyardDamage { get; set; }
 }

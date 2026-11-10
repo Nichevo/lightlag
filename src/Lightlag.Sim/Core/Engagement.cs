@@ -31,6 +31,9 @@ public sealed class EngagementInfo
     public double Closing { get; init; }
     public double ClosestInHours { get; init; }
     public double ClosestGap { get; init; }
+
+    /// <summary>Hours until they come within contact range (battle time) on these tracks, 0 if they are, null if not within two days.</summary>
+    public double? ContactInHours { get; init; }
     public double LookAheadHours { get; init; }
     public double OurTopSpeed { get; init; }
     public bool WeHaveMissiles { get; init; }
@@ -176,6 +179,9 @@ public static class Engagement
             var g = GapAt(t);
             if (g < closest) { closest = g; closestT = t; }
         }
+        double? contactT = null;
+        for (var i = 0; i <= 960 && contactT == null; i++)
+            if (GapAt(i * 0.05) <= GameData.Combat.ContactRangeMm) contactT = i * 0.05;
         // Rounded up to a fixed step so the timeline's scale holds still while time runs.
         var want = Math.Clamp(Math.Max(closestT * 1.6, closestT + 0.25), 0.25, 48);
         var ahead = new[] { 0.25, 0.5, 1, 2, 3, 6, 12, 24, 48 }.First(x => x >= want - 1e-9);
@@ -234,6 +240,7 @@ public static class Engagement
             Closing = closing,
             ClosestInHours = closestT,
             ClosestGap = closest,
+            ContactInHours = contactT,
             LookAheadHours = ahead,
             OurTopSpeed = perf.MaxSpeed,
             WeHaveMissiles = weMissiles,

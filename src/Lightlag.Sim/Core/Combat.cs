@@ -30,6 +30,10 @@ public sealed class BattleSide
     public List<string> ShipsLost { get; set; } = new();
     public List<string> Knocked { get; set; } = new();   // "FF-1: railguns"
     public List<string> Fleets { get; set; } = new();
+
+    /// <summary>Light lag from this side's flagship to the battle when it started (hours), and whether the flagship's fleet fought.</summary>
+    public double LagHours { get; set; }
+    public bool Flagship { get; set; }
 }
 
 /// <summary>A battle: from first contact until no enemies are in contact and no missiles fly.</summary>
@@ -600,6 +604,7 @@ public static class Combat
             battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, FightingSinceHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
+            foreach (var side in new[] { Side.Player, Side.Rival }) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
             {
                 battleId = battle.Id, a = inContact[0].A.Id, b = inContact[0].B.Id,
@@ -612,13 +617,25 @@ public static class Combat
         {
             if (!battle.For(a.Side).Fleets.Contains(a.Name)) battle.For(a.Side).Fleets.Add(a.Name);
             if (!battle.For(b.Side).Fleets.Contains(b.Name)) battle.For(b.Side).Fleets.Add(b.Name);
+            foreach (var f in new[] { a, b })
+                if (!battle.For(f.Side).Flagship && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id)
+                {
+                    battle.For(f.Side).Flagship = true;
+                    sim.Log.Info("combat", $"{f.Side} flagship in battle", new { battleId = battle.Id, fleetId = f.Id, shipId = flag.Id });
+                }
         }
         if (inContact.Count == 0 && w.Missiles.Count == 0)
         {
             battle.EndHour = t1;
             if (w.Loop)
                 foreach (var side in new[] { Side.Player, Side.Rival })
-                    if (battle.For(side).Fleets.Count > 0) Economy.Of(w, side).Totals.Battles++;
+                    if (battle.For(side).Fleets.Count > 0)
+                    {
+                        var t = Economy.Of(w, side).Totals;
+                        t.Battles++;
+                        if (battle.For(side).LagHours > 5.0 / 60) t.LaggedBattles++;
+                        if (battle.For(side).Flagship) t.FlagshipBattles++;
+                    }
             var p = battle.For(Side.Player);
             var r = battle.For(Side.Rival);
             sim.Log.Info("combat", "Battle over", new

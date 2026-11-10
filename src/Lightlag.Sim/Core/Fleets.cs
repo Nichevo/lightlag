@@ -298,6 +298,7 @@ public static class Fleets
             Name = side == Side.Player ? $"Fleet {number}" : $"Rival fleet {number}",
             Side = side,
             Position = position,
+            Autonomy = w.Sides[(int)side].DefaultAutonomy,
         };
         foreach (var s in ships)
         {

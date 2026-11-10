@@ -41,6 +41,9 @@ public sealed class SideState
     /// <summary>The ship command sits on (see Light); null once none is left.</summary>
     public int? FlagshipId { get; set; }
 
+    /// <summary>The autonomy new fleets start with.</summary>
+    public AutonomyLevel DefaultAutonomy { get; set; } = AutonomyLevel.Sensible;
+
     /// <summary>When this side started holding more than half the planets (null while it doesn't).</summary>
     public double? MajoritySinceHour { get; set; }
 
