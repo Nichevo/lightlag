@@ -79,10 +79,23 @@ try {
     $installed = Get-InstalledVersion $current
     if (-not $NoUpdate) {
         Say "Checking for a new build..."
+        $headers = @{ "User-Agent" = "lightlag-updater"; "Accept" = "application/vnd.github+json" }
         $release = $null
         try {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
-                -Headers @{ "User-Agent" = "lightlag-updater"; "Accept" = "application/vnd.github+json" } -TimeoutSec 20
+            # A change merged a moment ago is still being built on GitHub (a few minutes): wait for it,
+            # rather than starting the old build and only picking the new one up on the next run.
+            $waitedSince = Get-Date
+            try { while ($true) {
+                $runs = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/actions/runs?branch=main&event=push&per_page=5" `
+                    -Headers $headers -TimeoutSec 20
+                $building = @($runs.workflow_runs | Where-Object { $_.status -ne "completed" -and "$($_.id)" -ne "$env:GITHUB_RUN_ID" })
+                if ($building.Count -eq 0) { break }
+                $minutes = [math]::Round(((Get-Date) - $waitedSince).TotalMinutes, 1)
+                if ($minutes -ge 15) { Say "Still building after 15 minutes; playing what is installed." Yellow; break }
+                if ($minutes -eq 0) { Say "A new build is being made on GitHub (usually about 4 minutes). Waiting for it... (Ctrl+C to stop)" Yellow }
+                Start-Sleep -Seconds 20
+            } } catch { Say "Could not check for a build in progress ($($_.Exception.Message))." Yellow }
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 20
         } catch {
             Say "Could not reach GitHub ($($_.Exception.Message)). Playing the installed build." Yellow
         }
