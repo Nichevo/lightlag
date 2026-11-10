@@ -448,4 +448,38 @@ public class FleetTests
         Assert.Contains(f.Legs, l => !l.IsBurn && Math.Abs(l.V0.Length - top * 0.2) < 1e-6);
         Assert.Equal(2, f.Waypoints.Count);
     }
+
+    [Fact]
+    public void Through_waypoints_at_sharp_corners_turn_tightly_instead_of_overshooting()
+    {
+        // A zig-zag like a playtest report: points tens of thousands of km apart, sharp turns.
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup());
+        var fleet = sim.World.Fleets.First(f => f.Side == Side.Player);
+        var o = fleet.Position;
+        var pts = new[] { o + new Vec2(47, -33), o + new Vec2(54, 10), o + new Vec2(62, -23) };
+        var target = o + new Vec2(54, -17);
+        var request = new FlightRequest(null, target, 0.7, ArrivalStyle.Brake, HoldStyle.Drift, sim.World.Tick)
+        {
+            Waypoints = pts.Select(p => new Waypoint(p)).ToList(),
+        };
+        var plan = FlightPlanner.Plan(sim.World, fleet, request);
+        Assert.True(plan.Ok, plan.Problem);
+        var f = plan.Flight!;
+        AssertContinuous(f);
+        // Every point of the flight stays near the zig-zag through the waypoints.
+        var corners = new[] { o }.Concat(pts).Append(target).ToArray();
+        double Off(Vec2 q) => Enumerable.Range(0, corners.Length - 1).Min(k => SegmentDistance(q, corners[k], corners[k + 1]));
+        var worst = Enumerable.Range(0, 3000).Select(k => f.DepartHour + (f.ArriveHour - f.DepartHour) * k / 3000.0)
+            .Max(h => Off(FlightPlanner.FlightState(f, h)!.Value.Position));
+        Assert.True(worst < 12, $"strays {worst:0.0} Mm off the route");
+        // Passing through: no stretch starts from a standstill except the first (it turns, it doesn't stop and restart).
+        Assert.DoesNotContain(f.Legs.Skip(1), l => l.V0.Length < 1e-6);
+    }
+
+    private static double SegmentDistance(Vec2 q, Vec2 a, Vec2 b)
+    {
+        var d = b - a;
+        var t = Math.Clamp(Vec2.Dot(q - a, d) / Math.Max(Vec2.Dot(d, d), 1e-12), 0, 1);
+        return Vec2.Distance(q, a + d * t);
+    }
 }
