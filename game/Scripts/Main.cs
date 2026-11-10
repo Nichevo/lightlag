@@ -72,12 +72,12 @@ public partial class Main : Node
         SetScreen(new TitleScreen());
     }
 
-    public void StartNewGame(ulong? seed = null)
+    public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
         RunGuarded("starting a new game", () =>
         {
-            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build);
+            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty));
             SetScreen(new GameScreen());
         });
     }
@@ -378,6 +378,16 @@ public partial class Main : Node
             empire.OpenEnd();
             await Shoot("18-victory");
 
+            // The rival's thinking (F7): its fleets' jobs on the map and its mind panel, two months in.
+            StartNewGame(9);
+            var minds = (GameScreen)_screen!;
+            Sim!.StepMany(60 * GameTime.TicksPerDay);
+            minds.TogglePause();
+            minds.ToggleRevealAll();
+            minds.ShowWholeSystem();
+            minds.Camera.SetScale(minds.Camera.TargetScale, instant: true);
+            await Shoot("20-rival-mind");
+
             // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
             StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 150), 7);
             var battle = (GameScreen)_screen!;
@@ -420,7 +430,7 @@ public partial class Main : Node
             var pilot = new TestPilot(12345);
             for (var i = 0; i < 30 * GameTime.TicksPerDay; i++) { pilot.Act(Sim); Sim.Step(); }
             var dir = Reports.WritePlayerReport(Paths, Log, Sim, "smoke test", "smoke");
-            foreach (var f in new[] { "README.md", "save.json", "replay.json", "log-tail.jsonl" })
+            foreach (var f in new[] { "README.md", "save.json", "replay.json", "log-tail.jsonl", "stats.csv", "rival-mind.md" })
                 if (!File.Exists(System.IO.Path.Combine(dir, f))) throw new FileNotFoundException($"smoke test report is missing {f}");
             Log.Info("game", "Smoke test passed", new { day = Sim.World.Day, hash = Sim.StateHash() });
         });

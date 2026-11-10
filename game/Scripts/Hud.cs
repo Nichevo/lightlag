@@ -28,6 +28,8 @@ public partial class Hud : CanvasLayer
     private Button _empireButton = null!;
     private EmpirePanel _empire = null!;
     private EndPanel _end = null!;
+    private PanelContainer _mindPanel = null!;
+    private Label _mind = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -135,6 +137,15 @@ public partial class Hud : CanvasLayer
         _plannerPanel.Position += new Vector2(0, 60);
         AddChild(_plannerPanel);
 
+        _mind = Ui.Label("", 12);
+        _mind.CustomMinimumSize = new Vector2(420, 0);
+        _mind.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _mindPanel = Ui.Panel(_mind, 10);
+        _mindPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterLeft, Control.LayoutPresetMode.KeepSize, 16);
+        _mindPanel.GrowVertical = Control.GrowDirection.Both;
+        _mindPanel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        AddChild(_mindPanel);
+
         _end = new EndPanel(_screen);
         _end.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
         _end.GrowHorizontal = Control.GrowDirection.Both;
@@ -176,6 +187,9 @@ public partial class Hud : CanvasLayer
         }
         _empire.Visible = w.Loop && _screen.ShowEmpire;
         if (_empire.Visible) _empire.Refresh(sim);
+        var rivalMind = Mind.Of(w, Side.Rival);
+        _mindPanel.Visible = _screen.RevealAll && rivalMind != null && !_empire.Visible;
+        if (_mindPanel.Visible) _mind.Text = MindText(w, rivalMind!);
         _end.Visible = w.Winner != null && _screen.ShowEnd;
         if (_end.Visible) _end.Refresh(w);
 
@@ -194,6 +208,24 @@ public partial class Hud : CanvasLayer
         var text = fleet == null && group.Count < 2 ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
+    }
+
+    /// <summary>Debug (F7): the rival's temperament, beliefs, jobs and latest thoughts.</summary>
+    private static string MindText(World w, MindState m)
+    {
+        var lines = new List<string>
+        {
+            $"RIVAL MIND (debug, F7) · {m.Personality} · {m.Difficulty}",
+            $"Attack ratio {m.Ratio:0.00} (rolled {m.BaseRatio:0.00}) · first probe day {m.FirstProbeDay:0}",
+            $"Power {m.OwnPower:0} · guesses yours at {m.EnemyPowerGuess:0}",
+            $"Goal: {m.Goal}",
+        };
+        var jobs = m.Jobs.GroupBy(j => j.Kind).Select(g => $"{g.Key} {g.Count()}");
+        lines.Add("Jobs: " + (m.Jobs.Count > 0 ? string.Join(", ", jobs) : "none"));
+        lines.Add("");
+        foreach (var t in m.Thoughts.TakeLast(8).Reverse())
+            lines.Add($"{GameTime.Format(t.Hour)}: {t.Text}");
+        return string.Join("\n", lines);
     }
 
     public void TickShip(int shipId) => _fleetPanel.TickOnly(shipId);

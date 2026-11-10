@@ -46,18 +46,23 @@ public sealed class Simulation
     public IReadOnlyDictionary<string, int> RuleHits => _ruleHits;
     public IReadOnlyCollection<GameCommand> PendingCommands => _pending;
 
-    public static Simulation NewGame(string scenario, ulong seed, GameLog log, BuildInfo? build = null, SandboxSetup? sandbox = null)
+    public static Simulation NewGame(string scenario, ulong seed, GameLog log, BuildInfo? build = null, SandboxSetup? sandbox = null,
+                                     GameOptions? options = null)
     {
         build ??= log.Build;
         var rng = new SimRandom(seed);
         var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng);
+        if (sandbox == null) Mind.Setup(world, options, seed);
         world.Random = rng.Save();
         if (sandbox != null) scenario = Scenarios.BattleSandbox;
-        var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox };
+        var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox, Options = options };
         var sim = new Simulation(world, rng, log, build, replay);
         Sensors.Update(sim);
+        Stats.RecordDay(world);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
-        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox });
+        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox, options });
+        foreach (var m in world.Minds)
+            log.Info("ai", $"{m.Side} is run by the computer", new { side = m.Side.ToString(), difficulty = m.Difficulty.ToString(), personality = m.Personality.ToString(), m.BaseRatio, m.FirstProbeDay });
         return sim;
     }
 
@@ -109,6 +114,8 @@ public sealed class Simulation
         {
             World.Tick++;
             UpdateBodyPositions(World);
+            // Fleets still braking after a fight finish braking (otherwise they would drift on for ever).
+            Combat.Steer(this, t0, World.Hour);
             MoveFleets(t0, World.Hour);
             UpdateFacing(velocities);
             Sensors.Update(this);
@@ -119,6 +126,8 @@ public sealed class Simulation
         if (World.Sub != 0) return;
         JoinFleets();
         Economy.Update(this);
+        Mind.Update(this);
+        if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
 
         if (World.Tick % GameTime.TicksPerDay == 0)
             Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));

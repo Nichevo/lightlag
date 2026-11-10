@@ -127,7 +127,11 @@ public partial class FleetPanel : PanelContainer
                 lines.Add($"Out of sight. Last seen {Format.Hours(w.Hour - sighting.Hour)} ago, {StateText(sighting.State)}, at {Format.Speed(sighting.Velocity.Length)}");
                 lines.Add("The dashed line is a guess at where it went if it kept going");
             }
-            if (_screen.RevealAll) lines.Add($"(debug) {Doing(w, f)}");
+            if (_screen.RevealAll)
+            {
+                lines.Add($"(debug) {Doing(w, f)}");
+                if (Mind.Of(w, f.Side)?.JobOf(f.Id) is FleetJob job) lines.Add($"(debug) Rival job: {job.Kind}: {job.Why}");
+            }
         }
         _status.Text = string.Join("\n", lines);
         _shipList.Visible = seen;
