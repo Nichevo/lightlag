@@ -158,6 +158,12 @@ public sealed class Ship
 
     /// <summary>Game hours when the railguns and missile racks can fire again.</summary>
     public double RailsReadyHour { get; set; }
+
+    /// <summary>Marked to be protected (null: only if it is the flagship). See Flagships.</summary>
+    public bool? Protect { get; set; }
+
+    /// <summary>When an enemy last fired at it (ships not under fire aim steadier).</summary>
+    public double LastTargetedHour { get; set; } = -1e9;
     public double SalvoReadyHour { get; set; }
 }
 

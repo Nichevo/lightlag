@@ -15,6 +15,9 @@ public sealed class LightState
     /// <summary>Losing the flagship with no destroyer left to take command loses the game (light lag only).</summary>
     public bool Decapitation { get; set; }
 
+    /// <summary>Orders waiting at the flagship for radio silence to end.</summary>
+    public List<Transit> Held { get; set; } = new();
+
     /// <summary>Orders sent but not yet arrived, oldest first.</summary>
     public List<Transit> InTransit { get; set; } = new();
 
@@ -179,6 +182,12 @@ public static class Light
         var w = sim.World;
         if (!w.Light.On || command.Destination(w) is not (Side side, Vec2 at)) return false;
         var delay = DelayHours(w, side, at);
+        if (Economy.Of(w, side).RadioSilence && delay > 0)
+        {
+            w.Light.Held.Add(new Transit { Side = side, SentHour = w.Hour, ArriveHour = w.Hour, Command = command });
+            sim.Log.Info("light", $"{side} order held: radio silence", new { side = side.ToString(), command = command.GetType().Name });
+            return true;
+        }
         // While command passes to a new flagship nothing goes out; the order leaves when the gap ends.
         var leaves = Math.Max(w.Hour, Economy.Of(w, side).CommandGapUntil);
         if (delay <= 0 && leaves <= w.Hour) return false;

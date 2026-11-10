@@ -17,6 +17,9 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetDodgeCommand), "setDodge")]
 [JsonDerivedType(typeof(SetMissionCommand), "setMission")]
 [JsonDerivedType(typeof(SetAutonomyCommand), "setAutonomy")]
+[JsonDerivedType(typeof(SetProtectCommand), "setProtect")]
+[JsonDerivedType(typeof(SetCoverCommand), "setCover")]
+[JsonDerivedType(typeof(SetRadioSilenceCommand), "setRadioSilence")]
 [JsonDerivedType(typeof(SetFireModeCommand), "setFireMode")]
 [JsonDerivedType(typeof(SendAheadCommand), "sendAhead")]
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
@@ -167,6 +170,8 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
         created.Autonomy = fleet.Autonomy;
+        created.Cover = fleet.Cover;
+        created.FireAt = fleet.FireAt;
         Fleets.Arrange(world, fleet);
         Fleets.SetApart(world, created);
         sim.Log.Info("fleet", $"{created.Name} splits from {fleet.Name}", new { fleetId = fleet.Id, newFleetId = created.Id, ShipIds, Source });

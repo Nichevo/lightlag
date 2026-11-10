@@ -139,6 +139,10 @@ public sealed class Fleet
     public int MissionLeg { get; set; }
     public double MissionUntil { get; set; }
 
+    /// <summary>How it guards its protected ships, and what its weapons go for.</summary>
+    public CoverStyle Cover { get; set; }
+    public FireAt FireAt { get; set; }
+
     /// <summary>How much it decides for itself when cut off from command.</summary>
     public AutonomyLevel Autonomy { get; set; } = AutonomyLevel.Sensible;
 

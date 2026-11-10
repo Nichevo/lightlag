@@ -73,6 +73,17 @@ public partial class MapView
             if (r > 12 && r < 20000) DrawDashedCircle(at, r, CommandRing, "Command range");
             DrawFlagMark(at + new Vector2(-14, -18), Ui.Player);
         }
+        // Enemy fleets taken to carry the rival flagship: a red flag, with a question mark while it is only a guess.
+        foreach (var s in w.Picture)
+        {
+            if (s.SeenBy != Side.Player || s.Own || s.Flag is not (FlagKnown.Suspected or FlagKnown.Confirmed)) continue;
+            if (!_drawn.TryGetValue(s.FleetId, out var ep)) continue;
+            var at = Camera.ToScreen(ep);
+            if (!Camera.OnScreen(at, 100)) continue;
+            DrawFlagMark(at + new Vector2(-14, -18), Ui.Rival);
+            if (s.Flag == FlagKnown.Suspected)
+                DrawString(_font, at + new Vector2(-4, -20), "?", HorizontalAlignment.Left, -1, 12, Ui.Rival);
+        }
         if (RevealAll) return;
         foreach (var f in w.Fleets)
         {

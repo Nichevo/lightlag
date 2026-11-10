@@ -42,6 +42,11 @@ public sealed class Sighting
     /// <summary>When the classes were last seen (meaningless while Classes is empty).</summary>
     public double ClassesHour { get; set; }
 
+    /// <summary>Whether it is taken to carry the enemy flagship: the belief, how strong, and the ship once confirmed.</summary>
+    public FlagKnown Flag { get; set; }
+    public double FlagScore { get; set; }
+    public int? FlagShipId { get; set; }
+
     /// <summary>Where it would be at this hour if it kept going as last seen.</summary>
     public Vec2 Guess(double hour) => Position + Velocity * Math.Max(0, hour - Hour);
 

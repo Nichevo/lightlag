@@ -44,6 +44,9 @@ public sealed class SideState
     /// <summary>The autonomy new fleets start with.</summary>
     public AutonomyLevel DefaultAutonomy { get; set; } = AutonomyLevel.Sensible;
 
+    /// <summary>No orders leave the flagship (they are held), and its signal traffic can't be followed.</summary>
+    public bool RadioSilence { get; set; }
+
     /// <summary>After the flagship is lost far from its successor: no orders go out until this hour (fleets act on their own).</summary>
     public double CommandGapUntil { get; set; } = -1e9;
 

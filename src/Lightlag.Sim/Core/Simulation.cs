@@ -158,6 +158,7 @@ public sealed class Simulation
         Economy.Update(this);
         Mind.Update(this);
         Autonomy.Update(this);
+        Flagships.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
 
         if (World.Tick % GameTime.TicksPerDay == 0)

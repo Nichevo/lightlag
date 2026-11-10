@@ -774,6 +774,19 @@ public partial class GameScreen : Node2D
         if (MyFleet is Fleet f) Sim.Issue(new SetMissionCommand(f.Id, mission, bodyId, escortFleetId));
     }
 
+    public void OrderCover(CoverStyle cover, FireAt fireAt)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetCoverCommand(f.Id, cover, fireAt));
+    }
+
+    public void OrderProtect(int shipId, bool on)
+    {
+        if (Sim.World.FindShip(shipId) is Ship s && s.Side == Side.Player) Sim.Issue(new SetProtectCommand(s.FleetId, s.Id, on));
+    }
+
+    public void ToggleRadioSilence() =>
+        Sim.Issue(new SetRadioSilenceCommand(Side.Player, !Economy.Of(Sim.World, Side.Player).RadioSilence));
+
     public void OrderAutonomy(AutonomyLevel level)
     {
         if (MyFleet is Fleet f) Sim.Issue(new SetAutonomyCommand(f.Id, level));

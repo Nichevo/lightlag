@@ -84,7 +84,7 @@ public sealed record SensorData(double Cold, double Orbit, double Burn, double E
     double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
     double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0);
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null);
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -103,6 +103,7 @@ public static class GameData
     public static CombatData Combat => _file.Value.Combat;
     public static SensorData Sensors => _file.Value.Sensors;
     public static LightData Light => _file.Value.Light ?? new LightData();
+    public static FlagshipData Flagships => _file.Value.Flagships ?? new FlagshipData();
     public static EconomyData Economy => _economy.Value;
     public static AiData Ai => _ai.Value;
     public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;

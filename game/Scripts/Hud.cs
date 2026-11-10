@@ -27,6 +27,7 @@ public partial class Hud : CanvasLayer
     private readonly List<Action> _bodyMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
+    private Button _silence = null!;
     private Button _empireButton = null!;
     private EmpirePanel _empire = null!;
     private EndPanel _end = null!;
@@ -88,6 +89,9 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_news);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
+        _silence = SmallButton("Radio silence", () => _screen.ToggleRadioSilence(),
+            "No orders leave your flagship (they wait until you lift it), so the rival can't follow your signal traffic to find it. Fleets in command range still get orders");
+        bar.AddChild(_silence);
         _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
         bar.AddChild(_empireButton);
         AddChild(bar);
@@ -195,6 +199,10 @@ public partial class Hud : CanvasLayer
         if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
         _pause.Modulate = _screen.Paused ? Ui.Rival : Colors.White;
         _pauseOnContact.Modulate = _screen.PauseOnContact ? Ui.Player : new Color(1, 1, 1, 0.6f);
+        _silence.Visible = sim.World.Light.On;
+        var silent = Economy.Of(sim.World, Side.Player).RadioSilence;
+        _silence.Text = silent ? $"RADIO SILENCE ({sim.World.Light.Held.Count(t => t.Side == Side.Player)} held)" : "Radio silence";
+        _silence.Modulate = silent ? Ui.Danger : new Color(1, 1, 1, 0.6f);
         for (var i = 0; i < _speedButtons.Count; i++)
             _speedButtons[i].Modulate = !_screen.Paused && i == _screen.SpeedIndex ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var rival = sim.World.Minds.FirstOrDefault(m => m.Side == Side.Rival);

@@ -36,6 +36,10 @@ public partial class FleetPanel : PanelContainer
     };
     private CheckBox _retreat = null!;
     private HBoxContainer _missionRow = null!;
+    private HBoxContainer _coverRow = null!;
+    private OptionButton _cover = null!;
+    private OptionButton _fireAt = null!;
+    private readonly Dictionary<int, Button> _protect = new();
     private MenuButton _mission = null!;
     private OptionButton _autonomy = null!;
 
@@ -131,6 +135,33 @@ public partial class FleetPanel : PanelContainer
         _autonomy.ItemSelected += i => { if (_fleet != null) _screen.OrderAutonomy(Levels[i].Level); };
         _missionRow.AddChild(_autonomy);
         box.AddChild(_missionRow);
+
+        // Cover and targeting (light lag): guard the protected ships, and what to shoot at.
+        _coverRow = new HBoxContainer();
+        _coverRow.AddThemeConstantOverride("separation", 4);
+        var coverLabel = Ui.Label("Cover", 13, Ui.Dim);
+        coverLabel.CustomMinimumSize = new Vector2(70, 0);
+        _coverRow.AddChild(coverLabel);
+        _cover = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "How the fleet guards its protected ships (⚑ on the ship rows; the flagship by default)" };
+        _cover.AddThemeFontSizeOverride("font_size", 13);
+        _cover.AddItem("Loose", 0);
+        _cover.SetItemTooltip(0, "No special care: everyone fights for themselves");
+        _cover.AddItem("Screen", 1);
+        _cover.SetItemTooltip(1, "Other ships put themselves in the line of fire: most shots at a protected ship hit one of them instead");
+        _cover.AddItem("Close", 2);
+        _cover.SetItemTooltip(2, "Tight round the protected ships: even more shots stopped and better point defence for them, but the fleet dodges worse, and the enemy can tell something important is inside");
+        _cover.ItemSelected += i => { if (_fleet != null) _screen.OrderCover((CoverStyle)(int)i, _fleet.FireAt); };
+        _coverRow.AddChild(_cover);
+        _coverRow.AddChild(Ui.Label("Fire at", 13, Ui.Dim));
+        _fireAt = new OptionButton { FocusMode = FocusModeEnum.None };
+        _fireAt.AddThemeFontSizeOverride("font_size", 13);
+        _fireAt.AddItem("Nearest", 0);
+        _fireAt.SetItemTooltip(0, "Each ship fires at the nearest enemy");
+        _fireAt.AddItem("Flagship", 1);
+        _fireAt.SetItemTooltip(1, "Everything goes for the ship you take to be the enemy flagship (a guess until you have seen it close). Ships nobody shoots at aim better, so only do it if it will die");
+        _fireAt.ItemSelected += i => { if (_fleet != null) _screen.OrderCover(_fleet.Cover, (FireAt)(int)i); };
+        _coverRow.AddChild(_fireAt);
+        box.AddChild(_coverRow);
         _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
             "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
         box.AddChild(_engagementButton);
@@ -192,6 +223,14 @@ public partial class FleetPanel : PanelContainer
                 lines.Add($"Out of sight. Last seen {Format.Hours(w.Hour - sighting.Hour)} ago, {StateText(sighting.State)}, at {Format.Speed(sighting.Velocity.Length)}");
                 lines.Add("The dashed line is a guess at where it went if it kept going");
             }
+            if (sighting is { Flag: not FlagKnown.Unknown } || sighting is { FlagScore: > 0.05 })
+                lines.Add(sighting!.Flag switch
+                {
+                    FlagKnown.Confirmed => "FLAGSHIP: confirmed by a close look",
+                    FlagKnown.Cleared => "Not the flagship (seen close)",
+                    FlagKnown.Suspected => $"Flagship suspected ({sighting.FlagScore:P0}): signal traffic or guarding behaviour",
+                    _ => $"Flagship? {sighting.FlagScore:P0} so far",
+                });
             if (_screen.RevealAll)
             {
                 lines.Add($"(debug) {Doing(w, f)}");
@@ -208,9 +247,19 @@ public partial class FleetPanel : PanelContainer
             _shipKey = key;
             foreach (var c in _shipList.GetChildren()) c.QueueFree();
             _rows.Clear();
+            _protect.Clear();
             foreach (var s in ships)
             {
                 var row = new HBoxContainer();
+                if (mine && w.Light.On)
+                {
+                    var shipId = s.Id;
+                    var protect = new Button { Text = "⚑", ToggleMode = true, FocusMode = FocusModeEnum.None, Flat = true,
+                        TooltipText = "Protected: fleets in Screen or Close cover guard it, and point defence puts it first. Marking another ship makes a decoy" };
+                    protect.Toggled += on => _screen.OrderProtect(shipId, on);
+                    row.AddChild(protect);
+                    _protect[s.Id] = protect;
+                }
                 var check = new CheckBox { Text = $"{s.Name}  {GameData.ShipClass(s.ClassId).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
@@ -231,7 +280,14 @@ public partial class FleetPanel : PanelContainer
             var bits = new List<string> { $"armour {armour:P0}", $"supplies {share:P0}" };
             if (cls.Missiles > 0) bits.Add($"{s.Missiles} missiles");
             if (s.Disabled is Module m) bits.Add($"{Combat.ModuleName(m)} out");
+            if (Light.Flagship(w, s.Side)?.Id == s.Id) bits.Insert(0, "FLAGSHIP");
             row.Supplies.Text = string.Join(" · ", bits);
+            if (_protect.TryGetValue(s.Id, out var pb))
+            {
+                var on = Flagships.IsProtected(w, s);
+                pb.SetPressedNoSignal(on);
+                pb.Modulate = on ? Ui.Player : new Color(1, 1, 1, 0.35f);
+            }
             row.Supplies.AddThemeColorOverride("font_color", share < 0.2 || armour < 0.5 || s.Disabled != null ? Ui.Danger : Ui.Dim);
         }
 
@@ -242,6 +298,9 @@ public partial class FleetPanel : PanelContainer
         if (at >= 0 && _stance.Selected != at) _stance.Select(at);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
         _missionRow.Visible = mine;
+        _coverRow.Visible = mine && w.Light.On;
+        if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
+        if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
         _mission.Text = MissionText(w, f) + " ▾";
         var level = Array.FindIndex(Levels, x => x.Level == f.Autonomy);
         if (level >= 0 && _autonomy.Selected != level) _autonomy.Select(level);

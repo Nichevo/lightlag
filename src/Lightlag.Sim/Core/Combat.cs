@@ -355,8 +355,10 @@ public static class Combat
     {
         var w = sim.World;
         var rail = C.Railgun;
-        var target = NearestEnemyShip(w, ship, rail.RangeMm);
+        var target = (fleet.FireAt == FireAt.Flagship ? Flagships.FlagTarget(sim, ship, rail.RangeMm) : null) ?? NearestEnemyShip(w, ship, rail.RangeMm);
         if (target == null) return;
+        target = Flagships.Screened(sim, target);
+        target.LastTargetedHour = t1;
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
         battle.Action(t1);
@@ -384,10 +386,10 @@ public static class Combat
             var evasion = GameData.ShipClass(target.ClassId).Evasion;
             var chance = rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
-            chance *= bridge?.AccuracyFactor ?? 1;
+            chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1);
             if (Dodging(w, targetFleet))
             {
-                chance *= DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet));
+                chance *= Flagships.DodgeFactor(targetFleet, DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet)));
                 sim.BurnFuel(targetFleet, C.DodgeDeltaV * (targetFleet.Dodge == DodgeMode.HardBurn && spread != null ? spread.HardCost : 1));
                 targetFleet.LastBurnHour = t1;
             }
@@ -408,8 +410,9 @@ public static class Combat
     {
         var w = sim.World;
         var m = C.Missile;
-        var target = SalvoTarget(w, ship, m.LaunchRangeMm);
+        var target = (fleet.FireAt == FireAt.Flagship ? Flagships.FlagTarget(sim, ship, m.LaunchRangeMm) : null) ?? SalvoTarget(w, ship, m.LaunchRangeMm);
         if (target == null) return;
+        target.LastTargetedHour = t1;
         battle.Action(t1);
         fleet.LastBurnHour = t1;
         var count = Math.Min(m.Salvo, ship.Missiles);
@@ -442,6 +445,13 @@ public static class Combat
         {
             var stats = battle.For(missile.Side);
             var target = w.FindShip(missile.TargetShipId);
+            // Brain 2 missiles sent at a guessed flagship turn onto the real one once it is confirmed.
+            if (target != null && missile.Brain >= 2 && Flagships.Retarget(w, missile, target) is Ship real && real.Id != target.Id)
+            {
+                target = real;
+                missile.TargetShipId = real.Id;
+                sim.Log.Info("combat", "Missile turns onto the confirmed flagship", new { missileId = missile.Id, shipId = real.Id });
+            }
             if (target == null)
             {
                 target = EasiestTurn(w, missile);
@@ -498,7 +508,7 @@ public static class Combat
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2)
-                   * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1);
+                   * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target);
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
