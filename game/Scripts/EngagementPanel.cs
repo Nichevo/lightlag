@@ -271,20 +271,25 @@ public partial class EngagementPanel : Control
 
         // Defences.
         static Color On(bool on) => on ? Ui.Player : new Color(1, 1, 1, 0.7f);
-        _dodgeOff.Modulate = On(f.Dodge == DodgeMode.Off);
-        _sidestep.Modulate = On(f.Dodge == DodgeMode.Sidestep);
-        _hardBurn.Modulate = On(f.Dodge == DodgeMode.HardBurn);
-        _focused.Modulate = On(f.Fire == FireMode.Focused);
-        _spread.Modulate = On(f.Fire == FireMode.Spread);
-        _engage.Modulate = f.Stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
-        _hold.Modulate = f.Stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        // Orders given while paused wait for the next step: show them as chosen straight away.
+        var pending = sim.PendingCommands;
+        var dodge = pending.OfType<SetDodgeCommand>().LastOrDefault(c => c.FleetId == f.Id)?.Dodge ?? f.Dodge;
+        var fire = pending.OfType<SetFireModeCommand>().LastOrDefault(c => c.FleetId == f.Id)?.Fire ?? f.Fire;
+        var stance = pending.OfType<SetStanceCommand>().LastOrDefault(c => c.FleetId == f.Id)?.Stance ?? f.Stance;
+        _dodgeOff.Modulate = On(dodge == DodgeMode.Off);
+        _sidestep.Modulate = On(dodge == DodgeMode.Sidestep);
+        _hardBurn.Modulate = On(dodge == DodgeMode.HardBurn);
+        _focused.Modulate = On(fire == FireMode.Focused);
+        _spread.Modulate = On(fire == FireMode.Spread);
+        _engage.Modulate = stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
+        _hold.Modulate = stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
         var ships = w.ShipsOf(f).ToList();
         var supplies = Combat.SupplyShare(w, f);
         var armour = ships.Count == 0 ? 0 : ships.Average(s => s.Armour / GameData.ShipClass(s.ClassId).Armour);
         var pd = ships.Count(s => GameData.ShipClass(s.ClassId).PointDefence > 0 && s.Disabled != Module.PointDefence);
         var lines = new List<string>
         {
-            f.Dodge == DodgeMode.Off ? "Not dodging" : Combat.Dodging(w, f) ? $"Dodging ({(f.Dodge == DodgeMode.HardBurn ? "hard burn" : "sidestep")})" : $"Dodging stopped: supplies below {GameData.Combat.DodgeStopsBelow:P0}",
+            dodge == DodgeMode.Off ? "Not dodging" : Combat.Dodging(w, f) || dodge != f.Dodge ? $"Dodging ({(dodge == DodgeMode.HardBurn ? "hard burn" : "sidestep")})" : $"Dodging stopped: supplies below {GameData.Combat.DodgeStopsBelow:P0}",
             IncomingLine(w, e),
             $"Supplies {supplies:P0} · fuel for {Format.Speed(FleetPerformance.Of(w, f).DeltaVLeft)} of speed change",
             $"Armour {armour:P0} on average",
