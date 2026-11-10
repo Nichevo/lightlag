@@ -23,7 +23,7 @@ public partial class EngagementPanel : Control
     private ScrollContainer _rightScroll = null!, _leftScroll = null!;
     private VBoxContainer _left = null!;
     private readonly List<(Button Button, double Share)> _burnButtons = new();
-    private HBoxContainer _tabs = null!;
+    private VBoxContainer _tabs = null!;
     private string _tabsKey = "";
     private VBoxContainer _legend = null!;
     private PanelContainer _headPanel = null!, _rightPanel = null!, _leftPanel = null!, _bottomPanel = null!;
@@ -47,9 +47,6 @@ public partial class EngagementPanel : Control
         var headBox = new VBoxContainer();
         headBox.AddThemeConstantOverride("separation", 6);
         headBox.AddChild(head);
-        _tabs = new HBoxContainer();
-        _tabs.AddThemeConstantOverride("separation", 4);
-        headBox.AddChild(_tabs);
         _headPanel = Ui.Panel(headBox, 10);
         AddChild(_headPanel);
 
@@ -119,6 +116,10 @@ public partial class EngagementPanel : Control
         _ships.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         var left = new VBoxContainer();
         left.AddThemeConstantOverride("separation", 4);
+        // Other engagements, out of the way at the top of this column (Tab steps through them).
+        _tabs = new VBoxContainer();
+        _tabs.AddThemeConstantOverride("separation", 1);
+        left.AddChild(_tabs);
         left.AddChild(_ships);
         _legend = new VBoxContainer();
         _legend.AddThemeConstantOverride("separation", 2);
@@ -191,18 +192,30 @@ public partial class EngagementPanel : Control
             foreach (var c in _tabs.GetChildren()) c.QueueFree();
             if (list.Count > 1)
             {
-                _tabs.AddChild(Ui.Label("Engagements (Tab):", 13, Ui.Dim));
+                _tabs.AddChild(Ui.Label("Engagements (Tab)", 12, Ui.Dim));
                 foreach (var p in list)
                 {
                     var mine = p.Mine;
                     var enemy = p.Enemy;
-                    var b = Ui.SmallButton($"{p.MineName} v {p.EnemyName}", () => _screen.OpenEngagement(mine, enemy),
+                    var b = Ui.SmallButton("", () => _screen.OpenEngagement(mine, enemy),
                         $"{p.MineName} and {p.EnemyName}, {Km(p.Gap)} apart" + (p.InSight ? "" : " (not in sight)"));
-                    b.AddThemeFontSizeOverride("font_size", 13);
-                    b.Modulate = p.Mine == e.Mine.Id && p.Enemy == e.EnemyId ? Ui.Player : new Color(1, 1, 1, p.InSight ? 0.85f : 0.6f);
+                    b.AddThemeFontSizeOverride("font_size", 12);
+                    b.Alignment = HorizontalAlignment.Left;
+                    b.SetMeta("pair", $"{p.Mine}:{p.Enemy}");
                     _tabs.AddChild(b);
                 }
+                _tabs.AddChild(new HSeparator());
             }
+        }
+        // Countdowns change all the time: update the labels without rebuilding.
+        foreach (var c in _tabs.GetChildren())
+        {
+            if (c is not Button b || !b.HasMeta("pair")) continue;
+            var p = list.FirstOrDefault(x => $"{x.Mine}:{x.Enemy}" == b.GetMeta("pair").AsString());
+            if (p == null) continue;
+            var when = p.ContactHours is double h ? (h <= 0 ? "in contact" : $"contact in {Format.Hours(h)}") : $"{Km(p.Gap)} apart";
+            b.Text = $"{p.MineName} v {p.EnemyName} · {when}";
+            b.Modulate = p.Mine == e.Mine.Id && p.Enemy == e.EnemyId ? Ui.Player : new Color(1, 1, 1, p.InSight ? 0.85f : 0.6f);
         }
         _tabs.Visible = list.Count > 1;
     }

@@ -241,4 +241,14 @@ public class EngagementTests
         Assert.Null(w.FindFleet(straggler.Id));
         Assert.Equal(3, lead.ShipIds.Count);
     }
+
+    [Fact]
+    public void Contact_countdown_follows_the_straight_line_tracks()
+    {
+        // 100 Mm apart, closing at 10 Mm/h, contact at 20 Mm: 8 hours.
+        Assert.Equal(8, Engagement.HoursUntilWithin(new Vec2(100, 0), new Vec2(-10, 0), 20)!.Value, 6);
+        Assert.Equal(0, Engagement.HoursUntilWithin(new Vec2(10, 0), new Vec2(5, 0), 20));
+        Assert.Null(Engagement.HoursUntilWithin(new Vec2(100, 0), new Vec2(10, 0), 20));   // opening
+        Assert.Null(Engagement.HoursUntilWithin(new Vec2(100, 50), new Vec2(-10, 0), 20)); // passes wide
+    }
 }

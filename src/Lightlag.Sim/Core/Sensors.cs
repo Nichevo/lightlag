@@ -245,12 +245,33 @@ public static class Sensors
                     sighting.ClassesHour = now;
                 }
             }
+
+            // A track that points somewhere your sensors watch clearly, with nothing there, is wrong: the
+            // fleet turned, stopped or merged out of sight. Drop it rather than show a ghost to fight.
+            foreach (var lost in w.Sightings.Where(s => s.SeenBy == side && !s.Visible && now - s.Hour >= LostTrackAfterHours
+                                                          && LookedAndNotThere(w, observers, s.Guess(now))).ToList())
+            {
+                w.Sightings.Remove(lost);
+                sim.Log.Info("sensors", $"{side} loses track of {lost.Name}", new { side = side.ToString(), fleetId = lost.FleetId, lastSeenHour = lost.Hour });
+            }
         }
 
         // Forget fleets seen to be gone (destroyed or merged in sight) and very old sightings.
         w.Sightings.RemoveAll(s => now - s.Hour > S.ForgetAfterHours
                                    || (w.FindFleet(s.FleetId) == null && s.Visible));
         foreach (var s in w.Sightings.Where(s => w.FindFleet(s.FleetId) == null)) s.Visible = false;
+    }
+
+    /// <summary>How long after last seeing a fleet an empty predicted spot counts as a lost track.</summary>
+    public const double LostTrackAfterHours = 2;
+
+    /// <summary>Would a fleet coasting cold at this spot be seen, so its absence there means the track is wrong?</summary>
+    private static bool LookedAndNotThere(World w, List<(Vec2 At, double Sensor, int? Body)> observers, Vec2 at)
+    {
+        if (!at.IsFinite) return false;
+        foreach (var o in observers)
+            if (Vec2.Distance(o.At, at) <= Range(o.Sensor, S.Cold) && LineOfSight(w, o.At, at, o.Body)) return true;
+        return false;
     }
 
     /// <summary>Records that a side knows where an enemy fleet is (sandbox starts, intelligence later).</summary>

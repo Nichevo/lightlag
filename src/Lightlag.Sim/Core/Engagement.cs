@@ -91,8 +91,26 @@ public static class Engagement
         return best;
     }
 
-    /// <summary>One engagement you could look at: your fleet, an enemy fleet, and the gap between them now.</summary>
-    public sealed record Pair(int Mine, int Enemy, string MineName, string EnemyName, double Gap, bool InSight);
+    /// <summary>
+    /// One engagement you could look at: your fleet, an enemy fleet, the gap between them now, and the
+    /// hours until they come within contact range if both keep going as they are (0: in contact now;
+    /// null: not closing to contact).
+    /// </summary>
+    public sealed record Pair(int Mine, int Enemy, string MineName, string EnemyName, double Gap, bool InSight, double? ContactHours = null);
+
+    /// <summary>Hours until two straight-line tracks come within this range (0 if already), or null if they never do.</summary>
+    public static double? HoursUntilWithin(Vec2 gap, Vec2 closingVelocity, double range)
+    {
+        // |gap + v t| = range: a t^2 + b t + c = 0, wanting the first t >= 0.
+        var c = Vec2.Dot(gap, gap) - range * range;
+        if (c <= 0) return 0;
+        var a = Vec2.Dot(closingVelocity, closingVelocity);
+        var b = 2 * Vec2.Dot(gap, closingVelocity);
+        if (a < 1e-12 || b >= 0) return null;
+        var disc = b * b - 4 * a * c;
+        if (disc < 0) return null;
+        return (-b - Math.Sqrt(disc)) / (2 * a);
+    }
 
     /// <summary>
     /// Every engagement worth a look for one side, nearest first: each of its fleets against each enemy
@@ -112,7 +130,8 @@ public static class Engagement
                 var gap = Vec2.Distance(s.Guess(w.Hour), mine.Position);
                 var chased = mine.Chase?.TargetFleetId == s.FleetId;
                 if (gap > near && !chased && Sensors.HeadingFor(s, mine, w.Hour) == null) continue;
-                list.Add(new Pair(mine.Id, s.FleetId, mine.Name, s.Name, gap, s.Visible));
+                var contact = HoursUntilWithin(s.Guess(w.Hour) - mine.Position, s.Velocity - mine.Velocity, C.ContactRangeMm);
+                list.Add(new Pair(mine.Id, s.FleetId, mine.Name, s.Name, gap, s.Visible, contact));
             }
         }
         return list.OrderBy(p => p.Gap).ThenBy(p => p.Mine).ThenBy(p => p.Enemy).ToList();

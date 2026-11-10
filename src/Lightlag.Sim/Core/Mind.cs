@@ -229,7 +229,14 @@ public static class Mind
             CleanJobs();
             foreach (var f in Mine().ToList()) CheckFleet(f);
             MergeAtHome();
-            var threatened = DefendHome();
+            var threatened = DefendHome(out var covered);
+            if (threatened && covered)
+            {
+                // Home is safe with what is there: go after the intruders with what can be spared,
+                // rather than sitting on a growing pile of ships.
+                DefendClaims();
+                Hunt(ThreatAgeHours);
+            }
             if (!threatened)
             {
                 DefendClaims();
@@ -412,14 +419,19 @@ public static class Mind
 
         // ---- Defence --------------------------------------------------------------------------
 
-        private bool DefendHome()
+        /// <summary>How old a sighting near home still counts as a threat (and as a fleet worth hunting).</summary>
+        private const double ThreatAgeHours = 2 * 24;
+
+        /// <summary>Is the enemy near home? covered: what is at home already outguns it.</summary>
+        private bool DefendHome(out bool covered)
         {
+            covered = false;
             if (Slip()) return false;
-            var threat = EnemyNear(_home!.Position, A.ThreatRadiusAu * _au, 2 * 24);
+            var threat = EnemyNear(_home!.Position, A.ThreatRadiusAu * _au, ThreatAgeHours);
             if (threat <= 0) return false;
             var guard = Mine().Where(f => AtHome(f)).Sum(f => Stats.Power(_w, f));
             SetGoal("Defend home", $"enemy power about {threat:0} within {A.ThreatRadiusAu} AU of {_home.Name}; {guard:0} at home");
-            if (guard >= threat * 1.1) return true;
+            if (guard >= threat * 1.1) { covered = true; return true; }
             // Call back fleets that are not far away.
             foreach (var f in Mine().Where(f => !AtHome(f) && !Busy(f)))
             {
@@ -525,11 +537,11 @@ public static class Mind
         }
 
         /// <summary>Attack an enemy fleet in sight near its planets when it clearly outguns it.</summary>
-        private void Hunt()
+        private void Hunt(double maxAgeHours = 6)
         {
             if (Slip()) return;
             var mineBodies = Economy.Claimable(_w).Where(b => b.Owner == _side).Select(b => b.Position).ToList();
-            foreach (var s in _known.Where(s => s.Visible || _w.Hour - s.Hour <= 6).OrderBy(s => s.Ships).ToList())
+            foreach (var s in _known.Where(s => s.Visible || _w.Hour - s.Hour <= maxAgeHours).OrderBy(s => s.Ships).ToList())
             {
                 if (_m.Jobs.Any(j => j.EnemyFleetId == s.FleetId)) continue;
                 var at = s.Guess(_w.Hour);

@@ -269,6 +269,15 @@ public partial class GameScreen : Node2D
 
     /// <summary>Every engagement you could look at now, nearest first (refreshed with the screen).</summary>
     public List<Engagement_.Pair> Engagements { get; private set; } = new();
+    private double _contactsAge = 1;
+
+    /// <summary>Enemy fleets you said not to pause for when contact with them starts.</summary>
+    public HashSet<int> QuietEnemies { get; } = new();
+
+    public void ToggleQuiet(int enemyId)
+    {
+        if (!QuietEnemies.Remove(enemyId)) QuietEnemies.Add(enemyId);
+    }
 
     /// <summary>Go to the next (or previous) engagement in the list, keeping the zoom.</summary>
     public void CycleEngagement(int step)
@@ -296,6 +305,13 @@ public partial class GameScreen : Node2D
 
     private void UpdateEngagement(double delta)
     {
+        // The contacts list (map side panel and engagement tabs) stays fresh even with no engagement open.
+        _contactsAge += delta;
+        if (_contactsAge >= 0.25)
+        {
+            _contactsAge = 0;
+            _main.RunGuarded("contacts", () => Engagements = Engagement_.All(Sim.World, Side.Player));
+        }
         if (Engagement is not (int mineId, int enemyId)) { _map.Engagement = null; return; }
         _engagementAge += delta;
         if (_engagementAge < 0.25 && EngagementNow != null) { _map.Engagement = EngagementNow; return; }
@@ -513,9 +529,12 @@ public partial class GameScreen : Node2D
             var again = w.Battles.Any(o => o.Id != b.Id && o.EndHour is double end && b.StartHour - end < RecontactQuietHours
                                            && o.For(Side.Player).Fleets.Intersect(b.For(Side.Player).Fleets).Any()
                                            && o.For(Side.Rival).Fleets.Intersect(b.For(Side.Rival).Fleets).Any());
-            if (again)
+            // Every enemy fleet in it is one you said not to pause for: a news line instead.
+            var rivals = w.Fleets.Where(f => f.Side == Side.Rival && b.For(Side.Rival).Fleets.Contains(f.Name)).Select(f => f.Id).ToList();
+            var quiet = rivals.Count > 0 && rivals.All(QuietEnemies.Contains);
+            if (again || quiet)
             {
-                _main.AddNews($"Contact again: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
+                _main.AddNews($"{(again ? "Contact again" : "Contact (no pause)")}: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
             }
             else
             {

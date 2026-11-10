@@ -43,6 +43,38 @@ public class SensorTests
     }
 
     [Fact]
+    public void A_track_whose_spot_is_watched_and_empty_is_dropped()
+    {
+        // Close enough that a coasting cold fleet at the predicted spot would be seen.
+        var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 20));
+        var rival = FleetOf(sim, Side.Rival);
+        Sensors.Update(sim);
+        var sighting = Sensors.Find(sim.World, Side.Player, rival.Id);
+        Assert.NotNull(sighting);
+        // Pretend the record says it is still there but the fleet has gone (merged away out of sight).
+        sim.World.Fleets.Remove(rival);
+        sighting!.Visible = false;
+        sighting.Velocity = Vec2.Zero;
+        sighting.Hour = sim.World.Hour - Sensors.LostTrackAfterHours;
+        Sensors.Update(sim);
+        Assert.Null(Sensors.Find(sim.World, Side.Player, rival.Id));
+    }
+
+    [Fact]
+    public void A_track_out_of_sensor_reach_is_kept()
+    {
+        var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 5000));
+        var rival = FleetOf(sim, Side.Rival);
+        var sighting = Sensors.Find(sim.World, Side.Player, rival.Id);
+        Assert.NotNull(sighting);
+        sim.World.Fleets.Remove(rival);
+        sighting!.Visible = false;
+        sighting.Hour = sim.World.Hour - Sensors.LostTrackAfterHours;
+        Sensors.Update(sim);
+        Assert.NotNull(Sensors.Find(sim.World, Side.Player, rival.Id));
+    }
+
+    [Fact]
     public void A_lost_contact_leaves_a_last_seen_mark()
     {
         var sim = Sandbox(new SandboxSetup(1, 0, 1, 0, RivalStance: Stance.Hold, PlayerStance: Stance.Hold, DistanceMm: 5000));
