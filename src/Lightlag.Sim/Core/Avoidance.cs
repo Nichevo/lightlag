@@ -107,7 +107,7 @@ public static class Avoidance
         {
             var hit = FirstHit(w, best.Flight!);
             if (hit == null) return best;
-            var clearance = Fleets.OrbitRadiusFor(hit.Body) * (1 + 0.5 * tries);
+            var clearance = Fleets.ClearanceFor(hit.Body) * (1 + 0.5 * tries);
             var detour = new Waypoint(hit.BodyAt + hit.Side * clearance, Auto: true);
             var points = new List<Waypoint>(req.Waypoints ?? new List<Waypoint>());
             var hours = best.Flight!.WaypointHours;

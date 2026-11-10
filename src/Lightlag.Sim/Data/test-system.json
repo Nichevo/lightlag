@@ -1,6 +1,8 @@
 {
   "_comment": "The hand-made test system. Distances: orbitAu (astronomical units) or orbitMm (megametres, 1000 km). Sizes: radiusMm. Masses: massSun or massEarth. Orbit periods are worked out from the parent's mass. Bodies must list parents before their moons. Colours are hex. industry is what holding the body makes per day (0 or missing: not worth claiming). Names are placeholders.",
   "name": "test-system",
+  "_sizeComment": "sizeScale multiplies every radius below (which are true sizes). 5 makes planets and moons big enough to hide fleets and shape routes at battle ranges; moons too close to their enlarged planet are moved out.",
+  "sizeScale": 5,
   "bodies": [
     { "id": "hesper", "name": "Hesper", "kind": "star", "type": "star", "massSun": 1.0, "radiusMm": 696, "color": "ffd27a" },
 
