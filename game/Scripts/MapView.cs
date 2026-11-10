@@ -569,6 +569,8 @@ public partial class MapView : Node2D
         var scale = (float)Camera.Scale;
 
         var view = new Rect2(Vector2.Zero, GetViewportRect().Size);
+        // Labels go in the open middle of the screen, clear of the engagement panels.
+        var open = new Rect2(350, 130, Math.Max(100, view.Size.X - 350 - 430), Math.Max(100, view.Size.Y - 130 - 280));
         foreach (var ring in EngagementRings.For(e))
         {
             var at = ring.AroundMine ? me : them;
@@ -576,7 +578,7 @@ public partial class MapView : Node2D
             if (EngagementRings.Status(at, r, view) != RingStatus.Shown) continue;
             if (ring.Dashed)
             {
-                var n = Math.Clamp((int)(r / 6), 48, 720);
+                var n = Math.Clamp((int)(r * Mathf.Tau / 12) / 2 * 2, 48, 4000); // dashes about 12 px long
                 for (var i = 0; i < n; i += 2)
                 {
                     var a0 = Mathf.Tau * i / n;
@@ -589,7 +591,7 @@ public partial class MapView : Node2D
                 DrawArc(at, r, 0, Mathf.Tau, Math.Clamp((int)(r / 3), 96, 1024), new Color(ring.Color, 0.85f), ring.Width, true);
                 if (ring.Color == EngagementRings.Railguns) DrawCircle(at, r, new Color(ring.Color, 0.06f)); // where your guns bite
             }
-            if (EngagementRings.LabelPoint(at, r, view) is Vector2 lp)
+            if (EngagementRings.LabelPoint(at, r, open) is Vector2 lp)
                 DrawString(_font, lp + new Vector2(4, -4), $"{ring.Label} {Format.Distance(ring.Mm)}", HorizontalAlignment.Left, -1, 12, ring.Color.Lightened(0.15f));
         }
 

@@ -20,7 +20,8 @@ public partial class EngagementPanel : Control
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
     private VBoxContainer _right = null!;
-    private ScrollContainer _rightScroll = null!;
+    private ScrollContainer _rightScroll = null!, _leftScroll = null!;
+    private VBoxContainer _left = null!;
     private HBoxContainer _tabs = null!;
     private string _tabsKey = "";
     private VBoxContainer _legend = null!;
@@ -103,8 +104,10 @@ public partial class EngagementPanel : Control
         _legend = new VBoxContainer();
         _legend.AddThemeConstantOverride("separation", 2);
         left.AddChild(_legend);
-        _leftPanel = Ui.Panel(left, 12);
-        _leftPanel.MouseFilter = MouseFilterEnum.Ignore;
+        _left = left;
+        _leftScroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _leftScroll.AddChild(left);
+        _leftPanel = Ui.Panel(_leftScroll, 12);
         AddChild(_leftPanel);
 
         // Bottom: the timeline.
@@ -126,13 +129,16 @@ public partial class EngagementPanel : Control
         // The choices scroll when the screen is too short for them all.
         var want = _right.GetCombinedMinimumSize();
         _rightScroll.CustomMinimumSize = new Vector2(want.X + 12, Mathf.Min(want.Y, size.Y - top - 50));
-        foreach (var p in new[] { _rightPanel, _leftPanel, _bottomPanel }) p.Size = p.GetCombinedMinimumSize();
-        _rightPanel.Position = new Vector2(size.X - _rightPanel.Size.X - 16, top);
-        _leftPanel.Position = new Vector2(16, top);
         var timelineW = Mathf.Clamp(size.X - _rightPanel.Size.X - 64, 500, 1100);
         _timeline.CustomMinimumSize = new Vector2(timelineW, 170);
         _bottomPanel.Size = _bottomPanel.GetCombinedMinimumSize();
         _bottomPanel.Position = new Vector2(16, size.Y - _bottomPanel.Size.Y - 60);
+        // Ships, spotting and the ring legend scroll when they would run into the timeline.
+        var wantLeft = _left.GetCombinedMinimumSize();
+        _leftScroll.CustomMinimumSize = new Vector2(wantLeft.X + 12, Mathf.Max(80, Mathf.Min(wantLeft.Y, _bottomPanel.Position.Y - top - 34)));
+        foreach (var p in new[] { _rightPanel, _leftPanel }) p.Size = p.GetCombinedMinimumSize();
+        _rightPanel.Position = new Vector2(size.X - _rightPanel.Size.X - 16, top);
+        _leftPanel.Position = new Vector2(16, top);
     }
 
     private static HBoxContainer Row(string label, params Button[] buttons)
