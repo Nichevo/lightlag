@@ -24,7 +24,22 @@ public partial class EmpirePanel : PanelContainer
         Ui.StylePanel(this, 14);
         _box = new VBoxContainer { CustomMinimumSize = new Vector2(380, 0) };
         _box.AddThemeConstantOverride("separation", 4);
-        AddChild(_box);
+        // Scrolls when the panel would run off the bottom of the screen.
+        _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _scroll.AddChild(_box);
+        AddChild(_scroll);
+    }
+
+    private ScrollContainer _scroll = null!;
+
+    /// <summary>As tall as the contents, but no taller than the screen allows.</summary>
+    private void FitHeight()
+    {
+        var room = GetViewportRect().Size.Y - Position.Y - 150;
+        var want = new Vector2(_box.GetCombinedMinimumSize().X + 12, Mathf.Min(_box.GetCombinedMinimumSize().Y, Mathf.Max(200, room)));
+        if (_scroll.CustomMinimumSize == want) return;
+        _scroll.CustomMinimumSize = want;
+        Size = Vector2.Zero; // shrink back to the new minimum
     }
 
     public void Refresh(Simulation sim)
@@ -37,6 +52,7 @@ public partial class EmpirePanel : PanelContainer
             Rebuild(w);
         }
         foreach (var (label, text) in _live) label.Text = text(w);
+        FitHeight();
     }
 
     /// <summary>Everything that changes which buttons and rows exist.</summary>

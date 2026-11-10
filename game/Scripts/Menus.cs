@@ -123,6 +123,11 @@ public partial class HowToPlay : CenterContainer
         "• You only see what your ships and planets can see. Burning engines show from far away; coasting cold hides you. B cycles the sight view.\n" +
         "• Right-click an enemy fleet to attack it. V opens the engagement screen: approach, burn and dodge choices, rings and a timeline.\n" +
         "• Railguns hit hard up close, missiles reach further, point defence shoots missiles down.\n\n" +
+        "LIGHT LAG (if on)\n" +
+        "• You command from your flagship (the flag mark). Orders and news travel at light speed: fleets inside the command ring are live, far ones show where they were seen, with its age.\n" +
+        "• Planets and moons block signals. Build relays to get round them, and sensor stations so held planets see further (Empire panel).\n" +
+        "• Give far fleets standing orders (In contact) and a mission (hold, patrol, raid, escort, scout). Autonomy sets what they decide for themselves when cut off; their decisions reach News late.\n" +
+        "• The engagement screen shows the order deadline: the last moment an order still arrives before contact. Lose the flagship and command passes to the nearest destroyer.\n\n" +
         "KEYS\n" +
         "Wheel zoom · WASD or right-drag pan · Z zoom to the selection · H whole system · Tab next fleet · M merge or gather · " +
         "O orbit · G drift · X stop · C change route · R last combat report · F5 quick save · F9 quick load · F8 report a problem · Esc menu";
