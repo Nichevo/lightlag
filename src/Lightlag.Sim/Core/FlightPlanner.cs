@@ -504,6 +504,20 @@ public static class FlightPlanner
     /// </summary>
     public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
     {
+        var plan = PlanChaseDirect(w, fleet, enemy, mode, speedFraction, perf);
+        if (plan.Flight == null || Avoidance.FirstHit(w, plan.Flight) is not BodyHit hit) return plan;
+        // The chase line runs into a body: first fly past it, then the chase is aimed again from there.
+        var beside = hit.BodyAt + hit.Side * Fleets.OrbitRadiusFor(hit.Body);
+        var around = PlanStraight(w, fleet, new FlightRequest(null, beside, speedFraction, ArrivalStyle.FastPass, HoldStyle.Drift, w.Tick));
+        if (around.Flight == null || Avoidance.FirstHit(w, around.Flight) != null) return plan;
+        around.Flight.TargetFleetId = enemy.Id;
+        around.Flight.Chase = mode;
+        around.Flight.Detour = true;
+        return around;
+    }
+
+    private static FlightPlan PlanChaseDirect(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
+    {
         var now = w.Hour;
         var side = fleet.Side;
         var sighting = Sensors.Find(w, side, enemy.Id);

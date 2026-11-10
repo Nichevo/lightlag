@@ -43,6 +43,9 @@ public sealed class ChaseOrder
     public Vec2 TargetVelocity { get; set; }
     public double PlannedHour { get; set; }
 
+    /// <summary>The current flight goes round a body first: aim the chase again once it ends.</summary>
+    public bool Detouring { get; set; }
+
     /// <summary>Why the last attempt to re-aim failed (null when it worked).</summary>
     public string? Problem { get; set; }
 
@@ -162,6 +165,9 @@ public sealed class Flight
     /// past the fleet; that is not counted as flying into it.
     /// </summary>
     public int? FromBodyId { get; set; }
+
+    /// <summary>A chase flight that first goes round a body in the way; the chase is aimed again when it ends.</summary>
+    public bool Detour { get; set; }
     public const double LaunchHours = 3;
 
     public bool Launching(World w, Body b, double hour)
