@@ -540,7 +540,8 @@ public static class Combat
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2)
-                   * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target);
+                   * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target)
+                   * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)); // fuel to weave on the way in
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
@@ -551,7 +552,7 @@ public static class Combat
             return;
         }
         // A missile launched close still has most of its fuel at the end: it follows a dodge.
-        var fuelShare = C.Missile.DeltaV > 0 ? Math.Clamp(missile.DeltaVLeft / C.Missile.DeltaV, 0, 1) : 0;
+        var fuelShare = Heat.FuelShare(missile);
         var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
         {

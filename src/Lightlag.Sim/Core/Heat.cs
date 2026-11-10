@@ -21,7 +21,7 @@ public sealed record HeatData(
     double ShieldRegenPerHour = 0.3, double ShieldRailFactor = 0.5, double HeatPerShieldPoint = 0.3,
     double LongRangeMm = 100, double LongAccuracy = 0.12, double LongReloadFactor = 2,
     double EnginesHitFactor = 0.85, double EnginesModuleChance = 0.45,
-    double MidLaunchMm = 40, double CloseLaunchMm = 25, double HeldDodgeCut = 0.6,
+    double MidLaunchMm = 40, double CloseLaunchMm = 25, double HeldDodgeCut = 0.6, double HeldPdCut = 0.4, double HeldDecoyCut = 0.5,
     double DropWaitHoursMax = 48, double DropSeekMm = 40, double DropLifetimeHours = 0.5);
 
 /// <summary>
@@ -133,7 +133,9 @@ public static class Heat
         foreach (var m in w.Missiles.ToList())
         {
             if (m.Side == f.Side || m.TargetShipId != s.Id || Vec2.Distance(m.Position, s.Position) > D.DecoyMm) continue;
-            if (sim.Rng.NextDouble() >= (m.Brain >= 2 ? D.DecoyBrain2Chance : D.DecoyChance)) continue;
+            // A missile with fuel left can turn back onto the ship once the sink falls behind.
+            var chance = (m.Brain >= 2 ? D.DecoyBrain2Chance : D.DecoyChance) * (1 - D.HeldDecoyCut * FuelShare(m));
+            if (sim.Rng.NextDouble() >= chance) continue;
             w.Missiles.Remove(m);
             fooled++;
             if (w.ActiveBattle is Battle b) b.For(m.Side).Decoyed++;
@@ -169,6 +171,9 @@ public static class Heat
 
     /// <summary>At home: heat sinks are refilled.</summary>
     public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, GameData.ShipClass(s.ClassId).HeatSinks);
+
+    /// <summary>A missile's fuel left as a share of a full load (held missiles arrive with more).</summary>
+    public static double FuelShare(Missile m) => GameData.Combat.Missile.DeltaV > 0 ? Math.Clamp(m.DeltaVLeft / GameData.Combat.Missile.DeltaV, 0, 1) : 0;
 
     /// <summary>The range at which a destroyer in this fleet launches (held missiles wait until closer).</summary>
     public static double LaunchRange(Fleet f) => f.MissileLaunch switch

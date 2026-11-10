@@ -22,7 +22,8 @@ public static class BattleRunner
 {
     public const double StartDistanceMm = 300;
 
-    public static BattleOutcome Run(SandboxSetup setup, Approach approach, ulong seed, GameLog log, int maxHours = 72, double distanceMm = StartDistanceMm)
+    public static BattleOutcome Run(SandboxSetup setup, Approach approach, ulong seed, GameLog log, int maxHours = 72, double distanceMm = StartDistanceMm,
+        Action<Fleet>? playerSetup = null)
     {
         var defend = approach == Approach.Defend;
         setup = setup with
@@ -39,6 +40,7 @@ public static class BattleRunner
         var rival = w.Fleets.FirstOrDefault(f => f.Side == Side.Rival);
         if (player == null || rival == null) throw new ArgumentException("Both sides need ships");
 
+        playerSetup?.Invoke(player);
         var (attacker, target) = defend ? (rival, player) : (player, rival);
         var (speed, arrival) = approach switch
         {
