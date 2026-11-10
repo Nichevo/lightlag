@@ -439,6 +439,17 @@ public partial class MapView : Node2D
         return null;
     }
 
+    public static readonly Color SpeedUp = new("6be38a");
+    public static readonly Color Braking = new("c48bff");
+
+    /// <summary>Green while a burn speeds the fleet up, violet while it brakes; null for a coast.</summary>
+    private static Color? LegColor(FlightLeg leg)
+    {
+        if (!leg.IsBurn) return null;
+        var v = leg.VelocityAt((leg.Start + leg.End) / 2);
+        return Vec2.Dot(leg.A, v) >= 0 ? SpeedUp : Braking;
+    }
+
     /// <summary>Waypoints of a flight not reached yet (older saves only have the points).</summary>
     private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
         ? flight.WaypointsAhead(DrawHour).Select(w => w.Point).ToList()
@@ -530,7 +541,9 @@ public partial class MapView : Node2D
             const int n = 24;
             var pts = new Vector2[n + 1];
             for (var i = 0; i <= n; i++) pts[i] = Camera.ToScreen(leg.PositionAt(from + (leg.End - from) * i / n));
-            DrawPolyline(pts, new Color(baseColor, leg.IsBurn ? alpha : alpha * 0.55f), leg.IsBurn ? 2.5f : 1.2f, true);
+            // Your own routes show what the engines do: speeding up, braking, or coasting with engines off.
+            var color = ok && f.Side == Side.Player ? LegColor(leg) ?? baseColor : baseColor;
+            DrawPolyline(pts, new Color(color, leg.IsBurn ? alpha : alpha * 0.55f), leg.IsBurn ? 2.5f : 1.2f, true);
         }
         var end = Camera.ToScreen(flight.Target);
         DrawArc(end, 5, 0, Mathf.Tau, 16, new Color(baseColor, alpha), 1.2f, true);

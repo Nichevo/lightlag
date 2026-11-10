@@ -356,6 +356,13 @@ public partial class PlannerPanel : PanelContainer
         box.AddChild(_shipsRow);
         var hint = Ui.Label("Waypoints: Ctrl+right-click the map to add, drag to move", 13, Ui.Dim);
         box.AddChild(hint);
+        var key = new HBoxContainer();
+        key.AddThemeConstantOverride("separation", 10);
+        key.AddChild(Ui.Label("Line:", 13, Ui.Dim));
+        key.AddChild(Ui.Label("speeding up", 13, MapView.SpeedUp));
+        key.AddChild(Ui.Label("braking", 13, MapView.Braking));
+        key.AddChild(Ui.Label("coasting (thin)", 13, Ui.Player));
+        box.AddChild(key);
         _waypointBox = new VBoxContainer();
         _waypointBox.AddThemeConstantOverride("separation", 2);
         box.AddChild(_waypointBox);
