@@ -204,7 +204,7 @@ public static class FlightPlanner
             Legs = legs,
         };
         if (dv > perf.DeltaVLeft + 1e-9)
-            return new FlightPlan(false, $"Not enough supplies for this trip (needs {dv:0} Mm/h of speed change, has {perf.DeltaVLeft:0}): fly slower or refill at home", flight, dv, perf.DeltaVLeft);
+            return new FlightPlan(false, $"Not enough supplies for this trip (needs {Kms(dv)} of speed change, has {Kms(perf.DeltaVLeft)}): fly slower or refill at home", flight, dv, perf.DeltaVLeft);
         return new FlightPlan(true, null, flight, dv, perf.DeltaVLeft);
     }
 
@@ -456,6 +456,9 @@ public static class FlightPlanner
         };
     }
 
+    /// <summary>A speed for messages, in km/s like the screens show.</summary>
+    public static string Kms(double mmPerHour) => $"{mmPerHour / 3.6:#,0} km/s";
+
     public static string ChaseName(ChaseMode mode) => mode switch
     {
         ChaseMode.MatchSpeed => "match speed",
@@ -488,10 +491,10 @@ public static class FlightPlanner
         {
             var slowest = w.ShipsOf(fleet).OrderBy(Fleets.ShipSpeed).FirstOrDefault();
             var fastest = w.ShipsOf(fleet).Select(Fleets.ShipSpeed).DefaultIfEmpty(0).Max();
-            var why = $"{enemy.Name} is moving at {theirSpeed:0} Mm/h; this fleet goes {top:0} Mm/h at this speed setting";
+            var why = $"{enemy.Name} is moving at {Kms(theirSpeed)}; this fleet goes {Kms(top)} at this speed setting";
             if (fraction < 1 && perf.MaxSpeed > theirSpeed * 1.05) return why + ": try a faster speed";
             if (slowest != null && fastest > theirSpeed * 1.05)
-                return why + $" because its slowest ship, {slowest.Name}, tops out at {Fleets.ShipSpeed(slowest):0} Mm/h: split off the faster ships to chase";
+                return why + $" because its slowest ship, {slowest.Name}, tops out at {Kms(Fleets.ShipSpeed(slowest))}: split off the faster ships to chase";
             return why + ", and none of its ships is fast enough";
         }
 
@@ -549,7 +552,7 @@ public static class FlightPlanner
             };
             if (stretch.DeltaV > perf.DeltaVLeft + 1e-9)
                 return new FlightPlan(false,
-                    $"Not enough supplies to {ChaseName(mode)} (needs {stretch.DeltaV:0} Mm/h of speed change, has {perf.DeltaVLeft:0})"
+                    $"Not enough supplies to {ChaseName(mode)} (needs {Kms(stretch.DeltaV)} of speed change, has {Kms(perf.DeltaVLeft)})"
                     + (mode != ChaseMode.MatchSpeed ? ": try a slower speed or Match speed" : ""), flight, stretch.DeltaV, perf.DeltaVLeft);
             return new FlightPlan(true, null, flight, stretch.DeltaV, perf.DeltaVLeft);
         }

@@ -62,7 +62,7 @@ public class ChaseTests
         var plan = FlightPlanner.Plan(sim.World, mine, Chase(theirs, ChaseMode.GunRange));
         Assert.False(plan.Ok);
         Assert.Contains("slowest ship", plan.Problem);
-        Assert.Contains("500 Mm/h", plan.Problem);
+        Assert.Contains("139 km/s", plan.Problem);
     }
 
     [Fact]
