@@ -105,7 +105,7 @@ public partial class Hud : CanvasLayer
         AddChild(_scaleBar);
 
         var help = Ui.Label("Wheel zoom · WASD, arrows or right-drag pan · click select · drag a box or Shift+click to pick several · Tab next fleet · double-click follow\n"
-            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · R report · P pause on contact · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
+            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · R report · P pause on contact · B sight view · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
