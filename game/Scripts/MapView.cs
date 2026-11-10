@@ -592,7 +592,12 @@ public partial class MapView : Node2D
                 if (ring.Color == EngagementRings.Railguns) DrawCircle(at, r, new Color(ring.Color, 0.06f)); // where your guns bite
             }
             if (EngagementRings.LabelPoint(at, r, open) is Vector2 lp)
-                DrawString(_font, lp + new Vector2(4, -4), $"{ring.Label} {Format.Distance(ring.Mm)}", HorizontalAlignment.Left, -1, 12, ring.Color.Lightened(0.15f));
+            {
+                var text = $"{ring.Label} {Format.Distance(ring.Mm)}";
+                var width = _font.GetStringSize(text, HorizontalAlignment.Left, -1, 12).X;
+                var x = Math.Min(lp.X + 4, open.End.X + 20 - width); // keep it clear of the right-hand panel
+                DrawString(_font, new Vector2(x, lp.Y - 4), text, HorizontalAlignment.Left, -1, 12, ring.Color.Lightened(0.15f));
+            }
         }
 
         // Courses ahead: both fleets, as dots, out to the look-ahead.
