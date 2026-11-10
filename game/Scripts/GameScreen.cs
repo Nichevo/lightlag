@@ -805,6 +805,28 @@ public partial class GameScreen : Node2D
         if (Sim.World.FindShip(shipId) is Ship s && s.Side == Side.Player) Sim.Issue(new SetProtectCommand(s.FleetId, s.Id, on));
     }
 
+    public void OrderHeat(RadiatorMode radiators, bool autoSinks)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetHeatCommand(f.Id, radiators, autoSinks));
+    }
+
+    public void EjectSinks()
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new EjectHeatSinksCommand(f.Id));
+    }
+
+    public void OrderFireControl(bool longShots, MissileLaunch launch)
+    {
+        if (MyFleet is Fleet f) Sim.Issue(new SetFireControlCommand(f.Id, longShots, launch));
+    }
+
+    public void DropMissiles(double waitHours)
+    {
+        if (MyFleet is not Fleet f) return;
+        Sim.Issue(new DropMissilesCommand(f.Id, waitHours));
+        _main.Toast(waitHours <= 0 ? $"{f.Name} drops missiles: they go for the first enemy that passes close" : $"{f.Name} drops missiles: they wake in {Format.Hours(waitHours)}");
+    }
+
     public void SendDrone()
     {
         if (MyFleet is not Fleet f) return;

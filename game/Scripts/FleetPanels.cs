@@ -139,9 +139,9 @@ public partial class FleetPanel : PanelContainer
         // Cover and targeting (light lag): guard the protected ships, and what to shoot at.
         _coverRow = new HBoxContainer();
         _coverRow.AddThemeConstantOverride("separation", 4);
-        var coverLabel = Ui.Label("Cover", 13, Ui.Dim);
-        coverLabel.CustomMinimumSize = new Vector2(70, 0);
-        _coverRow.AddChild(coverLabel);
+        _coverLabel = Ui.Label("Cover", 13, Ui.Dim);
+        _coverLabel.CustomMinimumSize = new Vector2(70, 0);
+        _coverRow.AddChild(_coverLabel);
         _cover = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "How the fleet guards its protected ships (⚑ on the ship rows; the flagship by default)" };
         _cover.AddThemeFontSizeOverride("font_size", 13);
         _cover.AddItem("Loose", 0);
@@ -159,9 +159,72 @@ public partial class FleetPanel : PanelContainer
         _fireAt.SetItemTooltip(0, "Each ship fires at the nearest enemy");
         _fireAt.AddItem("Flagship", 1);
         _fireAt.SetItemTooltip(1, "Everything goes for the ship you take to be the enemy flagship (a guess until you have seen it close). Ships nobody shoots at aim better, so only do it if it will die");
+        _fireAt.AddItem("Largest first", 2);
+        _fireAt.SetItemTooltip(2, "The biggest ship in reach first (destroyers before frigates)");
+        _fireAt.AddItem("Finish off", 3);
+        _fireAt.SetItemTooltip(3, "The ship closest to dying first: fewer enemy guns sooner, but damaged ships may be screened");
+        _fireAt.AddItem("Engines", 4);
+        _fireAt.SetItemTooltip(4, "Aim for engines: fewer hits, but a hit often knocks the engines out, so the target cannot run or close");
+        _fireAt.AddItem("Split fire", 5);
+        _fireAt.SetItemTooltip(5, "Each ship takes a different target: damage and the enemy's dodging spread across the fleet");
         _fireAt.ItemSelected += i => { if (_fleet != null) _screen.OrderCover(_fleet.Cover, (FireAt)(int)i); };
         _coverRow.AddChild(_fireAt);
         box.AddChild(_coverRow);
+
+        // Heat (M9): radiators, heat sinks, the cold clock.
+        var heatRow = new HBoxContainer();
+        heatRow.AddThemeConstantOverride("separation", 4);
+        var heatLabel = Ui.Label("Heat", 13, Ui.Dim);
+        heatLabel.CustomMinimumSize = new Vector2(70, 0);
+        heatRow.AddChild(heatLabel);
+        _radiators = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "Where the radiators are" };
+        _radiators.AddThemeFontSizeOverride("font_size", 13);
+        _radiators.AddItem("Radiators auto", 0);
+        _radiators.SetItemTooltip(0, "Out normally, pulled in for battle (radiators are fragile): heat builds while it fights");
+        _radiators.AddItem("Radiators out", 1);
+        _radiators.SetItemTooltip(1, "Always out: stays cool in battle, but hits do more harm");
+        _radiators.AddItem("Run cold", 2);
+        _radiators.SetItemTooltip(2, "Always in, to hide: much harder to see, but heat builds until the ships must vent (the cold clock). Burning the engines heats them fast");
+        _radiators.ItemSelected += i => { if (_fleet != null) _screen.OrderHeat((RadiatorMode)(int)i, _fleet.AutoSinks); };
+        heatRow.AddChild(_radiators);
+        heatRow.AddChild(Ui.SmallButton("Eject sinks", () => _screen.EjectSinks(),
+            "Every ship throws a heat sink overboard: sheds heat at once, and the hot sink can draw off missiles closing on it. Ships do it on their own when they run hot or missiles close in (Auto sinks)"));
+        _autoSinks = new CheckButton { Text = "Auto sinks", FocusMode = FocusModeEnum.None, TooltipText = "Ships throw heat sinks on their own when they run hot or missiles close in" };
+        _autoSinks.AddThemeFontSizeOverride("font_size", 12);
+        _autoSinks.Toggled += on => { if (_fleet != null) _screen.OrderHeat(_fleet.Radiators, on); };
+        heatRow.AddChild(_autoSinks);
+        box.AddChild(heatRow);
+        _heat = Ui.Label("", 12, Ui.Dim);
+        box.AddChild(_heat);
+
+        // Long-range fire and missile timing (M9).
+        var fireRow = new HBoxContainer();
+        fireRow.AddThemeConstantOverride("separation", 4);
+        var fireLabel = Ui.Label("Weapons", 13, Ui.Dim);
+        fireLabel.CustomMinimumSize = new Vector2(70, 0);
+        fireRow.AddChild(fireLabel);
+        _longShots = new CheckButton { Text = "Long-range fire", FocusMode = FocusModeEnum.None,
+            TooltipText = $"Railguns also fire beyond their reach, out to {Format.Distance(Heat.D.LongRangeMm)}: they almost never hit and never hit a ship that dodges, but make the enemy dodge (fuel and heat). Good when chased. Costs ammunition" };
+        _longShots.AddThemeFontSizeOverride("font_size", 12);
+        _longShots.Toggled += on => { if (_fleet != null) _screen.OrderFireControl(on, _fleet.MissileLaunch); };
+        fireRow.AddChild(_longShots);
+        _launch = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "When destroyers launch: held missiles fly a shorter way and keep fuel to follow a dodge" };
+        _launch.AddThemeFontSizeOverride("font_size", 13);
+        _launch.AddItem($"Launch far ({Format.Distance(GameData.Combat.Missile.LaunchRangeMm)})", 0);
+        _launch.AddItem($"Hold to {Format.Distance(Heat.D.MidLaunchMm)}", 1);
+        _launch.AddItem($"Hold to {Format.Distance(Heat.D.CloseLaunchMm)}", 2);
+        _launch.ItemSelected += i => { if (_fleet != null) _screen.OrderFireControl(_fleet.LongShots, (MissileLaunch)(int)i); };
+        fireRow.AddChild(_launch);
+        _drop = new MenuButton { Text = "Drop missiles ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Each destroyer drops a salvo to drift dark; after the timer the missiles go for the first enemy ship that passes close" };
+        _drop.AddThemeFontSizeOverride("font_size", 13);
+        foreach (var wake in new[] { "Wake now", "Wake in 1 hour", "Wake in 6 hours", "Wake in a day" })
+            _drop.GetPopup().AddItem(wake);
+        _drop.GetPopup().IdPressed += id => _screen.DropMissiles(id switch { 0 => 0, 1 => 1, 2 => 6, _ => 24 });
+        fireRow.AddChild(_drop);
+        box.AddChild(fireRow);
+        _fireRow = fireRow;
+        _heatRow = heatRow;
         _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
             "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
         box.AddChild(_engagementButton);
@@ -172,6 +235,15 @@ public partial class FleetPanel : PanelContainer
 
     private Button _engagementButton = null!;
     private Button _droneButton = null!;
+    private Label _coverLabel = null!;
+    private OptionButton _radiators = null!;
+    private CheckButton _autoSinks = null!;
+    private Label _heat = null!;
+    private CheckButton _longShots = null!;
+    private OptionButton _launch = null!;
+    private MenuButton _drop = null!;
+    private HBoxContainer _fireRow = null!;
+    private HBoxContainer _heatRow = null!;
 
     private Fleet? _fleet;
 
@@ -302,7 +374,17 @@ public partial class FleetPanel : PanelContainer
         if (at >= 0 && _stance.Selected != at) _stance.Select(at);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
         _missionRow.Visible = mine;
-        _coverRow.Visible = mine && w.Light.On;
+        _coverRow.Visible = mine;
+        _coverLabel.Visible = _cover.Visible = w.Light.On;
+        _fireAt.SetItemDisabled(1, !w.Light.On);
+        _heatRow.Visible = _fireRow.Visible = _heat.Visible = mine;
+        if (_radiators.Selected != (int)f.Radiators) _radiators.Select((int)f.Radiators);
+        _autoSinks.SetPressedNoSignal(f.AutoSinks);
+        _longShots.SetPressedNoSignal(f.LongShots);
+        if (_launch.Selected != (int)f.MissileLaunch) _launch.Select((int)f.MissileLaunch);
+        _drop.Disabled = !ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
+        _heat.Text = HeatText(w, f, ships);
+        _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : Ui.Dim);
         _droneButton.Visible = mine && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
@@ -320,6 +402,20 @@ public partial class FleetPanel : PanelContainer
         var candidate = _screen.MergeCandidate();
         _merge.Disabled = candidate == null;
         _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
+    }
+
+    /// <summary>One line on the fleet's heat: how hot, sinks and shields left, overheated ships, the cold clock.</summary>
+    private static string HeatText(World w, Fleet f, List<Ship> ships)
+    {
+        var parts = new List<string> { $"Heat {Heat.Share(w, f):P0}" };
+        var hot = ships.Where(s => s.Overheated).Select(s => s.Name).ToList();
+        if (hot.Count > 0) parts.Add($"OVERHEATED: {string.Join(", ", hot)}");
+        parts.Add($"{ships.Sum(s => s.HeatSinks)} sinks");
+        var max = ships.Sum(s => Heat.MaxShield(w, s));
+        if (max > 0) parts.Add($"shields {ships.Sum(s => s.Shield) / max:P0}");
+        if (Heat.ColdClockHours(w, f) is double clock) parts.Add($"cold for {Format.Hours(clock)} more");
+        if (w.Dropped.Count(d => d.Side == f.Side) is var dropped and > 0) parts.Add($"{dropped} dropped missiles waiting");
+        return string.Join(" · ", parts);
     }
 
     /// <summary>The body a hold or patrol is about: where the fleet is, or where it is going, else the nearest planet.</summary>

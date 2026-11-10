@@ -497,7 +497,7 @@ public partial class Main : Node
             battle.CloseReport();
             var fought = Sim.World.Battles[^1];
             battle.OpenReplay(fought, fought.StartHour + ((fought.EndHour ?? Sim.World.Hour) - fought.StartHour) / 3);
-            await Shoot("23-battle-replay");
+            await Shoot("40-battle-replay");
         }
         catch (Exception ex)
         {

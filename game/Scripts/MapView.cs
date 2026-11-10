@@ -332,6 +332,20 @@ public partial class MapView : Node2D
             DrawLine(tail, at, new Color(color, 0.5f), 1.2f, true);
             DrawCircle(at, 2f, color.Lightened(0.4f));
         }
+        // Our own dropped missiles drifting dark (the enemy's are hidden): a dim ring, with the time left to wake.
+        var w = Sim.World;
+        var shown = 0;
+        foreach (var m in w.Dropped)
+        {
+            if (m.Side != Side.Player && !RevealAll) continue;
+            var at = Camera.ToScreen(m.Position);
+            if (!Camera.OnScreen(at, 20)) continue;
+            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            DrawArc(at, 3, 0, Mathf.Tau, 10, new Color(color, 0.6f), 1);
+            if (shown++ == 0 || Camera.Scale > 2)
+                DrawString(_font, at + new Vector2(6, 4), m.WakeHour > w.Hour ? $"wakes in {Format.Hours(m.WakeHour - w.Hour)}" : "armed",
+                    HorizontalAlignment.Left, -1, 10, new Color(color, 0.7f));
+        }
     }
 
     // ---- Pieces ---------------------------------------------------------------------------
