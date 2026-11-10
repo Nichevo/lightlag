@@ -114,6 +114,7 @@ public partial class GameScreen : Node2D
 
         _hud = new Hud(this);
         AddChild(_hud);
+        _map.DrawHour = Sim.World.Hour;
         _map.UpdatePositions();
     }
 
@@ -128,13 +129,14 @@ public partial class GameScreen : Node2D
             var cost = Sim.PeekStepHours();
             var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick ? BattleSlowdown : 1);
             _accum += delta * rate / cost;
+            var switched = false;
             var ok = _main.RunGuarded("running the simulation", () =>
             {
                 var done = 0;
                 while (_accum >= 1 && done < 2000) // never freeze the screen catching up
                 {
                     var next = Sim.PeekStepHours();
-                    if (next != cost) { _accum = 0; break; } // switching in or out of battle time
+                    if (next != cost) { switched = true; break; } // switching in or out of battle time
                     _map.BeforeStep();
                     Sim.Step();
                     _lastStepHours = next;
@@ -153,6 +155,9 @@ public partial class GameScreen : Node2D
             WatchBattles();
             WatchSightings();
             WatchEconomy();
+            // Pausing, or switching in or out of battle time: show where things really are now, so the
+            // map neither stops part way back to the last step nor jumps when time runs again.
+            if (switched || _paused) SnapToNow();
         }
         if (_sinceAutosave >= AutosaveEverySeconds)
         {
@@ -162,6 +167,7 @@ public partial class GameScreen : Node2D
 
         KeyboardPan(delta);
         _map.TurnShips(delta);
+        _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
         _map.UpdatePositions();
         if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
         _camera.Update(delta, _follow is int id ? _map.DrawnPosition(id) : null);
@@ -187,7 +193,20 @@ public partial class GameScreen : Node2D
         _paused = false;
     }
 
-    public void TogglePause() => _paused = !_paused;
+    public void TogglePause()
+    {
+        _paused = !_paused;
+        if (_paused) SnapToNow();
+    }
+
+    /// <summary>Draw the simulation exactly as it is now: no blending back towards the step before.</summary>
+    private void SnapToNow()
+    {
+        _map.BeforeStep();
+        _accum = 0;
+        _lastStepHours = 0;
+        _map.Blend = 0;
+    }
 
     public bool IsSandbox => Sim.World.Scenario == Scenarios.BattleSandbox;
 
