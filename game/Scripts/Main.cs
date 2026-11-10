@@ -360,6 +360,14 @@ public partial class Main : Node
             empire.Camera.FitRadius(600, instant: true);
             await Shoot("17-empire");
 
+            // The planet list: pick one to fly there and follow it.
+            empire.ShowEmpire = false;
+            empire.PickBody(Sim.World.Bodies.Single(b => b.Key == "tamber").Id);
+            empire.Camera.SetScale(empire.Camera.TargetScale, instant: true);
+            empire.ShowBodyMenu(true);
+            await Shoot("19-planet-list");
+            empire.ShowBodyMenu(false);
+
             // The end of a game: the rival shipyard is gone.
             var rust = Sim.World.Bodies.Single(b => b.Key == "rust");
             rust.Shipyard = false;

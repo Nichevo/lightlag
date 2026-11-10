@@ -268,6 +268,15 @@ public partial class GameScreen : Node2D
         if (Sim.World.FindFleet(fleetId) != null) Follow(fleetId, zoom: false);
     }
 
+    public void ShowBodyMenu(bool open) => _hud.ShowBodyMenu(open);
+
+    /// <summary>Pick a planet or moon from the list: select it, fly the view there and keep following it (pan to stop).</summary>
+    public void PickBody(int bodyId)
+    {
+        Select(bodyId);
+        if (Sim.World.FindBody(bodyId) != null) Follow(bodyId, zoom: true);
+    }
+
     /// <summary>Select a ship from the fleet list: its fleet is selected and the ship ticked, ready to split off.</summary>
     public void PickShip(int shipId)
     {

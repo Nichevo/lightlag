@@ -21,6 +21,8 @@ public partial class Hud : CanvasLayer
     private Label _battle = null!;
     private MenuButton _fleets = null!;
     private readonly List<Action> _fleetMenuActions = new();
+    private MenuButton _bodies = null!;
+    private readonly List<Action> _bodyMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
     private Button _empireButton = null!;
@@ -60,6 +62,14 @@ public partial class Hud : CanvasLayer
         _fleets.AboutToPopup += FillFleetMenu;
         popup.IdPressed += id => { if (id >= 0 && id < _fleetMenuActions.Count) Main.Instance.RunGuarded("fleet list", _fleetMenuActions[(int)id]); };
         bar.AddChild(_fleets);
+        _bodies = new MenuButton { Text = "Planets ▾", TooltipText = "Go to a planet or moon and follow it (pan the map to stop following)", FocusMode = Control.FocusModeEnum.None, Flat = false };
+        _bodies.CustomMinimumSize = new Vector2(90, 32);
+        _bodies.AddThemeFontSizeOverride("font_size", 15);
+        var bodyPopup = _bodies.GetPopup();
+        bodyPopup.AddThemeFontSizeOverride("font_size", 15);
+        _bodies.AboutToPopup += FillBodyMenu;
+        bodyPopup.IdPressed += id => { if (id >= 0 && id < _bodyMenuActions.Count) Main.Instance.RunGuarded("planet list", _bodyMenuActions[(int)id]); };
+        bar.AddChild(_bodies);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
         _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
@@ -219,6 +229,46 @@ public partial class Hud : CanvasLayer
             var when = s.Visible ? "in sight" : $"last seen {Format.Hours(w.Hour - s.Hour)} ago";
             Item($"{s.Name} ({s.Ships}) · {when}", () => _screen.Select(id));
         }
+    }
+
+    /// <summary>Open the planet list (for screenshots); false closes it.</summary>
+    public void ShowBodyMenu(bool open)
+    {
+        if (!open) { _bodies.GetPopup().Hide(); return; }
+        FillBodyMenu();
+        var popup = _bodies.GetPopup();
+        popup.Position = (Vector2I)(_bodies.GlobalPosition + new Vector2(0, _bodies.Size.Y));
+        popup.Popup();
+    }
+
+    /// <summary>The planet list: the star, then each planet outward from it with its moons under it.</summary>
+    private void FillBodyMenu()
+    {
+        var sim = Main.Instance.Sim;
+        var popup = _bodies.GetPopup();
+        popup.Clear();
+        _bodyMenuActions.Clear();
+        if (sim == null) return;
+        var w = sim.World;
+        void Item(Body b, string indent)
+        {
+            var id = b.Id;
+            var tags = new List<string> { Format.Title(b.Kind.ToString()) };
+            if (b.Owner == Side.Player) tags.Add("yours");
+            else if (b.Owner == Side.Rival) tags.Add("rival");
+            if (b.Shipyard) tags.Add("shipyard");
+            if (b.ClaimSide == Side.Player) tags.Add("you are claiming it");
+            popup.AddItem($"{indent}{b.Name} · {string.Join(", ", tags)}", _bodyMenuActions.Count);
+            _bodyMenuActions.Add(() => _screen.PickBody(id));
+        }
+        void Tree(Body b, string indent)
+        {
+            Item(b, indent);
+            foreach (var child in w.Bodies.Where(c => c.ParentId == b.Id).OrderBy(c => c.OrbitRadius))
+                Tree(child, indent + "      ");
+        }
+        foreach (var root in w.Bodies.Where(b => b.ParentId == null || w.FindBody(b.ParentId.Value) == null))
+            Tree(root, "");
     }
 
     private string? Describe(Simulation sim)
