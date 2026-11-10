@@ -292,6 +292,7 @@ public partial class GameScreen : Node2D
         }
         Planner = null;
         ShowEmpire = false;
+        SaveView();
         Engagement = (mineId, e);
         Select(mineId);
         _engagementAge = 1;
@@ -302,7 +303,24 @@ public partial class GameScreen : Node2D
             var spread = Math.Max(Vec2.Distance(mine.Position, info.EnemyAt), GameData.Combat.Missile.LaunchRangeMm);
             _follow = mineId;
             _camera.FitRadius(spread * 1.4);
+            _camera.Glide();
         }
+    }
+
+    /// <summary>The map view before an engagement opened, to glide back to when it closes.</summary>
+    private (int? Follow, Vec2 Center, double Scale)? _viewBefore;
+
+    private void SaveView() => _viewBefore ??= (_follow, _camera.Center, _camera.TargetScale);
+
+    /// <summary>Ease back out to the view from before the engagement, so you don't lose your place.</summary>
+    private void RestoreView()
+    {
+        if (_viewBefore is not { } view) return;
+        _viewBefore = null;
+        var (follow, center, scale) = view;
+        _follow = follow is int id && Sim.World.FindFleet(id) != null || follow is int b && Sim.World.FindBody(b) != null ? follow : null;
+        _camera.SetScale(scale);
+        _camera.Glide(_follow == null ? center : null);
     }
 
     /// <summary>Every engagement you could look at now, nearest first (refreshed with the screen).</summary>
@@ -330,6 +348,7 @@ public partial class GameScreen : Node2D
 
     public void CloseEngagement()
     {
+        if (Engagement != null) RestoreView();
         Engagement = null;
         EngagementNow = null;
         _engagementLostFor = 0;
@@ -433,11 +452,13 @@ public partial class GameScreen : Node2D
     {
         var fleets = BattleFleets();
         if (fleets.Count == 0) return;
+        SaveView();
+        _camera.Glide();
         var center = fleets.Aggregate(Vec2.Zero, (a, f) => a + f.Position) * (1.0 / fleets.Count);
         var spread = fleets.Max(f => Vec2.Distance(f.Position, center));
         var mine = fleets.FirstOrDefault(f => f.Side == Side.Player);
         if (mine != null) { _follow = mine.Id; Select(mine.Id); }
-        else { _follow = null; _camera.Center = center; }
+        else { _follow = null; _viewBefore = null; _camera.Glide(center); }
         _camera.FitRadius(Math.Max(spread * 2.5, 300));
         var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id, seat: true) != null);
         if (mine != null) OpenEngagement(mine.Id, theirs?.Id);

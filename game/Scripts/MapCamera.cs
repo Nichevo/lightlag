@@ -44,6 +44,8 @@ public sealed class MapCamera
     /// <summary>Zoom in (steps &gt; 0) or out around a screen point.</summary>
     public void ZoomAt(Vector2 screen, double steps)
     {
+        _gliding = false;
+        _glideTo = null;
         _targetLogScale = Math.Clamp(_targetLogScale + steps * 0.25, Math.Log(MinScale), Math.Log(MaxScale));
         _anchorWorld = ToWorld(screen);
         _anchorScreen = screen;
@@ -53,7 +55,14 @@ public sealed class MapCamera
     {
         _targetLogScale = Math.Log(Math.Clamp(scale, MinScale, MaxScale));
         _anchorWorld = null;
-        if (instant) _logScale = _targetLogScale;
+        if (instant)
+        {
+            // Jump straight there: no glide either.
+            _logScale = _targetLogScale;
+            if (_glideTo is Vec2 g) Center = g;
+            _gliding = false;
+            _glideTo = null;
+        }
     }
 
     /// <summary>Scale so a circle of this radius (Mm) fits on screen.</summary>
@@ -62,18 +71,48 @@ public sealed class MapCamera
 
     public void Pan(Vector2 screenDelta)
     {
+        _gliding = false;
+        _glideTo = null;
         var s = Scale;
         Center = new Vec2(Center.X - screenDelta.X / s, Center.Y - screenDelta.Y / s);
+        _anchorWorld = null;
+    }
+
+    private bool _gliding;                 // easing the centre to its new point instead of jumping
+    private Vec2? _glideTo;                // where to glide when not following anything
+
+    /// <summary>
+    /// Ease to the next view instead of jumping: the next followed point (or <paramref name="to"/>) is
+    /// reached over about half a second, with the zoom easing at the same pace, so the eye keeps its place.
+    /// </summary>
+    public void Glide(Vec2? to = null)
+    {
+        _gliding = true;
+        _glideTo = to;
         _anchorWorld = null;
     }
 
     /// <summary>Animate towards the target zoom. When following, the followed point stays centred.</summary>
     public void Update(double delta, Vec2? follow)
     {
-        var t = Math.Min(1.0, delta * 12);
+        // Gliding eases more gently, so a big change of view reads as one move.
+        var t = Math.Min(1.0, delta * (_gliding ? 5 : 12));
         _logScale += (_targetLogScale - _logScale) * t;
         if (Math.Abs(_targetLogScale - _logScale) < 1e-4) _logScale = _targetLogScale;
 
+        if (_gliding && (follow ?? _glideTo) is Vec2 g)
+        {
+            Center = Center + (g - Center) * t;
+            // Done once the target is within a pixel and the zoom has settled.
+            if (Vec2.Distance(Center, g) * Scale < 1 && _logScale == _targetLogScale)
+            {
+                Center = g;
+                _gliding = false;
+                _glideTo = null;
+            }
+            return;
+        }
+        _gliding = false;
         if (follow is Vec2 f)
         {
             Center = f;
