@@ -18,6 +18,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
 [JsonDerivedType(typeof(QueueOrderCommand), "queueOrder")]
 [JsonDerivedType(typeof(CancelOrderCommand), "cancelOrder")]
+[JsonDerivedType(typeof(SetOrderFleetCommand), "setOrderFleet")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
@@ -226,32 +227,15 @@ public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, d
                 sim.Log.Info("fleet", $"{other.Name} merges into {into.Name}", new { FleetId, otherFleetId = otherId, Source });
                 continue;
             }
-            if (Meeting(world, into) is not FlightRequest request)
+            if (Fleets.FlyToJoin(world, other, into, SpeedFraction) is string problem)
             {
-                sim.Log.Warn("fleet", $"{into.Name} is drifting on; stop it before gathering", new { FleetId, Source });
-                return;
-            }
-            var plan = FlightPlanner.Plan(world, other, request);
-            if (!plan.Ok || plan.Flight == null)
-            {
-                sim.Log.Warn("fleet", $"{other.Name} cannot reach {into.Name}: {plan.Problem}", new { FleetId, otherFleetId = otherId, Source });
+                sim.Log.Warn("fleet", $"{other.Name} cannot reach {into.Name}", new { FleetId, otherFleetId = otherId, problem, Source });
+                if (problem == Fleets.DriftingProblem) return;
                 continue;
             }
-            other.Flight = plan.Flight;
             other.JoinFleetId = into.Id;
-            sim.Log.Info("fleet", $"{other.Name} flies to join {into.Name}", new { FleetId, otherFleetId = otherId, plan.Flight.ArriveHour, Source });
+            sim.Log.Info("fleet", $"{other.Name} flies to join {into.Name}", new { FleetId, otherFleetId = otherId, other.Flight!.ArriveHour, Source });
         }
-    }
-
-    /// <summary>Where to meet the fleet: where it is flying to, the body it circles, or the point where it waits.</summary>
-    private FlightRequest? Meeting(World world, Fleet into)
-    {
-        if (into.Flight is Flight f && f.TargetFleetId == null && f.Arrival == ArrivalStyle.Brake)
-            return new FlightRequest(f.TargetBodyId, f.Target, SpeedFraction, ArrivalStyle.Brake, f.HoldAfter, world.Tick);
-        if (into.Flight != null || into.Velocity.Length > 1e-9) return null;
-        if (into.Hold == HoldStyle.Orbit && into.OrbitBodyId is int body && world.FindBody(body) is Body b)
-            return new FlightRequest(b.Id, b.Position, SpeedFraction, ArrivalStyle.Brake, HoldStyle.Orbit, world.Tick);
-        return new FlightRequest(null, into.Position, SpeedFraction, ArrivalStyle.Brake, HoldStyle.Drift, world.Tick);
     }
 }
 

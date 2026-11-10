@@ -51,6 +51,7 @@ public partial class GameScreen : Node2D
     private Vector2? _leftDown;
     private bool _boxing;
     private int? _draggingWaypoint;
+    private bool _draggingEnd;
     private readonly HashSet<(int, double)> _spotted = new();
 
     /// <summary>Pause the game when an enemy fleet comes into sight.</summary>
@@ -268,6 +269,15 @@ public partial class GameScreen : Node2D
         if (Sim.World.FindFleet(fleetId) != null) Follow(fleetId, zoom: false);
     }
 
+    public void ShowBodyMenu(bool open) => _hud.ShowBodyMenu(open);
+
+    /// <summary>Pick a planet or moon from the list: select it, fly the view there and keep following it (pan to stop).</summary>
+    public void PickBody(int bodyId)
+    {
+        Select(bodyId);
+        if (Sim.World.FindBody(bodyId) != null) Follow(bodyId, zoom: true);
+    }
+
     /// <summary>Select a ship from the fleet list: its fleet is selected and the ship ticked, ready to split off.</summary>
     public void PickShip(int shipId)
     {
@@ -337,7 +347,9 @@ public partial class GameScreen : Node2D
 
         foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
             if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
-                _main.Toast($"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}");
+                _main.Toast(f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
+                    ? $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} launched: flying out to join {to.Name}"
+                    : $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}");
 
         foreach (var b in Economy.Claimable(w))
         {
@@ -350,7 +362,7 @@ public partial class GameScreen : Node2D
             _owners[b.Id] = b.Owner;
             if (b.ClaimSide == Side.Rival && b.Owner == Side.Player)
             {
-                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {GameData.Economy.ClaimDays:0} days"); _paused = true; }
+                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days"); _paused = true; }
             }
             else _claimsWarned.Remove(b.Id);
         }
@@ -372,8 +384,21 @@ public partial class GameScreen : Node2D
     public void Queue(OrderKind kind, string key)
     {
         if (Economy.CanQueue(Sim.World, Side.Player, kind, key) is string problem) { _main.Toast(problem); return; }
-        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key));
+        // New ships go to the fleet picked for the last one, while it still exists.
+        var join = kind == OrderKind.Ship && BuildForFleetId is int j && Sim.World.FindFleet(j)?.Side == Side.Player ? BuildForFleetId : null;
+        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key, join));
         _main.RunGuarded("queueing an order", Sim.ApplyPending);
+    }
+
+    /// <summary>The fleet last picked for a ship being built (new orders start with it).</summary>
+    public int? BuildForFleetId { get; private set; }
+
+    /// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
+    public void SetOrderFleet(int orderId, int? fleetId)
+    {
+        BuildForFleetId = fleetId;
+        Sim.Issue(new SetOrderFleetCommand(Side.Player, orderId, fleetId));
+        _main.RunGuarded("choosing a fleet", Sim.ApplyPending);
     }
 
     public void CancelOrder(int orderId)
@@ -443,9 +468,9 @@ public partial class GameScreen : Node2D
         if (MyFleet is not Fleet f) return;
         var name = bodyId is int b && Sim.World.FindBody(b) is Body body ? body.Name : "this point";
         if (enemyFleetId is int e && Sim.World.FindFleet(e) is Fleet enemy) { name = enemy.Name; bodyId = null; }
-        var keep = Planner?.FleetId == f.Id ? Planner.Waypoints : null; // a new target keeps the waypoints
-        Planner = new PlannerState(f.Id, bodyId, point, name) { TargetFleetId = enemyFleetId };
-        if (keep != null) Planner.Waypoints.AddRange(keep);
+        var same = Planner?.FleetId == f.Id ? Planner : null; // a new target keeps the waypoints
+        Planner = new PlannerState(f.Id, bodyId, point, name) { TargetFleetId = enemyFleetId, Editing = same?.Editing ?? false };
+        if (same != null) Planner.Waypoints.AddRange(same.Waypoints);
         Replan();
     }
 
@@ -488,12 +513,43 @@ public partial class GameScreen : Node2D
         new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId,
             p.Waypoints.Count > 0 ? p.Waypoints.Select(d => new Waypoint(d.Point, d.Stop, d.Speed, d.Stop ? d.WaitHours : 0)).ToList() : null);
 
-    /// <summary>Add a waypoint to the route being planned (it goes just before the target).</summary>
+    /// <summary>Add a waypoint on the way, in the stretch of the route it is closest to.</summary>
     public void AddWaypoint(Vec2 at)
     {
-        if (Planner == null) return;
-        Planner.Waypoints.Add(new WaypointDraft { Point = at });
+        if (Planner is not PlannerState p || Sim.World.FindFleet(p.FleetId) is not Fleet f) return;
+        var corners = new List<Vec2> { f.Position };
+        corners.AddRange(p.Waypoints.Select(w => w.Point));
+        corners.Add(p.Plan?.Flight?.Target ?? p.Point);
+        var best = corners.Count - 2;
+        var bestDistance = double.MaxValue;
+        for (var i = 0; i < corners.Count - 1; i++)
+        {
+            var d = corners[i + 1] - corners[i];
+            var t = Math.Clamp(Vec2.Dot(at - corners[i], d) / Math.Max(Vec2.Dot(d, d), 1e-12), 0, 1);
+            var dist = Vec2.Distance(at, corners[i] + d * t);
+            if (dist < bestDistance) { bestDistance = dist; best = i; }
+        }
+        p.Waypoints.Insert(best, new WaypointDraft { Point = at });
         Replan();
+    }
+
+    /// <summary>
+    /// Ctrl+right-click: a new destination (the old one becomes a waypoint), or a waypoint on the way, as the
+    /// planner is set. With no planner open it opens the selected fleet's route first (or starts a new one).
+    /// </summary>
+    public void AddRoutePoint(Vector2 screen)
+    {
+        if (Planner == null)
+        {
+            if (!CanEditRoute) { OrderMove(screen, false); return; }
+            EditRoute();
+            if (Planner == null) return;
+        }
+        var at = _camera.ToWorld(screen);
+        if (!Settings.AddAtEnd || Planner.TargetFleetId != null) { AddWaypoint(at); return; }
+        Planner.Waypoints.Add(new WaypointDraft { Point = Planner.Plan?.Flight?.Target ?? Planner.Point });
+        var bodyId = _map.HitTestBody(screen);
+        StartPlanning(bodyId, bodyId is int b ? Sim.World.FindBody(b)!.Position : at);
     }
 
     public void RemoveWaypoint(int index)
@@ -534,10 +590,10 @@ public partial class GameScreen : Node2D
                 var steps = wheel.ButtonIndex == MouseButton.WheelUp ? 1 : -1;
                 _camera.ZoomAt(_follow != null ? _camera.ScreenCenter : wheel.Position, steps * (wheel.ShiftPressed ? 3 : 1));
                 break;
-            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Right, CtrlPressed: true } addWaypoint when Planner != null:
-                AddWaypoint(_camera.ToWorld(addWaypoint.Position));
+            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Right, CtrlPressed: true } addWaypoint when MyFleet != null:
+                AddRoutePoint(addWaypoint.Position);
                 break;
-            case InputEventMouseButton { ButtonIndex: MouseButton.Right, CtrlPressed: true } when Planner != null:
+            case InputEventMouseButton { ButtonIndex: MouseButton.Right, CtrlPressed: true } when MyFleet != null:
                 break; // the release of a Ctrl+right click
             case InputEventMouseButton { ButtonIndex: MouseButton.Middle or MouseButton.Right } mb:
                 if (mb.Pressed) { _dragging = true; _dragMoved = false; }
@@ -555,6 +611,14 @@ public partial class GameScreen : Node2D
                     _camera.Pan(motion.Relative);
                 }
                 break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } endDrop when _draggingEnd:
+                _draggingEnd = false;
+                // Dropped on a planet or moon: go there; otherwise to the point in space.
+                if (Planner != null && _map.HitTestBody(endDrop.Position) is int dropBody) StartPlanning(dropBody, Sim.World.FindBody(dropBody)!.Position);
+                break;
+            case InputEventMouseMotion endMotion when _draggingEnd && Planner != null:
+                StartPlanning(null, _camera.ToWorld(endMotion.Position));
+                break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } when _draggingWaypoint != null:
                 _draggingWaypoint = null;
                 Replan();
@@ -568,6 +632,13 @@ public partial class GameScreen : Node2D
                 {
                     _draggingWaypoint = grabbed;
                     break;
+                }
+                if (left.Pressed && MyFleet != null && _map.HitTestRouteEnd(left.Position)
+                    && (Planner != null ? Planner.TargetFleetId == null : CanEditRoute && MyFleet.Flight?.TargetFleetId == null))
+                {
+                    if (Planner == null) EditRoute(); // grabbing the end of a route already flying reopens it
+                    _draggingEnd = Planner != null;
+                    if (_draggingEnd) break;
                 }
                 if (left.Pressed && Planner == null && CanEditRoute && _map.HitTestFlightWaypoint(left.Position) is int ahead)
                 {
@@ -733,6 +804,9 @@ public sealed class PlanSettings
     public ArrivalStyle Arrival = ArrivalStyle.Brake;
     public HoldStyle Hold = HoldStyle.Orbit;
     public bool FastAhead;
+
+    /// <summary>Ctrl+right-click sets a new destination (true) or adds a waypoint on the way (false).</summary>
+    public bool AddAtEnd = true;
 }
 
 /// <summary>A route being planned: which fleet, where to, and the latest answer from the planner.</summary>

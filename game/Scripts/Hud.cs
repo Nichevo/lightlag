@@ -21,6 +21,8 @@ public partial class Hud : CanvasLayer
     private Label _battle = null!;
     private MenuButton _fleets = null!;
     private readonly List<Action> _fleetMenuActions = new();
+    private MenuButton _bodies = null!;
+    private readonly List<Action> _bodyMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
     private Button _empireButton = null!;
@@ -60,6 +62,14 @@ public partial class Hud : CanvasLayer
         _fleets.AboutToPopup += FillFleetMenu;
         popup.IdPressed += id => { if (id >= 0 && id < _fleetMenuActions.Count) Main.Instance.RunGuarded("fleet list", _fleetMenuActions[(int)id]); };
         bar.AddChild(_fleets);
+        _bodies = new MenuButton { Text = "Planets ▾", TooltipText = "Go to a planet or moon and follow it (pan the map to stop following)", FocusMode = Control.FocusModeEnum.None, Flat = false };
+        _bodies.CustomMinimumSize = new Vector2(90, 32);
+        _bodies.AddThemeFontSizeOverride("font_size", 15);
+        var bodyPopup = _bodies.GetPopup();
+        bodyPopup.AddThemeFontSizeOverride("font_size", 15);
+        _bodies.AboutToPopup += FillBodyMenu;
+        bodyPopup.IdPressed += id => { if (id >= 0 && id < _bodyMenuActions.Count) Main.Instance.RunGuarded("planet list", _bodyMenuActions[(int)id]); };
+        bar.AddChild(_bodies);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
         _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
@@ -177,6 +187,9 @@ public partial class Hud : CanvasLayer
         if (group.Count >= 2) _groupPanel.Refresh(sim, group);
         _plannerPanel.Visible = _screen.Planner != null;
         if (_screen.Planner != null) _plannerPanel.Refresh(sim, _screen.Planner);
+        // On a short screen the planner and the fleet panel would overlap: the planner wins while it is open.
+        if (_plannerPanel.Visible && _fleetPanel.Visible && _plannerPanel.GetGlobalRect().End.Y > _fleetPanel.GetGlobalRect().Position.Y)
+            _fleetPanel.Visible = false;
 
         var text = fleet == null && group.Count < 2 ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
@@ -221,6 +234,48 @@ public partial class Hud : CanvasLayer
         }
     }
 
+    /// <summary>Open the planet list (for screenshots); false closes it.</summary>
+    public void ShowBodyMenu(bool open)
+    {
+        if (!open) { _bodies.GetPopup().Hide(); return; }
+        FillBodyMenu();
+        var popup = _bodies.GetPopup();
+        popup.Position = (Vector2I)(_bodies.GlobalPosition + new Vector2(0, _bodies.Size.Y));
+        popup.Popup();
+    }
+
+    /// <summary>The planet list: the star, then each planet outward from it with its moons under it.</summary>
+    private void FillBodyMenu()
+    {
+        var sim = Main.Instance.Sim;
+        var popup = _bodies.GetPopup();
+        popup.Clear();
+        _bodyMenuActions.Clear();
+        if (sim == null) return;
+        var w = sim.World;
+        void Item(Body b, string indent)
+        {
+            var id = b.Id;
+            var tags = new List<string> { Format.Title(b.Kind.ToString()) };
+            if (b.Owner == Side.Player) tags.Add("yours");
+            else if (b.Owner == Side.Rival) tags.Add("rival");
+            if (b.Shipyard) tags.Add("shipyard");
+            if (b.ClaimSide == Side.Player) tags.Add("you are claiming it");
+            if (w.Loop && b.Industry <= 0 && b.Kind != BodyKind.Star) tags.Add("can't be claimed");
+            else if (w.Loop && b.Industry > 0) tags.Add($"industry {b.Industry:0}");
+            popup.AddItem($"{indent}{b.Name} · {string.Join(", ", tags)}", _bodyMenuActions.Count);
+            _bodyMenuActions.Add(() => _screen.PickBody(id));
+        }
+        void Tree(Body b, string indent)
+        {
+            Item(b, indent);
+            foreach (var child in w.Bodies.Where(c => c.ParentId == b.Id).OrderBy(c => c.OrbitRadius))
+                Tree(child, indent + "      ");
+        }
+        foreach (var root in w.Bodies.Where(b => b.ParentId == null || w.FindBody(b.ParentId.Value) == null))
+            Tree(root, "");
+    }
+
     private string? Describe(Simulation sim)
     {
         if (_screen.SelectedBody is Body b)
@@ -239,10 +294,11 @@ public partial class Hud : CanvasLayer
                           + (b.Shipyard ? $" · shipyard, armour {b.ShipyardArmour / GameData.Economy.Shipyard.Armour * 100:0} %" : "")
                           + (owner == Side.Player ? (b.Shipyard ? ": fleets here refill, repair and rearm" : ": fleets here refill supplies") : ""));
             if (w.Loop && b.Industry > 0) lines.Add($"Industry: {b.Industry:0} a day for whoever holds it");
+            else if (w.Loop && b.Kind != BodyKind.Star) lines.Add("No industry: it can't be claimed and doesn't count towards winning");
             if (b.ClaimSide is Side claimer)
-                lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {GameData.Economy.ClaimDays:0} days");
+                lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days");
             else if (w.Loop && b.Industry > 0 && b.Owner != Side.Player && !b.Shipyard)
-                lines.Add($"Hold orbit here {GameData.Economy.ClaimDays:0} days with no enemy in orbit to claim it");
+                lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it");
             else if (b.Shipyard && b.Owner == Side.Rival)
                 lines.Add("Park an armed fleet in orbit with no defenders near to wear the shipyard down");
             if (_screen.SelectedFleet == null && sim.World.Fleets.Any(f => f.Side == Side.Player)) lines.Add("Select a fleet, then right-click here to fly");

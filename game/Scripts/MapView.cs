@@ -177,7 +177,7 @@ public partial class MapView : Node2D
             if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
             if (b.ClaimSide is Side claimer)
             {
-                var share = (float)(b.ClaimHours / (GameData.Economy.ClaimDays * 24));
+                var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
                 var cc = claimer == Side.Player ? Ui.Player : Ui.Rival;
                 DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
                 DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
@@ -450,6 +450,15 @@ public partial class MapView : Node2D
     private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
         ? flight.WaypointsAhead(DrawHour).Select(w => w.Point).ToList()
         : flight.Waypoints;
+
+    /// <summary>Is the end of the route being planned, or else of the selected fleet's current route, under a screen point?</summary>
+    public bool HitTestRouteEnd(Vector2 screen)
+    {
+        Vec2? end = Preview?.Flight?.Target;
+        if (end == null && PlannerWaypoints == null && SelectedId is int id && Sim.World.FindFleet(id) is { Side: Side.Player, Flight: Flight f })
+            end = f.Target;
+        return end is Vec2 e && Camera.ToScreen(e).DistanceTo(screen) <= 12;
+    }
 
     /// <summary>A not-yet-reached waypoint of the selected fleet's current route under a screen point.</summary>
     public int? HitTestFlightWaypoint(Vector2 screen)

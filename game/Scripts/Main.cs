@@ -347,7 +347,8 @@ public partial class Main : Node
             StartNewGame(8);
             var empire = (GameScreen)_screen!;
             Sim!.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "gun-frigate"));
-            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "missile-destroyer"));
+            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "missile-destroyer",
+                Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player).Id));
             Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Research, Tech.QuietDrives));
             Sim.StepMany(3 * 24);
             var pale = Sim.World.Bodies.Single(b => b.Key == "pale");
@@ -359,6 +360,14 @@ public partial class Main : Node
             empire.Camera.Center = Sim.World.Bodies.Single(b => b.Key == "verdant").Position + new Vec2(-150, 0);
             empire.Camera.FitRadius(600, instant: true);
             await Shoot("17-empire");
+
+            // The planet list: pick one to fly there and follow it.
+            empire.ShowEmpire = false;
+            empire.PickBody(Sim.World.Bodies.Single(b => b.Key == "tamber").Id);
+            empire.Camera.SetScale(empire.Camera.TargetScale, instant: true);
+            empire.ShowBodyMenu(true);
+            await Shoot("19-planet-list");
+            empire.ShowBodyMenu(false);
 
             // The end of a game: the rival shipyard is gone.
             var rust = Sim.World.Bodies.Single(b => b.Key == "rust");

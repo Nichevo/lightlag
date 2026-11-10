@@ -43,7 +43,9 @@ public partial class EmpirePanel : PanelContainer
     private static string Shape(World w) =>
         string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}"))
         + "|" + string.Join(",", Economy.Of(w, Side.Player).Researched)
-        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner;
+        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner
+        + "|" + string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => o.JoinFleetId))
+        + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"));
 
     private void Rebuild(World w)
     {
@@ -79,7 +81,11 @@ public partial class EmpirePanel : PanelContainer
         }
         var ships = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship).ToList();
         if (ships.Count == 0) Live(13, Ui.Dim, _ => "Nothing being built");
-        for (var i = 0; i < ships.Count; i++) OrderRow(ships[i], i == 0);
+        for (var i = 0; i < ships.Count; i++)
+        {
+            OrderRow(ships[i], i == 0);
+            JoinRow(w, ships[i]);
+        }
 
         // Research.
         Heading("Research");
@@ -126,6 +132,31 @@ public partial class EmpirePanel : PanelContainer
         row.AddChild(cancel);
     }
 
+    /// <summary>Which fleet the ship being built will join: the one at the shipyard, or any of yours (it flies out to it).</summary>
+    private void JoinRow(World w, WorkOrder order)
+    {
+        var row = Row();
+        var label = Ui.Label("    joins", 12, Ui.Dim);
+        label.CustomMinimumSize = new Vector2(60, 0);
+        row.AddChild(label);
+        var pick = new OptionButton { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(270, 26), FitToLongestItem = false, ClipText = true,
+            TooltipText = "The fleet this ship joins when it is launched. A fleet away from the shipyard: the ship flies out to it" };
+        pick.AddThemeFontSizeOverride("font_size", 12);
+        var ids = new List<int?> { null };
+        pick.AddItem("the fleet at the shipyard (or a new one)");
+        var yard = Economy.ShipyardOf(w, Side.Player);
+        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player))
+        {
+            ids.Add(f.Id);
+            var where = yard != null && Economy.InOrbitAt(f, yard) && f.Flight == null ? "at the shipyard" : FleetPanel.Doing(w, f);
+            pick.AddItem($"{f.Name} ({f.ShipIds.Count}) · {where}");
+        }
+        pick.Selected = Math.Max(0, ids.IndexOf(order.JoinFleetId));
+        var orderId = order.Id;
+        pick.ItemSelected += index => _screen.SetOrderFleet(orderId, ids[(int)index]);
+        row.AddChild(pick);
+    }
+
     private static string OrderText(World w, WorkOrder o, bool first)
     {
         var name = Economy.NameOf(o);
@@ -152,11 +183,11 @@ public partial class EmpirePanel : PanelContainer
 
     private static string ClaimsText(World w)
     {
-        var need = GameData.Economy.ClaimDays * 24;
         var lines = w.Bodies.Where(b => b.ClaimSide != null).Select(b =>
-            $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {need / 24:0} days").ToList();
+            $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days").ToList();
+        var e = GameData.Economy;
         return lines.Count > 0 ? string.Join("\n", lines)
-            : $"Hold orbit at a planet or moon for {need / 24:0} days, with no enemy in orbit, to claim it.";
+            : $"Hold orbit at a planet or moon, with no enemy in orbit, to claim it: {e.ClaimDays:0} days for an empty one, {(e.ClaimHeldDays > 0 ? e.ClaimHeldDays : e.ClaimDays):0} for one the rival holds.";
     }
 
     private void Heading(string text)

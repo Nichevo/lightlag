@@ -49,7 +49,7 @@ public partial class FleetPanel : PanelContainer
         _buttons.AddThemeConstantOverride("separation", 4);
         _orbit = Ui.SmallButton("Orbit", () => _screen.OrderHold(HoldStyle.Orbit), "Orbit the nearest planet or moon (O)");
         _drift = Ui.SmallButton("Drift", () => _screen.OrderHold(HoldStyle.Drift), "Engines cold: stay put (G)");
-        _route = Ui.SmallButton("Change route", () => _screen.EditRoute(), "Open this fleet's route in the planner to change the target, speed or waypoints (C). You can also drag a waypoint on the map");
+        _route = Ui.SmallButton("Change route", () => _screen.EditRoute(), "Open this fleet's route in the planner to change the target, speed or waypoints (C). You can also drag a waypoint or the end of the route on the map");
         _stop = Ui.SmallButton("Stop", () => _screen.OrderStop(), "Cancel the flight and brake to a stop (X)");
         _split = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet");
         _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one (M). To merge fleets further apart, drag a box round them and Gather");
@@ -297,6 +297,7 @@ public partial class PlannerPanel : PanelContainer
     private Label _title = null!;
     private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
     private Button _together = null!, _ahead = null!;
+    private Button _addEnd = null!, _addMid = null!;
     private HBoxContainer _shipsRow = null!;
     private VBoxContainer _waypointBox = null!;
     private readonly List<(Button Through, Button Stop, Label Speed, Label Wait, HBoxContainer WaitRow)> _waypointRows = new();
@@ -344,8 +345,8 @@ public partial class PlannerPanel : PanelContainer
         speedRow.AddChild(_speedLabel);
         box.AddChild(speedRow);
 
-        _brake = Choice("Brake", "Stop at the target", () => s.Arrival = ArrivalStyle.Brake);
-        _pass = Choice("Fast pass", "Fly through at speed: quicker and half the fuel, but no stop", () => s.Arrival = ArrivalStyle.FastPass);
+        _brake = Choice("Stop", "Brake to a stop at the target (then orbit or drift)", () => s.Arrival = ArrivalStyle.Brake);
+        _pass = Choice("Fly by", "Fly past the target at speed without stopping or going into orbit: quicker and half the fuel", () => s.Arrival = ArrivalStyle.FastPass);
         box.AddChild(Row("Arrive", _brake, _pass));
         _orbit = Choice("Orbit", "Circle the planet or moon on arrival", () => s.Hold = HoldStyle.Orbit);
         _drift = Choice("Drift", "Sit with engines cold on arrival", () => s.Hold = HoldStyle.Drift);
@@ -354,7 +355,10 @@ public partial class PlannerPanel : PanelContainer
         _ahead = Choice("Fast ahead", "Faster ships fly at their own pace, wait at the target and rejoin when the slow ones arrive", () => s.FastAhead = true);
         _shipsRow = Row("Ships", _together, _ahead);
         box.AddChild(_shipsRow);
-        var hint = Ui.Label("Waypoints: Ctrl+right-click the map to add, drag to move", 13, Ui.Dim);
+        _addEnd = Choice("New end", "Ctrl+right-click sets a new destination; the old one becomes a waypoint on the way", () => s.AddAtEnd = true);
+        _addMid = Choice("Mid point", "Ctrl+right-click adds a waypoint on the way, keeping the destination", () => s.AddAtEnd = false);
+        box.AddChild(Row("Ctrl+R-click", _addEnd, _addMid));
+        var hint = Ui.Label("Drag a waypoint or the end of the route to move it", 13, Ui.Dim);
         box.AddChild(hint);
         var key = new HBoxContainer();
         key.AddThemeConstantOverride("separation", 10);
@@ -480,6 +484,8 @@ public partial class PlannerPanel : PanelContainer
         _title.Text = $"{(p.Editing ? "Change route" : "Route")}: {fleet?.Name} to {p.TargetName}";
         _title.AddThemeColorOverride("font_color", p.TargetFleetId != null ? Ui.Danger : Ui.Player);
         Mark(_direct, s.Route == RouteKind.Direct);
+        Mark(_addEnd, s.AddAtEnd);
+        Mark(_addMid, !s.AddAtEnd);
         Mark(_wait, s.Route == RouteKind.Wait);
         Mark(_brake, s.Arrival == ArrivalStyle.Brake);
         Mark(_pass, s.Arrival == ArrivalStyle.FastPass);

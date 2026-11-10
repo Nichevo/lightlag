@@ -262,6 +262,29 @@ public static class Fleets
     /// Can this fleet join that one now? Same side, both stopped, and close together, or both circling
     /// the same body.
     /// </summary>
+    public const string DriftingProblem = "the fleet to join is drifting on; stop it first";
+
+    /// <summary>Where to meet a fleet: where it is flying to, the body it circles, or the point where it waits.</summary>
+    public static FlightRequest? Meeting(World world, Fleet into, double speedFraction)
+    {
+        if (into.Flight is Flight f && f.TargetFleetId == null && f.Arrival == ArrivalStyle.Brake)
+            return new FlightRequest(f.TargetBodyId, f.Target, speedFraction, ArrivalStyle.Brake, f.HoldAfter, world.Tick);
+        if (into.Flight != null || into.Velocity.Length > 1e-9) return null;
+        if (into.Hold == HoldStyle.Orbit && into.OrbitBodyId is int body && world.FindBody(body) is Body b)
+            return new FlightRequest(b.Id, b.Position, speedFraction, ArrivalStyle.Brake, HoldStyle.Orbit, world.Tick);
+        return new FlightRequest(null, into.Position, speedFraction, ArrivalStyle.Brake, HoldStyle.Drift, world.Tick);
+    }
+
+    /// <summary>Plan a flight for a fleet to where another fleet will be stopped. Returns why not, or null when on its way.</summary>
+    public static string? FlyToJoin(World world, Fleet f, Fleet into, double speedFraction)
+    {
+        if (Meeting(world, into, speedFraction) is not FlightRequest request) return DriftingProblem;
+        var plan = FlightPlanner.Plan(world, f, request);
+        if (!plan.Ok || plan.Flight == null) return plan.Problem ?? "no route";
+        f.Flight = plan.Flight;
+        return null;
+    }
+
     public static bool CanJoin(Fleet f, Fleet into)
     {
         if (f.Id == into.Id || f.Side != into.Side) return false;

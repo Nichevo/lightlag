@@ -67,6 +67,47 @@ public class EconomyTests
     }
 
     [Fact]
+    public void A_ship_built_for_a_fleet_far_away_flies_out_and_joins_it()
+    {
+        var sim = NewGame();
+        var fleet = FleetOf(sim, Side.Player);
+        var ships = fleet.ShipIds.Count;
+        PlaceInOrbit(sim, fleet, BodyNamed(sim, "vela"));
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate", fleet.Id));
+        var frigate = GameData.ShipClass("gun-frigate");
+        Days(sim, frigate.Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
+        // Launched as its own fleet, on its way to Vela.
+        var player = sim.World.Fleets.Where(f => f.Side == Side.Player).ToList();
+        Assert.Equal(2, player.Count);
+        var reinforcement = player.Single(f => f.Id != fleet.Id);
+        Assert.Equal(fleet.Id, reinforcement.JoinFleetId);
+        Assert.NotNull(reinforcement.Flight);
+        Days(sim, reinforcement.Flight!.ArriveHour / 24 - sim.World.Hour / 24 + 1);
+        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player);
+        Assert.Equal(ships + 1, fleet.ShipIds.Count);
+    }
+
+    [Fact]
+    public void The_fleet_a_ship_joins_can_be_changed_while_it_is_built()
+    {
+        var sim = NewGame();
+        var fleet = FleetOf(sim, Side.Player);
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
+        sim.Step();
+        var order = sim.World.Orders.Single();
+        Assert.Null(order.JoinFleetId);
+        sim.Issue(new SetOrderFleetCommand(Side.Player, order.Id, fleet.Id));
+        sim.Issue(new SetOrderFleetCommand(Side.Player, order.Id, FleetOf(sim, Side.Rival).Id)); // not ours: refused
+        sim.Step();
+        Assert.Equal(fleet.Id, order.JoinFleetId);
+        // The fleet is at the shipyard, so the new ship simply joins it there.
+        Days(sim, GameData.ShipClass("gun-frigate").Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
+        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player);
+        var replay = ReplayRunner.Run(ReplayFile.FromJson(sim.Replay.ToJson()), GameLog.Memory());
+        Assert.True(replay.Exact, replay.Message);
+    }
+
+    [Fact]
     public void A_ship_waits_until_there_is_enough_industry()
     {
         var sim = NewGame();
@@ -131,6 +172,20 @@ public class EconomyTests
         Assert.Equal(Side.Player, vela.Owner);
         var income = Economy.IncomePerDay(sim.World, Side.Player);
         Assert.Equal(BodyNamed(sim, "verdant").Industry + vela.Industry, income, 9);
+    }
+
+    [Fact]
+    public void Taking_a_planet_the_other_side_holds_takes_longer()
+    {
+        var sim = NewGame();
+        var vela = BodyNamed(sim, "vela");
+        vela.Owner = Side.Rival;
+        PlaceInOrbit(sim, FleetOf(sim, Side.Player), vela);
+        Days(sim, GameData.Economy.ClaimDays + 1);
+        Assert.Equal(Side.Rival, vela.Owner);
+        Assert.Equal(Side.Player, vela.ClaimSide);
+        Days(sim, GameData.Economy.ClaimHeldDays - GameData.Economy.ClaimDays);
+        Assert.Equal(Side.Player, vela.Owner);
     }
 
     [Fact]
