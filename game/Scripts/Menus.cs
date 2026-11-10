@@ -94,7 +94,7 @@ public partial class SavesList : CenterContainer
         {
             var path = s.Path;
             var when = s.SavedUtc.ToLocalTime();
-            var text = $"{s.Kind}  ·  {GameTime.Format((long)s.Hour)}" + (s.Rival != null ? $"  ·  {Format.Title(s.Rival)} rival" : "")
+            var text = $"{s.Kind}  ·  {GameTime.Format(s.Tick)}" + (s.Rival != null ? $"  ·  {Format.Title(s.Rival)} rival" : "")
                        + (s.Over ? "  ·  game over" : "") + $"\n{when:ddd d MMM, HH:mm}";
             var b = new Button { Text = text, Alignment = HorizontalAlignment.Left, CustomMinimumSize = new Vector2(520, 52) };
             b.AddThemeFontSizeOverride("font_size", 15);

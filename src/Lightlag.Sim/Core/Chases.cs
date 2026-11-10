@@ -88,11 +88,15 @@ public static class Chases
             }
             else if (c.Problem != plan.Problem)
             {
+                // The wording carries live numbers (the quarry's speed), so only a new kind of problem is logged.
+                if (Kind(c.Problem) != Kind(plan.Problem))
+                    sim.Log.Warn("fleet", $"{f.Name} cannot keep up the chase", new { fleetId = f.Id, targetFleetId = target.Id, problem = plan.Problem });
                 c.Problem = plan.Problem;
-                sim.Log.Warn("fleet", $"{f.Name} cannot keep up the chase", new { fleetId = f.Id, targetFleetId = target.Id, problem = plan.Problem });
             }
         }
     }
+
+    private static string? Kind(string? problem) => problem?.Split(':')[0];
 
     /// <summary>Joining one of its own fleets that is moving: merge once alongside, else re-aim when it changes course.</summary>
     private static void Join(Simulation sim, Fleet f, ChaseOrder c, Fleet? into)

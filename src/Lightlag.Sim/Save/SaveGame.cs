@@ -58,7 +58,7 @@ public static class SaveSlots
     }
 
     /// <summary>One save file as the load list shows it.</summary>
-    public sealed record Entry(string Path, string Kind, DateTime SavedUtc, int Day, double Hour, string? Rival, bool Over);
+    public sealed record Entry(string Path, string Kind, DateTime SavedUtc, int Day, long Tick, string? Rival, bool Over);
 
     /// <summary>
     /// Every save in the folder, newest first, with the game day it was made on. Reads only the few
