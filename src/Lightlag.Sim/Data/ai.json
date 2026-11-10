@@ -11,7 +11,7 @@
   "dangerRatio": 1.25,
   "refitSupplies": 0.35,
   "refitArmour": 0.6,
-  "enemyShipValue": 60,
+  "enemyShipValue": 120,
   "enemyBuildShare": 0.65,
   "claimGroupShips": 2,
   "probeDays": 12,

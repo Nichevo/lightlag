@@ -686,8 +686,10 @@ public static class Mind
                 if (open.Count > 0)
                 {
                     var pick = Easy ? open[_rng.Range(0, open.Count)] : open[0];
-                    // Research waits behind ships when Industry is short, so not to stall the shipyard.
-                    if (Economy.Of(_w, _side).Industry >= GameData.Research(pick).Cost * 0.5 || orders.Count(o => o.Kind == OrderKind.Ship) == 0)
+                    // Research waits behind ships when Industry is short, so not to stall the shipyard: a ship
+                    // waiting to start is paid for first.
+                    var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
+                    if (Economy.Of(_w, _side).Industry >= shipWaiting + GameData.Research(pick).Cost * 0.5 || orders.Count(o => o.Kind == OrderKind.Ship) == 0)
                         Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
                 }
             }

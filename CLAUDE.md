@@ -9,7 +9,7 @@
   (they differ between Windows and Linux). `dotnet test` includes replay checks.
 - Add a rule to `RuleBook.Default()` when a bug could have been caught by a state check.
 - Log with an area and a short message; put details in the `data` object, not in the message.
-- Scope is frozen to the first-playable plan (milestones M0-M7); new ideas go to the design doc's
-  "after first playable" list.
+- Scope is frozen to Plan 2, "Second playable" (milestones M8-M14 in the plan doc); new ideas go to
+  the design doc's parking list with the milestone they belong to.
 - Checks before pushing: `dotnet build Lightlag.sln`, `dotnet test Lightlag.sln`, and
   `dotnet build game/Lightlag.csproj`.

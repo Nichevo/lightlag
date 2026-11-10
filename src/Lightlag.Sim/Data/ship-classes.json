@@ -3,12 +3,12 @@
   "classes": [
     { "id": "gun-frigate", "name": "Gun frigate", "short": "FF", "icon": "frigate",
       "maxSpeedMmPerHour": 600, "accelMmPerHour2": 25, "supplies": 60, "suppliesPerDeltaV": 0.025,
-      "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 40,
+      "armour": 100, "evasion": 0.25, "railguns": 2, "pointDefence": 2, "missiles": 0, "cost": 80,
       "sensorMm": 30, "signatureSize": 1.0,
       "role": "Fast and cheap, short legs. Railgun pair and point defence: strong up close." },
     { "id": "missile-destroyer", "name": "Missile destroyer", "short": "DD", "icon": "destroyer",
       "maxSpeedMmPerHour": 400, "accelMmPerHour2": 12, "supplies": 160, "suppliesPerDeltaV": 0.025,
-      "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 80,
+      "armour": 160, "evasion": 0.1, "railguns": 0, "pointDefence": 2, "missiles": 16, "cost": 160,
       "sensorMm": 40, "signatureSize": 2.0,
       "role": "Long range, slower. Missile racks (4 salvos of 4) and point defence." }
   ],
