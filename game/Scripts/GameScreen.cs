@@ -276,6 +276,8 @@ public partial class GameScreen : Node2D
         _engagementAge = 1; // work the choices out again now
     }
     private double _engagementAge;
+    private double _engagementLostFor;
+    private const double EngagementGraceSeconds = 3;
 
     /// <summary>Open the engagement screen for one of your fleets (against the given enemy, or the one it is most concerned with).</summary>
     public void OpenEngagement(int mineId, int? enemyId = null)
@@ -330,6 +332,7 @@ public partial class GameScreen : Node2D
     {
         Engagement = null;
         EngagementNow = null;
+        _engagementLostFor = 0;
     }
 
     public void ToggleEngagement()
@@ -353,12 +356,21 @@ public partial class GameScreen : Node2D
         if (_engagementAge < 0.25 && EngagementNow != null) { _map.Engagement = EngagementNow; return; }
         _engagementAge = 0;
         var w = Sim.World;
-        if (w.FindFleet(mineId) is not Fleet mine || Sensors.Find(w, Side.Player, enemyId, seat: true) == null)
+        // A sighting can drop for a moment (a hard turn, a planet's shadow): keep the screen open for a
+        // few seconds before closing, so it does not flick between the map and the engagement.
+        var mine = w.FindFleet(mineId);
+        if (mine == null || Sensors.Find(w, Side.Player, enemyId, seat: true) == null)
         {
-            CloseEngagement();
-            _map.Engagement = null;
+            _engagementLostFor += 0.25;
+            if (mine == null || _engagementLostFor >= EngagementGraceSeconds || EngagementNow == null)
+            {
+                CloseEngagement();
+                _map.Engagement = null;
+            }
+            else _map.Engagement = EngagementNow;
             return;
         }
+        _engagementLostFor = 0;
         _main.RunGuarded("engagement", () =>
         {
             EngagementNow = Engagement_.Of(w, mine, enemyId, EngagementBurn);
