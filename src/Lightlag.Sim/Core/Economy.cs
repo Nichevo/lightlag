@@ -38,6 +38,9 @@ public sealed class WorkOrder
     /// <summary>The ship class id or research id.</summary>
     public string Key { get; set; } = "";
     public bool Paid { get; set; }
+
+    /// <summary>Ship orders: the fleet the new ship flies out to join (null: the fleet at the shipyard).</summary>
+    public int? JoinFleetId { get; set; }
     public double HoursLeft { get; set; }
     public double TotalHours { get; set; }
 }
@@ -155,7 +158,7 @@ public static class Economy
         order.HoursLeft -= GameTime.HoursPerTick;
         if (order.HoursLeft > 1e-9) return;
         w.Orders.Remove(order);
-        if (kind == OrderKind.Ship) Launch(sim, side, order.Key);
+        if (kind == OrderKind.Ship) Launch(sim, side, order.Key, order.JoinFleetId);
         else Learn(sim, side, order.Key);
     }
 
@@ -167,13 +170,21 @@ public static class Economy
         sim.Log.Info("economy", $"{side} finishes research: {GameData.Research(id).Name}", new { side = side.ToString(), id });
     }
 
-    /// <summary>A new ship leaves the shipyard and joins a fleet waiting there, or forms a new one.</summary>
-    private static void Launch(Simulation sim, Side side, string classId)
+    /// <summary>
+    /// A new ship leaves the shipyard. With no fleet named it joins a fleet waiting there, or forms a new one.
+    /// With a fleet named it joins it at once if it is at the shipyard, or forms its own fleet and flies out to it.
+    /// </summary>
+    private static void Launch(Simulation sim, Side side, string classId, int? joinFleetId = null)
     {
         var w = sim.World;
         var yard = ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
-        var waiting = w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
+        var target = joinFleetId is int j && w.FindFleet(j) is Fleet t && t.Side == side ? t : null;
+        Fleet? waiting;
+        if (target != null)
+            waiting = InOrbitAt(target, yard) && target.Flight == null && !target.Retreating ? target : null;
+        else
+            waiting = w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
                                                    && InOrbitAt(f, yard));
         if (waiting != null)
         {
@@ -194,7 +205,19 @@ public static class Economy
         foreach (var s in w.ShipsOf(waiting)) s.Position = waiting.Position + s.FormationOffset;
         sim.Log.Info("economy", $"{ship.Name} is launched at {yard.Name} and joins {waiting.Name}",
             new { side = side.ToString(), shipId = ship.Id, classId, fleetId = waiting.Id });
+        if (target != null && waiting != target)
+        {
+            waiting.JoinFleetId = target.Id;
+            if (Fleets.FlyToJoin(w, waiting, target, ReinforceSpeed) is string problem)
+                sim.Log.Info("economy", $"{waiting.Name} waits at {yard.Name} to join {target.Name}", new { fleetId = waiting.Id, target = target.Id, problem });
+            else
+                sim.Log.Info("economy", $"{waiting.Name} flies out to join {target.Name}",
+                    new { fleetId = waiting.Id, target = target.Id, arrive = waiting.Flight!.ArriveHour });
+        }
     }
+
+    /// <summary>Speed (share of top speed) new ships fly at to reach the fleet they were built for.</summary>
+    public const double ReinforceSpeed = 0.7;
 
     /// <summary>Makes a ship with full supplies and armour, numbered after the side's earlier ships of its class.</summary>
     public static Ship NewShip(World w, Side side, string classId)
@@ -363,7 +386,7 @@ public static class Economy
 // ---- Commands -------------------------------------------------------------------------------
 
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
-public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key) : GameCommand
+public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null) : GameCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -373,9 +396,31 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key) : 
             return;
         }
         var order = new WorkOrder { Id = world.NextId++, Side = Side, Kind = Kind, Key = Key, TotalHours = Economy.HoursFor(Kind, Key) };
+        if (Kind == OrderKind.Ship && JoinFleetId is int j && world.FindFleet(j)?.Side == Side) order.JoinFleetId = j;
         order.HoursLeft = order.TotalHours;
         world.Orders.Add(order);
         sim.Log.Info("economy", $"{Side} queues {Economy.NameOf(order)}", new { side = Side.ToString(), order.Id, Kind, Key, Source });
+    }
+}
+
+/// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
+public sealed record SetOrderFleetCommand(Side Side, int OrderId, int? JoinFleetId) : GameCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        var order = world.Orders.Find(o => o.Id == OrderId && o.Side == Side && o.Kind == OrderKind.Ship);
+        if (order == null)
+        {
+            sim.Log.Warn("economy", "Fleet choice for an order that does not exist", new { side = Side.ToString(), OrderId, Source });
+            return;
+        }
+        if (JoinFleetId is int j && world.FindFleet(j)?.Side != Side)
+        {
+            sim.Log.Warn("economy", "Fleet choice for a fleet that is not ours", new { side = Side.ToString(), OrderId, JoinFleetId, Source });
+            return;
+        }
+        order.JoinFleetId = JoinFleetId;
+        sim.Log.Info("economy", "New ship will join a fleet", new { side = Side.ToString(), OrderId, JoinFleetId, Source });
     }
 }
 

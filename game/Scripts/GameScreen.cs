@@ -346,7 +346,9 @@ public partial class GameScreen : Node2D
 
         foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
             if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
-                _main.Toast($"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}");
+                _main.Toast(f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
+                    ? $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} launched: flying out to join {to.Name}"
+                    : $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}");
 
         foreach (var b in Economy.Claimable(w))
         {
@@ -381,8 +383,21 @@ public partial class GameScreen : Node2D
     public void Queue(OrderKind kind, string key)
     {
         if (Economy.CanQueue(Sim.World, Side.Player, kind, key) is string problem) { _main.Toast(problem); return; }
-        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key));
+        // New ships go to the fleet picked for the last one, while it still exists.
+        var join = kind == OrderKind.Ship && BuildForFleetId is int j && Sim.World.FindFleet(j)?.Side == Side.Player ? BuildForFleetId : null;
+        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key, join));
         _main.RunGuarded("queueing an order", Sim.ApplyPending);
+    }
+
+    /// <summary>The fleet last picked for a ship being built (new orders start with it).</summary>
+    public int? BuildForFleetId { get; private set; }
+
+    /// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
+    public void SetOrderFleet(int orderId, int? fleetId)
+    {
+        BuildForFleetId = fleetId;
+        Sim.Issue(new SetOrderFleetCommand(Side.Player, orderId, fleetId));
+        _main.RunGuarded("choosing a fleet", Sim.ApplyPending);
     }
 
     public void CancelOrder(int orderId)

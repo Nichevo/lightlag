@@ -347,7 +347,8 @@ public partial class Main : Node
             StartNewGame(8);
             var empire = (GameScreen)_screen!;
             Sim!.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "gun-frigate"));
-            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "missile-destroyer"));
+            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "missile-destroyer",
+                Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player).Id));
             Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Research, Tech.QuietDrives));
             Sim.StepMany(3 * 24);
             var pale = Sim.World.Bodies.Single(b => b.Key == "pale");
