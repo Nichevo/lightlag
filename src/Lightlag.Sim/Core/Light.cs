@@ -292,7 +292,12 @@ public static class Light
         foreach (var t in due)
         {
             w.Light.InTransit.Remove(t);
+            if (t.Command is IFleetCommand fc && w.FindFleet(fc.FleetId) is Fleet f && t.ArriveHour - t.SentHour > 1.0 / 60)
+                BattleRecords.Mark(w, f, MarkKind.OrderArrived, $"Order reaches {f.Name} ({Format(t.ArriveHour - t.SentHour)} after it was sent)");
             sim.Carry(t.Command);
         }
     }
+
+    private static string Format(double hours) => hours < 1
+        ? FormattableString.Invariant($"{hours * 60:0} min") : FormattableString.Invariant($"{hours:0.#} h");
 }

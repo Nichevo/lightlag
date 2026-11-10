@@ -877,6 +877,8 @@ public partial class ReportPanel : PanelContainer
     private readonly GameScreen _screen;
     private Label _title = null!;
     private Label _body = null!;
+    private Button _watch = null!;
+    private Battle? _shown;
 
     public ReportPanel() : this(null!) { }
     public ReportPanel(GameScreen screen) => _screen = screen;
@@ -893,11 +895,18 @@ public partial class ReportPanel : PanelContainer
         _body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _body.CustomMinimumSize = new Vector2(560, 0);
         box.AddChild(_body);
-        box.AddChild(Ui.SmallButton("Close (Esc)", () => _screen.CloseReport(), "Close the report; R opens the last one again"));
+        var buttons = new HBoxContainer();
+        buttons.AddThemeConstantOverride("separation", 8);
+        box.AddChild(buttons);
+        _watch = Ui.SmallButton("Watch replay", () => { if (_shown != null) _screen.OpenReplay(_shown); }, "Watch the battle again, with the moments that mattered marked");
+        buttons.AddChild(_watch);
+        buttons.AddChild(Ui.SmallButton("Close (Esc)", () => _screen.CloseReport(), "Close the report; R opens the last one again"));
     }
 
     public void Refresh(Battle b)
     {
+        _shown = b;
+        _watch.Disabled = b.Frames.Count == 0;
         var p = b.For(Side.Player);
         var r = b.For(Side.Rival);
         var end = b.EndHour is double e ? GameTime.Format(e) : "still going";

@@ -37,6 +37,23 @@ public class CombatTests
     }
 
     [Fact]
+    public void Battles_are_recorded_to_watch_again()
+    {
+        var sim = Sandbox(new SandboxSetup(PlayerFrigates: 4, PlayerDestroyers: 0, RivalFrigates: 0, RivalDestroyers: 2,
+            PlayerStance: Stance.Hold, DistanceMm: 45));
+        var battle = Fight(sim);
+        Assert.True(battle.Frames.Count >= 2);
+        Assert.Equal(battle.StartHour, battle.Frames[0].Hour, 6);
+        if (battle.EndHour is double end) Assert.Equal(end, battle.Frames[^1].Hour, 6);
+        Assert.Contains(battle.Frames, f => f.Missiles.Count > 0);
+        Assert.Contains(battle.Frames, f => f.Shots.Count > 0);
+        Assert.Equal(6, battle.Roster.Count);
+        Assert.All(battle.Frames.Zip(battle.Frames.Skip(1)), p => Assert.True(p.Second.Hour > p.First.Hour));
+        foreach (var lost in battle.For(Side.Player).ShipsLost)
+            Assert.Contains(battle.Marks, m => m.Kind == MarkKind.ShipLost && m.Text.StartsWith(lost));
+    }
+
+    [Fact]
     public void Fleets_out_of_contact_run_whole_hours()
     {
         var sim = Sandbox(new SandboxSetup(DistanceMm: 5000));

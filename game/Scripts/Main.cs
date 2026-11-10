@@ -493,6 +493,11 @@ public partial class Main : Node
             while ((Sim.World.ActiveBattle != null || Sim.World.Sub != 0) && Sim.World.Tick < end) Sim.Step();
             battle.ShowLastReport();
             await Shoot("13-combat-report");
+            // The replay of that battle, a third of the way in, with its moments listed.
+            battle.CloseReport();
+            var fought = Sim.World.Battles[^1];
+            battle.OpenReplay(fought, fought.StartHour + ((fought.EndHour ?? Sim.World.Hour) - fought.StartHour) / 3);
+            await Shoot("23-battle-replay");
         }
         catch (Exception ex)
         {

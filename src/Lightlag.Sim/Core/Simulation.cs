@@ -39,6 +39,7 @@ public sealed class Simulation
     public void AddEffect(CombatEffect e)
     {
         Effects.Add(e);
+        BattleRecords.Shot(World, e);
         if (Effects.Count > 400 || (Effects.Count > 0 && e.Hour - Effects[0].Hour > 0.05)) Effects.RemoveAll(x => e.Hour - x.Hour > 0.05);
     }
     public GameLog Log { get; }
@@ -151,6 +152,7 @@ public sealed class Simulation
             Light.Relay(this);
             // Contacts between fleets that can't fight yet start (or end) a battle at the hour.
             Combat.UpdateContacts(this, World.Hour);
+            if (World.ActiveBattle is Battle b) BattleRecords.Record(this, b, World.Hour);
         }
         World.Random = Rng.Save();
         if (World.Sub != 0) return;

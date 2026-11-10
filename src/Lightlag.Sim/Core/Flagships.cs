@@ -140,6 +140,9 @@ public static class Flagships
             }
             if (s.Flag is FlagKnown.Unknown or FlagKnown.Suspected)
                 s.Flag = s.FlagScore >= D.SuspectAt ? FlagKnown.Suspected : FlagKnown.Unknown;
+            if (s.Flag != before && s.Flag is FlagKnown.Suspected or FlagKnown.Confirmed && w.ActiveBattle is Battle b
+                && b.For(enemy).Fleets.Contains(f.Name))
+                BattleRecords.Mark(w, b, s.SeenBy, MarkKind.Flagship, $"{s.Name}: flagship {s.Flag.ToString().ToLowerInvariant()}");
             if (s.Flag != before && s.Flag is FlagKnown.Suspected or FlagKnown.Confirmed or FlagKnown.Cleared)
                 sim.Log.Info("flagship", $"{s.SeenBy} thinks {s.Name}: {s.Flag}", new { side = s.SeenBy.ToString(), fleetId = s.FleetId, score = s.FlagScore, truth = carries });
         }

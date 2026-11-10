@@ -63,6 +63,13 @@ public sealed class Battle
     public BattleSide[] Sides { get; set; } = { new(), new() };
 
     public BattleSide For(Side s) => Sides[(int)s];
+
+    /// <summary>The recording, to watch the battle again from News (see BattleRecords).</summary>
+    public List<BattleFrame> Frames { get; set; } = new();
+    public List<RosterShip> Roster { get; set; } = new();
+    public List<BattleMark> Marks { get; set; } = new();
+    public List<FrameShot> PendingShots { get; set; } = new();
+    public double FrameEveryHours { get; set; }
 }
 
 /// <summary>
@@ -321,6 +328,7 @@ public static class Combat
         if (plan is { Ok: true, Flight: Flight flight })
         {
             f.Flight = flight;
+            BattleRecords.Mark(w, f, MarkKind.Decision, $"{f.Name} {why}");
             sim.Log.Info("combat", $"{f.Name} {why}", new { fleetId = f.Id, home = home.Name, armour = ArmourShare(w, f), stance = f.Stance.ToString() });
         }
         else
@@ -337,6 +345,7 @@ public static class Combat
         UpdateContacts(sim, t1);
         var battle = w.ActiveBattle;
         if (battle == null) return;
+        BattleRecords.Record(sim, battle, t1);
 
         foreach (var ship in w.Ships.ToList())
         {
@@ -550,6 +559,7 @@ public static class Combat
         if (target.Armour <= 0)
         {
             lost.ShipsLost.Add(target.Name);
+            BattleRecords.Mark(w, battle, target.Side, MarkKind.ShipLost, $"{target.Name} destroyed");
             if (w.Loop)
             {
                 Economy.Of(w, target.Side).Totals.ShipsLost++;
@@ -627,6 +637,7 @@ public static class Combat
             battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, FightingSinceHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
+            BattleRecords.Trim(w);
             foreach (var side in new[] { Side.Player, Side.Rival }) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
             {
@@ -649,6 +660,7 @@ public static class Combat
         }
         if (inContact.Count == 0 && w.Missiles.Count == 0)
         {
+            BattleRecords.Record(sim, battle, t1, force: true);
             battle.EndHour = t1;
             if (w.Loop)
                 foreach (var side in new[] { Side.Player, Side.Rival })

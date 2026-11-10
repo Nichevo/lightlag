@@ -18,6 +18,7 @@ public partial class Hud : CanvasLayer
     private FleetPanel _fleetPanel = null!;
     private PlannerPanel _plannerPanel = null!;
     private ReportPanel _reportPanel = null!;
+    private ReplayPanel _replayPanel = null!;
     private Button _battle = null!;
     private MenuButton _fleets = null!;
     private readonly List<Action> _fleetMenuActions = new();
@@ -153,6 +154,12 @@ public partial class Hud : CanvasLayer
         _reportPanel.GrowVertical = Control.GrowDirection.Both;
         AddChild(_reportPanel);
 
+        _replayPanel = new ReplayPanel(_screen) { Visible = false };
+        _replayPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
+        _replayPanel.GrowHorizontal = Control.GrowDirection.Both;
+        _replayPanel.GrowVertical = Control.GrowDirection.Both;
+        AddChild(_replayPanel);
+
         _plannerPanel = new PlannerPanel(_screen);
         _plannerPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.KeepSize, 16);
         _plannerPanel.GrowHorizontal = Control.GrowDirection.Begin;
@@ -197,6 +204,8 @@ public partial class Hud : CanvasLayer
                        + (_screen.RevealAll ? (_screen.InBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
         _reportPanel.Visible = _screen.Report != null;
         if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
+        _replayPanel.Visible = _screen.Replay != null;
+        if (_screen.Replay != null) _replayPanel.Open(_screen.Replay);
         _pause.Modulate = _screen.Paused ? Ui.Rival : Colors.White;
         _pauseOnContact.Modulate = _screen.PauseOnContact ? Ui.Player : new Color(1, 1, 1, 0.6f);
         _silence.Visible = sim.World.Light.On;
