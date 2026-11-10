@@ -70,7 +70,10 @@ public sealed record StopFleetCommand(int FleetId) : GameCommand
         if (FlightPlanner.BrakeToStop(world, fleet) is Flight brake)
         {
             fleet.Flight = brake;
-            sim.Log.Info("fleet", $"{fleet.Name} brakes to a stop", new { fleetId = fleet.Id, Source });
+            var full = brake.DeltaV >= fleet.Velocity.Length - 1e-6;
+            if (full) sim.Log.Info("fleet", $"{fleet.Name} brakes to a stop", new { fleetId = fleet.Id, Source });
+            else sim.Log.Warn("fleet", $"{fleet.Name} brakes with the fuel it has left and drifts on slower",
+                new { fleetId = fleet.Id, speed = fleet.Velocity.Length, braked = brake.DeltaV, Source });
         }
         else
         {

@@ -45,7 +45,6 @@ public partial class MapView : Node2D
     /// <summary>0..1: how far between the previous tick and the current one to draw.</summary>
     public double Blend = 1;
 
-    private readonly Dictionary<int, double> _prevAngle = new();
     private readonly Dictionary<int, Vec2> _prevShip = new();
     private readonly Dictionary<int, Vec2> _prevFleet = new();
     private readonly Dictionary<int, Vec2> _prevMissile = new();
@@ -57,7 +56,6 @@ public partial class MapView : Node2D
     /// <summary>Call just before each simulation step, to remember where things were.</summary>
     public void BeforeStep()
     {
-        foreach (var b in Sim.World.Bodies) _prevAngle[b.Id] = b.Angle;
         foreach (var s in Sim.World.Ships) _prevShip[s.Id] = s.Position;
         foreach (var f in Sim.World.Fleets) _prevFleet[f.Id] = f.Position;
         _prevMissile.Clear();
@@ -79,7 +77,6 @@ public partial class MapView : Node2D
     /// <summary>Forget the previous tick (after loading, so nothing blends from the old game).</summary>
     public void ResetBlend()
     {
-        _prevAngle.Clear();
         _prevShip.Clear();
         _prevFleet.Clear();
         _shownFacing.Clear();
@@ -114,14 +111,10 @@ public partial class MapView : Node2D
                 _drawn[b.Id] = b.Position;
                 continue;
             }
+            // Bodies move once per game hour in the simulation, but in battle time an hour takes many
+            // steps: draw them where they are at the drawn hour, so they glide instead of jumping.
             var angle = b.Angle;
-            if (_prevAngle.TryGetValue(b.Id, out var prev))
-            {
-                var d = b.Angle - prev;
-                if (d < -Math.PI) d += Math.Tau;
-                if (d > Math.PI) d -= Math.Tau;
-                angle = prev + d * t;
-            }
+            if (b.OrbitPeriodDays > 0) angle += Math.Tau * (DrawHour - w.Tick) / (b.OrbitPeriodDays * 24);
             _drawn[b.Id] = parentPos + new Vec2(Math.Cos(angle), Math.Sin(angle)) * b.OrbitRadius;
         }
         foreach (var s in w.Ships)
