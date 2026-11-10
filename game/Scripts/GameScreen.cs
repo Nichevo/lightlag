@@ -485,6 +485,15 @@ public partial class GameScreen : Node2D
         {
             _lastReportShown = last.Id;
             Report = last;
+            // Keep the result in the News menu: who fought, losses on each side; click to reopen the report.
+            var us = last.For(Side.Player);
+            var them = last.For(Side.Rival);
+            var battle = last;
+            var lost = us.ShipsLost.Count == 0 ? "no ships lost" : $"lost {us.ShipsLost.Count} ({string.Join(", ", us.ShipsLost)})";
+            var sunk = them.ShipsLost.Count == 0 ? "none of theirs destroyed" : $"destroyed {them.ShipsLost.Count} of theirs";
+            _main.AddNews($"Battle over: {string.Join(", ", us.Fleets)} and {string.Join(", ", them.Fleets)}: {lost}, {sunk}. "
+                          + $"Railgun hits {us.RailHits}/{us.RailShots}, missile hits {us.MissileHits}/{us.MissilesFired}",
+                () => Report = battle, keep: true);
         }
     }
 

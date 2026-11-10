@@ -213,8 +213,18 @@ public partial class Main : Node
     {
         _overlay.AddChild(new Toast(text, folderToOpen, onClick));
         if (Sim == null || folderToOpen != null) return;
-        News.Add(new NewsItem(Sim.World.Hour, text, onClick));
-        if (News.Count > 30) News.RemoveAt(0);
+        AddNews(text, onClick);
+    }
+
+    /// <summary>
+    /// Adds a line to the News menu without a pop-up. Ordinary lines drop off after the latest 30;
+    /// kept ones (battle results) stay for the whole game.
+    /// </summary>
+    public void AddNews(string text, Action? onClick = null, bool keep = false)
+    {
+        if (Sim == null) return;
+        News.Add(new NewsItem(Sim.World.Hour, text, onClick, keep));
+        while (News.Count(n => !n.Keep) > 30) News.RemoveAt(News.FindIndex(n => !n.Keep));
     }
 
     /// <summary>The latest messages of this game (the News menu), newest last.</summary>
@@ -483,4 +493,4 @@ public partial class Main : Node
 }
 
 /// <summary>One message in the News menu: when, what, and where clicking it goes (if anywhere).</summary>
-public sealed record NewsItem(double Hour, string Text, Action? Click);
+public sealed record NewsItem(double Hour, string Text, Action? Click, bool Keep = false);
