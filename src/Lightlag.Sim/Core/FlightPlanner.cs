@@ -18,7 +18,8 @@ public sealed record FlightRequest(
 /// point, or brakes to a stop there (and can wait). SpeedFraction sets the pace of the stretch that
 /// ends here (null: the route's speed); a slow stretch is a long cold coast.
 /// </summary>
-public sealed record Waypoint(Vec2 Point, bool Stop = false, double? SpeedFraction = null, double WaitHours = 0);
+/// Auto marks a turning point the planner added itself, to steer round a planet, moon or the star.
+public sealed record Waypoint(Vec2 Point, bool Stop = false, double? SpeedFraction = null, double WaitHours = 0, bool Auto = false);
 
 /// <summary>The planner's answer: the flight, what it costs, or why it cannot be flown.</summary>
 public sealed record FlightPlan(bool Ok, string? Problem, Flight? Flight, double DeltaV, double DeltaVLeft)
@@ -42,6 +43,20 @@ public static class FlightPlanner
     private const double MaxSearchHours = 3 * 365.25 * 24;
 
     public static FlightPlan Plan(World w, Fleet fleet, FlightRequest req)
+    {
+        int? from = fleet.Hold == HoldStyle.Orbit && fleet.Velocity.Length <= 1e-9 ? fleet.OrbitBodyId : null;
+        FlightPlan Straight(FlightRequest r)
+        {
+            var p = PlanStraight(w, fleet, r);
+            if (p.Flight != null) p.Flight.FromBodyId = from;
+            return p;
+        }
+        var plan = Straight(req);
+        return Avoidance.Steer(w, fleet, req, plan, Straight);
+    }
+
+    /// <summary>Plans the flight in straight stretches, without looking for planets in the way.</summary>
+    private static FlightPlan PlanStraight(World w, Fleet fleet, FlightRequest req)
     {
         var perf = FleetPerformance.Of(w, fleet);
         if (perf.MaxSpeed <= 0 || perf.Accel <= 0) return FlightPlan.Fail("The fleet has no ships that can fly");

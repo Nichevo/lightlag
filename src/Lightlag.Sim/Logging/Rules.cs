@@ -62,6 +62,9 @@ public sealed class RuleBook
         .Add("sightings-sane", w => w.Sightings.Where(s => !s.Position.IsFinite || !s.Velocity.IsFinite
                 || w.FindFleet(s.FleetId) is Fleet f && f.Side == s.SeenBy)
             .Select(s => $"{s.SeenBy} sighting of fleet {s.FleetId} is broken"))
+        .Add("flights-miss-bodies", w => w.Fleets.Where(f => f.Position.IsFinite && f.InFlight)
+            .SelectMany(f => w.Bodies.Where(b => Vec2.Distance(f.Position, b.Position) < b.Radius && f.Flight?.Launching(w, b, w.Hour) != true)
+                .Select(b => $"fleet {f.Id} {f.Name} is inside {b.Name} at hour {w.Hour:0.0}")))
         .Add("fleets-not-empty", w => w.Fleets.Where(f => f.ShipIds.Count == 0).Select(f => $"fleet {f.Id} {f.Name} has no ships"))
         .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.TryGetValue(s.ClassId, out var c)
                 && !(s.Supplies >= 0 && s.Supplies <= c.Supplies + 1e-6))

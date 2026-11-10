@@ -153,6 +153,32 @@ public sealed class Flight
     public IEnumerable<Waypoint> WaypointsAhead(double hour) =>
         WaypointPlan.Where((_, i) => i >= WaypointHours.Count || WaypointHours[i] > hour);
 
+    /// <summary>The player's own waypoints not reached yet (leaves out the planner's turns round planets).</summary>
+    public IEnumerable<Waypoint> ChosenWaypointsAhead(double hour) => WaypointsAhead(hour).Where(p => !p.Auto);
+
+    /// <summary>
+    /// The body the fleet was orbiting when it left. Flights leave orbit and arrive at one from rest
+    /// (not moving with the planet), so in the first and last LaunchHours the planet itself can sweep
+    /// past the fleet; that is not counted as flying into it.
+    /// </summary>
+    public int? FromBodyId { get; set; }
+    public const double LaunchHours = 3;
+
+    public bool Launching(World w, Body b, double hour)
+    {
+        var system = PlanetOf(w, b.Id);
+        return (FromBodyId is int from && PlanetOf(w, from) == system && hour < DepartHour + LaunchHours)
+            || (TargetBodyId is int to && PlanetOf(w, to) == system && hour > EndHour - LaunchHours);
+    }
+
+    /// <summary>The planet a body belongs to (itself, or a moon's planet); the star is its own.</summary>
+    private static int PlanetOf(World w, int bodyId)
+    {
+        var b = w.FindBody(bodyId);
+        while (b?.ParentId is int pid && w.FindBody(pid) is Body parent && parent.ParentId != null) b = parent;
+        return b?.Id ?? bodyId;
+    }
+
     public double EndHour => Legs.Count > 0 ? Legs[^1].End : ArriveHour;
 
     public Flight Copy()
