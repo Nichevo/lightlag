@@ -428,22 +428,33 @@ public partial class MapView : Node2D
         var heading = (float)(_shownFacing.TryGetValue(f.Id, out var shown) ? shown : f.Facing);
         var apart = ShipsApart;
         var ships = Sim.World.ShipsOf(f).ToList();
-        var drawnShips = apart ? ships : ships.Take(1).ToList();
-        for (var i = 0; i < drawnShips.Count; i++)
+        // Enemy ships show as plain blips until a close look tells their class.
+        var known = f.Side == Side.Player || RevealAll || Sensors.Find(Sim.World, Side.Player, f.Id) is { Classes.Count: > 0 };
+        if (apart)
         {
-            var s = drawnShips[i];
-            var p = apart ? Camera.ToScreen(_drawn.TryGetValue(s.Id, out var sp) ? sp : world) : at;
-            DrawShipIcon(p, s, color, heading);
-            if (apart && (Camera.Scale > 0.05 || f.Id == SelectedId))
-                DrawString(_font, p + new Vector2(12, -8), s.Name, HorizontalAlignment.Left, -1, 12, color);
+            foreach (var s in ships)
+            {
+                var p = Camera.ToScreen(_drawn.TryGetValue(s.Id, out var sp) ? sp : world);
+                DrawShipOrBlip(p, s, color, heading, known);
+                if (Camera.Scale > 0.05 || f.Id == SelectedId)
+                    DrawString(_font, p + new Vector2(12, -8), known ? s.Name : "unknown ship", HorizontalAlignment.Left, -1, 12, color);
+            }
+        }
+        else
+        {
+            // Zoomed out: a tight cluster with one mark per ship (up to eight), so the count shows at a glance.
+            var count = Math.Min(ships.Count, 8);
+            for (var i = count - 1; i >= 0; i--)
+                DrawShipOrBlip(at + ClusterOffset(i, heading), ships[i], color, heading, known);
+            if (ships.Count > count)
+                DrawString(_font, at + new Vector2(-4, 26), $"+{ships.Count - count}", HorizontalAlignment.Left, -1, 11, color);
         }
         if (apart && SpeedTag(f) is { Length: > 0 } tag)
             DrawString(_font, at + new Vector2(12, 22), $"{f.Name}{tag}", HorizontalAlignment.Left, -1, 12, color);
         if (!apart)
         {
             // Zoomed out: the fleet is one icon with a count.
-            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count})" : $"{f.Name}: {ships.FirstOrDefault()?.Name}") + SpeedTag(f);
-            if (ships.Count > 1) DrawString(_font, at + new Vector2(-4, 16), ships.Count.ToString(), HorizontalAlignment.Left, -1, 11, color);
+            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count} ships)" : $"{f.Name}: {(known ? ships.FirstOrDefault()?.Name : "1 ship")}") + SpeedTag(f);
             if (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
         }
@@ -557,29 +568,30 @@ public partial class MapView : Node2D
         var them = Camera.ToScreen(enemyWorld);
         var scale = (float)Camera.Scale;
 
-        void Ring(Vector2 at, double mm, Color color, string label, bool dashed)
+        var view = new Rect2(Vector2.Zero, GetViewportRect().Size);
+        foreach (var ring in EngagementRings.For(e))
         {
-            var r = (float)mm * scale;
-            if (r < 6 || r > 20000) return;
-            if (dashed)
+            var at = ring.AroundMine ? me : them;
+            var r = (float)ring.Mm * scale;
+            if (EngagementRings.Status(at, r, view) != RingStatus.Shown) continue;
+            if (ring.Dashed)
             {
-                const int n = 72;
+                var n = Math.Clamp((int)(r / 6), 48, 720);
                 for (var i = 0; i < n; i += 2)
                 {
                     var a0 = Mathf.Tau * i / n;
                     var a1 = Mathf.Tau * (i + 1) / n;
-                    DrawLine(at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * r, at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * r, color, 1);
+                    DrawLine(at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * r, at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * r, new Color(ring.Color, 0.75f), ring.Width);
                 }
             }
-            else DrawArc(at, r, 0, Mathf.Tau, 96, color, 1.2f, true);
-            DrawString(_font, at + new Vector2(4, -r - 4), label, HorizontalAlignment.Left, -1, 11, color);
+            else
+            {
+                DrawArc(at, r, 0, Mathf.Tau, Math.Clamp((int)(r / 3), 96, 1024), new Color(ring.Color, 0.85f), ring.Width, true);
+                if (ring.Color == EngagementRings.Railguns) DrawCircle(at, r, new Color(ring.Color, 0.06f)); // where your guns bite
+            }
+            if (EngagementRings.LabelPoint(at, r, view) is Vector2 lp)
+                DrawString(_font, lp + new Vector2(4, -4), $"{ring.Label} {Format.Distance(ring.Mm)}", HorizontalAlignment.Left, -1, 12, ring.Color.Lightened(0.15f));
         }
-
-        Ring(me, c.Railgun.RangeMm, new Color(Ui.Player, 0.6f), e.WeHaveRailguns ? "your railguns" : "railgun range", false);
-        Ring(me, c.PointDefence.RangeMm, new Color(Ui.Player, 0.35f), "your point defence", false);
-        if (e.WeHaveMissiles) Ring(me, c.Missile.LaunchRangeMm, new Color(Ui.Player, 0.3f), "your missile range", false);
-        Ring(them, c.Railgun.RangeMm, new Color(Ui.Rival, 0.55f), "their railguns", true);
-        Ring(them, c.Missile.LaunchRangeMm, new Color(Ui.Rival, 0.3f), "their missiles, if they carry any", true);
 
         // Courses ahead: both fleets, as dots, out to the look-ahead.
         const int steps = 40;
@@ -694,13 +706,17 @@ public partial class MapView : Node2D
             var ago = Format.Hours(Math.Max(0, DrawHour - s.Hour));
             // Where it should be now if it kept its course: a hollow marker that moves along the track.
             var moving = at.DistanceTo(guess) > 4;
+            // One faint pip per ship seen, under the marker.
+            var mark = moving ? guess : at;
+            for (var i = 0; i < Math.Min(s.Ships, 8); i++)
+                DrawCircle(mark + new Vector2(-3.5f * (Math.Min(s.Ships, 8) - 1) + 7 * i, 14), 2.2f, new Color(Ui.Rival, 0.6f));
             if (moving)
             {
                 DrawDiamond(guess, 7, new Color(Ui.Rival, 0.75f), false);
-                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships}): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(Ui.Rival, 0.75f));
+                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(Ui.Rival, 0.75f));
             }
             else if (s.FleetId == SelectedId || s.FleetId == HoverId || Camera.Scale > 0.01)
-                DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships}): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
+                DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
             if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
         }
     }
@@ -715,6 +731,22 @@ public partial class MapView : Node2D
 
     private bool InContact(Fleet f) =>
         Sim.World.Fleets.Any(o => o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= GameData.Combat.ContactRangeMm);
+
+    /// <summary>Where the i-th ship of a zoomed-out fleet sits: the lead at the centre, the rest in a small V behind it.</summary>
+    private static Vector2 ClusterOffset(int i, float heading)
+    {
+        if (i == 0) return Vector2.Zero;
+        var row = (i + 1) / 2;
+        var side = i % 2 == 1 ? -1 : 1;
+        return new Vector2(-9 * row, side * 7 * row).Rotated(heading);
+    }
+
+    private void DrawShipOrBlip(Vector2 at, Ship s, Color color, float heading, bool known)
+    {
+        if (known) { DrawShipIcon(at, s, color, heading); return; }
+        DrawCircle(at, 4, color);
+        DrawArc(at, 4, 0, Mathf.Tau, 12, color.Darkened(0.5f), 1, true);
+    }
 
     private void DrawShipIcon(Vector2 at, Ship s, Color color, float heading)
     {

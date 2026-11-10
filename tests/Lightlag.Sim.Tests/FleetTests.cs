@@ -480,7 +480,8 @@ public class FleetTests
     [Fact]
     public void A_flying_route_can_be_reopened_with_the_waypoints_still_ahead()
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup());
+        // Holding, so the rival (in sight thanks to the sandbox's known track) does not pull it into a fight.
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup(PlayerStance: Stance.Hold));
         var fleet = sim.World.Fleets.First(f => f.Side == Side.Player);
         var o = fleet.Position;
         var first = o + new Vec2(40, -30);

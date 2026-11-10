@@ -21,6 +21,9 @@ public partial class EngagementPanel : Control
     private EngagementTimeline _timeline = null!;
     private VBoxContainer _right = null!;
     private ScrollContainer _rightScroll = null!;
+    private HBoxContainer _tabs = null!;
+    private string _tabsKey = "";
+    private VBoxContainer _legend = null!;
     private PanelContainer _headPanel = null!, _rightPanel = null!, _leftPanel = null!, _bottomPanel = null!;
 
     public EngagementPanel() : this(null!) { }
@@ -39,7 +42,13 @@ public partial class EngagementPanel : Control
         _header.CustomMinimumSize = new Vector2(760, 0);
         head.AddChild(_header);
         head.AddChild(Ui.SmallButton("Close (V)", () => _screen.CloseEngagement(), "Back to the system map"));
-        _headPanel = Ui.Panel(head, 10);
+        var headBox = new VBoxContainer();
+        headBox.AddThemeConstantOverride("separation", 6);
+        headBox.AddChild(head);
+        _tabs = new HBoxContainer();
+        _tabs.AddThemeConstantOverride("separation", 4);
+        headBox.AddChild(_tabs);
+        _headPanel = Ui.Panel(headBox, 10);
         AddChild(_headPanel);
 
         // Right: approach choices and defences.
@@ -88,12 +97,18 @@ public partial class EngagementPanel : Control
         _ships = Ui.Label("", 13, Ui.Text);
         _ships.CustomMinimumSize = new Vector2(300, 0);
         _ships.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        _leftPanel = Ui.Panel(_ships, 12);
+        var left = new VBoxContainer();
+        left.AddThemeConstantOverride("separation", 4);
+        left.AddChild(_ships);
+        _legend = new VBoxContainer();
+        _legend.AddThemeConstantOverride("separation", 2);
+        left.AddChild(_legend);
+        _leftPanel = Ui.Panel(left, 12);
         _leftPanel.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(_leftPanel);
 
         // Bottom: the timeline.
-        _timeline = new EngagementTimeline { CustomMinimumSize = new Vector2(900, 150) };
+        _timeline = new EngagementTimeline { CustomMinimumSize = new Vector2(900, 170) };
         _bottomPanel = Ui.Panel(_timeline, 10);
         _bottomPanel.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(_bottomPanel);
@@ -115,7 +130,7 @@ public partial class EngagementPanel : Control
         _rightPanel.Position = new Vector2(size.X - _rightPanel.Size.X - 16, top);
         _leftPanel.Position = new Vector2(16, top);
         var timelineW = Mathf.Clamp(size.X - _rightPanel.Size.X - 64, 500, 1100);
-        _timeline.CustomMinimumSize = new Vector2(timelineW, 150);
+        _timeline.CustomMinimumSize = new Vector2(timelineW, 170);
         _bottomPanel.Size = _bottomPanel.GetCombinedMinimumSize();
         _bottomPanel.Position = new Vector2(16, size.Y - _bottomPanel.Size.Y - 60);
     }
@@ -129,6 +144,67 @@ public partial class EngagementPanel : Control
         row.AddChild(l);
         foreach (var b in buttons) row.AddChild(b);
         return row;
+    }
+
+    private static string Carries(EngagementInfo e)
+    {
+        var parts = new List<string>();
+        if (e.TheyHaveRailguns == true) parts.Add("railguns");
+        if (e.TheyHaveMissiles == true) parts.Add("missiles");
+        parts.Add("point defence");
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>One button per engagement you could look at; the one on screen is lit. Tab steps through them.</summary>
+    private void RefreshTabs(EngagementInfo e)
+    {
+        var list = _screen.Engagements.Take(8).ToList();
+        var key = string.Join(";", list.Select(p => $"{p.Mine}:{p.Enemy}")) + $"|{e.Mine.Id}:{e.EnemyId}";
+        if (key != _tabsKey)
+        {
+            _tabsKey = key;
+            foreach (var c in _tabs.GetChildren()) c.QueueFree();
+            if (list.Count > 1)
+            {
+                _tabs.AddChild(Ui.Label("Engagements (Tab):", 13, Ui.Dim));
+                foreach (var p in list)
+                {
+                    var mine = p.Mine;
+                    var enemy = p.Enemy;
+                    var b = Ui.SmallButton($"{p.MineName} v {p.EnemyName}", () => _screen.OpenEngagement(mine, enemy),
+                        $"{p.MineName} and {p.EnemyName}, {Km(p.Gap)} apart" + (p.InSight ? "" : " (not in sight)"));
+                    b.AddThemeFontSizeOverride("font_size", 13);
+                    b.Modulate = p.Mine == e.Mine.Id && p.Enemy == e.EnemyId ? Ui.Player : new Color(1, 1, 1, p.InSight ? 0.85f : 0.6f);
+                    _tabs.AddChild(b);
+                }
+            }
+        }
+        _tabs.Visible = list.Count > 1;
+    }
+
+    /// <summary>What each ring on the map is, and whether it is on screen at this zoom.</summary>
+    private void RefreshLegend(EngagementInfo e)
+    {
+        foreach (var c in _legend.GetChildren()) c.QueueFree();
+        _legend.AddChild(Ui.Label("Rings on the map", 13, Ui.Text));
+        var cam = _screen.Camera;
+        foreach (var ring in EngagementRings.For(e))
+        {
+            var at = cam.ToScreen(ring.AroundMine ? e.Mine.Position : e.EnemyAt);
+            var r = (float)(ring.Mm * cam.Scale);
+            var view = new Rect2(Vector2.Zero, GetViewportRect().Size);
+            var where = EngagementRings.Status(at, r, view) switch
+            {
+                RingStatus.TooSmall => " (too small: zoom in)",
+                RingStatus.Outside => " (off screen: zoom out)",
+                _ => "",
+            };
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 6);
+            row.AddChild(new ColorRect { Color = ring.Color, CustomMinimumSize = new Vector2(14, 3), SizeFlagsVertical = SizeFlags.ShrinkCenter });
+            row.AddChild(Ui.Label($"{ring.Label} {Km(ring.Mm)}{(ring.Dashed ? " (dashed)" : "")}{where}", 12, where == "" ? ring.Color.Lightened(0.2f) : Ui.Dim));
+            _legend.AddChild(row);
+        }
     }
 
     private void SetDodge(DodgeMode mode)
@@ -156,13 +232,14 @@ public partial class EngagementPanel : Control
     {
         var w = sim.World;
         var f = e.Mine;
-        var seen = e.InSight ? "in sight" : $"out of sight, last seen {When(e.SeenHoursAgo)} ago (predicted)";
+        var seen = e.InSight ? "in sight" : $"not in sight since {When(e.SeenHoursAgo)} ago: the marker is where they should be if they kept going";
         var how = e.Closing > 1e-3 ? $"closing at {Format.Speed(e.Closing)}" : e.Closing < -1e-3 ? $"pulling apart at {Format.Speed(-e.Closing)}" : "holding distance";
         var pass = e.ClosestInHours < 1e-3
             ? "they are as close as they will get"
             : $"closest pass in {When(e.ClosestInHours)} at {Km(e.ClosestGap)}";
         _header.Text = $"ENGAGEMENT: {f.Name} and {e.EnemyName} ({e.EnemyShips} ships, {seen})\n"
                        + $"{Km(e.Gap)} apart, {how}; {pass}, if neither changes course.";
+        RefreshTabs(e);
 
         // Approach options.
         if (_optionButtons.Count != e.Options.Count || _optionButtons.Select(o => o.Key).Where((k, i) => k != e.Options[i].Key).Any())
@@ -227,9 +304,32 @@ public partial class EngagementPanel : Control
         }
         shipLines.Add("");
         shipLines.Add($"{e.EnemyName}: {e.EnemyShips} ships");
+        shipLines.Add(e.EnemyClasses is string kinds
+            ? $"  {kinds}" + (e.ClassesSeenHoursAgo > 1 ? $" (on a close look {When(e.ClassesSeenHoursAgo)} ago)" : "")
+            : $"  types unknown: come within {Km(Sensors.IdentifyRange(w, Lightlag.Sim.Core.Side.Player))} to tell");
+        if (e.TheyHaveRailguns != null || e.TheyHaveMissiles != null)
+            shipLines.Add($"  carry: {Carries(e)}");
         shipLines.Add($"  moving at {Format.Speed(e.EnemyVelocity.Length)}" + (e.InSight ? "" : " when last seen"));
         shipLines.Add($"  this fleet's top speed: {Format.Speed(e.OurTopSpeed)}");
+        shipLines.Add("");
+        shipLines.Add("Spotting");
+        shipLines.Add($"  You see them within {Km(e.SpotCold)} coasting cold, {Km(e.SpotWarm)} with warm engines, {Km(e.SpotBurn)} burning.");
+        if (e.Cued)
+            shipLines.Add($"  That is with your sensors searching their predicted track: if they changed course, only {Km(e.SpotColdUncued)} cold.");
+        if (!e.InSight)
+            shipLines.Add(e.SpotWindow is TimeWindow sw
+                ? $"  If they keep coasting you spot them in {When(sw.From)}."
+                : $"  They are {Km(e.Gap)} away: too far to spot while they coast cold.");
+        var us = e.OurState switch
+        {
+            SignatureState.Burn => "your engines are burning",
+            SignatureState.Warm => "your engines are still warm",
+            SignatureState.Orbit => "you are holding orbit",
+            _ => "you are coasting cold",
+        };
+        shipLines.Add($"  They see you from at least {Km(e.TheySeeUsAt)}: {us}" + (e.Gap <= e.TheySeeUsAt ? ", so expect they can see you now." : "."));
         _ships.Text = string.Join("\n", shipLines);
+        RefreshLegend(e);
 
         _timeline.Info = e;
         _timeline.QueueRedraw();
@@ -259,6 +359,65 @@ public partial class EngagementPanel : Control
     }
 }
 
+public enum RingStatus { Shown, TooSmall, Outside }
+
+/// <summary>The rings the engagement screen draws: each side's weapon reach and how far you can spot them.</summary>
+public static class EngagementRings
+{
+    public sealed record Ring(string Label, double Mm, bool AroundMine, Color Color, bool Dashed, float Width);
+
+    public static readonly Color Railguns = new("3fd0ff");
+    public static readonly Color Missiles = new("b58cff");
+    public static readonly Color PointDefence = new("5fd6b0");
+    public static readonly Color Spotting = new(0.62f, 0.92f, 0.62f);
+    public static readonly Color TheirRailguns = new("ffb347");
+    public static readonly Color TheirMissiles = new("ff7a59");
+
+    public static List<Ring> For(EngagementInfo e)
+    {
+        var c = GameData.Combat;
+        var list = new List<Ring>();
+        if (e.WeHaveRailguns) list.Add(new Ring("Your railguns", c.Railgun.RangeMm, true, Railguns, false, 2.5f));
+        if (e.WeHaveMissiles) list.Add(new Ring("Your missile launch", c.Missile.LaunchRangeMm, true, Missiles, false, 2f));
+        list.Add(new Ring("Your point defence", c.PointDefence.RangeMm, true, PointDefence, false, 1.5f));
+        list.Add(new Ring(e.Cued ? "You spot them coasting cold, on their track" : "You spot them coasting cold", e.SpotCold, true, Spotting, true, 1.5f));
+        if (e.TheyHaveRailguns != false)
+            list.Add(new Ring(e.TheyHaveRailguns == true ? "Their railguns" : "Their railguns, if they carry any", c.Railgun.RangeMm, false, TheirRailguns, true, 2f));
+        if (e.TheyHaveMissiles != false)
+            list.Add(new Ring(e.TheyHaveMissiles == true ? "Their missile launch" : "Their missile launch, if they carry any", c.Missile.LaunchRangeMm, false, TheirMissiles, true, 1.5f));
+        return list;
+    }
+
+    /// <summary>Whether a ring of this screen radius shows: big enough, and crossing the view rather than wholly outside or around it.</summary>
+    public static RingStatus Status(Vector2 at, float r, Rect2 view)
+    {
+        if (r < 6) return RingStatus.TooSmall;
+        // Nearest and farthest points of the view from the centre.
+        var nx = Mathf.Clamp(at.X, view.Position.X, view.End.X);
+        var ny = Mathf.Clamp(at.Y, view.Position.Y, view.End.Y);
+        var near = at.DistanceTo(new Vector2(nx, ny));
+        var fx = Mathf.Max(Mathf.Abs(at.X - view.Position.X), Mathf.Abs(at.X - view.End.X));
+        var fy = Mathf.Max(Mathf.Abs(at.Y - view.Position.Y), Mathf.Abs(at.Y - view.End.Y));
+        var far = Mathf.Sqrt(fx * fx + fy * fy);
+        return r < near || r > far ? RingStatus.Outside : RingStatus.Shown;
+    }
+
+    /// <summary>A point on the ring that is on screen, for its label (top first, then round the ring), or null.</summary>
+    public static Vector2? LabelPoint(Vector2 at, float r, Rect2 view)
+    {
+        var inner = view.Grow(-30);
+        for (var i = 0; i < 72; i++)
+        {
+            // -90 degrees (top), then alternating either side of it.
+            var step = (i + 1) / 2 * (i % 2 == 0 ? 1 : -1);
+            var a = -Mathf.Pi / 2 + step * Mathf.Tau / 72;
+            var p = at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+            if (inner.HasPoint(p)) return p;
+        }
+        return null;
+    }
+}
+
 /// <summary>When each side's weapons can reach over the next while, and when missiles land.</summary>
 public partial class EngagementTimeline : Control
 {
@@ -275,6 +434,7 @@ public partial class EngagementTimeline : Control
     {
         if (Info is not EngagementInfo e) return;
         const float labelW = 150, top = 22, row = 20;
+        const int Rows = 6;
         var width = Size.X - labelW - 10;
         var span = e.LookAheadHours;
         float X(double hours) => labelW + (float)(Math.Clamp(hours / span, 0, 1) * width);
@@ -285,13 +445,13 @@ public partial class EngagementTimeline : Control
         {
             var t = span * i / 4;
             var x = X(t);
-            DrawLine(new Vector2(x, top - 2), new Vector2(x, top + row * 5 + 2), new Color(Ui.Dim, 0.25f), 1);
-            DrawString(_font, new Vector2(x - 20, top + row * 5 + 16), i == 0 ? "now" : $"+{When(t)}", HorizontalAlignment.Left, -1, 11, Ui.Dim);
+            DrawLine(new Vector2(x, top - 2), new Vector2(x, top + row * Rows + 2), new Color(Ui.Dim, 0.25f), 1);
+            DrawString(_font, new Vector2(x - 20, top + row * Rows + 16), i == 0 ? "now" : $"+{When(t)}", HorizontalAlignment.Left, -1, 11, Ui.Dim);
         }
         if (e.ClosestInHours > 1e-3)
         {
             var cx = X(e.ClosestInHours);
-            DrawDashedLine(new Vector2(cx, top - 4), new Vector2(cx, top + row * 5 + 2), new Color(1f, 0.83f, 0.47f), 1.5f, 4);
+            DrawDashedLine(new Vector2(cx, top - 4), new Vector2(cx, top + row * Rows + 2), new Color(1f, 0.83f, 0.47f), 1.5f, 4);
             DrawString(_font, new Vector2(cx + 4, top - 6), "closest", HorizontalAlignment.Left, -1, 11, new Color(1f, 0.83f, 0.47f));
         }
 
@@ -316,8 +476,16 @@ public partial class EngagementTimeline : Control
 
         Row(0, "Your railguns", e.WeHaveRailguns ? e.OurRailguns : null, Ui.Player, e.WeHaveRailguns ? "never in reach" : "none working");
         Row(1, "Your missiles", e.WeHaveMissiles ? e.OurMissiles : null, Ui.Player, e.WeHaveMissiles ? "never in launch range" : "none left");
-        Row(2, "Their railguns", e.TheirRailguns, Ui.Rival, "never in reach");
-        Row(3, "Their missiles", e.TheirMissiles, Ui.Rival, "never in launch range (if they carry any)");
+        Row(2, "Their railguns", e.TheirRailguns, Ui.Rival, e.TheyHaveRailguns == false ? "they carry none" : "never in reach");
+        Row(3, "Their missiles", e.TheirMissiles, Ui.Rival, e.TheyHaveMissiles == false ? "they carry none"
+            : e.TheyHaveMissiles == true ? "never in launch range" : "never in launch range (if they carry any)");
+        var spotColor = new Color(0.62f, 0.92f, 0.62f);
+        if (e.InSight)
+        {
+            DrawString(_font, new Vector2(0, top + row * 5 + 13), "Spotting them", HorizontalAlignment.Left, -1, 12, Ui.Text);
+            DrawString(_font, new Vector2(labelW, top + row * 5 + 13), "in sight now", HorizontalAlignment.Left, -1, 11, spotColor);
+        }
+        else Row(5, "Spotting them", e.SpotWindow, spotColor, $"not before closest pass, if they coast cold (seen within {Format.Distance(e.SpotCold)})");
 
         // Missiles in flight: a mark at each salvo's impact time.
         var y4 = top + row * 4;

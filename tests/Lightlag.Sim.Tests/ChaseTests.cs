@@ -72,6 +72,17 @@ public class ChaseTests
         sim.Issue(new PlanFlightCommand(mine.Id, Chase(theirs, ChaseMode.Overtake, 0.5)));
         sim.StepMany(1);
         Assert.Equal(ChaseMode.Overtake, mine.Flight!.Chase);
+        // The planned course passes beside them (on their seen track), not through them.
+        var f = mine.Flight!;
+        var now = sim.World.Hour;
+        var closest = double.MaxValue;
+        for (var t = now; t <= f.ArriveHour; t += 0.002)
+        {
+            var leg = f.Legs.First(l => t <= l.End + 1e-9);
+            var them = theirs.Position + theirs.Velocity * (t - now);
+            closest = Math.Min(closest, Vec2.Distance(leg.PositionAt(t), them));
+        }
+        Assert.InRange(closest, FlightPlanner.OvertakePassMm * 0.8, FlightPlanner.OvertakePassMm * 1.2);
         sim.StepMany(48);
         Assert.Null(mine.Chase);
     }

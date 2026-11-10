@@ -69,7 +69,8 @@ public sealed record SpreadData(int SlugsPerGun, double Accuracy, double Cooldow
 
 /// <summary>Detection numbers (passive sensors). See ship-classes.json for what each means.</summary>
 public sealed record SensorData(double Cold, double Orbit, double Burn, double ExtraShip, double PlanetSensorMm, double ForgetAfterHours,
-    double Warm = 1, double WarmHours = 0);
+    double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
+    double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0);
 
 public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors);
 

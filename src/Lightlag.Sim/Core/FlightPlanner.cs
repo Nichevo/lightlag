@@ -451,10 +451,16 @@ public static class FlightPlanner
             ChaseMode.MissileRange => c.Missile.LaunchRangeMm * 0.8,
             ChaseMode.ShadowGuns => c.Railgun.RangeMm * 1.25,
             ChaseMode.ShadowMissiles => c.Missile.LaunchRangeMm * 1.1,
-            ChaseMode.Overtake => 0,
+            ChaseMode.Overtake => OvertakePassMm,
             _ => null,
         };
     }
+
+    /// <summary>
+    /// How wide of the enemy an overtake passes: off to one side, never through them (ships at these
+    /// speeds would not survive a collision), but still inside railgun range so the guns get a go.
+    /// </summary>
+    public static double OvertakePassMm => GameData.Combat.Railgun.RangeMm * 0.5;
 
     /// <summary>A speed for messages, in km/s like the screens show.</summary>
     public static string Kms(double mmPerHour) => $"{mmPerHour / 3.6:#,0} km/s";
@@ -473,7 +479,7 @@ public static class FlightPlanner
     /// <summary>
     /// Plans a chase. It is worked out as if the enemy stood still (relative to it, on its last seen
     /// track), then turned back into a real flight: the fleet ends at the chosen distance moving with
-    /// the enemy, or (overtake) passes through it at the chosen extra speed. Fuel is the same either way.
+    /// the enemy, or (overtake) passes beside it, OvertakePassMm off, at the chosen extra speed. Fuel is the same either way.
     /// Fails, saying why, when the fleet is too slow or short of fuel.
     /// </summary>
     public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
@@ -509,7 +515,10 @@ public static class FlightPlanner
             return FlightPlan.Fail($"Cannot keep pace: {Slow()}", perf.DeltaVLeft);
         var away = r.Normalized();
         if (away == Vec2.Zero) away = new Vec2(1, 0);
-        var aim = mode == ChaseMode.Overtake ? Vec2.Zero : away * standoff;
+        // Overtake aims beside them, on the side the fleet is already drifting towards.
+        var beside = new Vec2(-away.Y, away.X);
+        if (Vec2.Dot(beside, u) < 0) beside = beside * -1;
+        var aim = mode == ChaseMode.Overtake ? beside * standoff : away * standoff;
 
         // Try the fastest closing speed that keeps the real speed within the fleet's limit.
         var closing = top + theirSpeed;

@@ -248,6 +248,20 @@ public partial class GameScreen : Node2D
         }
     }
 
+    /// <summary>Every engagement you could look at now, nearest first (refreshed with the screen).</summary>
+    public List<Engagement_.Pair> Engagements { get; private set; } = new();
+
+    /// <summary>Go to the next (or previous) engagement in the list, keeping the zoom.</summary>
+    public void CycleEngagement(int step)
+    {
+        Engagements = Engagement_.All(Sim.World, Side.Player);
+        if (Engagements.Count == 0) { _main.Toast("No other engagements: no enemy fleets near your fleets"); return; }
+        var at = Engagement is (int m, int e) ? Engagements.FindIndex(p => p.Mine == m && p.Enemy == e) : -1;
+        if (at < 0 && step < 0) at = 0;
+        var next = Engagements[((at + step) % Engagements.Count + Engagements.Count) % Engagements.Count];
+        OpenEngagement(next.Mine, next.Enemy);
+    }
+
     public void CloseEngagement()
     {
         Engagement = null;
@@ -274,7 +288,11 @@ public partial class GameScreen : Node2D
             _map.Engagement = null;
             return;
         }
-        _main.RunGuarded("engagement", () => EngagementNow = Engagement_.Of(w, mine, enemyId));
+        _main.RunGuarded("engagement", () =>
+        {
+            EngagementNow = Engagement_.Of(w, mine, enemyId);
+            Engagements = Engagement_.All(w, Side.Player);
+        });
         _map.Engagement = EngagementNow;
     }
 
@@ -900,6 +918,7 @@ public partial class GameScreen : Node2D
             case Key.M: OrderMerge(); break;
             case Key.V: ToggleEngagement(); break;
             case Key.Escape when Engagement != null: CloseEngagement(); break;
+            case Key.Tab when Engagement != null: CycleEngagement(key.ShiftPressed ? -1 : 1); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
