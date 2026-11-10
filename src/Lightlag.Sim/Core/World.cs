@@ -47,6 +47,9 @@ public sealed class World
     /// <summary>Ships being built and upgrades being researched, in queue order (see Economy).</summary>
     public List<WorkOrder> Orders { get; set; } = new();
 
+    /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
+    public List<Station> Stations { get; set; } = new();
+
     /// <summary>How many ships of each class each side has had, so new ships get fresh numbers ("player:gun-frigate").</summary>
     public Dictionary<string, int> ShipNumbers { get; set; } = new();
 

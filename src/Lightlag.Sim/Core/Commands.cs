@@ -22,6 +22,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(GatherFleetsCommand), "gatherFleets")]
 [JsonDerivedType(typeof(QueueOrderCommand), "queueOrder")]
 [JsonDerivedType(typeof(CancelOrderCommand), "cancelOrder")]
+[JsonDerivedType(typeof(BuildStationCommand), "buildStation")]
 [JsonDerivedType(typeof(SetOrderFleetCommand), "setOrderFleet")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]

@@ -63,7 +63,8 @@ public static class Light
     public static double MmPerHour(World w) => Data.SpeedKmPerSecond * 3.6 * Math.Max(1e-6, w.Light.SpeedFactor);
 
     /// <summary>The command range in Mm (fleets this close to the flagship have no lag).</summary>
-    public static double CommandRangeMm(World w, Side side) => Data.CommandRangeAu * Physics.MmPerAu;
+    public static double CommandRangeMm(World w, Side side) =>
+        Data.CommandRangeAu * Physics.MmPerAu * Tech.Factor(w, side, Tech.CommandUplink) * Tech.Factor(w, side, Tech.TightBeam);
 
     /// <summary>The side's flagship, if it still has one.</summary>
     public static Ship? Flagship(World w, Side side) =>
@@ -76,24 +77,51 @@ public static class Light
         return Economy.ShipyardOf(w, side)?.Position ?? Vec2.Zero;
     }
 
-    /// <summary>Hours for a signal between the side's flagship and this point (0 within command range or with lag off).</summary>
+    /// <summary>
+    /// Hours for a signal between the side's flagship and this point (0 within command range or with lag
+    /// off). When a body blocks the straight line and a relay gets round it, the time by the relay.
+    /// </summary>
     public static double DelayHours(World w, Side side, Vec2 at)
     {
         if (!w.Light.On || !at.IsFinite) return 0;
-        var d = Vec2.Distance(Seat(w, side), at);
-        return d <= CommandRangeMm(w, side) ? 0 : d / MmPerHour(w);
+        var seat = Seat(w, side);
+        var d = Vec2.Distance(seat, at);
+        if (d <= CommandRangeMm(w, side)) return 0;
+        if (!Direct(w, side, seat, at) && ByRelay(w, side, seat, at) is double relayed) return relayed;
+        return d / MmPerHour(w);
     }
 
     /// <summary>
-    /// Can a signal pass straight between the side's flagship and this point? Planets, moons and the star
-    /// block it; the body the flagship itself orbits does not (it is always just round the corner).
+    /// Can a signal get between the side's flagship and this point? Planets, moons and the star block the
+    /// straight line (the body the flagship itself orbits does not: it is always just round the corner);
+    /// a relay of the side's that both ends can see gets round them.
     /// </summary>
     public static bool SignalClear(World w, Side side, Vec2 at)
     {
         if (!w.Light.On) return true;
         var seat = Seat(w, side);
-        var home = w.Bodies.Where(b => Vec2.Distance(b.Position, seat) < b.Radius * 2 + 1).Select(b => (int?)b.Id).FirstOrDefault();
-        return Sensors.LineOfSight(w, seat, at, home);
+        return Direct(w, side, seat, at) || ByRelay(w, side, seat, at) != null;
+    }
+
+    private static int? BodyAt(World w, Vec2 p) =>
+        w.Bodies.Where(b => Vec2.Distance(b.Position, p) < b.Radius * 2 + 1).Select(b => (int?)b.Id).FirstOrDefault();
+
+    private static bool Direct(World w, Side side, Vec2 seat, Vec2 at) => Sensors.LineOfSight(w, seat, at, BodyAt(w, seat));
+
+    /// <summary>The quickest time by one relay that both the flagship and the point can see, if there is one.</summary>
+    private static double? ByRelay(World w, Side side, Vec2 seat, Vec2 at)
+    {
+        double? best = null;
+        var home = BodyAt(w, seat);
+        var hop = Tech.Has(w, side, Tech.TightBeam) ? 0 : GameData.Economy.RelayDelayHours;
+        foreach (var (_, b) in Economy.Stations(w, side, Economy.Relay))
+        {
+            // The relay sits just above its body, on whichever side it needs.
+            if (!Sensors.LineOfSight(w, seat, b.Position, b.Id, home) || !Sensors.LineOfSight(w, b.Position, at, b.Id)) continue;
+            var hours = (Vec2.Distance(seat, b.Position) + Vec2.Distance(b.Position, at)) / MmPerHour(w) + hop;
+            if (best == null || hours < best) best = hours;
+        }
+        return best;
     }
 
     /// <summary>Picks each side's flagship at the start: the first destroyer at home, else the first ship.</summary>

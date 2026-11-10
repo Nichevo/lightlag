@@ -763,6 +763,12 @@ public partial class GameScreen : Node2D
 
     // ---- Fleet orders -----------------------------------------------------------------------
 
+    public void BuildStation(int bodyId, string kind)
+    {
+        if (Economy.CanBuildStation(Sim.World, Side.Player, bodyId, kind) is string problem) { _main.Toast(problem); return; }
+        Sim.Issue(new BuildStationCommand(Side.Player, bodyId, kind));
+    }
+
     public void OrderMission(Mission mission, int? bodyId, int? escortFleetId)
     {
         if (MyFleet is Fleet f) Sim.Issue(new SetMissionCommand(f.Id, mission, bodyId, escortFleetId));

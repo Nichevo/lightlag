@@ -11,7 +11,23 @@ public sealed record ShipyardData(double Armour, double RepairPerDay, double Rai
 public sealed record ResearchData(string Id, string Name, string Effect, double Cost, double Days, double Factor);
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
-    ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0);
+    ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1);
+
+/// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
+public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days);
+
+/// <summary>
+/// A station in orbit of a body: a relay passes signals round planets that block them; a sensor
+/// station lets the body see as far as the home planet. It works from ReadyHour, and is lost with the body.
+/// </summary>
+public sealed class Station
+{
+    public int Id { get; set; }
+    public Side Side { get; set; }
+    public string Kind { get; set; } = "";
+    public int BodyId { get; set; }
+    public double ReadyHour { get; set; }
+}
 
 // ---- State --------------------------------------------------------------------------------
 
@@ -64,6 +80,11 @@ public static class Tech
     public const string QuietDrives = "quiet-drives";
     public const string FastRailguns = "fast-railguns";
     public const string Automation = "automation";
+    public const string CommandUplink = "command-uplink";
+    public const string TightBeam = "tight-beam";
+
+    /// <summary>Research that only matters with light lag on.</summary>
+    public static bool LagOnly(string id) => id is CommandUplink or TightBeam;
 
     public static bool Has(World w, Side side, string id) => w.Sides[(int)side].Researched.Contains(id);
 
@@ -129,6 +150,45 @@ public static class Economy
         b.ShipyardArmour = GameData.Economy.Shipyard.Armour;
     }
 
+    public const string Relay = "relay";
+    public const string SensorStation = "sensor";
+
+    public static StationData? StationKind(string id) => E.Stations?.Find(x => x.Id == id);
+
+    /// <summary>The side's working stations of this kind (built, and on a body it still holds).</summary>
+    public static IEnumerable<(Station Station, Body Body)> Stations(World w, Side side, string kind)
+    {
+        foreach (var st in w.Stations)
+            if (st.Side == side && st.Kind == kind && w.Hour >= st.ReadyHour && w.FindBody(st.BodyId) is Body b && b.Owner == side)
+                yield return (st, b);
+    }
+
+    public static bool HasStation(World w, Side side, int bodyId, string kind) =>
+        w.Stations.Any(st => st.Side == side && st.Kind == kind && st.BodyId == bodyId);
+
+    /// <summary>Why this station can't be built here now, or null if it can.</summary>
+    public static string? CanBuildStation(World w, Side side, int bodyId, string kind)
+    {
+        if (!w.Loop) return "There is no economy in the battle sandbox";
+        if (w.Winner != null) return "The game is over";
+        if (StationKind(kind) is not StationData data) return $"Unknown station '{kind}'";
+        if (w.FindBody(bodyId) is not Body b || b.Owner != side) return "Only on a body you hold";
+        if (HasStation(w, side, bodyId, kind)) return $"{b.Name} already has a {data.Name.ToLowerInvariant()}";
+        if (Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
+        return null;
+    }
+
+    /// <summary>Stations on bodies the side no longer holds are lost.</summary>
+    private static void LoseStations(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var st in w.Stations.Where(st => w.FindBody(st.BodyId)?.Owner != st.Side).ToList())
+        {
+            w.Stations.Remove(st);
+            sim.Log.Info("economy", $"{st.Side} loses a station", new { side = st.Side.ToString(), st.Kind, st.BodyId });
+        }
+    }
+
     /// <summary>One game hour of the loop. Called at each whole hour.</summary>
     public static void Update(Simulation sim)
     {
@@ -143,6 +203,7 @@ public static class Economy
             Work(sim, side, OrderKind.Research);
         }
         Claims(sim);
+        LoseStations(sim);
         Bombard(sim);
         CheckWin(sim);
     }
@@ -421,6 +482,26 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
         order.HoursLeft = order.TotalHours;
         world.Orders.Add(order);
         sim.Log.Info("economy", $"{Side} queues {Economy.NameOf(order)}", new { side = Side.ToString(), order.Id, Kind, Key, Source });
+    }
+}
+
+/// <summary>Build a station in orbit of a body the side holds: paid now, working after its build time.</summary>
+public sealed record BuildStationCommand(Side Side, int BodyId, string Kind) : GameCommand
+{
+    /// <summary>The order goes to the body where the station is built.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (Economy.CanBuildStation(world, Side, BodyId, Kind) is string problem)
+        {
+            sim.Log.Warn("economy", $"Can't build a station: {problem}", new { side = Side.ToString(), BodyId, Kind, Source });
+            return;
+        }
+        var data = Economy.StationKind(Kind)!;
+        Economy.Of(world, Side).Industry -= data.Cost;
+        world.Stations.Add(new Station { Id = world.NextId++, Side = Side, Kind = Kind, BodyId = BodyId, ReadyHour = world.Hour + data.Days * 24 });
+        sim.Log.Info("economy", $"{Side} builds a {data.Name.ToLowerInvariant()} at {world.FindBody(BodyId)!.Name}", new { side = Side.ToString(), BodyId, Kind, days = data.Days, Source });
     }
 }
 

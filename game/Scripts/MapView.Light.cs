@@ -43,9 +43,28 @@ public partial class MapView
         f.Side == Side.Player ? Live(f) || News(f) != null : Sensors.Sees(Sim.World, Side.Player, f, seat: true);
 
     /// <summary>The command range ring, the flagship mark, news ages and orders on their way.</summary>
+    /// <summary>Your stations: a small tag under the body (relays and sensor stations, and those still being built).</summary>
+    private void DrawStations()
+    {
+        var w = Sim.World;
+        var row = new Dictionary<int, int>();
+        foreach (var st in w.Stations)
+        {
+            if (st.Side != Side.Player || !_drawn.TryGetValue(st.BodyId, out var p) || w.FindBody(st.BodyId) is not Body b) continue;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 100)) continue;
+            row[b.Id] = row.GetValueOrDefault(b.Id) + 1;
+            var name = st.Kind == Economy.Relay ? "relay" : "sensors";
+            var text = w.Hour >= st.ReadyHour ? $"◆ {name}" : $"◇ {name} (building)";
+            var y = (float)Math.Max(8, b.Radius * Camera.Scale) + 12 * row[b.Id] + 6;
+            DrawString(_font, at + new Vector2(-24, y), text, HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
+        }
+    }
+
     private void DrawLag()
     {
         var w = Sim.World;
+        DrawStations();
         if (!w.Light.On) return;
         if (Light.Flagship(w, Side.Player) is Ship flag && _drawn.TryGetValue(flag.Id, out var fp))
         {

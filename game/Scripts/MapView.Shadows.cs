@@ -105,9 +105,8 @@ public partial class MapView
         }
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player))
             if (_drawn.TryGetValue(f.Id, out var p)) Add(p, Sensors.SensorOf(w, f), null);
-        var planetSensor = GameData.Sensors.PlanetSensorMm * Tech.Factor(w, Side.Player, Tech.LongSensors);
         foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player && _drawn.ContainsKey(b.Id)))
-            Add(_drawn[b.Id], planetSensor, b.Id);
+            Add(_drawn[b.Id], Sensors.PlanetSensorOf(w, Side.Player, b), b.Id);
         if (sensors.Count == 0) return;
 
         // Body centres and radii looked up once, not per grid cell.

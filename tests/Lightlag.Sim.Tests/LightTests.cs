@@ -157,4 +157,83 @@ public class LightTests
         Assert.Equal(HoldStyle.Drift, lone.Hold);
         Assert.True(Light.Known(w, Side.Player, lone.Id)!.Hour > before);
     }
+
+    [Fact]
+    public void A_relay_gets_orders_round_a_planet_in_the_way()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var lone = FrigateAtTamber(sim);
+        var tamber = BodyNamed(sim, "tamber");
+        // Wait until Tamber blocks the line and one of its moons is in sight of both the flagship and the frigate.
+        Body? Corner()
+        {
+            var seat = Light.Seat(w, Side.Player);
+            return w.Bodies.Where(b => b.ParentId == tamber.Id)
+                .FirstOrDefault(b => Sensors.LineOfSight(w, seat, b.Position, b.Id) && Sensors.LineOfSight(w, b.Position, lone.Position, b.Id));
+        }
+        var end = w.Tick + 90 * GameTime.TicksPerDay;
+        while ((Light.SignalClear(w, Side.Player, lone.Position) || Corner() == null) && w.Tick < end) sim.Step();
+        Assert.False(Light.SignalClear(w, Side.Player, lone.Position));
+        var direct = Light.DelayHours(w, Side.Player, lone.Position);
+        var moon = Corner();
+        Assert.NotNull(moon);
+        moon!.Owner = Side.Player;
+        var relay = new Station { Id = w.NextId++, Side = Side.Player, Kind = Economy.Relay, BodyId = moon.Id, ReadyHour = w.Hour + 1 };
+        w.Stations.Add(relay);
+        Assert.False(Light.SignalClear(w, Side.Player, lone.Position)); // not built yet
+        relay.ReadyHour = w.Hour;
+        Assert.True(Light.SignalClear(w, Side.Player, lone.Position));
+        Assert.True(Light.DelayHours(w, Side.Player, lone.Position) > direct);
+    }
+
+    [Fact]
+    public void Command_research_widens_the_command_range()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var basic = Light.CommandRangeMm(w, Side.Player);
+        Economy.Of(w, Side.Player).Researched.Add(Tech.CommandUplink);
+        Assert.Equal(basic * 1.5, Light.CommandRangeMm(w, Side.Player), 6);
+        Economy.Of(w, Side.Player).Researched.Add(Tech.TightBeam);
+        Assert.InRange(Light.CommandRangeMm(w, Side.Player) / basic, 1.95, 2.05);
+    }
+
+    [Fact]
+    public void A_sensor_station_lets_a_held_moon_see_as_far_as_home()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var pale = BodyNamed(sim, "pale");
+        pale.Owner = Side.Player;
+        var bare = Sensors.PlanetSensorOf(w, Side.Player, pale);
+        var before = Economy.Of(w, Side.Player).Industry;
+        sim.Issue(new BuildStationCommand(Side.Player, pale.Id, Economy.SensorStation));
+        sim.Step();
+        Assert.Single(w.Stations);
+        Assert.True(Economy.Of(w, Side.Player).Industry < before);
+        Assert.Equal(bare, Sensors.PlanetSensorOf(w, Side.Player, pale));
+        sim.StepMany(6 * GameTime.TicksPerDay);
+        Assert.Equal(GameData.Sensors.PlanetSensorMm, Sensors.PlanetSensorOf(w, Side.Player, pale), 6);
+        Assert.True(Sensors.PlanetSensorOf(w, Side.Player, pale) > bare);
+        // Lost with the moon.
+        pale.Owner = Side.Rival;
+        sim.StepMany(1);
+        Assert.Empty(w.Stations);
+    }
+
+    [Fact]
+    public void The_rival_lives_with_the_same_lag()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 21, GameLog.Memory(),
+            options: new GameOptions(GameOptions.AiVsAi().Ai, new LightSetup(true, 0.1)));
+        var sent = false;
+        var end = 120 * GameTime.TicksPerDay;
+        while (!sent && sim.World.Tick < end)
+        {
+            sim.Step();
+            sent = sim.World.Light.InTransit.Any(t => t.Side == Side.Rival);
+        }
+        Assert.True(sent);
+    }
 }

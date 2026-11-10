@@ -142,13 +142,13 @@ public static class Sensors
     public static double Range(double sensorMm, double signature) => sensorMm * Math.Sqrt(Math.Max(0, signature));
 
     /// <summary>Is the straight line between two points clear of every planet, moon and the star?</summary>
-    public static bool LineOfSight(World w, Vec2 from, Vec2 to, int? ignoreBodyId = null)
+    public static bool LineOfSight(World w, Vec2 from, Vec2 to, int? ignoreBodyId = null, int? alsoIgnore = null)
     {
         var d = to - from;
         var len2 = Vec2.Dot(d, d);
         foreach (var b in w.Bodies)
         {
-            if (b.Id == ignoreBodyId) continue;
+            if (b.Id == ignoreBodyId || b.Id == alsoIgnore) continue;
             var t = len2 > 1e-18 ? Math.Clamp(Vec2.Dot(b.Position - from, d) / len2, 0, 1) : 0;
             if (t <= 0 || t >= 1) continue; // the body is not between them
             var closest = from + d * t;
@@ -184,6 +184,13 @@ public static class Sensors
         if (s.Visible && s.State == SignatureState.Orbit && (!seat || !w.Light.On) && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
             return FlightPlanner.PredictHoldPosition(w, orbiting, hour);
         return s.Guess(hour);
+    }
+
+    /// <summary>How far a body the side holds sees: full range at the shipyard or with a sensor station, else like a ship.</summary>
+    public static double PlanetSensorOf(World w, Side side, Body b)
+    {
+        var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || Economy.Stations(w, side, Economy.SensorStation).Any(x => x.Body.Id == b.Id);
+        return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.Factor(w, side, Tech.LongSensors);
     }
 
     /// <summary>How a fleet is really moving now: a fleet in orbit moves with its body (its Velocity is zero).</summary>
@@ -222,7 +229,7 @@ public static class Sensors
             foreach (var f in w.Fleets.Where(f => f.Side == side))
                 if (f.Position.IsFinite) observers.Add((f.Position, SensorOf(w, f), null));
             foreach (var b in w.Bodies.Where(b => b.Owner == side))
-                observers.Add((b.Position, S.PlanetSensorMm * Tech.Factor(w, side, Tech.LongSensors), b.Id));
+                observers.Add((b.Position, PlanetSensorOf(w, side, b), b.Id));
 
             foreach (var enemy in w.Fleets.Where(f => f.Side != side))
             {

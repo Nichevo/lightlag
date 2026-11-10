@@ -21,6 +21,14 @@
     { "id": "long-sensors", "name": "Long-range sensors", "effect": "Ships and planets see twice as far", "cost": 80, "days": 14, "factor": 2.0 },
     { "id": "quiet-drives", "name": "Quiet drives", "effect": "Burning engines are seen from half as far", "cost": 100, "days": 15, "factor": 0.25 },
     { "id": "fast-railguns", "name": "Fast railguns", "effect": "Railguns reload 25 % faster", "cost": 80, "days": 12, "factor": 0.75 },
-    { "id": "automation", "name": "Automated industry", "effect": "Every planet you hold makes 25 % more Industry", "cost": 120, "days": 20, "factor": 1.25 }
+    { "id": "automation", "name": "Automated industry", "effect": "Every planet you hold makes 25 % more Industry", "cost": 120, "days": 20, "factor": 1.25 },
+    { "id": "command-uplink", "name": "Command uplink", "effect": "Command range 50 % wider (light lag only)", "cost": 80, "days": 12, "factor": 1.5 },
+    { "id": "tight-beam", "name": "Tight-beam comms", "effect": "Command range a third wider again, and relays pass signals on with no delay (light lag only)", "cost": 100, "days": 15, "factor": 1.34 }
+  ],
+  "_stationsComment": "Stations are built in orbit of a body you hold, paid at once, working after days; they are lost with the body. A relay passes signals (orders and reports) round planets that block the straight line from the flagship; each relay hop adds relayDelayHours unless Tight-beam comms is researched. A held planet sees like a ship (planetBareSensorMm in ship-classes.json) until it has a sensor station; the shipyard planet always sees full range.",
+  "relayDelayHours": 0.1,
+  "stations": [
+    { "id": "relay", "name": "Relay", "effect": "Passes orders and reports round planets that block them", "cost": 40, "days": 4 },
+    { "id": "sensor", "name": "Sensor station", "effect": "The body sees as far as your home planet", "cost": 50, "days": 5 }
   ]
 }

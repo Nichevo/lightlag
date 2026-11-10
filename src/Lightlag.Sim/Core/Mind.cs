@@ -297,7 +297,10 @@ public static class Mind
 
         private bool AtHome(Fleet f) => _home != null && Economy.InOrbitAt(f, _home) && f.Flight == null;
 
-        private bool Busy(Fleet f) => f.Maneuvering || f.Retreating || f.JoinFleetId != null;
+        private bool Busy(Fleet f) => f.Maneuvering || f.Retreating || f.JoinFleetId != null || OrderOnItsWay(f);
+
+        /// <summary>Under light lag: an order to this fleet has been sent and not yet arrived.</summary>
+        private bool OrderOnItsWay(Fleet f) => _w.Light.InTransit.Any(t => t.Command is IFleetCommand fc && fc.FleetId == f.Id);
 
         private static double ShareOf(IEnumerable<(double Have, double Full)> parts)
         {
@@ -682,7 +685,8 @@ public static class Mind
             }
             if (!orders.Any(o => o.Kind == OrderKind.Research))
             {
-                var open = _p.Research.Where(r => GameData.ResearchById.ContainsKey(r) && Economy.CanQueue(_w, _side, OrderKind.Research, r) == null).ToList();
+                var open = _p.Research.Where(r => GameData.ResearchById.ContainsKey(r) && Economy.CanQueue(_w, _side, OrderKind.Research, r) == null
+                                                  && (_w.Light.On || !Tech.LagOnly(r))).ToList();
                 if (open.Count > 0)
                 {
                     var pick = Easy ? open[_rng.Range(0, open.Count)] : open[0];
@@ -692,6 +696,37 @@ public static class Mind
                     if (Economy.Of(_w, _side).Industry >= shipWaiting + GameData.Research(pick).Cost * 0.5 || orders.Count(o => o.Kind == OrderKind.Ship) == 0)
                         Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
                 }
+            }
+            if (!Easy) Stations(orders);
+        }
+
+        /// <summary>
+        /// With Industry to spare after the next ship: a sensor station on the held planet nearest the
+        /// enemy that lacks one; under light lag, a relay on the held body farthest from home.
+        /// </summary>
+        private void Stations(List<WorkOrder> orders)
+        {
+            var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
+            var spare = Economy.Of(_w, _side).Industry - shipWaiting;
+            var held = _w.Bodies.Where(b => b.Owner == _side && !b.Shipyard).ToList();
+            var toward = _enemyYard?.Position ?? Vec2.Zero;
+            var sensor = Economy.StationKind(Economy.SensorStation);
+            if (sensor != null && spare >= sensor.Cost * 2
+                && held.Where(b => b.Industry >= 2 && !Economy.HasStation(_w, _side, b.Id, Economy.SensorStation))
+                    .OrderBy(b => Vec2.Distance(b.Position, toward)).ThenBy(b => b.Id).FirstOrDefault() is Body watch)
+            {
+                Do(new BuildStationCommand(_side, watch.Id, Economy.SensorStation));
+                Note($"Builds a sensor station at {watch.Name}");
+                return;
+            }
+            var relay = Economy.StationKind(Economy.Relay);
+            if (!_w.Light.On || relay == null || spare < relay.Cost * 2 || _home == null) return;
+            if (_w.Stations.Any(st => st.Side == _side && st.Kind == Economy.Relay)) return;
+            if (held.OrderByDescending(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault() is Body far
+                && Vec2.Distance(far.Position, _home.Position) > 0.5 * _au)
+            {
+                Do(new BuildStationCommand(_side, far.Id, Economy.Relay));
+                Note($"Builds a relay at {far.Name}");
             }
         }
 
@@ -703,7 +738,9 @@ public static class Mind
             var pool = Pool().Where(Ready).OrderByDescending(f => Stats.Power(_w, f)).ToList();
             var from = pool.FirstOrDefault();
             if (from == null) return null;
-            var ships = _w.ShipsOf(from).OrderByDescending(s => Stats.ShipPower(_w, s)).ToList();
+            // Under light lag the flagship stays at home unless every ship is needed.
+            var flag = _w.Light.On ? Economy.Of(_w, _side).FlagshipId : null;
+            var ships = _w.ShipsOf(from).OrderBy(s => s.Id == flag ? 1 : 0).ThenByDescending(s => Stats.ShipPower(_w, s)).ToList();
             var picked = new List<Ship>();
             double sum = 0;
             foreach (var s in ships)
@@ -777,8 +814,7 @@ public static class Mind
         private bool Fly(Fleet f, FlightRequest request)
         {
             if (!FlightPlanner.Plan(_w, f, request).Ok) return false;
-            Do(new PlanFlightCommand(f.Id, request));
-            return f.Flight != null;
+            return Do(new PlanFlightCommand(f.Id, request)) || f.Flight != null;
         }
 
         private void Orders(Fleet f, Stance stance)
@@ -792,10 +828,25 @@ public static class Mind
             _m.Jobs.Add(new FleetJob { FleetId = f.Id, Kind = kind, BodyId = bodyId, EnemyFleetId = enemyFleetId, Point = point, Why = why, Since = _w.Hour });
         }
 
-        private void Do(GameCommand command)
+        /// <summary>
+        /// Gives an order. The mind runs inside the step, so a replay runs it again and needs no record.
+        /// Under light lag an order to somewhere far from the flagship goes out at light speed, like the
+        /// player's (returns true: on its way); splitting and merging fleets is done on the spot. The same
+        /// kind of order to the same fleet is not sent twice while one is on its way.
+        /// </summary>
+        private bool Do(GameCommand command)
         {
-            // Applied now, not queued: the mind runs inside the step, so a replay runs it again and needs no record.
-            (command with { Source = $"ai:{_side.ToString().ToLowerInvariant()}" }).Apply(_w, _sim);
+            var c = command with { Source = $"ai:{_side.ToString().ToLowerInvariant()}" };
+            if (c is not SplitFleetCommand and not MergeFleetsCommand && _w.Light.On
+                && c.Destination(_w) is (Side, Vec2 at) && Light.DelayHours(_w, _side, at) > 0)
+            {
+                var fleet = (c as IFleetCommand)?.FleetId;
+                if (!_w.Light.InTransit.Any(t => t.Side == _side && t.Command.GetType() == c.GetType() && (t.Command as IFleetCommand)?.FleetId == fleet))
+                    Light.Send(_sim, c);
+                return true;
+            }
+            c.Apply(_w, _sim);
+            return false;
         }
 
         private string Describe(FleetJob job)
