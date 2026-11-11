@@ -50,6 +50,12 @@ public sealed class RuleBook
     /// <summary>The rules every game uses.</summary>
     public static RuleBook Default() => new RuleBook()
         .Add("time-not-negative", w => w.Tick < 0 ? new[] { $"tick is {w.Tick}" } : Array.Empty<string>())
+        .Add("research-teams-sane", ResearchTeamsSane)
+        .Add("stocks-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
+                && !(s.Ammo >= -1e-9 && s.Ammo <= SupplyLines.MaxAmmo(s) + 1e-6 && s.Food >= -1e-9 && s.Food <= SupplyLines.MaxFood(s) + 1e-6
+                     && s.CargoFuel >= -1e-9 && s.CargoAmmo >= -1e-9 && s.CargoFood >= -1e-9
+                     && s.CargoFuel <= SupplyLines.Hold(s).Fuel + 1e-6 && s.CargoAmmo <= SupplyLines.Hold(s).Ammo + 1e-6 && s.CargoFood <= SupplyLines.Hold(s).Food + 1e-6))
+            .Select(s => $"ship {s.Id} {s.Name} has ammo {s.Ammo}, food {s.Food}, cargo {s.CargoFuel}/{s.CargoAmmo}/{s.CargoFood}"))
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)
@@ -66,8 +72,8 @@ public sealed class RuleBook
             .SelectMany(f => w.Bodies.Where(b => Vec2.Distance(f.Position, b.Position) < b.Radius && f.Flight?.Launching(w, b, w.Hour) != true)
                 .Select(b => $"fleet {f.Id} {f.Name} is inside {b.Name} at hour {w.Hour:0.0}")))
         .Add("fleets-not-empty", w => w.Fleets.Where(f => f.ShipIds.Count == 0).Select(f => $"fleet {f.Id} {f.Name} has no ships"))
-        .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.TryGetValue(s.ClassId, out var c)
-                && !(s.Supplies >= 0 && s.Supplies <= c.Supplies + 1e-6))
+        .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
+                && !(s.Supplies >= 0 && s.Supplies <= Fitting.MaxSupplies(w, s) + 1e-6))
             .Select(s => $"ship {s.Id} {s.Name} has {s.Supplies} supplies"))
         .Add("ship-class-known", w => w.Ships.Where(s => !GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => $"ship {s.Id} {s.Name} has unknown class '{s.ClassId}'"))
@@ -158,5 +164,22 @@ public sealed class RuleBook
             if (Math.Abs(r - b.OrbitRadius) > Math.Max(1e-6, b.OrbitRadius * 1e-6))
                 yield return $"body {b.Id} {b.Name} is {r:0.###} Mm from {parent.Name}, orbit says {b.OrbitRadius:0.###}";
         }
+    }
+
+    private static IEnumerable<string> ResearchTeamsSane(World w)
+    {
+        var t = Research.T;
+        foreach (var side in w.Sides)
+        {
+            if (side.Teams.Count > t.Slots) yield return $"{side.Side} has {side.Teams.Count} teams for {t.Slots} slots";
+            foreach (var team in side.Teams)
+            {
+                if (team.Skill.Length != Research.Fields.Length || team.Skill.Any(k => !(k >= 1 - 1e-9 && k <= t.MaxSkill + 1e-9)))
+                    yield return $"{side.Side} {team.Name} has skills {string.Join(",", team.Skill)}";
+                if (!(team.Scientists > 0) || team.Kept.Count > 2) yield return $"{side.Side} {team.Name} has {team.Scientists} scientists and keeps {team.Kept.Count} fields";
+            }
+        }
+        foreach (var o in w.Orders.Where(o => o.Kind == OrderKind.Research && o.TeamId is int id && Research.Team(w, o.Side, id) == null))
+            yield return $"research order {o.Id} is for missing team {o.TeamId}";
     }
 }

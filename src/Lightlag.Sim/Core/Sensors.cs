@@ -92,7 +92,7 @@ public static class Sensors
         var count = 0;
         foreach (var s in w.ShipsOf(f))
         {
-            largest = Math.Max(largest, GameData.ShipClass(s.ClassId).SignatureSize);
+            largest = Math.Max(largest, Fitting.Spec(s).SignatureSize);
             count++;
         }
         return count == 0 ? 0 : largest * (1 + S.ExtraShip * (count - 1));
@@ -109,7 +109,7 @@ public static class Sensors
     public static double SensorOf(World w, Fleet f)
     {
         double best = 0;
-        foreach (var s in w.ShipsOf(f)) best = Math.Max(best, GameData.ShipClass(s.ClassId).SensorMm);
+        foreach (var s in w.ShipsOf(f)) best = Math.Max(best, Fitting.Spec(s).SensorMm);
         return best * Tech.Factor(w, f.Side, Tech.LongSensors);
     }
 
@@ -128,7 +128,7 @@ public static class Sensors
     public static double CueRadius(Sighting s, double hour) => S.CueRadiusMm + S.CueGrowthMmPerHour * Math.Max(0, hour - s.Hour);
 
     /// <summary>How close one of this side's fleets or planets must be to tell an enemy ship's class.</summary>
-    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.Factor(w, side, Tech.LongSensors);
+    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.Factor(w, side, Tech.LongSensors) * Tech.Factor(w, side, Tech.SignalsAnalysis);
 
     public static List<string> ClassesOf(World w, Fleet f) => w.ShipsOf(f).Select(s => s.ClassId).OrderBy(c => c, StringComparer.Ordinal).ToList();
 

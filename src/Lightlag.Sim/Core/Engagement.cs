@@ -152,7 +152,7 @@ public static class Engagement
 
         var ships = w.ShipsOf(mine).ToList();
         var weMissiles = ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
-        var weRails = ships.Any(x => GameData.ShipClass(x.ClassId).Railguns > 0 && x.Disabled != Module.Railguns);
+        var weRails = ships.Any(x => Fitting.Spec(x).Railguns > 0 && x.Disabled != Module.Railguns);
 
         // Closest approach in the next two days, then a look-ahead that shows it with room either side.
         var gap0 = GapAt(0);
@@ -317,7 +317,7 @@ public static class Engagement
 
         double Peak(Flight f) => f.Legs.Count == 0 ? 0 : f.Legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
         var ships = w.ShipsOf(mine).ToList();
-        var hasRails = ships.Any(x => GameData.ShipClass(x.ClassId).Railguns > 0 && x.Disabled != Module.Railguns);
+        var hasRails = ships.Any(x => Fitting.Spec(x).Railguns > 0 && x.Disabled != Module.Railguns);
         var hasMissiles = ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
 
         Chase("engage", "Burn and engage", ChaseMode.GunRange, burn,

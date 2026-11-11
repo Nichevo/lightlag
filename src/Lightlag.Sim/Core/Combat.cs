@@ -342,7 +342,7 @@ public static class Combat
     public static double SupplyShare(World w, Fleet f)
     {
         double have = 0, full = 0;
-        foreach (var s in w.ShipsOf(f)) { have += s.Supplies; full += GameData.ShipClass(s.ClassId).Supplies; }
+        foreach (var s in w.ShipsOf(f)) { have += s.Supplies; full += Fitting.MaxSupplies(w, s); }
         return full > 0 ? have / full : 0;
     }
 
@@ -433,7 +433,7 @@ public static class Combat
         foreach (var ship in w.Ships.ToList())
         {
             if (w.FleetOf(ship) is not Fleet fleet) continue;
-            var cls = GameData.ShipClass(ship.ClassId);
+            var cls = Fitting.Spec(ship);
             if (cls.Railguns > 0 && ship.Disabled != Module.Railguns && !ship.Overheated && !fleet.Resupplying && t1 >= ship.RailsReadyHour)
                 FireRailguns(sim, battle, ship, fleet, cls, t1);
             if (ship.Missiles > 0 && ship.Disabled != Module.Missiles && t1 >= ship.SalvoReadyHour)
@@ -465,7 +465,7 @@ public static class Combat
         var cooldown = mode == FireMode.Spread ? spread!.Cooldown : 1; // a burst heats the guns: they wait longer
         var bridge = FlagBridge(w, fleet);
         ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) * (bridge?.ReloadFactor ?? 1)
-            * (longShot ? Heat.D.LongReloadFactor : 1) / 3600;
+            * (longShot ? Heat.D.LongReloadFactor : 1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryReload : 1) / 3600;
         fleet.LastVolley = mode;
         fleet.LastVolleyHour = t1;
         var fan = (spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm);
@@ -474,20 +474,20 @@ public static class Combat
         side = new Vec2(-side.Y, side.X);
         for (var i = 0; i < slugs; i++)
         {
-            if (ship.Supplies < rail.SuppliesPerShot) break;
-            ship.Supplies -= rail.SuppliesPerShot;
+            if (ship.Ammo < rail.SuppliesPerShot) break;
+            ship.Ammo -= rail.SuppliesPerShot;
             Heat.Add(ship, Heat.D.PerRailSlug);
             stats.RailShots++;
             var d = Vec2.Distance(ship.Position, target.Position);
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
-            var evasion = GameData.ShipClass(target.ClassId).Evasion;
+            var evasion = Fitting.Spec(target).Evasion * (SupplyLines.Hungry(target) ? SupplyLines.HungryEvasion : 1);
             // Beyond normal reach a slug flies so long that only a ship holding its course gets hit.
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - rail.RangeMm) / Math.Max(1e-9, Heat.D.LongRangeMm - rail.RangeMm)) * (1 - evasion)
                 : rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
             chance *= FireControl.AimFactor(fleet);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
-            chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1);
+            chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryAccuracy : 1);
             if (Dodging(w, targetFleet))
             {
                 chance = longShot ? 0 : chance * Flagships.DodgeFactor(targetFleet, DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet)));
@@ -503,7 +503,7 @@ public static class Combat
             if (hit)
             {
                 stats.RailHits++;
-                Damage(sim, battle, target, rail.Damage, ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
+                Damage(sim, battle, target, rail.Damage * Tech.Factor(w, ship.Side, Tech.RailgunMk3), ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
                 if (w.FindShip(target.Id) == null) break;
             }
         }
@@ -533,7 +533,7 @@ public static class Combat
             {
                 Id = w.NextId++, Side = ship.Side, TargetShipId = target.Id, FromShipId = ship.Id,
                 Position = ship.Position + spread, Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
-                Brain = Math.Clamp(w.MissileBrain[(int)ship.Side], 1, 2), ExpiresHour = t1 + m.LifetimeHours,
+                Brain = Math.Clamp(w.MissileBrain[(int)ship.Side], 1, 4), ExpiresHour = t1 + m.LifetimeHours,
             });
         }
         sim.Log.Info("combat", $"{ship.Name} fires {count} missiles at {target.Name}", new { shipId = ship.Id, targetId = target.Id, count });
@@ -610,25 +610,34 @@ public static class Combat
 
         // Point defence: every working mount in the target's fleet gets shots while the missile crosses its range.
         var mounts = w.ShipsOf(targetFleet).Where(s => s.Disabled != Module.PointDefence)
-            .Sum(s => GameData.ShipClass(s.ClassId).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1));
+            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1));
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
-        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2)
+        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)
+                   * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence3)
+                   * Tech.Factor(w, targetFleet.Side, Tech.CounterMissiles)
                    * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target)
                    * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)); // fuel to weave on the way in
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
             stats.ShotDown++;
-            var gunner = w.ShipsOf(targetFleet).Where(s => GameData.ShipClass(s.ClassId).PointDefence > 0 && s.Disabled != Module.PointDefence)
+            var gunner = w.ShipsOf(targetFleet).Where(s => Fitting.Spec(s).PointDefence > 0 && s.Disabled != Module.PointDefence)
                 .OrderBy(s => Vec2.Distance(s.Position, missile.Position)).FirstOrDefault();
             sim.AddEffect(new CombatEffect(w.Hour, EffectKind.PointDefenceKill, gunner?.Position ?? target.Position, missile.Position, targetFleet.Side));
             return;
         }
         // A missile launched close still has most of its fuel at the end: it follows a dodge.
         var fuelShare = Heat.FuelShare(missile);
-        var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
+        var dodge = Fitting.Spec(target).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
+                    * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
+        {
+            stats.Dodged++;
+            return;
+        }
+        // Spoofing: the target's jammers lead some missiles off (researched: a share of 1 - factor).
+        if (Tech.Has(w, targetFleet.Side, Tech.Spoofing) && sim.Rng.NextDouble() < 1 - GameData.Research(Tech.Spoofing).Factor * BrainSpoofResist(missile))
         {
             stats.Dodged++;
             return;
@@ -637,6 +646,12 @@ public static class Combat
         sim.AddEffect(new CombatEffect(w.Hour, EffectKind.MissileHit, missile.Position, target.Position, missile.Side));
         Damage(sim, battle, target, C.Missile.Damage, missile.Side, missile: true);
     }
+
+    /// <summary>Missile brains 3 and 4 (research): each level past 2 cuts point defence kills and dodges by a further 15 %.</summary>
+    public static double BrainBeyond2(Missile m) => m.Brain switch { >= 4 => 0.85 * 0.85, 3 => 0.85, _ => 1 };
+
+    /// <summary>Spoofing works less on smarter missiles: brain 3 and 4 are fooled less.</summary>
+    private static double BrainSpoofResist(Missile m) => m.Brain switch { >= 4 => 1.1, 3 => 1.05, _ => 1 };
 
     /// <summary>base^exponent for a fractional exponent, using only exact operations (see DetMath).</summary>
     private static double PowSurvive(double b, double exponent)
@@ -673,7 +688,7 @@ public static class Combat
         }
         if (target.Disabled == null && sim.Rng.NextDouble() < (engines ? Heat.D.EnginesModuleChance : C.ModuleHitChance))
         {
-            var cls = GameData.ShipClass(target.ClassId);
+            var cls = Fitting.Spec(target);
             var parts = new List<Module> { Module.Engines, Module.PointDefence };
             if (cls.Railguns > 0) parts.Add(Module.Railguns);
             if (cls.Missiles > 0) parts.Add(Module.Missiles);
@@ -872,9 +887,9 @@ public static class Combat
 
     public static bool HasWorking(World w, Fleet f, Module m) => w.ShipsOf(f).Any(s => s.Disabled != m && m switch
     {
-        Module.Railguns => GameData.ShipClass(s.ClassId).Railguns > 0,
+        Module.Railguns => Fitting.Spec(s).Railguns > 0,
         Module.Missiles => s.Missiles > 0,
-        Module.PointDefence => GameData.ShipClass(s.ClassId).PointDefence > 0,
+        Module.PointDefence => Fitting.Spec(s).PointDefence > 0,
         _ => true,
     });
 
@@ -895,7 +910,7 @@ public static class Combat
     {
         foreach (var s in w.ShipsOf(f))
         {
-            var cls = GameData.ShipClass(s.ClassId);
+            var cls = Fitting.Spec(s);
             var max = Tech.MaxArmour(w, s);
             s.Armour = Math.Min(max, s.Armour + max * C.RepairPerDay * hours / 24);
             if (s.Armour >= max * 0.5) s.Disabled = null;

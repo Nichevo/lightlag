@@ -167,6 +167,7 @@ public sealed class Simulation
         Mind.Update(this);
         Autonomy.Update(this);
         Supply.Update(this);
+        SupplyLines.Update(this);
         Combat.ReturnToOrbit(this);
         Flagships.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
@@ -280,11 +281,11 @@ public sealed class Simulation
         {
             if (f.ShipIds.Count < 2) continue;
             var ships = World.ShipsOf(f).ToList();
-            var capacity = ships.Sum(s => GameData.ShipClass(s.ClassId).Supplies);
+            var capacity = ships.Sum(s => Fitting.MaxSupplies(World, s));
             if (capacity <= 0) continue;
             var even = ships.Sum(s => s.Supplies) / capacity;
             foreach (var s in ships)
-                s.Supplies += (even * GameData.ShipClass(s.ClassId).Supplies - s.Supplies) * ShareSuppliesPerHour;
+                s.Supplies += (even * Fitting.MaxSupplies(World, s) - s.Supplies) * ShareSuppliesPerHour;
         }
     }
 
@@ -329,6 +330,7 @@ public sealed class Simulation
                     Log.Info("fleet", $"{f.Name} departs", new { fleetId = f.Id, flight.TargetBodyId });
                 }
                 BurnFuel(f, FlightPlanner.DeltaVBetween(flight, t0, t1));
+                if (flight.FlybyBurn > 0 && flight.FlybyHour > t0 && flight.FlybyHour <= t1) BurnFuel(f, flight.FlybyBurn);
                 f.Position = state.Position;
                 f.Velocity = state.Velocity;
                 if (t1 >= flight.EndHour) Arrive(f, flight, t1);
@@ -438,8 +440,9 @@ public sealed class Simulation
     {
         foreach (var s in World.ShipsOf(f))
         {
-            var max = GameData.ShipClass(s.ClassId).Supplies;
+            var max = Fitting.MaxSupplies(World, s);
             s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * hours / 24);
+            SupplyLines.Restock(s, hours);
         }
     }
 }

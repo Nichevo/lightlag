@@ -228,12 +228,35 @@ public partial class FleetPanel : PanelContainer
         _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
             "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
         box.AddChild(_engagementButton);
+        _supplyRun = new MenuButton { Text = "Supply run ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Auto supply run: this fleet's tankers and freighters fly out to the fleet you pick, top it up while they are together, go home to load when low, and repeat" };
+        _supplyRun.AddThemeFontSizeOverride("font_size", 15);
+        _supplyRun.AboutToPopup += FillSupplyRunMenu;
+        _supplyRun.GetPopup().IdPressed += id => Main.Instance.RunGuarded("supply run", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id < 0 ? null : (int)id), "supply run");
+        });
+        box.AddChild(_supplyRun);
+        box.AddChild(Ui.SmallButton("Ships and fittings", () => _screen.FittingFleetId = _screen.FittingFleetId == null ? _screen.SelectedFleet?.Id : null,
+            "Each ship's drawing, slots and modules. Swap modules at your shipyard, or save a design for new ships"));
         _droneButton = Ui.SmallButton("Send orders by drone", () => _screen.SendDrone(),
             $"A planet blocks the signal to this fleet. A messenger drone flies the orders there instead: slower than light, {Drones.D.Cost:0} Industry, and easy to shoot down");
         box.AddChild(_droneButton);
     }
 
     private Button _engagementButton = null!;
+    private MenuButton _supplyRun = null!;
+
+    private void FillSupplyRunMenu()
+    {
+        var popup = _supplyRun.GetPopup();
+        popup.Clear();
+        var w = Main.Instance.Sim!.World;
+        if (_screen.SelectedFleet is not Fleet f) return;
+        if (f.SupplyRunFor != null) popup.AddItem("End the supply run", -1);
+        foreach (var other in w.Fleets.Where(o => o.Side == Side.Player && o.Id != f.Id && !w.ShipsOf(o).All(SupplyLines.IsSupplyShip)))
+            popup.AddItem($"Keep {other.Name} supplied" + (f.SupplyRunFor == other.Id ? " (now)" : ""), other.Id);
+    }
     private Button _droneButton = null!;
     private Label _coverLabel = null!;
     private OptionButton _radiators = null!;
@@ -278,6 +301,9 @@ public partial class FleetPanel : PanelContainer
         var mine = f.Side == Side.Player;
         var ships = w.ShipsOf(f).ToList();
         var perf = FleetPerformance.Of(w, f);
+        _supplyRun.Visible = mine && ships.Any(SupplyLines.IsSupplyShip);
+        if (_supplyRun.Visible)
+            _supplyRun.Text = f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t ? $"Supply run: {t.Name} ▾" : "Supply run ▾";
         _title.Text = f.Name + (mine ? "" : "  (rival)");
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
         var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f, seat: true);
@@ -347,7 +373,7 @@ public partial class FleetPanel : PanelContainer
                     row.AddChild(protect);
                     _protect[s.Id] = protect;
                 }
-                var check = new CheckBox { Text = $"{s.Name}  {GameData.ShipClass(s.ClassId).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
+                var check = new CheckBox { Text = $"{s.Name}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 row.AddChild(check);
@@ -361,10 +387,13 @@ public partial class FleetPanel : PanelContainer
         foreach (var s in ships)
         {
             if (!_rows.TryGetValue(s.Id, out var row)) continue;
-            var cls = GameData.ShipClass(s.ClassId);
-            var share = s.Supplies / cls.Supplies;
-            var armour = s.Armour / cls.Armour;
-            var bits = new List<string> { $"armour {armour:P0}", $"supplies {share:P0}" };
+            var cls = Fitting.Spec(s);
+            var share = s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s));
+            var armour = s.Armour / Tech.MaxArmour(w, s);
+            var bits = new List<string> { $"armour {armour:P0}", $"fuel {share:P0}" };
+            if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}");
+            if (mine && SupplyLines.MaxFood(s) > 0) bits.Add(SupplyLines.Hungry(s) ? "HUNGRY" : $"food {s.Food:0} d");
+            if (mine && SupplyLines.IsSupplyShip(s)) bits.Add($"cargo {SupplyLines.CargoShare(s):P0}");
             if (cls.Missiles > 0) bits.Add($"{s.Missiles} missiles");
             var heat = Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0;
             if (mine) bits.Add(s.Overheated ? "OVERHEATED" : $"heat {heat:P0}");
@@ -378,7 +407,7 @@ public partial class FleetPanel : PanelContainer
                 pb.SetPressedNoSignal(on);
                 pb.Modulate = on ? Ui.Player : new Color(1, 1, 1, 0.35f);
             }
-            row.Supplies.AddThemeColorOverride("font_color", share < 0.2 || armour < 0.5 || s.Disabled != null || s.Overheated ? Ui.Danger
+            row.Supplies.AddThemeColorOverride("font_color", share < 0.2 || armour < 0.5 || s.Disabled != null || s.Overheated || SupplyLines.Hungry(s) ? Ui.Danger
                 : mine && heat >= 0.75 ? Ui.Rival : Ui.Dim);
         }
 
@@ -640,7 +669,7 @@ public partial class PlannerPanel : PanelContainer
 
     private readonly GameScreen _screen;
     private Label _title = null!;
-    private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
+    private Button _direct = null!, _wait = null!, _sling = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
     private Button _together = null!, _ahead = null!;
     private Button _addEnd = null!, _addMid = null!;
     private HBoxContainer _shipsRow = null!, _routeRow = null!, _arriveRow = null!, _thenRow = null!, _ctrlRow = null!, _chaseRow = null!, _keyRow = null!;
@@ -669,7 +698,8 @@ public partial class PlannerPanel : PanelContainer
         var s = _screen.Settings;
         _direct = Choice("Direct", "Leave now", () => s.Route = RouteKind.Direct);
         _wait = Choice("Wait", "Leave when the trip is shortest (within 120 days)", () => s.Route = RouteKind.Wait);
-        _routeRow = Row("Route", _direct, _wait);
+        _sling = Choice("Slingshot", "Swing past a big planet on the way when that beats the direct route (no waypoints)", () => s.Route = RouteKind.Slingshot);
+        _routeRow = Row("Route", _direct, _wait, _sling);
         box.AddChild(_routeRow);
 
         _chase = new OptionButton { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(250, 30) };
@@ -902,6 +932,7 @@ public partial class PlannerPanel : PanelContainer
         Mark(_addEnd, s.AddAtEnd);
         Mark(_addMid, !s.AddAtEnd);
         Mark(_wait, s.Route == RouteKind.Wait);
+        Mark(_sling, s.Route == RouteKind.Slingshot && p.Waypoints.Count == 0, p.Waypoints.Count == 0);
         Mark(_brake, s.Arrival == ArrivalStyle.Brake);
         Mark(_pass, s.Arrival == ArrivalStyle.FastPass);
         var canOrbit = s.Arrival == ArrivalStyle.Brake && p.TargetBodyId != null;
@@ -962,6 +993,8 @@ public partial class PlannerPanel : PanelContainer
             $"Distance: {Format.Distance(PathLength(f))} flown" + (fleet != null ? $" ({Format.Distance(Vec2.Distance(fleet.Position, f.Legs.Count > 0 ? f.Legs[^1].PositionAt(f.Legs[^1].End) : fleet.Position))} in a straight line)" : ""),
             $"Fuel: {Format.Speed(plan.DeltaV)} of speed change, {plan.FuelShare:P0} of what the fleet has",
         };
+        if (f.FlybyBodyId is int via && w.FindBody(via) is Body swing)
+            lines.Insert(1, $"Swing past {swing.Name} {GameTime.Format(f.FlybyHour)}" + (f.FlybyGain > 0.5 ? $" (+{Format.Speed(f.FlybyGain)} for free)" : ""));
         // What is left afterwards, and whether that is enough to stop again (a fly-by ends still moving).
         var left = Math.Max(0, plan.DeltaVLeft - plan.DeltaV);
         var endSpeed = f.Legs.Count > 0 ? f.Legs[^1].VelocityAt(f.Legs[^1].End).Length : 0;

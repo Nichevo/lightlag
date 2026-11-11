@@ -87,6 +87,15 @@ public partial class GameScreen : Node2D
     /// <summary>The empire panel (E): Industry, shipyard, research, claims.</summary>
     public bool ShowEmpire { get; set; }
 
+    /// <summary>The fleet whose ships and fittings are shown (null: none).</summary>
+    public int? FittingFleetId { get; set; }
+
+    /// <summary>The research screen (T) covers the map while open.</summary>
+    public bool ShowResearch { get; set; }
+
+    /// <summary>The fleets and planets list down the left (L folds it away).</summary>
+    public bool ShowSide { get; set; } = true;
+
     /// <summary>The win or lose panel is open (it opens once, when the game ends).</summary>
     public bool ShowEnd { get; private set; }
     private bool _endSeen;
@@ -582,6 +591,8 @@ public partial class GameScreen : Node2D
     }
 
     public Body? SelectedBody => _selected is int id ? Sim.World.FindBody(id) : null;
+    public int? SelectedId => _selected;
+
     public Fleet? SelectedFleet => _selected is int id ? Sim.World.FindFleet(id) : null;
     private Fleet? MyFleet => SelectedFleet is { Side: Side.Player } f ? f : null;
 
@@ -771,8 +782,8 @@ public partial class GameScreen : Node2D
         foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
             if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
                 _main.Toast(f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
-                    ? $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} launched: flying out to join {to.Name}"
-                    : $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}", onClick: GoToFleet(f.Id));
+                    ? $"New {Fitting.Spec(s).Name} {s.Name} launched: flying out to join {to.Name}"
+                    : $"New {Fitting.Spec(s).Name} {s.Name} joins {f.Name}", onClick: GoToFleet(f.Id));
 
         foreach (var b in Economy.Claimable(w))
         {
@@ -822,6 +833,13 @@ public partial class GameScreen : Node2D
         BuildForFleetId = fleetId;
         Sim.Issue(new SetOrderFleetCommand(Side.Player, orderId, fleetId));
         _main.RunGuarded("choosing a fleet", Sim.ApplyPending);
+    }
+
+    /// <summary>Issue a command from a panel and apply it at once (it still travels at light speed if lag is on).</summary>
+    public void IssueNow(GameCommand command, string what)
+    {
+        Sim.Issue(command);
+        _main.RunGuarded(what, Sim.ApplyPending);
     }
 
     public void CancelOrder(int orderId)
@@ -1036,7 +1054,7 @@ public partial class GameScreen : Node2D
     private FlightRequest Request(PlannerState p) => p.TargetFleetId != null
         ? new(null, p.Point, Settings.Speed, ArrivalStyle.Brake, HoldStyle.Drift, Sim.World.Tick, RouteKind.Direct, p.TargetFleetId,
             Chase: Settings.Chase)
-        : new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId,
+        : new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route == RouteKind.Slingshot && p.Waypoints.Count > 0 ? RouteKind.Direct : Settings.Route, p.TargetFleetId,
             p.Waypoints.Count > 0 ? p.Waypoints.Select(d => new Waypoint(d.Point, d.Stop, d.Speed, d.Stop ? d.WaitHours : 0)).ToList() : null);
 
     /// <summary>Add a waypoint on the way, in the stretch of the route it is closest to.</summary>
@@ -1089,7 +1107,7 @@ public partial class GameScreen : Node2D
     {
         if (Planner is not PlannerState p || p.Plan is not { Ok: true, Flight: Flight flight }) return;
         var depart = Settings.Route == RouteKind.Wait && p.TargetFleetId == null ? Math.Max(Sim.World.Tick, (long)Math.Round(flight.DepartHour)) : Sim.World.Tick;
-        var request = Request(p) with { DepartTick = depart };
+        var request = Request(p) with { DepartTick = depart, FlybyBodyId = flight.FlybyBodyId };
         if (p.TargetFleetId == null && Settings.FastAhead && Settings.Arrival == ArrivalStyle.Brake && Sim.World.FindFleet(p.FleetId) is Fleet f && HasFastShips(f))
             Sim.Issue(new SendAheadCommand(p.FleetId, request));
         else
@@ -1102,7 +1120,7 @@ public partial class GameScreen : Node2D
         if (Planner == null) return;
         if (MyFleet?.Id != Planner.FleetId) { Planner = null; return; }
         _planAge += delta;
-        if (_planAge > 0.3) Replan();
+        if (_planAge > (Settings.Route == RouteKind.Slingshot ? 2.0 : 0.3)) Replan(); // a slingshot search takes longer
     }
     public bool IsFollowing(int id) => _follow == id;
 
@@ -1243,6 +1261,7 @@ public partial class GameScreen : Node2D
             case Key.G: OrderHold(HoldStyle.Drift); break;
             case Key.X: OrderStop(); break;
             case Key.C when Planner == null: EditRoute(); break;
+            case Key.L: ShowSide = !ShowSide; break;
             case Key.M: OrderMerge(); break;
             case Key.V: ToggleEngagement(); break;
             case Key.Escape when Engagement != null: CloseEngagement(); break;
@@ -1266,6 +1285,9 @@ public partial class GameScreen : Node2D
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
+            case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
+            case Key.Escape when ShowResearch: ShowResearch = false; break;
+            case Key.Escape when FittingFleetId != null: FittingFleetId = null; break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
                 _main.Log.Info("save", "Quick save");

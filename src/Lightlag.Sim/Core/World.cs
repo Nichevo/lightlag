@@ -122,6 +122,10 @@ public sealed class Body
     /// <summary>The side holding orbit here to claim it, and for how long so far.</summary>
     public Side? ClaimSide { get; set; }
     public double ClaimHours { get; set; }
+
+    /// <summary>Per side (Player, Rival): hours spent in orbit here towards a survey, and whether it is done (see Research.Surveys).</summary>
+    public double[] SurveyHours { get; set; } = { 0, 0 };
+    public bool[] Surveyed { get; set; } = { false, false };
 }
 
 /// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>
@@ -177,6 +181,22 @@ public sealed class Ship
     public bool Overheated { get; set; }
     public int HeatSinks { get; set; }
     public double Shield { get; set; }
+
+    /// <summary>Railgun ammunition (supply units; see SupplyLines) and food (days for the crew).</summary>
+    public double Ammo { get; set; }
+    public double Food { get; set; }
+
+    /// <summary>Supply ships: cargo carried for other ships (fuel and ammunition on a tanker, food on a freighter).</summary>
+    public double CargoFuel { get; set; }
+    public double CargoAmmo { get; set; }
+    public double CargoFood { get; set; }
+
+    /// <summary>The module in each slot of its class (see Fitting). Empty: the standard fit.</summary>
+    public List<string> Fit { get; set; } = new();
+
+    /// <summary>Working numbers for the fit, worked out once per fit (not saved).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public ShipClass? SpecCache { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore] public string SpecKey { get; set; } = "";
 }
 
 public enum Module { Engines, Railguns, Missiles, PointDefence }

@@ -60,7 +60,7 @@ public static class BattleRecords
                 if (battle.Roster.All(r => r.Id != s.Id))
                 {
                     var flag = w.Light.On && Light.Flagship(w, s.Side)?.Id == s.Id;
-                    battle.Roster.Add(new RosterShip(s.Id, s.Side, s.Name, s.ClassId, f.Name, GameData.ShipClass(s.ClassId).Armour, flag));
+                    battle.Roster.Add(new RosterShip(s.Id, s.Side, s.Name, s.ClassId, f.Name, Fitting.Spec(s).Armour, flag));
                 }
                 frame.Ships.Add(new FrameShip(s.Id, Round(s.Position.X), Round(s.Position.Y), Math.Round(s.Armour, 1)));
             }

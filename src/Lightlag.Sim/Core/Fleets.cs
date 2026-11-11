@@ -35,7 +35,8 @@ public enum FireMode { Focused, Spread }
 public enum DodgeMode { Off, Sidestep, HardBurn }
 
 /// <summary>Direct leaves now; Wait leaves when the trip is shortest (the target swings closer).</summary>
-public enum RouteKind { Direct, Wait }
+/// <summary>Direct: leave now. Wait: leave when the trip is shortest. Slingshot: one flyby of a planet on the way (see Slingshots).</summary>
+public enum RouteKind { Direct, Wait, Slingshot }
 
 /// <summary>
 /// How a fleet chases an enemy fleet. Match speed keeps the gap it has and moves with it; Gun range
@@ -155,6 +156,9 @@ public sealed class Fleet
     public double ReserveDeltaV { get; set; }
     public bool Resupplying { get; set; }
 
+    /// <summary>Supply fleets on an Auto supply run: the fleet they keep topped up (see SupplyLines).</summary>
+    public int? SupplyRunFor { get; set; }
+
     /// <summary>The body whose orbit it broke to fight, until it orbits something again (claims and bombardment need orbit).</summary>
     public int? LeftOrbitBodyId { get; set; }
 
@@ -216,6 +220,16 @@ public sealed class Flight
     /// past the fleet; that is not counted as flying into it.
     /// </summary>
     public int? FromBodyId { get; set; }
+
+    /// <summary>A slingshot flight: the planet it swings past, when, and where (see Slingshots).</summary>
+    public int? FlybyBodyId { get; set; }
+    public double FlybyHour { get; set; }
+    public Vec2 FlybyPoint { get; set; }
+    /// <summary>Speed gained from the flyby for free (no fuel), Mm per hour.</summary>
+    public double FlybyGain { get; set; }
+
+    /// <summary>Speed change burned at the closest pass of the slingshot (charged as it passes).</summary>
+    public double FlybyBurn { get; set; }
 
     /// <summary>A chase flight that first goes round a body in the way; the chase is aimed again when it ends.</summary>
     public bool Detour { get; set; }

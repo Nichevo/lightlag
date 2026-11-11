@@ -247,6 +247,7 @@ public static class Mind
                     if (_w.Hour >= _m.GatherUntilHour) Expand();
                 }
             }
+            SupplyRuns();
             Spend();
             FireControlAll();
         }
@@ -341,7 +342,14 @@ public static class Mind
             _m.OwnPower = Math.Round(Stats.Power(_w, _side), 1);
         }
 
-        private double SightingPower(Sighting s) => s.Ships * A.EnemyShipValue;
+        private double SightingPower(Sighting s) => (s.Ships - UnarmedSeen(s) * 0.8) * A.EnemyShipValue;
+
+        /// <summary>Tankers and freighters identified in a sighting (they carry no guns).</summary>
+        private static int UnarmedSeen(Sighting s) =>
+            Math.Min(s.Ships, s.Classes.Count(c => GameData.ShipClasses.TryGetValue(c, out var cls) && cls.Cargo > 0));
+
+        /// <summary>A sighting identified as supply ships only: a soft target worth raiding.</summary>
+        private static bool SupplyConvoy(Sighting s) => s.Ships > 0 && s.Classes.Count >= s.Ships && UnarmedSeen(s) >= s.Ships;
 
         /// <summary>Known enemy power near a point (recently seen there, or heading there as last seen).</summary>
         private double EnemyNear(Vec2 at, double radius, double maxAgeHours = 3 * 24) =>
@@ -349,7 +357,37 @@ public static class Mind
 
         // ---- Fleets ---------------------------------------------------------------------------
 
-        private IEnumerable<Fleet> Mine() => _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0);
+        private IEnumerable<Fleet> Mine() => _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && !SupplyOnly(f));
+
+        /// <summary>A fleet of only tankers and freighters: it runs supplies and is left out of the fighting.</summary>
+        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip);
+
+        /// <summary>
+        /// Tankers launched into the home fleet split off and run supplies (Auto) to the largest fleet out on a
+        /// job, or to the home fleet when nothing is out; a run whose fleet is gone is pointed at another.
+        /// </summary>
+        private void SupplyRuns()
+        {
+            if (Easy) return;
+            foreach (var f in Mine().Where(f => AtHome(f) && !Busy(f)).ToList())
+            {
+                var supply = _w.ShipsOf(f).Where(SupplyLines.IsSupplyShip).ToList();
+                if (supply.Count == 0 || supply.Count == f.ShipIds.Count) continue;
+                if (SplitOff(f, supply) is Fleet run) Note($"{run.Name} splits off to run supplies");
+            }
+            var served = Mine().Where(f => _m.JobOf(f.Id) is { Kind: not JobKind.Refit } && !AtHome(f))
+                .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
+                ?? Mine().Where(AtHome).OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault();
+            foreach (var run in _w.Fleets.Where(f => f.Side == _side && SupplyOnly(f)).ToList())
+            {
+                var current = run.SupplyRunFor is int id ? _w.FindFleet(id) : null;
+                if (current is { ShipIds.Count: > 0 } && current.Side == _side && !SupplyOnly(current)
+                    && (served == null || current.Id == served.Id || run.Flight != null)) continue;
+                if (served == null || served.Id == current?.Id) continue;
+                Do(new SetSupplyRunCommand(_side, run.Id, served.Id));
+                Note($"{run.Name} runs supplies to {served.Name}");
+            }
+        }
 
         private bool AtHome(Fleet f) => _home != null && Economy.InOrbitAt(f, _home) && f.Flight == null;
 
@@ -366,11 +404,11 @@ public static class Mind
         }
 
         private double Supplies(Fleet f) =>
-            _w.ShipsOf(f).Select(s => Math.Clamp(s.Supplies / GameData.ShipClass(s.ClassId).Supplies, 0, 1)).DefaultIfEmpty(1).Min();
+            _w.ShipsOf(f).Select(s => Math.Clamp(s.Supplies / Fitting.MaxSupplies(_w, s), 0, 1)).DefaultIfEmpty(1).Min();
 
         private double Missiles(Fleet f) =>
-            ShareOf(_w.ShipsOf(f).Where(s => GameData.ShipClass(s.ClassId).Missiles > 0)
-                .Select(s => ((double)s.Missiles, (double)GameData.ShipClass(s.ClassId).Missiles)));
+            ShareOf(_w.ShipsOf(f).Where(s => Fitting.Spec(s).Missiles > 0)
+                .Select(s => ((double)s.Missiles, (double)Fitting.Spec(s).Missiles)));
 
         private bool Ready(Fleet f) => Combat.ArmourShare(_w, f) >= 0.9 && Supplies(f) >= 0.7 && Missiles(f) >= 0.7;
 
@@ -611,7 +649,9 @@ public static class Mind
             {
                 if (_m.Jobs.Any(j => j.EnemyFleetId == s.FleetId)) continue;
                 var at = s.Guess(_w.Hour);
-                if (!mineBodies.Any(p => Vec2.Distance(p, at) <= 0.5 * _au)) continue;
+                // Raiders go further out for an identified supply convoy: cutting supply lines starves a fleet.
+                var reach = SupplyConvoy(s) && _m.Personality == Personality.Raider ? 1.5 : SupplyConvoy(s) ? 0.8 : 0.5;
+                if (!mineBodies.Append(_home!.Position).Any(p => Vec2.Distance(p, at) <= reach * _au)) continue;
                 var need = SightingPower(s) * Math.Max(Want / _p.HuntWeight, A.DangerRatio * 1.05);
                 if (Pool().Where(Ready).Sum(f => Stats.Power(_w, f)) * (1 - _p.GuardShare) < need) continue;
                 var group = TakeFromPool(need, $"hunt {s.Name}");
@@ -730,20 +770,41 @@ public static class Mind
 
         // ---- Economy ----------------------------------------------------------------------------
 
+        /// <summary>
+        /// What to build next: one tanker once there are a few warships and none to top them up, otherwise
+        /// frigates and destroyers in the personality's mix, now and then a cruiser or an escort once researched.
+        /// </summary>
+        private string PickHull(List<WorkOrder> orders)
+        {
+            var mine = _w.Ships.Where(s => s.Side == _side).ToList();
+            var tankers = mine.Count(s => s.ClassId == "tanker") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "tanker");
+            var warships = mine.Count(s => !SupplyLines.IsSupplyShip(s) && Fitting.Spec(s).Railguns + Fitting.Spec(s).Missiles > 0);
+            if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
+            if (!Easy && _rng.Chance(0.25) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
+            if (!Easy && _rng.Chance(0.15) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
+            var frigateShare = Easy ? 0.6 : _p.FrigateShare;
+            return _rng.Chance(frigateShare) ? "gun-frigate" : "missile-destroyer";
+        }
+
         private void Spend()
         {
             var orders = _w.Orders.Where(o => o.Side == _side).ToList();
             if (orders.Count(o => o.Kind == OrderKind.Ship) < 2)
             {
-                var frigateShare = Easy ? 0.6 : _p.FrigateShare;
-                var cls = _rng.Chance(frigateShare) ? "gun-frigate" : "missile-destroyer";
+                var cls = PickHull(orders);
                 if (Economy.CanQueue(_w, _side, OrderKind.Ship, cls) == null)
                     Do(new QueueOrderCommand(_side, OrderKind.Ship, cls));
             }
-            if (!orders.Any(o => o.Kind == OrderKind.Research))
+            // Keep every ready team busy: one idea queued per team.
+            var teams = Economy.Of(_w, _side).Teams;
+            if (orders.Count(o => o.Kind == OrderKind.Research) < Math.Max(1, teams.Count(t => Research.Ready(_w, t))))
             {
                 var open = _p.Research.Where(r => GameData.ResearchById.ContainsKey(r) && Economy.CanQueue(_w, _side, OrderKind.Research, r) == null
                                                   && (_w.Light.On || !Tech.LagOnly(r))).ToList();
+                if (open.Count == 0)
+                    open = GameData.Economy.Research.Where(r => Economy.CanQueue(_w, _side, OrderKind.Research, r.Id) == null
+                                                               && (_w.Light.On || !Tech.LagOnly(r.Id)))
+                        .OrderBy(r => r.Cost).Select(r => r.Id).ToList();
                 if (open.Count > 0)
                 {
                     var pick = Easy ? open[_rng.Range(0, open.Count)] : open[0];
@@ -755,6 +816,22 @@ public static class Mind
                 }
             }
             if (!Easy) Stations(orders);
+            if (!Easy) Teams(orders);
+        }
+
+        /// <summary>
+        /// With Industry to spare after the next ship, a second team is founded in the field the
+        /// personality's research list leans on most; it keeps that field.
+        /// </summary>
+        private void Teams(List<WorkOrder> orders)
+        {
+            var state = Economy.Of(_w, _side);
+            if (_w.Day < 15 || state.Teams.Count >= 2) return;
+            var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
+            if (state.Industry < Research.T.FoundCost + shipWaiting + 60) return;
+            var field = _p.Research.Where(GameData.ResearchById.ContainsKey).GroupBy(r => GameData.Research(r).Field)
+                .OrderByDescending(g => g.Count()).ThenBy(g => Research.FieldIndex(g.Key)).Select(g => g.Key).FirstOrDefault() ?? "weapons";
+            if (Research.CanFound(_w, _side, field) == null) Do(new FoundTeamCommand(_side, field));
         }
 
         /// <summary>
@@ -876,6 +953,13 @@ public static class Mind
 
         private bool Fly(Fleet f, FlightRequest request)
         {
+            // A swing past a big planet, when one beats the direct route (the planner only offers those).
+            if (request is { TargetBodyId: not null, TargetFleetId: null, Waypoints: null, Route: RouteKind.Direct }
+                && FlightPlanner.BestSlingshot(_w, f, request with { Route = RouteKind.Slingshot }) is ({ Ok: true, Flight: not null } sling, Body via))
+            {
+                Note($"{f.Name} swings past {via.Name}");
+                return Do(new PlanFlightCommand(f.Id, request with { Route = RouteKind.Slingshot, FlybyBodyId = via.Id, DepartTick = _w.Tick })) || f.Flight != null;
+            }
             if (!FlightPlanner.Plan(_w, f, request).Ok) return false;
             return Do(new PlanFlightCommand(f.Id, request)) || f.Flight != null;
         }

@@ -9,6 +9,10 @@
     <RootNamespace>Lightlag.Game</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Approved ship and idea drawings (SVG), loaded at run time by Art.cs. Godot ignores the folder (.gdignore). -->
+    <EmbeddedResource Include="Art/**/*.svg" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../src/Lightlag.Sim/Lightlag.Sim.csproj" />
   </ItemGroup>
 </Project>

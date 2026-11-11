@@ -45,7 +45,7 @@ public static class Stats
     /// <summary>A rough fighting value: each ship's cost, scaled down for damage and (destroyers) empty racks.</summary>
     public static double ShipPower(World w, Ship s)
     {
-        var cls = GameData.ShipClass(s.ClassId);
+        var cls = Fitting.Spec(s);
         var armour = Math.Clamp(s.Armour / Tech.MaxArmour(w, s), 0, 1);
         var racks = cls.Missiles > 0 ? 0.4 + 0.6 * s.Missiles / cls.Missiles : 1;
         return cls.Cost * (0.3 + 0.7 * armour) * racks * (s.Disabled != null ? 0.7 : 1);

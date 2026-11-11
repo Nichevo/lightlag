@@ -94,6 +94,11 @@ public partial class EmpirePanel : PanelContainer
                 var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.Queue(OrderKind.Ship, id),
                     $"Build a {cls.Name}: {cls.Cost:0} Industry, {days:0.#} days. {cls.Role}");
                 b.CustomMinimumSize = new Vector2(180, 30);
+                if (cls.Needs.Length > 0 && !Tech.Has(w, Side.Player, cls.Needs))
+                {
+                    b.Disabled = true;
+                    b.TooltipText = $"{cls.Name}: needs {GameData.Research(cls.Needs).Name} (research screen, T). {cls.Role}";
+                }
                 row.AddChild(b);
             }
         }
@@ -105,32 +110,21 @@ public partial class EmpirePanel : PanelContainer
             JoinRow(w, ships[i]);
         }
 
-        // Research.
+        // Research: a summary here; teams, ideas and the discovery web are on the research screen (T).
         Heading("Research");
         var queued = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research).ToList();
-        for (var i = 0; i < queued.Count; i++) OrderRow(queued[i], i == 0);
-        foreach (var r in GameData.Economy.Research)
+        foreach (var o in queued)
         {
-            if (queued.Any(o => o.Key == r.Id)) continue;
-            if (Tech.Has(w, Side.Player, r.Id))
-            {
-                var done = Ui.Label($"Done: {r.Name}. {r.Effect}", 12, new Color(Ui.Player, 0.75f));
-                done.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-                done.CustomMinimumSize = new Vector2(380, 0);
-                _box.AddChild(done);
-                continue;
-            }
-            if (w.Winner != null) continue;
-            var id = r.Id;
-            var row = Row();
-            var b = Ui.SmallButton($"{r.Name}", () => _screen.Queue(OrderKind.Research, id), $"{r.Effect}. {r.Cost:0} Industry, {r.Days:0} days.");
-            b.CustomMinimumSize = new Vector2(190, 28);
-            row.AddChild(b);
-            var info = Ui.Label($"{r.Cost:0} · {r.Days:0} d · {r.Effect}", 11, Ui.Dim);
-            info.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-            info.CustomMinimumSize = new Vector2(185, 0);
-            row.AddChild(info);
+            var order = o;
+            Live(12, Ui.Dim, w2 => $"{GameData.Research(order.Key).Name} · "
+                + (order.TeamId is int t && Research.Team(w2, Side.Player, t) is ResearchTeam team ? team.Name : "no team")
+                + $" · {Research.DaysUntilDone(w2, order):0.#} d");
         }
+        if (queued.Count == 0) Live(12, Ui.Dim, _ => "No research queued");
+        var open = Row();
+        var rb = Ui.SmallButton("Open research (T)", () => _screen.ShowResearch = true, "Teams, ideas and the discovery web");
+        rb.CustomMinimumSize = new Vector2(190, 28);
+        open.AddChild(rb);
 
         // Stations on the bodies you hold.
         if (GameData.Economy.Stations is { Count: > 0 } kinds)
