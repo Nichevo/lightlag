@@ -465,7 +465,7 @@ public static class Combat
         var cooldown = mode == FireMode.Spread ? spread!.Cooldown : 1; // a burst heats the guns: they wait longer
         var bridge = FlagBridge(w, fleet);
         ship.RailsReadyHour = t1 + rail.ReloadSeconds * cooldown * Tech.Factor(w, ship.Side, Tech.FastRailguns) * (bridge?.ReloadFactor ?? 1)
-            * (longShot ? Heat.D.LongReloadFactor : 1) / 3600;
+            * (longShot ? Heat.D.LongReloadFactor : 1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryReload : 1) / 3600;
         fleet.LastVolley = mode;
         fleet.LastVolleyHour = t1;
         var fan = (spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm);
@@ -474,20 +474,20 @@ public static class Combat
         side = new Vec2(-side.Y, side.X);
         for (var i = 0; i < slugs; i++)
         {
-            if (ship.Supplies < rail.SuppliesPerShot) break;
-            ship.Supplies -= rail.SuppliesPerShot;
+            if (ship.Ammo < rail.SuppliesPerShot) break;
+            ship.Ammo -= rail.SuppliesPerShot;
             Heat.Add(ship, Heat.D.PerRailSlug);
             stats.RailShots++;
             var d = Vec2.Distance(ship.Position, target.Position);
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
-            var evasion = Fitting.Spec(target).Evasion;
+            var evasion = Fitting.Spec(target).Evasion * (SupplyLines.Hungry(target) ? SupplyLines.HungryEvasion : 1);
             // Beyond normal reach a slug flies so long that only a ship holding its course gets hit.
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - rail.RangeMm) / Math.Max(1e-9, Heat.D.LongRangeMm - rail.RangeMm)) * (1 - evasion)
                 : rail.Accuracy * (1 - d / rail.RangeMm) * (1 - evasion) / (1 + relSpeed / 1000);
             chance *= FireControl.AimFactor(fleet);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
-            chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1);
+            chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryAccuracy : 1);
             if (Dodging(w, targetFleet))
             {
                 chance = longShot ? 0 : chance * Flagships.DodgeFactor(targetFleet, DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet)));

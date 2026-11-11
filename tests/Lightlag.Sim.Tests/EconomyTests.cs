@@ -47,7 +47,7 @@ public class EconomyTests
         var sim = NewGame();
         var start = Player(sim).Industry;
         Days(sim, 10);
-        Assert.Equal(start + 10 * BodyNamed(sim, "verdant").Industry, Player(sim).Industry, 6);
+        Assert.Equal(start + 10 * (BodyNamed(sim, "verdant").Industry - SupplyLines.UpkeepPerDay(sim.World, Side.Player)), Player(sim).Industry, 6);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class EconomyTests
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
         sim.Step();
         var frigate = GameData.ShipClass("gun-frigate");
-        Assert.Equal(GameData.Economy.StartIndustry - frigate.Cost + BodyNamed(sim, "verdant").Industry / 24, Player(sim).Industry, 6);
+        Assert.Equal(GameData.Economy.StartIndustry - frigate.Cost + (BodyNamed(sim, "verdant").Industry - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
         Days(sim, frigate.Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
         Assert.Equal(ships + 1, home.ShipIds.Count);
         Assert.Empty(sim.World.Orders);
@@ -130,7 +130,7 @@ public class EconomyTests
         sim.Issue(new CancelOrderCommand(Side.Player, sim.World.Orders.Single().Id));
         sim.Step();
         Assert.Empty(sim.World.Orders);
-        Assert.Equal(before + GameData.ShipClass("gun-frigate").Cost + BodyNamed(sim, "verdant").Industry / 24, Player(sim).Industry, 6);
+        Assert.Equal(before + GameData.ShipClass("gun-frigate").Cost + (BodyNamed(sim, "verdant").Industry - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
     }
 
     [Fact]

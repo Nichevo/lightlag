@@ -267,6 +267,7 @@ public static class Economy
             Of(w, side).Totals.IndustryEarned += earned;
             Work(sim, side);
             Research.Work(sim, side);
+            SupplyLines.Upkeep(sim, side);
         }
         Research.Surveys(sim);
         Claims(sim);
@@ -375,6 +376,9 @@ public static class Economy
         ship.Accel = spec.AccelMmPerHour2;
         ship.Supplies = Fitting.MaxSupplies(w, ship);
         ship.Missiles = spec.Missiles;
+        ship.Ammo = SupplyLines.MaxAmmo(ship);
+        ship.Food = SupplyLines.MaxFood(ship);
+        SupplyLines.FillCargo(ship);
         ship.Armour = Tech.MaxArmour(w, ship);
         Heat.Fit(w, ship);
         w.Ships.Add(ship);
@@ -451,7 +455,7 @@ public static class Economy
         foreach (var s in attackers.SelectMany(w.ShipsOf))
         {
             var cls = Fitting.Spec(s);
-            if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Supplies >= cls.Railguns * y.RailSuppliesPerHour) perDay += cls.Railguns * y.RailDamagePerHour * 24;
+            if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour) perDay += cls.Railguns * y.RailDamagePerHour * 24;
             if (s.Missiles > 0 && s.Disabled != Module.Missiles) perDay += y.MissileDamage * 24 / Math.Max(1, y.MissileEveryHours);
         }
         if (perDay <= 0) return "Not under attack: the fleet in orbit has no working weapons, ammunition or supplies left";
@@ -478,9 +482,9 @@ public static class Economy
                 foreach (var s in attackers.SelectMany(w.ShipsOf))
                 {
                     var cls = Fitting.Spec(s);
-                    if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Supplies >= cls.Railguns * y.RailSuppliesPerHour)
+                    if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour)
                     {
-                        s.Supplies -= cls.Railguns * y.RailSuppliesPerHour;
+                        s.Ammo -= cls.Railguns * y.RailSuppliesPerHour;
                         damage += cls.Railguns * y.RailDamagePerHour;
                     }
                     if (s.Missiles > 0 && s.Disabled != Module.Missiles && w.Tick % (long)Math.Max(1, y.MissileEveryHours) == 0)

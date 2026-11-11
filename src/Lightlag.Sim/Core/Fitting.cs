@@ -130,6 +130,8 @@ public static class Fitting
         s.Accel = spec.AccelMmPerHour2;
         s.Supplies = Math.Min(s.Supplies, spec.Supplies);
         s.Missiles = Math.Min(s.Missiles, spec.Missiles);
+        s.Ammo = Math.Min(s.Ammo, SupplyLines.MaxAmmo(s));
+        s.Food = Math.Min(s.Food, SupplyLines.MaxFood(s));
         s.Armour = Math.Min(s.Armour, Tech.MaxArmour(w, s));
         s.HeatSinks = Math.Min(s.HeatSinks, spec.HeatSinks);
         s.Shield = Math.Min(s.Shield, Heat.MaxShield(w, s));

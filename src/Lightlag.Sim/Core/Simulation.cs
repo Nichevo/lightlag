@@ -167,6 +167,7 @@ public sealed class Simulation
         Mind.Update(this);
         Autonomy.Update(this);
         Supply.Update(this);
+        SupplyLines.Update(this);
         Combat.ReturnToOrbit(this);
         Flagships.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
@@ -440,6 +441,7 @@ public sealed class Simulation
         {
             var max = Fitting.MaxSupplies(World, s);
             s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * hours / 24);
+            SupplyLines.Restock(s, hours);
         }
     }
 }

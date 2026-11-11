@@ -182,6 +182,15 @@ public sealed class Ship
     public int HeatSinks { get; set; }
     public double Shield { get; set; }
 
+    /// <summary>Railgun ammunition (supply units; see SupplyLines) and food (days for the crew).</summary>
+    public double Ammo { get; set; }
+    public double Food { get; set; }
+
+    /// <summary>Supply ships: cargo carried for other ships (fuel and ammunition on a tanker, food on a freighter).</summary>
+    public double CargoFuel { get; set; }
+    public double CargoAmmo { get; set; }
+    public double CargoFood { get; set; }
+
     /// <summary>The module in each slot of its class (see Fitting). Empty: the standard fit.</summary>
     public List<string> Fit { get; set; } = new();
 

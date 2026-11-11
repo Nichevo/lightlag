@@ -155,6 +155,9 @@ public sealed class Fleet
     public double ReserveDeltaV { get; set; }
     public bool Resupplying { get; set; }
 
+    /// <summary>Supply fleets on an Auto supply run: the fleet they keep topped up (see SupplyLines).</summary>
+    public int? SupplyRunFor { get; set; }
+
     /// <summary>The body whose orbit it broke to fight, until it orbits something again (claims and bombardment need orbit).</summary>
     public int? LeftOrbitBodyId { get; set; }
 
