@@ -228,6 +228,9 @@ public sealed class Flight
     /// <summary>Speed gained from the flyby for free (no fuel), Mm per hour.</summary>
     public double FlybyGain { get; set; }
 
+    /// <summary>Speed change burned at the closest pass of the slingshot (charged as it passes).</summary>
+    public double FlybyBurn { get; set; }
+
     /// <summary>A chase flight that first goes round a body in the way; the chase is aimed again when it ends.</summary>
     public bool Detour { get; set; }
     public const double LaunchHours = 3;

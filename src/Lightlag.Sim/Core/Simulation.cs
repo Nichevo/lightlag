@@ -330,6 +330,7 @@ public sealed class Simulation
                     Log.Info("fleet", $"{f.Name} departs", new { fleetId = f.Id, flight.TargetBodyId });
                 }
                 BurnFuel(f, FlightPlanner.DeltaVBetween(flight, t0, t1));
+                if (flight.FlybyBurn > 0 && flight.FlybyHour > t0 && flight.FlybyHour <= t1) BurnFuel(f, flight.FlybyBurn);
                 f.Position = state.Position;
                 f.Velocity = state.Velocity;
                 if (t1 >= flight.EndHour) Arrive(f, flight, t1);

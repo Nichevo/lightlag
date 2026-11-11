@@ -59,10 +59,29 @@ public class SlingshotTests(ITestOutputHelper output)
             output.WriteLine($"{target}: {best.Ok} {best.Problem} via {via?.Key} {best.Flight?.ArriveHour / 24:0} d vs {direct.Flight?.ArriveHour / 24:0} d");
             if (best.Flight != null) Assert.True(FlightPlanner.Beats(best, direct));
         }
-        // Going out to Azure, a pass behind Tamber saves weeks.
+        // Going out to Azure, a pass behind Tamber saves months for about the same fuel.
         var azure = FlightPlanner.BestSlingshot(sim.World, f, To(sim, BodyNamed(sim, "azure"), 0.3, RouteKind.Slingshot));
         Assert.NotNull(azure.Plan.Flight);
         Assert.Equal("tamber", azure.Via!.Key);
+        var straight = FlightPlanner.Plan(sim.World, f, To(sim, BodyNamed(sim, "azure"), 0.3));
+        Assert.True(azure.Plan.Flight!.ArriveHour < straight.Flight!.ArriveHour - 60 * 24);
+        Assert.True(azure.Plan.DeltaV < straight.DeltaV * 1.3);
+    }
+
+    [Fact]
+    public void The_swing_burn_is_paid_for_when_the_fleet_passes()
+    {
+        var sim = NewGame();
+        var f = Home(sim);
+        var (plan, _) = FlightPlanner.BestSlingshot(sim.World, f, To(sim, BodyNamed(sim, "azure"), 0.3, RouteKind.Slingshot));
+        Assert.NotNull(plan.Flight);
+        var full = sim.World.ShipsOf(f).Sum(s => s.Supplies);
+        f.Flight = plan.Flight;
+        f.Hold = HoldStyle.Drift;
+        sim.StepMany((int)(plan.Flight!.FlybyHour - sim.World.Hour + 2));
+        var used = full - sim.World.ShipsOf(f).Sum(s => s.Supplies);
+        var expected = sim.World.ShipsOf(f).Sum(s => (FlightPlanner.DeltaVBetween(plan.Flight, 0, plan.Flight.FlybyHour + 2) + plan.Flight.FlybyBurn) * Tech.SuppliesPerDeltaV(sim.World, s));
+        Assert.InRange(used, expected * 0.9, expected * 1.1 + 1);
     }
 
     [Fact]

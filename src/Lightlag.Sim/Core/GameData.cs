@@ -101,7 +101,21 @@ public sealed record ModuleData(string Id, string Name, string Slot, double Powe
     int Railguns = 0, int PointDefence = 0, int Missiles = 0, double Shield = 0, double Armour = 0, double SensorMm = 0,
     double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "");
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null);
+/// <summary>
+/// Slingshot tuning. AssistStrength multiplies the planets' pull for flybys only (1 = real physics; real
+/// flybys barely bend a fast torch ship, so the game makes them stronger). DepartShares are the burn
+/// levels tried for the stretch to the planet: a gentler burn there leaves the swing to add the speed.
+/// </summary>
+public sealed record SlingshotData(double AssistStrength = 40, double MinTimeGain = 0.02, double MinFuelGain = 0.06,
+    double FuelHourWeight = 0.5, List<double>? DepartShares = null, List<double>? FuelSaverShares = null)
+{
+    /// <summary>Speed settings tried for a slingshot, as shares of the one asked for (lower ones save fuel).</summary>
+    public IReadOnlyList<double> FuelSaverSpeeds => FuelSaverShares is { Count: > 0 } f ? f : new[] { 1.0, 0.7 };
+
+    public IReadOnlyList<double> Departs => DepartShares is { Count: > 0 } d ? d : new[] { 1.0, 0.75, 0.55 };
+}
+
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -126,6 +140,7 @@ public static class GameData
     public static LightData Light => _file.Value.Light ?? new LightData();
     public static FlagshipData Flagships => _file.Value.Flagships ?? new FlagshipData();
     public static DroneData Drones => _file.Value.Drones ?? new DroneData();
+    public static SlingshotData Slingshots => _file.Value.Slingshots ?? new SlingshotData();
     public static HeatData Heat => _file.Value.Heat ?? new HeatData();
     public static BattleRecordData Recording => _file.Value.Recording ?? new BattleRecordData();
     public static EconomyData Economy => _economy.Value;

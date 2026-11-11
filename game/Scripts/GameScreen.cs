@@ -1120,7 +1120,7 @@ public partial class GameScreen : Node2D
         if (Planner == null) return;
         if (MyFleet?.Id != Planner.FleetId) { Planner = null; return; }
         _planAge += delta;
-        if (_planAge > 0.3) Replan();
+        if (_planAge > (Settings.Route == RouteKind.Slingshot ? 2.0 : 0.3)) Replan(); // a slingshot search takes longer
     }
     public bool IsFollowing(int id) => _follow == id;
 
