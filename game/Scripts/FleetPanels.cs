@@ -5,8 +5,11 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The selected fleet: what it is doing, its supplies, its ships (tick some to split them off) and
-/// buttons for orbit, drift, stop, split and merge. Rival fleets show the same facts without buttons.
+/// The selected fleet. Glance: a header with its job, five damage bars, a supplies line and a yellow line
+/// for anything that needs you. Hover: the numbers and reasons. Open: folding sections (Orders, Battle
+/// rules, Supply, Ships, Refit, Zone, Details), each one line until opened; the panel remembers which you
+/// keep open. Orbit, drift, stop and split are buttons; rarer orders sit in the More menu.
+/// Rival fleets show what you know without the orders.
 /// </summary>
 public partial class FleetPanel : PanelContainer
 {
@@ -16,12 +19,9 @@ public partial class FleetPanel : PanelContainer
     private VBoxContainer _shipList = null!;
     private HBoxContainer _buttons = null!;
     private Button _split = null!;
-    private Button _merge = null!;
-    private MenuButton _join = null!;
     private Button _orbit = null!;
     private Button _drift = null!;
     private Button _stop = null!;
-    private Button _route = null!;
     private OptionButton _stance = null!;
 
     /// <summary>The standing orders offered, in the menu's order, with what each does.</summary>
@@ -66,42 +66,61 @@ public partial class FleetPanel : PanelContainer
         var box = new VBoxContainer { CustomMinimumSize = new Vector2(330, 0) };
         box.AddThemeConstantOverride("separation", 6);
         AddChild(box);
-        // Header: the name, then Info (all the text), More (every control) and Tuck (just the name and what it is doing).
+        // Header: the name and Tuck; then the job, the five damage bars, the supplies line and anything that needs you.
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 4);
         _title = Ui.Label("", 17);
         _title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         header.AddChild(_title);
-        _infoButton = HeaderToggle("Info", "Show everything known about the fleet: lag, speed and fuel, cargo, blockade, signature, heat", () => _showInfo = !_showInfo);
-        _moreButton = HeaderToggle("More", "Show every order: mission and autonomy, cover and targeting, heat, weapons, fittings", () => _showMore = !_showMore);
         _tuckButton = HeaderToggle("◂ Tuck", "Shrink the panel to its name and what the fleet is doing; click again to bring it back", () => _tucked = !_tucked);
-        header.AddChild(_infoButton);
-        header.AddChild(_moreButton);
         header.AddChild(_tuckButton);
         box.AddChild(header);
-        _status = Ui.Label("", 14, Ui.Dim);
+        _job = Ui.Label("", 14, Ui.Dim);
+        _job.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _job.CustomMinimumSize = new Vector2(330, 0);
+        _job.MouseFilter = MouseFilterEnum.Pass;
+        box.AddChild(_job);
+        _wounds = new WoundBars();
+        box.AddChild(_wounds);
+        _suppliesLine = Ui.Label("", 13, Ui.Text);
+        _suppliesLine.MouseFilter = MouseFilterEnum.Pass;
+        box.AddChild(_suppliesLine);
+        _needs = new Button { Flat = true, FocusMode = FocusModeEnum.None, Alignment = HorizontalAlignment.Left, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _needs.CustomMinimumSize = new Vector2(330, 0);
+        _needs.AddThemeFontSizeOverride("font_size", 13);
+        _needs.AddThemeColorOverride("font_color", NeedsColor);
+        _needs.AddThemeColorOverride("font_hover_color", Ui.Text);
+        _needs.Pressed += () => Main.Instance.RunGuarded("fleet needs", ActOnNeed);
+        box.AddChild(_needs);
+        _status = Ui.Label("", 13, Ui.Rival);
         _status.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _status.CustomMinimumSize = new Vector2(330, 0);
         box.AddChild(_status);
         _shipList = new VBoxContainer();
         box.AddChild(_shipList);
-        _barsKey = Ui.Label("bars: hull · weapons · engines · defence · crew | fuel (hover a ship for numbers)", 11, Ui.Dim);
+        _barsKey = Ui.Label("bars: hull · weapons · engines · defence · crew | fuel · ⓘ ship card (hover a ship for numbers)", 11, Ui.Dim);
         box.AddChild(_barsKey);
+        _info = Ui.Label("", 12, Ui.Dim);
+        _info.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _info.CustomMinimumSize = new Vector2(330, 0);
+        box.AddChild(_info);
+        _supplyText = Ui.Label("", 12, Ui.Dim);
+        _supplyText.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _supplyText.CustomMinimumSize = new Vector2(330, 0);
+        box.AddChild(_supplyText);
         _buttons = new HBoxContainer();
         _buttons.AddThemeConstantOverride("separation", 4);
         _orbit = Ui.SmallButton("Orbit", () => _screen.OrderHold(HoldStyle.Orbit), "Orbit the nearest planet or moon (O)");
         _drift = Ui.SmallButton("Drift", () => _screen.OrderHold(HoldStyle.Drift), "Engines cold: stay put (G)");
-        _route = Ui.SmallButton("Change route", () => _screen.EditRoute(), "Open this fleet's route in the planner to change the target, speed or waypoints (C). You can also drag a waypoint or the end of the route on the map");
         _stop = Ui.SmallButton("Stop", () => _screen.OrderStop(), "Cancel the flight and brake to a stop (X)");
-        _split = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet");
-        _merge = Ui.SmallButton("Merge", () => _screen.OrderMerge(), "Join the nearest of your fleets into this one (M). To merge fleets further apart, drag a box round them and Gather");
-        foreach (var b in new[] { _orbit, _drift, _route, _stop, _split, _merge }) _buttons.AddChild(b);
-        _join = new MenuButton { Text = "Join ▾", Flat = false, FocusMode = FocusModeEnum.None,
-            TooltipText = "Fly to another of your fleets and merge into it: to where it will stop, or on intercept tracks if it is drifting on" };
-        _join.AddThemeFontSizeOverride("font_size", 15);
-        _join.AboutToPopup += FillJoinMenu;
-        _join.GetPopup().IdPressed += id => Main.Instance.RunGuarded("join order", () => _screen.OrderJoin((int)id));
-        _buttons.AddChild(_join);
+        _split = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet (tick them in Ships)");
+        foreach (var b in new[] { _orbit, _drift, _stop, _split }) _buttons.AddChild(b);
+        _more = new MenuButton { Text = "More ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Change route, merge or join, engagement view, fittings, heat sinks, dropped missiles, drones, pull back now" };
+        _more.AddThemeFontSizeOverride("font_size", 15);
+        _more.AboutToPopup += FillMoreMenu;
+        _more.GetPopup().IdPressed += id => Main.Instance.RunGuarded("fleet menu", () => PickMore((int)id));
+        _buttons.AddChild(_more);
         box.AddChild(_buttons);
 
         // Standing orders: what the fleet does when enemies come into contact.
@@ -315,6 +334,7 @@ public partial class FleetPanel : PanelContainer
         _boardNote = Ui.Label("", 12, Ui.Dim);
         _boardRow.AddChild(_boardNote);
         box.AddChild(_boardRow);
+        Arrange(box);
     }
 
     private HBoxContainer _boardRow = null!;
@@ -354,14 +374,191 @@ public partial class FleetPanel : PanelContainer
             : $"{targets.Count} crippled enem{(targets.Count == 1 ? "y" : "ies")} in reach";
     }
 
+    // ---- Sections ---------------------------------------------------------------------------------
+
+    private static readonly Color NeedsColor = new("ffd34d");
+    private Label _job = null!, _suppliesLine = null!, _info = null!, _supplyText = null!;
+    private WoundBars _wounds = null!;
+    private Button _needs = null!;
+    private MenuButton _more = null!;
+    private VBoxContainer _sectionBox = null!;
+    private FoldSection _secOrders = null!, _secRules = null!, _secSupply = null!, _secShips = null!, _secRefit = null!, _secZone = null!, _secDetails = null!;
+    private (string? Key, int? ShipId, string? Section) _needAct;
+
+    /// <summary>In Simple detail the sections are hidden until asked for from the More menu.</summary>
+    private static bool _simpleShowSections;
+
+    /// <summary>Moves the rows made above into their folding sections, in the panel's order.</summary>
+    private void Arrange(VBoxContainer box)
+    {
+        _sectionBox = new VBoxContainer();
+        _sectionBox.AddThemeConstantOverride("separation", 2);
+        FoldSection Make(string name, string tip, params Control[] rows)
+        {
+            var sec = new FoldSection(name, tip);
+            _sectionBox.AddChild(sec);
+            foreach (var r in rows)
+            {
+                r.GetParent()?.RemoveChild(r);
+                sec.Body.AddChild(r);
+            }
+            return sec;
+        }
+        _secOrders = Make("Orders", "Mission and autonomy, what to do in contact, cover and targeting, heat and weapons",
+            _orders, _missionRow, _coverRow, _heatRow, _heat, _fireRow);
+        _secRules = Make("Battle rules", "When the fleet pulls back from a fight; Hold on and Pull back now", _rules);
+        _secSupply = Make("Supply", "Fuel and speed left, food and ammunition, cargo, and supply runs", _supplyText, _supplyRun);
+        _secShips = Make("Ships", "Each ship's bars; tick ships to split them off; ⓘ opens a ship's card", _shipList, _barsKey, _fittings);
+        _secRefit = Make("Refit", "Send the fleet to a yard to refit to the current designs", _rules.RefitBox);
+        _secZone = Make("Zone", "Hold or draw a raiding zone, or hunt a spotted supply lane", _rules.ZoneBox);
+        _secDetails = Make("Details", "Light lag, speed and closing, signature and everything else known", _info);
+        box.AddChild(_sectionBox);
+        box.MoveChild(_sectionBox, _status.GetIndex() + 1);
+        box.MoveChild(_buttons, -1);
+    }
+
+    private const int MoreRoute = 1, MoreMerge = 2, MoreEngagement = 3, MoreFittings = 4, MoreSinks = 5, MoreDrone = 6, MorePull = 7,
+        MoreSections = 8, MoreDrop = 10, MoreJoin = 1000;
+
+    private void FillMoreMenu()
+    {
+        var popup = _more.GetPopup();
+        popup.Clear();
+        var sim = Main.Instance.Sim;
+        if (sim == null || _screen.SelectedFleet is not Fleet f) return;
+        var w = sim.World;
+        void Add(string text, int id, bool enabled, string tip = "")
+        {
+            popup.AddItem(text, id);
+            popup.SetItemDisabled(popup.ItemCount - 1, !enabled);
+            if (tip.Length > 0) popup.SetItemTooltip(popup.ItemCount - 1, tip);
+        }
+        Add("Change route (C)", MoreRoute, _screen.CanEditRoute, "Open the route in the planner; you can also drag waypoints on the map");
+        var candidate = _screen.MergeCandidate();
+        Add(candidate != null ? $"Merge {candidate.Name} into this fleet (M)" : "Merge (M): no fleet close by and stopped", MoreMerge, candidate != null);
+        var others = w.Fleets.Where(o => o.Side == f.Side && o.Id != f.Id).OrderBy(o => Vec2.Distance(o.Position, f.Position)).ToList();
+        if (others.Count > 0) popup.AddSeparator("Join another fleet");
+        foreach (var o in others)
+        {
+            var moving = o.Velocity.Length > 1e-9 ? $", moving at {Format.Speed(o.Velocity.Length)}" : "";
+            Add($"Join {o.Name} ({o.ShipIds.Count} ships), {Format.Distance(Vec2.Distance(o.Position, f.Position))} away{moving}", MoreJoin + o.Id, true,
+                "Fly to it and merge: to where it will stop, or on intercept tracks if it is drifting on");
+        }
+        popup.AddSeparator();
+        Add("Engagement view (V)", MoreEngagement, Lightlag.Sim.Core.Engagement.EnemyFor(w, f) != null, "Weapon reach, closest pass, missiles and ways to play it");
+        Add("Ships and fittings", MoreFittings, true, "Each ship's drawing, slots and modules");
+        Add("Eject heat sinks", MoreSinks, w.ShipsOf(f).Any(s => s.HeatSinks > 0), "Every ship throws a heat sink overboard: sheds heat at once and can draw off missiles");
+        var canDrop = w.ShipsOf(f).Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
+        foreach (var (label, i) in new[] { ("Drop missiles, wake now", 0), ("Drop missiles, wake in 1 hour", 1), ("Drop missiles, wake in 6 hours", 2), ("Drop missiles, wake in a day", 3) })
+            Add(label, MoreDrop + i, canDrop, "Each destroyer drops a salvo to drift dark; it goes for the first enemy ship that passes close");
+        if (w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0) Add("Send orders by drone", MoreDrone, true);
+        if (w.Loop) Add("Pull back now", MorePull, !f.Retreating, "Break off at once and head for safety");
+        if (PlayerInfo.Detail == DetailLevel.Simple)
+            Add(_simpleShowSections ? "Hide the sections" : "Show the sections", MoreSections, true, "Simple detail hides the sections; show them for this panel");
+    }
+
+    private void PickMore(int id)
+    {
+        if (_screen.SelectedFleet is not Fleet f) return;
+        switch (id)
+        {
+            case MoreRoute: _screen.EditRoute(); break;
+            case MoreMerge: _screen.OrderMerge(); break;
+            case MoreEngagement: _screen.ToggleEngagement(); break;
+            case MoreFittings: _screen.FittingFleetId = _screen.FittingFleetId == null ? f.Id : null; break;
+            case MoreSinks: _screen.EjectSinks(); break;
+            case MoreDrone: _screen.SendDrone(); break;
+            case MorePull: _screen.IssueNow(new PullBackNowCommand(f.Id), "pull back now"); break;
+            case MoreSections: _simpleShowSections = !_simpleShowSections; break;
+            case >= MoreJoin: _screen.OrderJoin(id - MoreJoin); break;
+            case >= MoreDrop and < MoreDrop + 4: _screen.DropMissiles((id - MoreDrop) switch { 0 => 0, 1 => 1, 2 => 6, _ => 24 }); break;
+        }
+    }
+
+    /// <summary>The yellow line: an item from Needs you for this fleet, or the worst trouble seen on it.</summary>
+    private (string Text, string? Key, int? ShipId, string? Section)? FleetNeed(World w, Fleet f, List<Ship> ships)
+    {
+        if (f.Side != Side.Player) return null;
+        var need = Economy.Of(w, Side.Player).Needs.Where(n => n.FleetId == f.Id).OrderBy(n => n.Level).FirstOrDefault();
+        if (need != null && need.Level <= NeedLevel.Soon)
+            return (need.Text + (need.Act != null ? $": {need.ActLabel ?? "do it"}" : ""), need.Act != null ? need.Key : null, null, null);
+        if (ships.FirstOrDefault(SupplyLines.Hungry) is Ship hungry) return ($"{hungry.Name} is out of food: send a freighter or bring it home", null, null, "Supply");
+        if (ships.FirstOrDefault(s => s.Crippled) is Ship crippled) return ($"{crippled.Name} is crippled: send for repair", null, crippled.Id, null);
+        var fuel = ships.Count == 0 ? 1 : ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)));
+        if (fuel < 0.25 && !f.Resupplying) return ($"Fuel at {fuel:P0}: head for a planet you hold or call a tanker", null, null, "Supply");
+        foreach (var s in ships)
+            if (Math.Min(s.Engines, Math.Min(s.Weapons, s.Defence)) < 0.5)
+            {
+                var (part, v) = s.Engines <= s.Weapons && s.Engines <= s.Defence ? ("engines", s.Engines) : s.Weapons <= s.Defence ? ("weapons", s.Weapons) : ("defences", s.Defence);
+                return ($"{s.Name}'s {part} at {v:P0}: send for repair", null, s.Id, null);
+            }
+        var armed = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
+        if (armed.Count > 0 && armed.All(s => s.Ammo <= 0)) return ("Out of ammunition: rearm at a yard or call a tanker", null, null, "Supply");
+        if (ships.FirstOrDefault(s => s.Overheated) is Ship hot) return ($"{hot.Name} has overheated: pull the fleet back or eject heat sinks", null, null, "Orders");
+        if (need != null && need.Level == NeedLevel.Advice) return (need.Text, need.Act != null ? need.Key : null, null, null);
+        return null;
+    }
+
+    private void ActOnNeed()
+    {
+        var (key, shipId, section) = _needAct;
+        if (key != null) _screen.IssueNow(new AcceptNeedCommand(Side.Player, key), "acting on a need");
+        else if (shipId is int id) _screen.ShipCardId = id;
+        else if (section != null) PlayerInfo.SetOpen(section, true);
+    }
+
+    /// <summary>The supplies line: fuel, food, ammunition and light lag, with the numbers in its tooltip.</summary>
+    private static (string Line, string Tip) SuppliesLine(World w, Fleet f, List<Ship> ships, FleetPerformance perf)
+    {
+        if (ships.Count == 0) return ("", "");
+        var parts = new List<string>();
+        var fuel = ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)));
+        parts.Add($"fuel {fuel:P0}");
+        var fed = ships.Where(s => SupplyLines.MaxFood(s) > 0).ToList();
+        if (fed.Count > 0) parts.Add($"food {fed.Min(s => s.Food):0} d");
+        var armed = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
+        if (armed.Count > 0) parts.Add($"ammo {armed.Sum(s => s.Ammo) / armed.Sum(s => SupplyLines.MaxAmmo(s)):P0}");
+        var missiles = ships.Sum(s => s.Missiles);
+        if (missiles > 0) parts.Add($"{missiles} missiles");
+        if (w.Light.On)
+        {
+            var lag = Light.DelayHours(w, Side.Player, f.Position);
+            parts.Add(lag > 1.0 / 60 ? $"{Format.Lag(lag)} lag" : "live");
+        }
+        var tip = $"Fuel {fuel:P0} (lowest ship): {Format.Speed(perf.DeltaVLeft)} of speed change left, top speed {Format.Speed(perf.MaxSpeed)} (slowest ship)"
+                  + (fed.Count > 0 ? $"\nFood for {fed.Min(s => s.Food):0} days (lowest ship)" : "")
+                  + (armed.Count > 0 ? $"\nAmmunition {armed.Sum(s => s.Ammo):0} of {armed.Sum(s => SupplyLines.MaxAmmo(s)):0}" : "")
+                  + (w.Light.On ? "\nLight lag from your flagship each way; live means orders arrive at once" : "");
+        return (string.Join(" · ", parts), tip);
+    }
+
+    private static string SupplySummary(World w, Fleet f)
+    {
+        if (f.Resupplying) return "coasting to refill";
+        if (f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t) return $"supply run for {t.Name}";
+        if (w.Fleets.FirstOrDefault(o => o.SupplyRunFor == f.Id) is Fleet tanker) return $"{tanker.Name} keeps it supplied";
+        return f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side ? "refilling in orbit" : "no supply run";
+    }
+
+    private static string ShipsSummary(World w, List<Ship> ships)
+    {
+        var crippled = ships.Count(s => s.Crippled);
+        var damaged = ships.Count(s => !s.Crippled && (s.Armour / Tech.MaxArmour(w, s) < 0.7 || Math.Min(Math.Min(s.Weapons, s.Engines), Math.Min(s.Defence, s.Crew)) < 0.7));
+        var bits = new List<string>();
+        if (crippled > 0) bits.Add($"{crippled} crippled");
+        if (damaged > 0) bits.Add($"{damaged} damaged");
+        if (ships.Any(s => s.Overheated)) bits.Add("overheated");
+        return bits.Count == 0 ? "all sound" : string.Join(", ", bits);
+    }
+
     private HBoxContainer _planetRow = null!;
     private Button _height = null!, _board = null!;
     private MenuButton _land = null!;
     private MenuButton _bomb = null!;
 
-    // Panel view: tucked to its name, the info text, and every control (kept between selections).
-    private static bool _tucked, _showInfo, _showMore;
-    private Button _infoButton = null!, _moreButton = null!, _tuckButton = null!, _fittings = null!;
+    // Panel view: tucked to its name and job (kept between selections).
+    private static bool _tucked;
+    private Button _tuckButton = null!, _fittings = null!;
     private Label _barsKey = null!;
     private FleetRules _rules = null!;
 
@@ -383,7 +580,7 @@ public partial class FleetPanel : PanelContainer
         OffsetTop = OffsetBottom - min.Y;
     }
 
-    /// <summary>A line worth showing even with Info off: warnings written in capitals (LOW ON SUPPLIES, LEFT ORBIT...).</summary>
+    /// <summary>A line worth showing above the sections: warnings written in capitals (LOW ON SUPPLIES, LEFT ORBIT...).</summary>
     private static bool Alert(string line) => line.Length > 3 && char.IsUpper(line[0]) && char.IsUpper(line[1]) && char.IsUpper(line[2]);
 
     private Button _engagementButton = null!;
@@ -534,9 +731,27 @@ public partial class FleetPanel : PanelContainer
                 if (Mind.Of(w, f.Side)?.JobOf(f.Id) is FleetJob job) lines.Add($"(debug) Rival job: {job.Kind}: {job.Why}");
             }
         }
-        _status.Text = string.Join("\n", _showInfo && !_tucked ? lines : lines.Take(1).Concat(lines.Skip(1).Where(Alert)));
-        _shipList.Visible = seen && !_tucked;
-        _barsKey.Visible = _shipList.Visible;
+        _job.Text = lines.FirstOrDefault() ?? "";
+        _job.TooltipText = string.Join("\n", lines.Skip(1).Where(l => !Alert(l)).Take(3));
+        var warnings = lines.Skip(1).Where(Alert).ToList();
+        _status.Text = string.Join("\n", warnings);
+        _status.Visible = warnings.Count > 0 && !_tucked;
+        _info.Text = string.Join("\n", lines.Skip(1));
+        _wounds.Visible = seen && !_tucked && ships.Count > 0;
+        if (_wounds.Visible) _wounds.Set(w, ships);
+        var (suppliesText, suppliesTip) = mine ? SuppliesLine(w, f, ships, perf) : ("", "");
+        _suppliesLine.Text = suppliesText;
+        _suppliesLine.TooltipText = suppliesTip;
+        _suppliesLine.Visible = mine && !_tucked && suppliesText.Length > 0;
+        _supplyText.Text = suppliesTip;
+        var need = FleetNeed(w, f, ships);
+        _needs.Visible = need != null && !_tucked;
+        if (need is var (needText, needKey, needShip, needSection))
+        {
+            _needs.Text = "⚠ " + needText;
+            _needAct = (needKey, needShip, needSection);
+            _needs.TooltipText = needKey != null ? "Click to do it" : needShip != null ? "Click for the ship's card" : needSection != null ? $"Click to open {needSection}" : "";
+        }
 
         // Rebuild the ship rows only when the fleet's ships change.
         var key = string.Join(",", f.ShipIds) + (mine ? "m" : "r");
@@ -566,6 +781,10 @@ public partial class FleetPanel : PanelContainer
                 row.AddChild(bars);
                 var supplies = Ui.Label("", 12, Ui.Dim);
                 row.AddChild(supplies);
+                var cardId = s.Id;
+                var card = new Button { Text = "ⓘ", Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "The ship's card: its bars, crew, fit and history" };
+                card.Pressed += () => _screen.ShipCardId = cardId;
+                row.AddChild(card);
                 _shipList.AddChild(row);
                 _rows[s.Id] = (check, bars, supplies);
             }
@@ -623,29 +842,27 @@ public partial class FleetPanel : PanelContainer
         }
 
         var open = !_tucked;
-        var more = open && _showMore;
-        _infoButton.Visible = _moreButton.Visible = open;
-        _infoButton.SetPressedNoSignal(_showInfo);
-        _moreButton.SetPressedNoSignal(_showMore);
         _tuckButton.SetPressedNoSignal(_tucked);
         _tuckButton.Text = _tucked ? "▸ Open" : "◂ Tuck";
         _buttons.Visible = mine && open;
-        _orders.Visible = mine && open;
-        _rules.Visible = mine && open && sim.World.Loop;
-        if (_rules.Visible) _rules.Refresh(sim.World, f);
+        if (mine && sim.World.Loop) _rules.Refresh(sim.World, f);
         _engagementButton.Visible = mine && open && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
-        _supplyRun.Visible &= open;
         _planetRow.Visible &= open;
-        _fittings.Visible = more;
+        _fittings.Visible = mine;
+        var sections = open && (PlayerInfo.Detail != DetailLevel.Simple || _simpleShowSections || !mine);
+        _sectionBox.Visible = sections;
+        _secOrders.Show(mine, $"{MissionText(w, f)} · {Levels.FirstOrDefault(x => x.Level == f.Autonomy).Name} · {Stances.FirstOrDefault(x => x.Stance == f.Stance).Name}");
+        _secRules.Show(mine && w.Loop, FleetRules.BattleSummary(w, f));
+        _secSupply.Show(mine, SupplySummary(w, f));
+        _secShips.Show(seen && ships.Count > 0, ShipsSummary(w, ships), $"Ships ({ships.Count})");
+        _secRefit.Show(mine && w.Loop, FleetRules.RefitSummary(w, f));
+        _secZone.Show(mine && w.Loop, FleetRules.ZoneSummary(w, f));
+        _secDetails.Show(_info.Text.Length > 0, mine && w.Light.On ? $"{Format.Lag(Light.DelayHours(w, Side.Player, f.Position))} of light · {StateText(Sensors.StateOf(f))}" : StateText(Sensors.StateOf(f)));
         var at = Array.FindIndex(Stances, x => x.Stance == f.Stance);
         if (at >= 0 && _stance.Selected != at) _stance.Select(at);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
-        _missionRow.Visible = mine && more;
-        _coverRow.Visible = mine && more;
         _coverLabel.Visible = _cover.Visible = w.Light.On;
         _fireAt.SetItemDisabled(1, !w.Light.On);
-        _heatRow.Visible = _fireRow.Visible = mine && more;
-        _heat.Visible = mine && open && (_showMore || _showInfo || ships.Any(x => x.Overheated));
         if (_radiators.Selected != (int)f.Radiators) _radiators.Select((int)f.Radiators);
         _autoSinks.SetPressedNoSignal(f.AutoSinks);
         _longShots.SetPressedNoSignal(f.LongShots);
@@ -654,6 +871,7 @@ public partial class FleetPanel : PanelContainer
         _heat.Text = HeatText(w, f, ships);
         _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : Ui.Dim);
         _droneButton.Visible = mine && open && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
+        _supplyRun.Visible &= mine;
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
         _mission.Text = MissionText(w, f) + " ▾";
@@ -664,12 +882,8 @@ public partial class FleetPanel : PanelContainer
         _orbit.Disabled = flying || (f.Hold == HoldStyle.Orbit && f.Flight == null);
         _drift.Disabled = flying || (f.Hold == HoldStyle.Drift && f.Flight == null);
         _stop.Disabled = f.Flight == null && f.Velocity.Length < 1e-9;
-        _route.Disabled = !_screen.CanEditRoute;
         _split.Disabled = picked == 0 || picked == ships.Count;
-        _join.Disabled = !mine || !sim.World.Fleets.Any(o => o.Side == f.Side && o.Id != f.Id);
-        var candidate = _screen.MergeCandidate();
-        _merge.Disabled = candidate == null;
-        _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
+        _split.TooltipText = picked == 0 ? "Tick ships in the Ships section, then split them off as a new fleet" : $"Make the {picked} ticked ships a new fleet";
         FitToCorner();
     }
 
@@ -741,19 +955,6 @@ public partial class FleetPanel : PanelContainer
         Mission.Scout => "Scout",
         _ => $"{f.Mission} {w.FindBody(f.MissionBodyId ?? -1)?.Name ?? "?"}",
     };
-
-    private void FillJoinMenu()
-    {
-        var popup = _join.GetPopup();
-        popup.Clear();
-        var sim = Main.Instance.Sim;
-        if (sim == null || _screen.SelectedFleet is not Fleet f) return;
-        foreach (var o in sim.World.Fleets.Where(o => o.Side == f.Side && o.Id != f.Id).OrderBy(o => Vec2.Distance(o.Position, f.Position)))
-        {
-            var moving = o.Velocity.Length > 1e-9 ? $", moving at {Format.Speed(o.Velocity.Length)}" : "";
-            popup.AddItem($"{o.Name} ({o.ShipIds.Count} ships), {Format.Distance(Vec2.Distance(o.Position, f.Position))} away{moving}", o.Id);
-        }
-    }
 
     public static string StateText(SignatureState state) => state switch
     {

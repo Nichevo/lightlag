@@ -5,7 +5,8 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The fleet panel's battle-rules, refit and zone rows: the pull-back rule (Auto or a preset), how close
+/// The fleet panel's battle-rules, refit and zone rows (the refit and zone rows live in RefitBox and
+/// ZoneBox, which the fleet panel puts in their own sections): the pull-back rule (Auto or a preset), how close
 /// the fleet is to it, Hold on and Pull back now; Send for refit with its estimate; and holding a zone,
 /// drawing a raiding zone where the fleet is, or hunting a supply lane you have spotted.
 /// </summary>
@@ -26,6 +27,10 @@ public partial class FleetRules : VBoxContainer
     private Label _formationLine = null!;
 
     private static readonly Formation[] Shapes = { Formation.Auto, Formation.Staggered, Formation.Wall, Formation.Line, Formation.Column };
+
+    /// <summary>The refit and zone rows, for the fleet panel's Refit and Zone sections.</summary>
+    public VBoxContainer RefitBox { get; } = new();
+    public VBoxContainer ZoneBox { get; } = new();
 
     private static readonly PullPreset[] Presets = { PullPreset.Cautious, PullPreset.Standard, PullPreset.FightOn, PullPreset.ToTheLast };
 
@@ -73,7 +78,9 @@ public partial class FleetRules : VBoxContainer
         shape.AddChild(_formation);
         _formationLine = Line();
 
-        var refit = Row();
+        RefitBox.AddThemeConstantOverride("separation", 4);
+        ZoneBox.AddThemeConstantOverride("separation", 4);
+        var refit = Row(RefitBox);
         _refit = Ui.SmallButton("Send for refit", () => Do(f => new SendForRefitCommand(Side.Player, f.Id), "send for refit"), "");
         _cancelRefit = Ui.SmallButton("Cancel refit", () => Do(f => new CancelRefitCommand(Side.Player, f.Id), "cancel refit"), "Stop the refit; ships already in the bays finish");
         foreach (var b in new[] { _refit, _cancelRefit })
@@ -87,10 +94,10 @@ public partial class FleetRules : VBoxContainer
         _zone.AddThemeFontSizeOverride("font_size", 12);
         _zone.AboutToPopup += FillZoneMenu;
         _zone.GetPopup().IdPressed += id => Main.Instance.RunGuarded("zone order", () => PickZone((int)id));
-        refit.AddChild(_zone);
-        _refitLine = Line();
+        _refitLine = Line(RefitBox);
+        Row(ZoneBox).AddChild(_zone);
         _zonePanel = new ZonePanel(_screen);
-        AddChild(_zonePanel);
+        ZoneBox.AddChild(_zonePanel);
     }
 
     public void Refresh(World w, Fleet f)
@@ -219,22 +226,42 @@ public partial class FleetRules : VBoxContainer
         if (_fleet != null) _screen.IssueNow(make(_fleet), what);
     }
 
-    private HBoxContainer Row()
+    private HBoxContainer Row(Container? parent = null)
     {
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 4);
-        AddChild(row);
+        (parent ?? this).AddChild(row);
         return row;
     }
 
-    private Label Line()
+    private Label Line(Container? parent = null)
     {
         var l = Ui.Label("", 12, Ui.Dim);
         l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         l.CustomMinimumSize = new Vector2(330, 0);
-        AddChild(l);
+        (parent ?? this).AddChild(l);
         return l;
     }
+
+    // ---- One-line summaries for the fleet panel's section headers ----------------------------------
+
+    public static string BattleSummary(World w, Fleet f)
+    {
+        if (f.Retreating) return "pulling back";
+        var preset = EmpireTabs.PresetName(f.Rule.Preset);
+        return (f.RuleByHand ? preset : $"Auto · {preset}") + $" · {Formations.Name(f.Formation)}" + (f.HoldOn ? " · holding on" : "");
+    }
+
+    public static string RefitSummary(World w, Fleet f)
+    {
+        if (Refits.Status(w, f) is string status) return status;
+        var behind = w.ShipsOf(f).Count(s => Refits.Outdated(w, s));
+        if (behind == 0) return "matches the designs";
+        return Refits.Estimate(w, f) is { } e ? $"{behind} behind · {(e.Wait + e.InBay) / 24:0} d" : $"{behind} behind";
+    }
+
+    public static string ZoneSummary(World w, Fleet f) =>
+        f.ZoneId is int z && w.Zones.Find(x => x.Id == z) is Zone zone ? $"{(f.Mission == Mission.Hunt ? "hunting" : "holding")} {zone.Name}" : "none";
 
     private static Label Caption(string text)
     {

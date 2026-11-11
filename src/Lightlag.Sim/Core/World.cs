@@ -360,6 +360,12 @@ public sealed class Ship
     /// <summary>Crew experience (see Crews): Green under 1, Trained, Seasoned from 3, Veteran from 6, Elite from 10.</summary>
     public double Xp { get; set; } = 1;
 
+    /// <summary>History for the ship card: when and where it was built (null: at the start), battles fought, enemy ships lost in them.</summary>
+    public double? BuiltHour { get; set; }
+    public int? BuiltAtBodyId { get; set; }
+    public int Battles { get; set; }
+    public int EnemyLostInBattles { get; set; }
+
     /// <summary>Working numbers for the fit, worked out once per fit (not saved).</summary>
     [System.Text.Json.Serialization.JsonIgnore] public ShipClass? SpecCache { get; set; }
     [System.Text.Json.Serialization.JsonIgnore] public string SpecKey { get; set; } = "";

@@ -141,6 +141,14 @@ public partial class GameScreen : Node2D
 
     private readonly HashSet<string> _warCallsSeen = new();
 
+    /// <summary>The ship whose card is open (click ⓘ on a ship row; null: none).</summary>
+    public int? ShipCardId { get; set; }
+
+    /// <summary>The key help overlay (F1), the "How am I doing" chart (N) and the intelligence screen (I).</summary>
+    public bool ShowHelp { get; set; }
+    public bool ShowProgress { get; set; }
+    public bool ShowIntel { get; set; }
+
     /// <summary>The fleets and planets list down the left (L folds it away).</summary>
     public bool ShowSide { get; set; } = true;
 
@@ -1323,6 +1331,13 @@ public partial class GameScreen : Node2D
             case Key.Tab when Engagement != null: CycleEngagement(key.ShiftPressed ? -1 : 1); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
+            case Key.F1: ShowHelp = !ShowHelp; break;
+            case Key.Escape when ShowHelp: ShowHelp = false; break;
+            case Key.I when Sim.World.Loop: ShowIntel = !ShowIntel; break;
+            case Key.Escape when ShowIntel: ShowIntel = false; break;
+            case Key.N when Sim.World.Loop: ShowProgress = !ShowProgress; break;
+            case Key.Escape when ShowProgress: ShowProgress = false; break;
+            case Key.Escape when ShipCardId != null: ShipCardId = null; break;
             case Key.B:
                 _map.Sight = _map.Sight switch
                 {
@@ -1330,6 +1345,7 @@ public partial class GameScreen : Node2D
                     MapView.SightView.Coverage => MapView.SightView.Off,
                     _ => MapView.SightView.Shadows,
                 };
+                if ((_map.Sight != MapView.SightView.Off) != PlayerInfo.Has(MapLayer.Shadows)) PlayerInfo.Toggle(MapLayer.Shadows);
                 _main.Toast(_map.Sight switch
                 {
                     MapView.SightView.Coverage => "Sensor coverage: what your ships and planets can see, and what bodies hide (B)",

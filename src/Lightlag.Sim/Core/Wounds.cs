@@ -233,7 +233,7 @@ public static class Wounds
         if (w.Loop) Economy.Of(w, f.Side).Totals.Salvaged += total;
         sim.Log.Info("combat", $"{f.Name} salvages the wreck of {wr.Name}", new { fleetId = f.Id, wreck = wr.Id, store = store.Name, salvage = haul });
         Sparks.Fire(sim, f.Side, "wreck-salvaged");
-        if (wr.Side != f.Side) Spoils.Scrap(sim, f.Side, $"parts from the wreck of {wr.Name}");
+        if (wr.Side != f.Side) Spoils.Scrap(sim, f.Side, $"parts from the wreck of {wr.Name}", IntelSource.Wreck, part: true);
     }
 
     /// <summary>What mending this ship fully at a yard will cost: alloys for the hull, electronics for the other bars.</summary>

@@ -143,7 +143,7 @@ public static class Spoils
     };
 
     /// <summary>One scrap of intel: a research the other side has and this side lacks is sparked (in view, or a quarter off if queued).</summary>
-    public static void Scrap(Simulation sim, Side side, string why)
+    public static void Scrap(Simulation sim, Side side, string why, IntelSource source, double points = 0, bool part = false)
     {
         var w = sim.World;
         if (!w.Loop) return;
@@ -164,16 +164,20 @@ public static class Spoils
             text = $"{why}: the rival has {idea.Name}";
         }
         else text = $"{why}: nothing new on the rival's research";
-        Learn(sim, side, text);
+        Learn(sim, side, source, text, points, part ? Parts[sim.Rng.Range(0, Parts.Length)] : null);
         sim.Log.Info("intel", "Intel scrap", new { side = side.ToString(), why, text, scraps = state.Spoils.Scraps });
     }
 
-    /// <summary>The one hook where war spoils become intel notes on the rival (to feed a shared intel file once there is one).</summary>
-    public static void Learn(Simulation sim, Side side, string text)
+    /// <summary>Parts a captured ship or a stripped wreck can tell us the rival's level of (see Intel).</summary>
+    private static readonly string[] Parts = { "railguns", "missiles", "point-defence", "shields", "engines", "armour" };
+
+    /// <summary>The one hook where war spoils become intel: a note here (for the War tab) and in the intel file on the rival.</summary>
+    public static void Learn(Simulation sim, Side side, IntelSource source, string text, double points = 0, string? part = null)
     {
         var spoils = Economy.Of(sim.World, side).Spoils;
         spoils.Notes.Add(text);
         if (spoils.Notes.Count > 20) spoils.Notes.RemoveAt(0);
+        Intel.Note(sim.World, side, source, text, points, part);
     }
 
     /// <summary>Prisoners taken (k): they talk, a scrap for every PrisonersPerScrapK.</summary>
@@ -190,7 +194,7 @@ public static class Spoils
         {
             intel.PrisonerProgressK -= per;
             scraps++;
-            Scrap(sim, side, $"prisoners from {where}");
+            Scrap(sim, side, $"prisoners from {where}", IntelSource.Prisoners, Intel.SalvagePoints);
         }
         if (intel.PrisonerProgressK >= per) intel.PrisonerProgressK = 0; // more than three at once teaches no more
     }

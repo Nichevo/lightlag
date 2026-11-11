@@ -69,6 +69,9 @@ public sealed class RuleBook
         .Add("fleet-joins-own-side", w => w.Fleets.Where(f => f.JoinFleetId is int j
                 && (j == f.Id || w.FindFleet(j) is Fleet other && other.Side != f.Side))
             .Select(f => $"fleet {f.Id} {f.Name} is set to join fleet {f.JoinFleetId}"))
+        .Add("intel-sane", w => w.Sides.Where(s => s.Intel.Points < 0 || double.IsNaN(s.Intel.Points)
+                || s.Intel.Fleets.Any(f => !f.Position.IsFinite || w.FindFleet(f.FleetId) is Fleet own && own.Side == s.Side))
+            .Select(s => $"{s.Side} intel file is broken: points {s.Intel.Points}, {s.Intel.Fleets.Count} fleets"))
         .Add("sightings-sane", w => w.Sightings.Where(s => !s.Position.IsFinite || !s.Velocity.IsFinite
                 || w.FindFleet(s.FleetId) is Fleet f && f.Side == s.SeenBy)
             .Select(s => $"{s.SeenBy} sighting of fleet {s.FleetId} is broken"))

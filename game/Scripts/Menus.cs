@@ -33,6 +33,7 @@ public partial class GameMenu : Control
         col.AddChild(Ui.Button("How to play", () => Show(_help)));
         col.AddChild(Ui.Button("Quit to title screen", () => _screen.QuitToTitle()));
         col.AddChild(Graphics.Picker(this));
+        col.AddChild(PlayerInfo.Picker());
         col.AddChild(Ui.Label("Quitting saves an autosave first. F5 quick save, F9 quick load.", 13, Ui.Dim));
         _main = Ui.Centered(Ui.Panel(col, 24));
         AddChild(_main);

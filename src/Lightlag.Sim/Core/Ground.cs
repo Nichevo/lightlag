@@ -411,7 +411,7 @@ public static class Ground
         t.InvasionWins++;
         t.InvasionDays += (w.Hour - f.StartHour) / 24;
         t.InvasionHappiness += b.Happiness;
-        for (var i = 0; i < f.LabsTaken; i++) Spoils.Scrap(sim, side, $"a research lab taken intact on {b.Name}");
+        for (var i = 0; i < f.LabsTaken; i++) Spoils.Scrap(sim, side, $"a research lab taken intact on {b.Name}", IntelSource.Capture, Intel.SalvagePoints);
         Spoils.TakePrisoners(sim, side, Math.Min(f.StartGarrison * 0.2, 0.5), b.Name);
         if (leftK < D.GarrisonStaysK)
         {

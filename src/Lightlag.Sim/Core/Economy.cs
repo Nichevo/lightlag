@@ -123,6 +123,9 @@ public sealed class SideState
 
     /// <summary>What this side has learned of the other from prisoners, captures and wrecks (see Spoils).</summary>
     public SpoilsState Spoils { get; set; } = new();
+
+    /// <summary>What this side has learned about its rival (see Intel).</summary>
+    public IntelFile Intel { get; set; } = new();
 }
 
 public enum OrderKind { Ship, Research }
@@ -503,6 +506,8 @@ public static class Economy
         var w = sim.World;
         var yard = from ?? ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
+        ship.BuiltHour = w.Hour;
+        ship.BuiltAtBodyId = yard.Id;
         Crews.Man(w, ship, yard);
         Of(w, side).Totals.ShipsBuilt++;
         Choices.Note(w, side, "ship", classId, yard.Name, string.Join(" ", ship.Fit));

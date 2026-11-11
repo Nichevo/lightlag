@@ -183,11 +183,11 @@ public partial class MapView : Node2D
         var fancy = Graphics.Fancy;
         BeginFx();
         if (!fancy) foreach (var belt in w.Belts) DrawBelt(belt);
-        if (fancy) DrawWells();
+        if (fancy && (Quiet || PlayerInfo.Has(MapLayer.Wells))) DrawWells();
 
         foreach (var b in w.Bodies)
         {
-            if (b.ParentId is not int pid || !IsVisible(b)) continue;
+            if (b.ParentId is not int pid || !IsVisible(b) || !(Quiet || PlayerInfo.Has(MapLayer.Orbits))) continue;
             if (fancy) DrawOrbitFading(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
             else DrawOrbit(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
         }
@@ -207,6 +207,7 @@ public partial class MapView : Node2D
         foreach (var b in w.Bodies)
         {
             if (Quiet || !IsVisible(b) || !ShowLabel(b)) continue;
+            if (!PlayerInfo.Has(MapLayer.Labels) && b.Id != SelectedId && b.Id != HoverId && b.ClaimSide == null) continue;
             var at = Camera.ToScreen(_drawn[b.Id]);
             if (!Camera.OnScreen(at, 100)) continue;
             var r = (float)ScreenRadius(b);
@@ -234,13 +235,14 @@ public partial class MapView : Node2D
             foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
             if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
                 DrawRoute(pf, preview, true, Preview.Ok);
-            DrawLanesAndZones();
+            if (PlayerInfo.Has(MapLayer.Lanes)) DrawLanesAndZones();
+            if (PlayerInfo.Has(MapLayer.SupplyRuns)) DrawSupplyRuns();
             DrawPlannerWaypoints();
             if (Engagement == null && SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
             RecordTracks();
-            DrawTracks();
+            if (PlayerInfo.Has(MapLayer.OldSightings)) DrawTracks();
             DrawEngagement();
-            DrawLastSeen();
+            if (PlayerInfo.Has(MapLayer.OldSightings)) { DrawOldIntel(); DrawLastSeen(); }
             if (RevealAll) DrawMindJobs();
         }
         DrawWrecks();

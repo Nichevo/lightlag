@@ -181,6 +181,7 @@ public class WarTests
         var me = Economy.Of(sim.World, Side.Player);
         Assert.True(me.Spoils.PrisonersK > 0);
         Assert.True(me.Spoils.Scraps >= 1);
+        Assert.Contains(Intel.Of(sim.World, Side.Player).Notes, n => n.Source == IntelSource.Capture);
         Assert.Contains("heavy-armour", me.Sparked);
         Assert.Equal(1, me.Totals.ShipsCaptured);
     }
@@ -444,6 +445,9 @@ public class WarTests
         var me = Economy.Of(sim.World, Side.Player);
         Assert.True(me.Spoils.Scraps >= 1);
         Assert.Contains("heavy-armour", me.Sparked);
+        var file = Intel.Of(sim.World, Side.Player);
+        Assert.Contains(file.Notes, n => n.Source == IntelSource.Wreck);
+        Assert.Contains(file.Tech, t => t.Source == IntelSource.Wreck);
     }
 
     [Fact]

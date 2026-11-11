@@ -286,7 +286,7 @@ public static class Boarders
         b.Marines -= prize;
         Capture(sim, target, f, b.MarineRank * 0.7);
         Spoils.TakePrisoners(sim, b.Side, prisoners, target.Name);
-        Spoils.Scrap(sim, b.Side, $"the fittings of {target.Name}");
+        Spoils.Scrap(sim, b.Side, $"the fittings of {target.Name}", IntelSource.Capture, Intel.BattlePoints, part: true);
         Economy.Of(w, b.Side).Totals.ShipsCaptured++;
         Economy.Of(w, loser).Totals.ShipsLost++;
         End(sim, b, "taken", $"{target.Name} is taken: {prisoners * 1000:0} prisoners, a prize crew aboard");
