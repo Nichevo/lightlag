@@ -426,7 +426,8 @@ public partial class Main : Node
             Sim!.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "gun-frigate"));
             Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Ship, "missile-destroyer",
                 Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player).Id));
-            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Research, Tech.QuietDrives));
+            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Research, Tech.EfficientDrives));
+            Sim.Issue(new QueueOrderCommand(Lightlag.Sim.Core.Side.Player, OrderKind.Research, Tech.EngineMk2));
             Sim.StepMany(3 * 24);
             var pale = Sim.World.Bodies.Single(b => b.Key == "pale");
             pale.ClaimSide = Lightlag.Sim.Core.Side.Player;
@@ -437,6 +438,12 @@ public partial class Main : Node
             empire.Camera.Center = Sim.World.Bodies.Single(b => b.Key == "verdant").Position + new Vec2(-150, 0);
             empire.Camera.FitRadius(600, instant: true);
             await Shoot("17-empire");
+
+            // The research screen: the first team at work, two empty slots, idea cards and the discovery web.
+            empire.ShowEmpire = false;
+            empire.ShowResearch = true;
+            await Shoot("17b-research");
+            empire.ShowResearch = false;
 
             // The planet list: pick one to fly there and follow it.
             empire.ShowEmpire = false;

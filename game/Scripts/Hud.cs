@@ -31,6 +31,8 @@ public partial class Hud : CanvasLayer
     private Button _silence = null!;
     private Button _empireButton = null!;
     private EmpirePanel _empire = null!;
+    private Button _researchButton = null!;
+    private ResearchScreen _research = null!;
     private EndPanel _end = null!;
     private EngagementPanel _engagement = null!;
     private ContactsPanel _contacts = null!;
@@ -95,6 +97,8 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_silence);
         _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
         bar.AddChild(_empireButton);
+        _researchButton = SmallButton("Research", () => _screen.ShowResearch = !_screen.ShowResearch, "Research teams, ideas and the discovery web (T)");
+        bar.AddChild(_researchButton);
         AddChild(bar);
 
         _empire = new EmpirePanel(_screen);
@@ -182,6 +186,9 @@ public partial class Hud : CanvasLayer
         _engagement = new EngagementPanel(_screen);
         AddChild(_engagement);
 
+        _research = new ResearchScreen(_screen) { Visible = false };
+        AddChild(_research);
+
         _menu = new GameMenu(_screen) { Visible = false };
         _end = new EndPanel(_screen);
         _end.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
@@ -194,6 +201,16 @@ public partial class Hud : CanvasLayer
     }
 
     private static Button SmallButton(string text, Action pressed, string tip) => Ui.SmallButton(text, pressed, tip);
+
+    /// <summary>The top bar's research button: what the first busy team is on, and days left.</summary>
+    private static string ResearchLine(World w)
+    {
+        var orders = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research && o.Paid).ToList();
+        if (orders.Count == 0) return "Research: idle ▸";
+        var first = orders.OrderBy(o => Research.DaysUntilDone(w, o)).First();
+        return $"Research: {GameData.Research(first.Key).Name} {Research.DaysUntilDone(w, first):0.#} d"
+               + (orders.Count > 1 ? $" (+{orders.Count - 1})" : "") + " ▸";
+    }
 
     public void Refresh()
     {
@@ -233,7 +250,11 @@ public partial class Hud : CanvasLayer
                                  + (attacked ? " · SHIPYARD UNDER ATTACK" : "") + " · Empire ▾";
             _empireButton.Modulate = attacked ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
         }
-        _empire.Visible = w.Loop && _screen.ShowEmpire;
+        _researchButton.Visible = w.Loop;
+        if (w.Loop) _researchButton.Text = ResearchLine(w);
+        _research.Visible = w.Loop && _screen.ShowResearch;
+        if (_research.Visible) _research.Refresh(sim);
+        _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
         var rivalMind = Mind.Of(w, Side.Rival);
         _mindPanel.Visible = _screen.RevealAll && rivalMind != null && !_empire.Visible;
@@ -259,7 +280,7 @@ public partial class Hud : CanvasLayer
         var engagement = _screen.EngagementNow;
         // A panel you opened yourself (empire, planner, a report or a replay) sits where the engagement
         // panel draws, so while it is open the engagement panel steps aside; it comes back when you close it.
-        var covered = _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
+        var covered = _research.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;

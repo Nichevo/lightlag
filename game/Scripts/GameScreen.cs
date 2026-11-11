@@ -87,6 +87,9 @@ public partial class GameScreen : Node2D
     /// <summary>The empire panel (E): Industry, shipyard, research, claims.</summary>
     public bool ShowEmpire { get; set; }
 
+    /// <summary>The research screen (T) covers the map while open.</summary>
+    public bool ShowResearch { get; set; }
+
     /// <summary>The win or lose panel is open (it opens once, when the game ends).</summary>
     public bool ShowEnd { get; private set; }
     private bool _endSeen;
@@ -824,6 +827,13 @@ public partial class GameScreen : Node2D
         _main.RunGuarded("choosing a fleet", Sim.ApplyPending);
     }
 
+    /// <summary>Issue a command from a panel and apply it at once (it still travels at light speed if lag is on).</summary>
+    public void IssueNow(GameCommand command, string what)
+    {
+        Sim.Issue(command);
+        _main.RunGuarded(what, Sim.ApplyPending);
+    }
+
     public void CancelOrder(int orderId)
     {
         Sim.Issue(new CancelOrderCommand(Side.Player, orderId));
@@ -1266,6 +1276,8 @@ public partial class GameScreen : Node2D
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
+            case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
+            case Key.Escape when ShowResearch: ShowResearch = false; break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
                 _main.Log.Info("save", "Quick save");
