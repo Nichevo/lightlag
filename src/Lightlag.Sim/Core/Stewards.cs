@@ -111,7 +111,8 @@ public static class Planner
         // Materials: ships, big buildings and later research wait for alloys, electronics and ammunition.
         // The plant for a short one goes up (at home first), then mines for the minerals it eats.
         foreach (var (good, plant) in MaterialPlants)
-            if (MaterialShort(w, side, good) && (b.Home || !w.Bodies.Any(o => o.Owner == side && o.Home)) && Staffed(plant) && Pick(plant) is string make)
+            if (MaterialShort(w, side, good) && Staffed(plant) && Pick(plant) is string make
+                && !w.Bodies.Any(o => o.Owner == side && o.Pieces.Any(p => p.Kind == plant && !p.Built))) // one new plant at a time
                 return (make, null, null, true);
         foreach (var good in new[] { "copper", "rare-earths", "uranium", "water" })
             if ((Short(good) || Colonies.Want(b, good) > Colonies.Held(b, good)) && Powered(Planets.Mine) && DepositFor(b, good) is var (gx, gy))
@@ -155,11 +156,16 @@ public static class Planner
         var state = Economy.Of(w, side);
         return GameData.Economy.Research
             .Where(r => Economy.CanQueue(w, side, OrderKind.Research, r.Id) == null && (w.Light.On || !Tech.LagOnly(r.Id)))
-            .OrderByDescending(r => state.Sparked.Contains(r.Id))
+            .OrderByDescending(r => HelpsMaterials(w, side, r.Id))
+            .ThenByDescending(r => state.Sparked.Contains(r.Id))
             .ThenByDescending(r => team != null && team.Kept.Contains(r.Field))
             .ThenBy(r => r.Tier).ThenBy(r => r.Cost).ThenBy(r => r.Id, StringComparer.Ordinal)
             .Select(r => r.Id).FirstOrDefault();
     }
+
+    /// <summary>Research that opens the way to a plant for a material the side is short of (electronics: assays, then fabs).</summary>
+    public static bool HelpsMaterials(World w, Side side, string id) =>
+        id is "electronics-fabs" && MaterialShort(w, side, "electronics");
 
     /// <summary>Only supply ships (tankers), not freighter-only fleets.</summary>
     public static bool SupplyFleet(World w, Fleet f) =>
@@ -395,6 +401,16 @@ public static class Stewards
                 if (good) score.Good++;
                 else score.Bad++;
                 _sim.Log.Info("auto", good ? "Auto action worked out" : "Auto action went badly", new { side = _side.ToString(), area = c.Area.ToString(), c.Key });
+            }
+            // Pull-back habits: the same hand-picked preset for the same situation, again and again.
+            foreach (var (key, n) in _state.Habits.Where(h => h.Key.StartsWith("pull:", StringComparison.Ordinal)).OrderBy(h => h.Key, StringComparer.Ordinal))
+            {
+                var parts = key.Split(':');
+                if (n < L.HabitChanges || parts.Length != 3 || !Enum.TryParse<PullPreset>(parts[2], out var preset) || preset == PullPreset.Custom
+                    || BattleRules.AutoPick(_w, _side, parts[1]) == preset) continue;
+                Need(NeedLevel.Advice, $"learn-pull:{parts[1]}:{preset}",
+                    $"You often set {BattleRules.SituationName(parts[1])} to pull back {PullRule.Name(preset)}: make that Auto's choice?",
+                    act: new SetPullDefaultCommand(_side, parts[1], preset), label: "Make it default", area: AutoArea.Battle);
             }
             foreach (var area in Areas)
             {

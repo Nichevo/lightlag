@@ -2,17 +2,18 @@
   "_comment": "The computer rival. It plays by the player's rules: it only knows what its own sensors have seen, plus what anyone can see on the map (planets, who holds them, claims in progress). It thinks every thinkHours (Easy also skips a step now and then (slipChance), wants extraRatio more strength, never gathers for a strike, never chains claims and only defends its own planets): picks a goal, gives each fleet a job, and pulls back from fights it expects to lose. Power is a rough fighting value per ship (its cost, less for damage and empty missile racks); unseen enemy ships are guessed from what the enemy earns. attackRatio is how much stronger it wants to be before attacking; each game rolls a value between min and max (moved by the personality), and it drifts by up to nerveDrift each day within nerveRange of that roll. Claim groups that take a planet move on to another within chainClaimAu; at most claimGroups claim at once. When the home fleet is too small to strike but would be big enough with the claim groups back, it calls them home and starts no claims for gatherDays. A strike flies at the fastest speed that still arrives with strikeSuppliesLeft of its supplies. Of the enemy power it has not seen elsewhere, it assumes homeShareSeen guards the enemy shipyard when it has fresh eyes there, else homeShareUnseen. Distances are in AU.",
   "thinkHours": { "easy": 24, "normal": 6 },
   "easy": { "extraRatio": 0.35, "slipChance": 0.4 },
-  "attackRatio": { "min": 1.2, "max": 1.8 },
+  "attackRatio": { "min": 1.0, "max": 1.4 },
   "nerveDrift": 0.04,
   "nerveRange": 0.25,
   "firstProbeDay": { "min": 20, "max": 40 },
   "threatRadiusAu": 0.6,
   "dangerRadiusAu": 0.35,
-  "dangerRatio": 1.25,
+  "dangerRatio": 1.8,
+  "fightRatio": 0.9,
   "refitSupplies": 0.35,
   "refitArmour": 0.6,
   "enemyShipValue": 120,
-  "enemyBuildShare": 0.65,
+  "enemyBuildShare": 0.45,
   "claimGroupShips": 2,
   "probeDays": 12,
   "probeDistanceAu": 0.25,
@@ -28,17 +29,17 @@
   },
   "personalities": {
     "raider": {
-      "name": "Raider", "frigateShare": 0.75, "ratio": 0.9, "claimWeight": 0.9, "huntWeight": 1.6, "guardShare": 0.25,
+      "name": "Raider", "frigateShare": 0.75, "ratio": 0.9, "claimWeight": 0.9, "huntWeight": 1.6, "guardShare": 0.2,
       "probeEarly": 0.7, "takeHeldWeight": 1.4, "claimGroups": 2, "flagshipBoldness": 0.6,
       "research": ["fast-railguns", "escort-hull", "quiet-drives", "tanker-hull", "freighter-hull", "efficient-drives", "long-sensors", "heavy-armour", "automation", "point-defence-2", "command-uplink", "missile-brain-2", "deflector-grid", "tight-beam", "damage-control", "railgun-mk3", "capacitor-banks", "electronics-fabs", "fleet-data-links", "engine-mk3", "picket-hull", "precision-strikes", "railgun-mk4", "stealth-drones", "jamming"]
     },
     "expander": {
-      "name": "Expander", "frigateShare": 0.55, "ratio": 1.1, "claimWeight": 1.6, "huntWeight": 0.8, "guardShare": 0.3,
+      "name": "Expander", "frigateShare": 0.55, "ratio": 1.1, "claimWeight": 1.6, "huntWeight": 0.8, "guardShare": 0.2,
       "probeEarly": 1.0, "takeHeldWeight": 0.8, "claimGroups": 3, "flagshipBoldness": 0.3,
       "research": ["automation", "tanker-hull", "freighter-hull", "efficient-drives", "engine-mk2", "long-sensors", "heavy-armour", "point-defence-2", "deflector-grid", "command-uplink", "missile-brain-2", "fast-railguns", "tight-beam", "deflector-grid", "quiet-drives", "rare-element-assays", "electronics-fabs", "deep-boring", "fast-shipyard", "orbital-docks", "sealed-habitats", "public-services", "colony-shipyards", "deuterium-extraction", "fusion-power", "damage-control", "railgun-mk3"]
     },
     "turtle": {
-      "name": "Turtle", "frigateShare": 0.4, "ratio": 1.15, "claimWeight": 0.8, "huntWeight": 0.6, "guardShare": 0.45,
+      "name": "Turtle", "frigateShare": 0.4, "ratio": 1.15, "claimWeight": 0.8, "huntWeight": 0.6, "guardShare": 0.35,
       "probeEarly": 1.2, "takeHeldWeight": 0.6, "claimGroups": 2, "flagshipBoldness": 0.1,
       "research": ["heavy-armour", "cruiser-hull", "point-defence-2", "tanker-hull", "freighter-hull", "deflector-grid", "command-uplink", "missile-brain-2", "automation", "long-sensors", "tight-beam", "fast-railguns", "efficient-drives", "quiet-drives", "damage-control", "armour-mk3", "rare-element-assays", "electronics-fabs", "point-defence-3", "counter-missiles", "fast-shipyard", "orbital-docks", "hardened-bunkers", "planet-shields", "shields-mk3", "railgun-mk3"]
     }

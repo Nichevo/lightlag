@@ -111,6 +111,9 @@ public sealed class SideState
     public List<AutoCheck> AutoChecks { get; set; } = new();
     public Dictionary<AutoArea, AutoScore> AutoScores { get; set; } = new();
     public Dictionary<string, int> Habits { get; set; } = new();
+
+    /// <summary>Pull-back presets the player made Auto's default for a situation (see BattleRules.AutoPick).</summary>
+    public Dictionary<string, PullPreset> PullDefaults { get; set; } = new();
 }
 
 public enum OrderKind { Ship, Research }
@@ -644,8 +647,8 @@ public static class Economy
         foreach (var s in attackers.SelectMany(w.ShipsOf))
         {
             var cls = Fitting.Spec(s);
-            if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour) perDay += cls.Railguns * y.RailDamagePerHour * 24;
-            if (s.Missiles > 0 && s.Disabled != Module.Missiles) perDay += y.MissileDamage * 24 / Math.Max(1, y.MissileEveryHours);
+            if (cls.Railguns > 0 && !s.Out(Module.Railguns) && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour) perDay += cls.Railguns * y.RailDamagePerHour * 24;
+            if (s.Missiles > 0 && !s.Out(Module.Missiles)) perDay += y.MissileDamage * 24 / Math.Max(1, y.MissileEveryHours);
         }
         if (perDay <= 0) return "Not under attack: the fleet in orbit has no working weapons, ammunition or supplies left";
         return $"Under attack and blockaded (it can't build): about {perDay / y.Armour:P0} of its armour a day, {b.ShipyardArmour / perDay:0.#} days to go";
@@ -664,12 +667,12 @@ public static class Economy
         var y = E.Shipyard;
         var cls = Fitting.Spec(s);
         double damage = 0;
-        if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour)
+        if (cls.Railguns > 0 && !s.Out(Module.Railguns) && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour)
         {
             if (consume) s.Ammo -= cls.Railguns * y.RailSuppliesPerHour;
             damage += cls.Railguns * y.RailDamagePerHour;
         }
-        if (s.Missiles > 0 && s.Disabled != Module.Missiles && w.Tick % (long)Math.Max(1, y.MissileEveryHours) == 0)
+        if (s.Missiles > 0 && !s.Out(Module.Missiles) && w.Tick % (long)Math.Max(1, y.MissileEveryHours) == 0)
         {
             if (consume) s.Missiles--;
             damage += y.MissileDamage;

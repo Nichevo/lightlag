@@ -35,6 +35,17 @@ public sealed class SideTotals
 
     /// <summary>Hours a ship order at a yard waited for materials (alloys, electronics), not Industry.</summary>
     public double MaterialStallHours { get; set; }
+
+    /// <summary>Damage and battle endings (see Wounds and BattleRules).</summary>
+    public int Contacts { get; set; }
+    public int ShipsCrippled { get; set; }
+    public int PartsKnocked { get; set; }
+    public int PullBacks { get; set; }
+    public int PulledBeforeShots { get; set; }
+    public int BattlesWiped { get; set; }
+    public int BattlesOneWithdrew { get; set; }
+    public int BattlesBothWithdrew { get; set; }
+    public double Salvaged { get; set; }
 }
 
 /// <summary>One side at the end of one game day.</summary>
@@ -57,7 +68,7 @@ public static class Stats
         var cls = Fitting.Spec(s);
         var armour = Math.Clamp(s.Armour / Tech.MaxArmour(w, s), 0, 1);
         var racks = cls.Missiles > 0 ? 0.4 + 0.6 * s.Missiles / cls.Missiles : 1;
-        return cls.Cost * (0.3 + 0.7 * armour) * racks * (s.Disabled != null ? 0.7 : 1);
+        return cls.Cost * (0.3 + 0.7 * armour) * racks * (s.Crippled ? 0.2 : s.Knocked.Count > 0 ? 0.7 : 1) * (0.6 + 0.1 * (s.Weapons + s.Engines + s.Defence + s.Crew));
     }
 
     public static double Power(World w, Fleet f) => w.ShipsOf(f).Sum(s => ShipPower(w, s));

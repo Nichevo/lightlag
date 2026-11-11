@@ -13,14 +13,18 @@ public sealed record GameResult(
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
-    int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0, int Overheats = 0)
+    int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0, int Overheats = 0,
+    int ShipsCrippled = 0, int PartsKnocked = 0, int PullBacks = 0, int PulledBeforeShots = 0, int Wiped = 0, int OneWithdrew = 0, int BothWithdrew = 0,
+    double MaterialStallHours = 0, double Salvaged = 0, int Warships = 0, int Contacts = 0)
 {
     public static SideEnd Of(World w, Side side)
     {
         var t = Stats.Of(w, side);
         return new SideEnd(Economy.Claimable(w).Count(b => b.Owner == side), w.Ships.Count(s => s.Side == side),
             Math.Round(Stats.Power(w, side)), t.ShipsBuilt, t.ShipsLost, t.Battles, t.PlanetsClaimed,
-            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions, t.Overheats);
+            Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions, t.Overheats,
+            t.ShipsCrippled, t.PartsKnocked, t.PullBacks, t.PulledBeforeShots, t.BattlesWiped, t.BattlesOneWithdrew, t.BattlesBothWithdrew,
+            t.MaterialStallHours, t.Salvaged, w.Ships.Count(s => s.Side == side && Planner.Warship(s)), t.Contacts);
     }
 }
 
@@ -221,6 +225,33 @@ public static class Batch
         return md.ToString();
     }
 
+    /// <summary>
+    /// How fights went: battles a game-day, how they ended (target: under a third wipes), ships crippled
+    /// against lost, pull-backs (and those before a shot), warships at the end (target 6-12 a side), and
+    /// days the shipyard stood waiting for materials. Near-zero battles is a failure.
+    /// </summary>
+    private static void AppendFights(StringBuilder md, List<GameResult> ai)
+    {
+        double Avg(Func<SideEnd, double> f) => ai.Average(r => (f(r.Player!) + f(r.Rival!)) / 2);
+        var battles = Avg(e => e.Battles);
+        var days = ai.Average(r => r.Ticks / (double)GameTime.TicksPerDay);
+        var wiped = Avg(e => e.Wiped);
+        var ended = wiped + Avg(e => e.OneWithdrew) + Avg(e => e.BothWithdrew);
+        md.AppendLine();
+        md.AppendLine("## Fights");
+        md.AppendLine();
+        md.AppendLine($"- Battles per game (shots fired): {battles:0.0} ({battles / Math.Max(1, days) * 100:0.0} per 100 game days), of {Avg(e => e.Contacts):0.0} contacts"
+                      + (battles < 1 ? " **(too few: fights should happen)**" : ""));
+        md.AppendLine($"- Endings per game: {wiped:0.0} wipes, {Avg(e => e.OneWithdrew):0.0} one side withdrew, {Avg(e => e.BothWithdrew):0.0} both withdrew, "
+                      + $"{Math.Max(0, battles - ended):0.0} drifted apart"
+                      + (battles > 0 ? $"; wipes are {100 * wiped / battles:0} % of battles (target under 33 %)" : ""));
+        md.AppendLine($"- Per side per game: {Avg(e => e.ShipsCrippled):0.0} ships crippled, {Avg(e => e.ShipsLost):0.0} lost, {Avg(e => e.PartsKnocked):0.0} parts knocked out; "
+                      + $"warships lost per battle {(battles > 0 ? Avg(e => e.ShipsLost) / battles : 0):0.00}");
+        md.AppendLine($"- Pull-backs per side per game: {Avg(e => e.PullBacks):0.0}, of them before firing a shot: {Avg(e => e.PulledBeforeShots):0.0}");
+        md.AppendLine($"- Warships per side at the end: {Avg(e => e.Warships):0.0} (target 6-12); materials salvaged: {Avg(e => e.Salvaged):0}");
+        md.AppendLine($"- Shipyard days waiting for materials, per side: {Avg(e => e.MaterialStallHours) / 24:0.0}");
+    }
+
     /// <summary>Balance tables for computer-vs-computer runs: personalities, and how games went on average.</summary>
     private static void AppendBalance(StringBuilder md, List<GameResult> results)
     {
@@ -239,6 +270,8 @@ public static class Batch
         foreach (var g in rows)
             md.AppendLine($"| {g.Key} | {g.Count()} | {g.Count(x => x.Won)} | {100.0 * g.Count(x => x.Won) / g.Count():0} | "
                           + $"{g.Average(x => x.End.Planets):0.0} | {g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Battles):0.0} |");
+        md.AppendLine();
+        AppendFights(md, ai);
         md.AppendLine();
         md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "
                       + $"{ai.Average(r => r.Player!.ShipsLost + r.Rival!.ShipsLost):0.0} ships lost, "

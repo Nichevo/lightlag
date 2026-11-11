@@ -18,6 +18,8 @@ public static class Works
         MassDrivers(sim);
         Skimmers(w);
         Mend(w);
+        Wounds.UpdateWrecks(sim);
+        BattleRules.Hourly(sim);
     }
 
     /// <summary>Hours an academy takes per batch of scientists (Scientist training: 30 % faster).</summary>
@@ -101,11 +103,13 @@ public static class Works
             var rate = (Tech.Has(w, side, "repair-drones") ? GameData.Research("repair-drones").Factor : 0)
                        + (Tech.Has(w, side, "self-mending-armour") ? GameData.Research("self-mending-armour").Factor : 0);
             if (!Heat.InBattle(w, f) && Tech.Has(w, side, "damage-control")) rate += GameData.Research("damage-control").Factor;
-            if (rate <= 0) continue;
+            // Every crew patches the other bars a little out of battle (up to Wounds.MendBarsTo); research does more, and mends hull.
+            var bars = rate + (Heat.InBattle(w, f) ? 0 : Wounds.D.CrewMendPerDay);
             foreach (var s in w.ShipsOf(f))
             {
                 var max = Tech.MaxArmour(w, s);
-                if (s.Armour > 0 && s.Armour < max) s.Armour = Math.Min(max, s.Armour + max * rate / 24);
+                if (rate > 0 && s.Armour > 0 && s.Armour < max && !s.Crippled) s.Armour = Math.Min(max, s.Armour + max * rate / 24);
+                if (bars > 0) Wounds.FieldMend(w, s, bars);
             }
         }
     }

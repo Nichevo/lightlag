@@ -39,7 +39,7 @@ public sealed record AiData(
     double ThreatRadiusAu, double DangerRadiusAu, double DangerRatio, double RefitSupplies, double RefitArmour,
     double EnemyShipValue, double EnemyBuildShare, int ClaimGroupShips, double ProbeDays, double ProbeDistanceAu,
     double ChainClaimAu, double GatherDays, double StrikeSuppliesLeft, double HomeShareSeen, double HomeShareUnseen,
-    Dictionary<string, PersonalityData> Personalities, AutomationData? Automation = null);
+    Dictionary<string, PersonalityData> Personalities, AutomationData? Automation = null, double FightRatio = 0.9);
 
 /// <summary>
 /// The player's automation (see Stewards): each area's starting level, and how it learns: after
@@ -78,6 +78,9 @@ public sealed class MindState
 
     /// <summary>How much stronger it wants to be before attacking: rolled per game, and drifting a little day to day.</summary>
     public double BaseRatio { get; set; }
+
+    /// <summary>The pull-back preset its fleets use away from home (home guards fight to the last).</summary>
+    public PullPreset PullLeaning { get; set; } = PullPreset.Standard;
     public double Ratio { get; set; }
     public double FirstProbeDay { get; set; }
 
@@ -149,6 +152,9 @@ public static class Mind
                 EnemyStartPower = Stats.Power(w, setup.Side),
             };
             mind.EnemyPowerGuess = mind.EnemyStartPower;
+            // Pull-back leaning for this game (a choice the overnight runs compare): mostly Standard.
+            var lean = rng.NextDouble();
+            mind.PullLeaning = lean < 0.2 ? PullPreset.Cautious : lean < 0.7 ? PullPreset.Standard : lean < 0.95 ? PullPreset.FightOn : PullPreset.ToTheLast;
             mind.Random = rng.Save();
             w.Minds.Add(mind);
         }
@@ -281,7 +287,7 @@ public static class Mind
             foreach (var f in Mine().ToList())
             {
                 if (f.MissileLaunch != launch) Do(new SetFireControlCommand(f.Id, f.LongShots, launch));
-                if (f.Retreating && _w.ShipsOf(f).Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles)
+                if (f.Retreating && _w.ShipsOf(f).Any(x => x.Missiles > 0 && !x.Out(Module.Missiles))
                     && _w.Fleets.Any(e => e.Side != _side && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm * 1.5 && Sensors.Sees(_w, _side, e))
                     && !_w.Dropped.Any(d => d.Side == _side && Vec2.Distance(d.Position, f.Position) <= GameData.Heat.DropSeekMm * 2))
                 {
@@ -511,7 +517,7 @@ public static class Mind
                     GoHome(f, "running from a chaser", hard: true);
                     return;
                 }
-                if (mine >= theirs * A.DangerRatio)
+                if (mine >= theirs * A.FightRatio)
                 {
                     var turn = new FlightRequest(null, chaser.Guess(_w.Hour), Burn(f), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick,
                         TargetFleetId: chaser.FleetId, Chase: ChaseMode.GunRange);
@@ -522,6 +528,15 @@ public static class Mind
                         return;
                     }
                 }
+            }
+            // An enemy in contact at about even odds or better: fight it (scouts don't).
+            if (job.Kind != JobKind.Probe && f.Stance != Core.Stance.Engage && Combat.HasWorking(_w, f, Module.Railguns)
+                && Combat.NearestEnemyFleet(_w, f, GameData.Combat.ContactRangeMm) is Fleet e && _known.Find(s => s.FleetId == e.Id) is Sighting seen
+                && mine >= SightingPower(seen) * A.FightRatio)
+            {
+                Orders(f, Core.Stance.Engage);
+                Note($"{f.Name} engages {seen.Name} ({mine:0} against about {SightingPower(seen):0})");
+                return;
             }
             // Pull back from a fight it expects to lose.
             // A scout only runs from what comes close to it; others also from what was just seen where they are going.
@@ -595,7 +610,7 @@ public static class Mind
                 if (!ours && (Easy || _rng.NextDouble() > _p.HuntWeight * 0.5)) continue; // a neutral planet: only some care
                 if (Slip()) continue;
                 var there = Math.Max(EnemyNear(b.Position, 0.05 * _au, 10 * 24), 2 * A.EnemyShipValue);
-                var need = there * (ours ? Math.Max(1.1, A.DangerRatio * 1.05) : Math.Max(Want, A.DangerRatio * 1.05));
+                var need = there * (ours ? A.FightRatio * 1.1 : Math.Max(Want, 1.3)); // its own planets: about even odds will do
                 var group = TakeFromPool(need, $"break the enemy claim on {b.Name}");
                 if (group == null)
                 {
@@ -847,6 +862,8 @@ public static class Mind
             {
                 var open = _p.Research.Where(r => GameData.ResearchById.ContainsKey(r) && Economy.CanQueue(_w, _side, OrderKind.Research, r) == null
                                                   && (_w.Light.On || !Tech.LagOnly(r))).ToList();
+                // Materials first: with electronics short, the way to an electronics plant jumps the queue.
+                if (Planner.NextIdea(_w, _side, null) is string urgent && Planner.HelpsMaterials(_w, _side, urgent)) open.Insert(0, urgent);
                 if (open.Count == 0 && Planner.NextIdea(_w, _side, null) is string idea) open.Add(idea);
                 if (open.Count > 0)
                 {
@@ -1126,6 +1143,8 @@ public static class Mind
         private void Orders(Fleet f, Stance stance)
         {
             if (f.Stance != stance || !f.RetreatWhenDamaged) Do(new SetStanceCommand(f.Id, stance, true));
+            var preset = _m.JobOf(f.Id) is { Kind: JobKind.Guard } || BattleRules.Situation(_w, f) == "home" ? PullPreset.ToTheLast : _m.PullLeaning;
+            if (f.Rule.Preset != preset) Do(new SetPullRuleCommand(f.Id, preset));
         }
 
         private void Assign(Fleet f, JobKind kind, int? bodyId, Vec2 point, string why, int? enemyFleetId = null)

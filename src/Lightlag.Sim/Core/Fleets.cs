@@ -121,7 +121,28 @@ public sealed class Fleet
     public double LastVolleyHour { get; set; } = -1e9;
 
     /// <summary>Break off and fly home when the fleet's armour falls below half.</summary>
+    /// <summary>Old standing order, kept for saves and the rival's stance orders; pull-back rules (Rule) decide now.</summary>
     public bool RetreatWhenDamaged { get; set; } = true;
+
+    /// <summary>When the fleet pulls back (see BattleRules). Set by hand it is pinned: automation leaves it.</summary>
+    public PullRule Rule { get; set; } = PullRule.For(PullPreset.Standard);
+    public bool RuleByHand { get; set; }
+
+    /// <summary>"Hold on": ignore the pull-back rule until this fight is over.</summary>
+    public bool HoldOn { get; set; }
+
+    /// <summary>The fight in hand: strength and ships when it started (0: not fighting), ships lost since.</summary>
+    public double FightPower { get; set; }
+    public int FightShips { get; set; }
+    public int FightLost { get; set; }
+    public double FightPulledPower { get; set; }
+    public double FightLastHour { get; set; }
+
+    /// <summary>Why it last pulled back (for the fleet panel and news).</summary>
+    public string? PullReason { get; set; }
+
+    /// <summary>A ship (or group) that pulled out: rejoin this fleet once mended.</summary>
+    public int? RejoinFleetId { get; set; }
     public bool Retreating { get; set; }
 
     /// <summary>Closing in on an enemy, or braking after a fight (moved by velocity, outside any flight plan).</summary>
@@ -303,8 +324,8 @@ public readonly record struct FleetPerformance(double MaxSpeed, double Accel, do
         double speed = double.MaxValue, accel = double.MaxValue, dv = double.MaxValue;
         foreach (var s in w.ShipsOf(f))
         {
-            // A ship with its engines knocked out limps at half speed and half thrust.
-            var engines = s.Disabled == Module.Engines ? 0.5 : 1.0;
+            // Engines damage slows a ship; knocked out it limps at half speed, crippled at a quarter.
+            var engines = Wounds.SpeedFactor(s);
             speed = Math.Min(speed, s.MaxSpeed * engines);
             accel = Math.Min(accel, s.Accel * engines);
             dv = Math.Min(dv, s.Supplies / Tech.SuppliesPerDeltaV(w, s));
@@ -420,7 +441,7 @@ public static class Fleets
     }
 
     /// <summary>A ship's own top speed (half with its engines knocked out).</summary>
-    public static double ShipSpeed(Ship s) => s.MaxSpeed * (s.Disabled == Module.Engines ? 0.5 : 1.0);
+    public static double ShipSpeed(Ship s) => s.MaxSpeed * Wounds.SpeedFactor(s);
 
     /// <summary>Why two fleets cannot merge, or null if they can.</summary>
     public static string? CanMerge(Fleet a, Fleet b)

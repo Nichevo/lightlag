@@ -54,6 +54,10 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetAutoTransportCommand), "setAutoTransport")]
 [JsonDerivedType(typeof(FixedRunCommand), "fixedRun")]
 [JsonDerivedType(typeof(ShipGoodsCommand), "shipGoods")]
+[JsonDerivedType(typeof(SetPullRuleCommand), "setPullRule")]
+[JsonDerivedType(typeof(HoldOnCommand), "holdOn")]
+[JsonDerivedType(typeof(PullBackNowCommand), "pullBackNow")]
+[JsonDerivedType(typeof(SetPullDefaultCommand), "setPullDefault")]
 [JsonDerivedType(typeof(SetAutoLevelCommand), "setAutoLevel")]
 [JsonDerivedType(typeof(AcceptNeedCommand), "acceptNeed")]
 [JsonDerivedType(typeof(DismissNeedCommand), "dismissNeed")]
@@ -199,6 +203,8 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Fire = fleet.Fire;
         created.Facing = fleet.Facing;
         created.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
+        created.Rule = fleet.Rule.Copy();
+        created.RuleByHand = fleet.RuleByHand;
         created.Autonomy = fleet.Autonomy;
         created.Cover = fleet.Cover;
         created.FireAt = fleet.FireAt;
@@ -261,6 +267,8 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         ahead.Fire = fleet.Fire;
         ahead.Facing = fleet.Facing;
         ahead.RetreatWhenDamaged = fleet.RetreatWhenDamaged;
+        ahead.Rule = fleet.Rule.Copy();
+        ahead.RuleByHand = fleet.RuleByHand;
         Fleets.Arrange(world, fleet);
 
         var slowPlan = FlightPlanner.Plan(world, fleet, Request);

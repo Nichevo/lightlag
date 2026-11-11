@@ -38,7 +38,7 @@ public static class Heat
 
     public static double Capacity(Ship s) => Fitting.Spec(s).HeatCapacity * s.TechHeat;
 
-    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3)
+    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Wounds.DefenceFactor(s) * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3)
                                                        * Tech.Factor(w, s.Side, "adaptive-shields");
 
     /// <summary>Is this fleet in the battle being fought (so Auto radiators are in)?</summary>
@@ -296,7 +296,7 @@ public sealed record DropMissilesCommand(int FleetId, double WaitHours) : GameCo
         var count = 0;
         foreach (var ship in world.ShipsOf(fleet).ToList())
         {
-            if (ship.Missiles <= 0 || ship.Disabled == Module.Missiles) continue;
+            if (ship.Missiles <= 0 || ship.Out(Module.Missiles)) continue;
             var n = Math.Min(m.Salvo, ship.Missiles);
             ship.Missiles -= n;
             for (var i = 0; i < n; i++)
