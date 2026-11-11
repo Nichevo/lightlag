@@ -95,7 +95,7 @@ public sealed class EmpireTabs
                + "|" + string.Join(",", state.PullDefaults.Select(p => p.Key + p.Value));
     }
 
-    private static readonly string[] Situations = { "home", "general", "raid", "outnumbered", "support" };
+    private static readonly string[] Situations = { "home", "colony", "general", "raid", "outnumbered", "support" };
 
     private static string AreaTip(AutoArea a) => a switch
     {

@@ -476,6 +476,7 @@ public static class Economy
                 if (order.Waiting == null && shortOf != null)
                     sim.Log.Info("economy", $"{side} shipyard waits for materials", new { side = side.ToString(), order.Id, order.Key, why = shortOf });
                 if (shortOf != null) state.Totals.MaterialStallHours += GameTime.HoursPerTick;
+                if (state.Totals.MaterialStallHours >= 24 * 10) Sparks.Fire(sim, side, "yard-waiting");
                 order.Waiting = wait;
                 return;
             }

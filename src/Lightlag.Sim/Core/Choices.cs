@@ -37,7 +37,10 @@ public static class Choices
             var odds = theirs.PowerIn > 0 ? mine.PowerIn / theirs.PowerIn : 9.99;
             Note(w, side, "battle", Outcome(mine, theirs), "", string.Create(CultureInfo.InvariantCulture,
                 $"odds {odds:0.00}; ships {mine.ShipsIn} v {theirs.ShipsIn}; lost {mine.ShipsLost.Count} v {theirs.ShipsLost.Count}; "
-                + $"ending {b.Ending}; makeup {string.Join(" ", mine.Makeup.OrderBy(m => m, StringComparer.Ordinal))}; rules {string.Join(" ", mine.Rules.Distinct().OrderBy(r => r, StringComparer.Ordinal))}"));
+                + $"ending {b.Ending}; makeup {string.Join(" ", mine.Makeup.OrderBy(m => m, StringComparer.Ordinal))}; rules {string.Join(" ", mine.Rules.Distinct().OrderBy(r => r, StringComparer.Ordinal))}; "
+                + $"formation {string.Join(" ", mine.Formations.Distinct().OrderBy(r => r, StringComparer.Ordinal))}; blocked {mine.BlockedVolleys}; "
+                + $"missions {string.Join(" ", mine.Missions.Distinct().OrderBy(r => r, StringComparer.Ordinal))}; held {(mine.HeldOn ? 1 : 0)}; caught {mine.CargoCaught}; "
+                + $"before shots {(mine.WithdrewBeforeShots ? 1 : 0)}"));
         }
     }
 

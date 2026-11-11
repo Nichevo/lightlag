@@ -161,8 +161,9 @@ public class DamageTests
     [Fact]
     public void Battles_end_with_a_named_ending()
     {
+        // The frigates close in: held back out of gun range against destroyers with empty racks, the fight would be a standoff that never ends.
         var sim = Sandbox(new SandboxSetup(PlayerFrigates: 4, PlayerDestroyers: 0, RivalFrigates: 0, RivalDestroyers: 2,
-            PlayerStance: Stance.Hold, DistanceMm: 45));
+            PlayerStance: Stance.Engage, DistanceMm: 45));
         var battle = Fight(sim);
         Assert.NotNull(battle.Ending);
         Assert.True(battle.For(Side.Player).ShipsIn > 0 && battle.For(Side.Rival).ShipsIn > 0);

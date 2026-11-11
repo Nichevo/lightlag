@@ -9,7 +9,8 @@ namespace Lightlag.Headless;
 public sealed record GameResult(
     int Index, ulong Seed, string Outcome, long Ticks, double Seconds, int RuleFailures,
     int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
-    string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null);
+    string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null,
+    double? WarshipsMid = null, double[]? WarshipCurve = null);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
@@ -61,6 +62,10 @@ public static class Batch
         Console.WriteLine($"Lightlag {build}: {games} games of {days} days, {scenario}, first seed {firstSeed}, writing to {runDir}");
 
         var results = new List<GameResult>();
+        WhatMatters.Rows.Clear();
+        _report = null;
+        Overnight.Fights.Clear();
+        Overnight.Raids.Clear();
         var clock = Stopwatch.StartNew();
         for (var i = 0; i < games; i++)
         {
@@ -80,6 +85,7 @@ public static class Batch
 
         var summary = Summarise(build, scenario, days, strict, started, clock.Elapsed, games, results, runDir, pilot);
         File.WriteAllText(Path.Combine(runDir, "summary.md"), summary);
+        if (_report != null) File.WriteAllText(Path.Combine(runDir, "summary.html"), _report);
         File.WriteAllText(Path.Combine(runDir, "summary.json"), Json.Serialize(new
         {
             build = build.ToString(), scenario, days, strict, started = started.ToString("o"),
@@ -101,6 +107,9 @@ public static class Batch
     }
 
     private static LightSetup? _light;
+
+    /// <summary>The overnight report as a page (summary.html), when the batch had computer-vs-computer games.</summary>
+    private static string? _report;
 
     /// <summary>Headless games use the full choice spread (normal games a smaller one), so the computer plays more varied games to compare.</summary>
     public const double HeadlessSpread = 0.1;
@@ -169,11 +178,13 @@ public static class Batch
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
                     WarReport.Rows.Add(WarReport.Row.Of(w, side));
                 }
+            Overnight.Collect(w);
+            var (mid, curve) = Overnight.Warships(w, days);
             string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
                 w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null, w.WinReason,
-                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival));
+                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve);
         }
         catch (Exception ex)
         {
@@ -274,17 +285,27 @@ public static class Batch
         md.AppendLine();
         md.AppendLine("## Balance");
         md.AppendLine();
-        md.AppendLine("| Personality | Games | Wins | Win % | Avg planets at end | Ships built | Ships lost | Battles |");
-        md.AppendLine("|---|---|---|---|---|---|---|---|");
+        md.AppendLine("| Personality | Games | Wins | Win % | Avg planets at end | Ships built | Ships lost | Battles | Warships at end | Freighters caught | Stall days |");
+        md.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
         var rows = ai.SelectMany(r => new[]
         {
             (Name: r.PlayerMind!.Split(' ')[0], Won: r.Winner == "Player", End: r.Player!),
             (Name: r.RivalMind!.Split(' ')[0], Won: r.Winner == "Rival", End: r.Rival!),
-        }).GroupBy(x => x.Name).OrderBy(g => g.Key);
+        }).GroupBy(x => x.Name).OrderBy(g => g.Key, StringComparer.Ordinal).ToList();
+        var html = new StringBuilder("<table><thead><tr><th>Personality</th><th>Games</th><th>Win %</th><th>Planets</th><th>Built</th><th>Lost</th><th>Battles</th><th>Freighters caught</th></tr></thead><tbody>");
         foreach (var g in rows)
+        {
             md.AppendLine($"| {g.Key} | {g.Count()} | {g.Count(x => x.Won)} | {100.0 * g.Count(x => x.Won) / g.Count():0} | "
-                          + $"{g.Average(x => x.End.Planets):0.0} | {g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Battles):0.0} |");
+                          + $"{g.Average(x => x.End.Planets):0.0} | {g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Battles):0.0} | "
+                          + $"{g.Average(x => x.End.Warships):0.0} | {g.Average(x => x.End.AmbushCatches):0.0} | {g.Average(x => x.End.MaterialStallHours) / 24:0} |");
+            html.Append($"<tr><td>{g.Key}</td><td>{g.Count()}</td><td>{100.0 * g.Count(x => x.Won) / g.Count():0}</td><td>{g.Average(x => x.End.Planets):0.0}</td>"
+                        + $"<td>{g.Average(x => x.End.ShipsBuilt):0.0}</td><td>{g.Average(x => x.End.ShipsLost):0.0}</td><td>{g.Average(x => x.End.Battles):0.0}</td><td>{g.Average(x => x.End.AmbushCatches):0.0}</td></tr>");
+        }
+        html.Append("</tbody></table>");
         md.AppendLine();
+        var report = Overnight.Build(ai, rows.ToDictionary(g => g.Key, g => (g.Count(), g.Count(x => x.Won))));
+        Overnight.Append(md, report);
+        _report = Overnight.Html(report, "Lightlag overnight report", html.ToString());
         AppendFights(md, ai);
         WarReport.Append(md);
         WhatMatters.Append(md);

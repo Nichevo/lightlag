@@ -42,6 +42,10 @@ public static class Sparks
         "sight-brain-4" => "Sight: enemy pack missiles",
         "flagship-targeted" => "Hardship: your flagship targeted",
         "missile-salvage" => "Salvage: enemy missiles shot down and recovered",
+        "freighter-raided" => "Hardship: a freighter or supply ship raided",
+        "ship-crippled" => "Hardship: a ship crippled in battle",
+        "wreck-salvaged" => "Salvage: a wreck stripped for materials",
+        "yard-waiting" => "Hardship: the shipyard waits ten days for materials",
         _ => kind,
     };
 
