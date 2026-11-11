@@ -71,6 +71,7 @@ public sealed class Simulation
             world.Rules.SupplyLines = options?.SupplyLines ?? true;
             world.Rules.StartPopulation = options?.StartPopulation ?? false;
             world.Rules.RandomStarts = options?.RandomStarts ?? false;
+            world.Rules.FuelTypes = options?.FuelTypes ?? true;
             Planets.EnsureStarted(world);
         }
         if (sandbox == null) Mind.Setup(world, options, seed);
@@ -292,12 +293,16 @@ public sealed class Simulation
         foreach (var f in World.Fleets)
         {
             if (f.ShipIds.Count < 2) continue;
-            var ships = World.ShipsOf(f).ToList();
-            var capacity = ships.Sum(s => Fitting.MaxSupplies(World, s));
-            if (capacity <= 0) continue;
-            var even = ships.Sum(s => s.Supplies) / capacity;
-            foreach (var s in ships)
-                s.Supplies += (even * Fitting.MaxSupplies(World, s) - s.Supplies) * ShareSuppliesPerHour;
+            // Only ships on the same fuel can pass it between them.
+            foreach (var ships in World.ShipsOf(f).GroupBy(Fuels.IdOf).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.ToList()))
+            {
+                if (ships.Count < 2) continue;
+                var capacity = ships.Sum(s => Fitting.MaxSupplies(World, s));
+                if (capacity <= 0) continue;
+                var even = ships.Sum(s => s.Supplies) / capacity;
+                foreach (var s in ships)
+                    s.Supplies += (even * Fitting.MaxSupplies(World, s) - s.Supplies) * ShareSuppliesPerHour;
+            }
         }
     }
 
@@ -456,8 +461,8 @@ public sealed class Simulation
             var max = Fitting.MaxSupplies(World, s);
             var want = Math.Min(max - s.Supplies, max * RefillPerDay * hours / 24);
             // Fuel comes out of the planet's store; with none it goes slowly.
-            if (want > 1e-9) s.Supplies += want * Colonies.RefuelRate(body, want);
-            SupplyLines.Restock(s, hours, World.Loop ? body : null);
+            if (want > 1e-9) s.Supplies += want * Fuels.Refuel(World, s, f, body, want);
+            SupplyLines.Restock(World, s, hours, World.Loop ? body : null);
         }
     }
 }

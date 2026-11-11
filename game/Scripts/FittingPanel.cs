@@ -118,7 +118,8 @@ public partial class FittingPanel : PanelContainer
         v.AddChild(slots);
 
         var numbers = $"railguns {spec.Railguns} · point defence {spec.PointDefence} · missiles {spec.Missiles} · shield {Heat.MaxShield(w, s):0} · armour {Tech.MaxArmour(w, s):0}"
-                      + $" · supplies {Fitting.MaxSupplies(w, s):0} · thrust {spec.AccelMmPerHour2:0.#} · burn heat x{Fitting.BurnHeatFactor(s):0.##}";
+                      + $" · supplies {Fitting.MaxSupplies(w, s):0} · thrust {spec.AccelMmPerHour2 * Fuels.Thrust(w, s):0.#} · burn heat x{Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s):0.##}"
+                      + (w.Rules.FuelTypes ? $" · fuel: {Fuels.Of(w, s).Name} (burns {string.Join(", ", Fuels.Burns(w, s).Select(Fuels.Name))})" : "");
         var line = Ui.Label(numbers, 12, Ui.Text);
         line.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         v.AddChild(line);
@@ -142,6 +143,7 @@ public partial class FittingPanel : PanelContainer
         if (m.HeatSinks > 0) bits.Add($"+{m.HeatSinks * n} heat sink");
         if (Math.Abs(m.AccelFactor - 1) > 1e-9) bits.Add($"thrust x{m.AccelFactor:0.##}");
         if (Math.Abs(m.BurnHeatFactor - 1) > 1e-9) bits.Add($"burn heat x{m.BurnHeatFactor:0.##}");
+        if (m.Slot == "E" && Main.Instance.Sim?.World.Rules.FuelTypes == true) bits.Add($"burns {string.Join(", ", Fuels.Burns(m).Select(Fuels.Name))}");
         return string.Join(", ", bits);
     }
 }

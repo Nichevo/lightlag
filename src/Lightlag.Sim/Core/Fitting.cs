@@ -81,9 +81,9 @@ public static class Fitting
         return 1;
     }
 
-    /// <summary>The best engine module this side has researched.</summary>
+    /// <summary>The best engine module this side has researched (with fuel types on, one whose fuel it can get).</summary>
     public static string BestEngine(World w, Side side) =>
-        GameData.Modules.Values.Where(m => m.Slot == "E" && (m.Needs.Length == 0 || Tech.Has(w, side, m.Needs)))
+        GameData.Modules.Values.Where(m => m.Slot == "E" && (m.Needs.Length == 0 || Tech.Has(w, side, m.Needs)) && Fuels.EngineUsable(w, side, m))
             .OrderByDescending(m => m.AccelFactor).ThenBy(m => m.Id, StringComparer.Ordinal).Select(m => m.Id).FirstOrDefault() ?? "";
 
     /// <summary>Why this module can't go in this slot of this class for this side, or null if it can (budgets not checked).</summary>
@@ -125,6 +125,7 @@ public static class Fitting
     public static void Apply(World w, Ship s, List<string> fit)
     {
         s.Fit = fit;
+        Fuels.AfterRefit(w, s, w.FleetOf(s) is Fleet f && f.OrbitBodyId is int at ? w.FindBody(at) : null);
         var spec = Spec(s);
         s.MaxSpeed = spec.MaxSpeedMmPerHour;
         s.Accel = spec.AccelMmPerHour2;

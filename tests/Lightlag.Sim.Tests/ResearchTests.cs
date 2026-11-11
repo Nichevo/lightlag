@@ -154,9 +154,9 @@ public class ResearchTests
     [Fact]
     public void Every_idea_has_a_known_field_and_needs()
     {
-        // The research web: 112 ideas in six fields, 23 of them "later" nodes.
+        // The research web: 112 ideas in six fields, 22 of them "later" nodes (the antimatter drive is now built).
         Assert.Equal(112, GameData.Economy.Research.Count);
-        Assert.Equal(23, GameData.Economy.Research.Count(r => r.Later));
+        Assert.Equal(22, GameData.Economy.Research.Count(r => r.Later));
         Assert.All(Research.Fields, f => Assert.Contains(GameData.Economy.Research, r => r.Field == f));
         foreach (var r in GameData.Economy.Research)
         {

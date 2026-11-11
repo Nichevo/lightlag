@@ -57,6 +57,8 @@ public sealed class RuleBook
                      && s.CargoFuel <= SupplyLines.Hold(s).Fuel + 1e-6 && s.CargoAmmo <= SupplyLines.Hold(s).Ammo + 1e-6 && s.CargoFood <= SupplyLines.Hold(s).Food + 1e-6
                      && s.CargoPeople >= -1e-9 && s.CargoPeople <= Planets.PeopleHold(s) + 1e-6 && s.CargoTroops >= -1e-9 && s.CargoTroops <= Planets.TroopHold(s) + 1e-6))
             .Select(s => $"ship {s.Id} {s.Name} has ammo {s.Ammo}, food {s.Food}, cargo {s.CargoFuel}/{s.CargoAmmo}/{s.CargoFood}, people {s.CargoPeople}, troops {s.CargoTroops}"))
+        .Add("fuel-sane", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId))
+            .Select(s => Fuels.Problem(w, s) is string p ? $"ship {s.Id} {s.Name} {p}" : null).OfType<string>())
         .Add("planets-sane", PlanetsSane)
         .Add("war-sane", WarSane)
         .Add("supply-rules-sane", SupplyRulesSane)

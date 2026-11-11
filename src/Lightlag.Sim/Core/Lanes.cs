@@ -238,8 +238,11 @@ public static class Lanes
     }
 
     /// <summary>A cargo ship's fleet is gone with its load: the raider nearby takes half, the rest is lost; zones count the catch.</summary>
-    public static void OnCargoLost(Simulation sim, Fleet hauler, Shipment s) =>
+    public static void OnCargoLost(Simulation sim, Fleet hauler, Shipment s)
+    {
+        if (s.Loaded) foreach (var (good, amount) in s.Cargo) Ledger.Out(sim.World, s.Side, good, amount, "lost in transit");
         Caught(sim, hauler, s.Side, s.Loaded ? s.Cargo : null, "freighter");
+    }
 
     /// <summary>
     /// A tanker or supply freighter on a run to a fleet is gone with what it carried: raided the same way as
@@ -249,7 +252,7 @@ public static class Lanes
     public static void OnSupplyLost(Simulation sim, Fleet hauler, Ship s)
     {
         var cargo = new Dictionary<string, double>();
-        if (s.CargoFuel > 0) cargo[Colonies.Fuel] = s.CargoFuel;
+        foreach (var (fuel, amount) in Fuels.Cargo(s)) cargo[fuel] = cargo.GetValueOrDefault(fuel) + amount * Fuels.Data(fuel).PerSupply;
         if (s.CargoAmmo > 0) cargo["ammunition"] = s.CargoAmmo;
         if (s.CargoFood > 0) cargo["food"] = s.CargoFood;
         Caught(sim, hauler, s.Side, cargo.Count > 0 ? cargo : null, "supply ship");
@@ -274,6 +277,7 @@ public static class Lanes
             foreach (var (good, amount) in cargo.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             {
                 store.Stock[good] = Colonies.Held(store, good) + amount / 2;
+                Ledger.In(w, raider.Side, good, amount / 2, "captured");
                 t.CargoCaptured += amount / 2;
             }
             sim.Log.Info("lanes", $"{raider.Name} takes cargo from a {side} {what}", new { fleetId = raider.Id, store = store.Name, cargo });

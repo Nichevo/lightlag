@@ -413,7 +413,7 @@ public static class Planets
             if (w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)))
             {
                 var ammo = Colonies.Sum(w, b, k => k.GunDamage > 0 ? k.Ammo : 0) / 24;
-                if (Colonies.Held(b, "ammunition") >= ammo) b.Stock["ammunition"] = Colonies.Held(b, "ammunition") - ammo;
+                if (Colonies.Held(b, "ammunition") >= ammo) { b.Stock["ammunition"] = Colonies.Held(b, "ammunition") - ammo; Ledger.Out(w, b.Owner, "ammunition", ammo, "planet guns"); }
                 else { low *= 0.5; high *= 0.5; }
             }
             foreach (var f in w.Fleets.Where(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)).OrderBy(f => f.OrbitHeight).ThenBy(f => f.Id).ToList())
@@ -642,6 +642,7 @@ public static class Planets
                     }
                     if (to.Owner == f.Side)
                         to.Stock["spares"] = Colonies.Held(to, "spares") + Colonies.C.SettlerSpares * ships.Count;
+                        Ledger.In(w, to.Owner, "spares", Colonies.C.SettlerSpares * ships.Count, "settlers");
                     if (f.ShipIds.Count == 0) w.Fleets.Remove(f);
                     else Fleets.Arrange(w, f);
                     Autonomy.Report(sim, f, $"Settlers land on {to.Name}: the settler ship is taken apart for the colony", NoteKind.Supply);

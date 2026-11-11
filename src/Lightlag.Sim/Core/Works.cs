@@ -90,7 +90,11 @@ public static class Works
             foreach (var (st, b) in Economy.Stations(w, side, Skimmer))
                 if (Economy.StationKind(st.Kind)?.Makes is { } makes && !Economy.Blockaded(w, b))
                     foreach (var (good, perDay) in makes)
-                        b.Stock[good] = Math.Min(200, Colonies.Held(b, good) + perDay / 24);
+                    {
+                        var before = Colonies.Held(b, good);
+                        b.Stock[good] = Math.Min(Math.Max(200, before), before + perDay / 24);
+                        Ledger.In(w, side, good, b.Stock[good] - before, "skimmers");
+                    }
     }
 
     /// <summary>

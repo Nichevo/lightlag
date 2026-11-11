@@ -84,6 +84,7 @@ public partial class Main : Node
     public bool HappinessChoice { get; set; } = true;
     public bool SupplyLinesChoice { get; set; } = true;
     public bool SpreadPeopleChoice { get; set; }
+    public bool FuelTypesChoice { get; set; } = true;
     public bool RandomStartsChoice { get; set; } = true;
 
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
@@ -94,7 +95,7 @@ public partial class Main : Node
             Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with
             {
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
-                StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice,
+                StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
             });
             SetScreen(new GameScreen());
         });

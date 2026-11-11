@@ -105,7 +105,12 @@ public sealed record SlotData(string Type, bool Pair = false, string Fit = "")
 /// <summary>A module for a slot. Its numbers are added to the ship per mount (see Fitting).</summary>
 public sealed record ModuleData(string Id, string Name, string Slot, double Power, double Heat, double Cost,
     int Railguns = 0, int PointDefence = 0, int Missiles = 0, double Shield = 0, double Armour = 0, double SensorMm = 0,
-    double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "");
+    double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "",
+    List<string>? Fuels = null);
+
+/// <summary>A fuel type (ship-classes.json, "fuels"): its good and how it burns. See the comment there.</summary>
+public sealed record FuelData(string Id, string Name, string Short, double Thrust = 1, double Reach = 1, double BurnHeat = 1, double Signature = 1,
+    double PerSupply = 0.25, bool Anywhere = false, string Note = "");
 
 /// <summary>
 /// Slingshot tuning (game physics: real flybys barely touch a fast torch ship, so giants hit harder).
@@ -128,7 +133,7 @@ public sealed record SlingshotData(double AssistStrength = 40, double MinTimeGai
     public IReadOnlyList<double> Departs => DepartShares is { Count: > 0 } d ? d : new[] { 1.0, 0.75, 0.55 };
 }
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null, FormationData? Formations = null);
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null, FormationData? Formations = null, List<FuelData>? Fuels = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -155,6 +160,8 @@ public static class GameData
     public static DroneData Drones => _file.Value.Drones ?? new DroneData();
     public static SlingshotData Slingshots => _file.Value.Slingshots ?? new SlingshotData();
     public static HeatData Heat => _file.Value.Heat ?? new HeatData();
+    private static readonly Lazy<IReadOnlyList<FuelData>> _fuels = new(() => _file.Value.Fuels is { Count: > 0 } f ? f : new List<FuelData> { new("fuel", "Fuel", "Fuel") });
+    public static IReadOnlyList<FuelData> Fuels => _fuels.Value;
     public static BattleRecordData Recording => _file.Value.Recording ?? new BattleRecordData();
     public static FormationData Formations => _file.Value.Formations ?? new FormationData();
     public static EconomyData Economy => _economy.Value;
@@ -258,6 +265,14 @@ public static class GameData
                     throw new InvalidDataException($"ship-classes.json: class '{c.Id}' standard fit is over its power or heat budget");
             }
         }
+        var fuels = (file.Fuels ?? new List<FuelData>()).Select(f => f.Id).ToHashSet();
+        if (file.Fuels is { Count: > 0 } && !fuels.Contains("fuel")) throw new InvalidDataException("ship-classes.json: the fuels list needs 'fuel' (the one fuel when fuel types are off)");
+        foreach (var f in file.Fuels ?? new List<FuelData>())
+            if (!(f.Thrust > 0 && f.Reach > 0 && f.BurnHeat > 0 && f.Signature > 0 && f.PerSupply > 0))
+                throw new InvalidDataException($"ship-classes.json: fuel '{f.Id}' needs thrust, reach, burnHeat, signature and perSupply above 0");
+        foreach (var m in file.Modules ?? new List<ModuleData>())
+            foreach (var f in m.Fuels ?? new List<string>())
+                if (!fuels.Contains(f)) throw new InvalidDataException($"ship-classes.json: module '{m.Id}' burns unknown fuel '{f}'");
         return dict;
     }
 

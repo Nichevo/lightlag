@@ -420,6 +420,7 @@ public static class Colonies
     {
         var w = sim.World;
         UpdateWants(w);
+        Fuels.FadeDraws(w);
         foreach (var b in w.Bodies.Where(b => b.Pieces.Count > 0 || b.Stock.Count > 0))
         {
             if (b.Owner == null) { b.Pieces.RemoveAll(p => !p.Built); continue; }
@@ -437,7 +438,7 @@ public static class Colonies
             if (!p.Built)
             {
                 // Big buildings wait for their materials (alloys) to come out of the planet's store.
-                if (!TakeMaterials(b, p)) continue;
+                if (!TakeMaterials(sim.World, b, p)) continue;
                 p.HoursLeft -= GameTime.HoursPerTick;
                 if (!p.Built) continue;
                 p.HoursLeft = 0;
@@ -455,13 +456,14 @@ public static class Colonies
     }
 
     /// <summary>Takes what it can of a piece's materials from the planet's store; true once none are left to come.</summary>
-    private static bool TakeMaterials(Body b, Piece p)
+    private static bool TakeMaterials(World w, Body b, Piece p)
     {
         if (p.MaterialsLeft is not { Count: > 0 } left) return true;
         foreach (var good in left.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList())
         {
             var take = Math.Min(left[good], Held(b, good));
             if (take > 0) b.Stock[good] = Held(b, good) - take;
+            Ledger.Out(w, b.Owner, good, take, "buildings");
             left[good] -= take;
             if (left[good] <= 1e-9) left.Remove(good);
         }
@@ -571,21 +573,24 @@ public static class Colonies
         // Goods: inputs first, then what each piece makes, then upkeep in spare parts.
         var cap = StoreDaysOf(b);
         var caps = new Dictionary<string, double>(); // storage room per good, worked out once this hour
-        void Add(string good, double amount)
+        void Add(string good, double amount, string why)
         {
             if (amount <= 0) return;
             if (!caps.TryGetValue(good, out var room)) caps[good] = room = StoreCap(b, good, cap);
-            b.Stock[good] = Math.Min(Math.Max(room, Held(b, good)), Held(b, good) + amount);
+            var before = Held(b, good);
+            b.Stock[good] = Math.Min(Math.Max(room, before), before + amount);
+            Ledger.In(w, b.Owner, good, amount, why);
+            Ledger.Out(w, b.Owner, good, before + amount - Held(b, good), Ledger.StoreFull);
         }
         foreach (var (p, data) in built)
         {
             p.Boost = MakesFactor(w, b, data!);
             var output = Output(w, b, p, data!) * p.Boost;
             if (data!.Makes != null)
-                foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(w, b, p, data, consume: true) / 24);
+                foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(w, b, p, data, consume: true) / 24, Ledger.Made);
             else if (data.Uses != null && data.Power >= 0) InputShare(w, b, p, data, consume: true); // labs, academies, arcologies, food vats
             if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral != "")
-                Add(d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output / 24);
+                Add(d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output / 24, Ledger.Mined);
         }
         var upkeepFactor = b.UpkeepFactor = b.Owner is Side keeper ? Tech.Factor(w, keeper, "recycling") : 1;
         b.FissionFuel = FissionFuelPerDay(w, b);
@@ -595,6 +600,7 @@ public static class Colonies
             var have = Held(b, Spares);
             var got = Math.Min(want, have);
             if (want > 0) b.Stock[Spares] = have - got;
+            Ledger.Out(w, b.Owner, Spares, got, "building upkeep");
             p.SparesShare = want <= 0 ? 1 : got / want;
             if (p.SparesShare >= 0.999) p.Condition = Math.Min(1, p.Condition + C.MendPerDay / 24);
             else p.Condition = Math.Max(0, p.Condition - C.WearPerDay * (1 - p.SparesShare) / 24);
@@ -607,6 +613,7 @@ public static class Colonies
             var have = Held(b, "water");
             b.Thirsty = have < want - 1e-12;
             b.Stock["water"] = Math.Max(0, have - want);
+            Ledger.Out(w, b.Owner, "water", Math.Min(have, want), "habitats");
         }
     }
 
@@ -629,7 +636,7 @@ public static class Colonies
         if (data.Uses == null) yield break;
         foreach (var (good, perDay) in data.Uses)
         {
-            if (good == "water" && data.Id == "fuel-plant" && b.Board?.At(p.X, p.Y) == 'o') continue;
+            if (good == "water" && data.Id is "fuel-plant" or "deuterium-plant" && b.Board?.At(p.X, p.Y) == 'o') continue;
             yield return (good, perDay);
         }
     }
@@ -661,7 +668,9 @@ public static class Colonies
             foreach (var (good, perDay) in Inputs(b, p, data))
             {
                 var used = lean ? (good == "copper" ? LeanElectronics * copper : 0) : share;
-                b.Stock[good] = Math.Max(0, Held(b, good) - perDay * Math.Max(0.01, p.Staff) / 24 * used);
+                var before = Held(b, good);
+                b.Stock[good] = Math.Max(0, before - perDay * Math.Max(0.01, p.Staff) / 24 * used);
+                Ledger.Out(w, b.Owner, good, before - Held(b, good), data.Id);
             }
         if (lean) return LeanElectronics * copper;
         // Without iron a workshop still makes half; labs and academies still work without electronics (no boost).
@@ -704,12 +713,12 @@ public static class Colonies
             var water = 0.4 * staff / 24;
             if (Held(b, "helium-3") >= he3)
             {
-                if (consume) b.Stock["helium-3"] = Held(b, "helium-3") - he3;
+                if (consume) { b.Stock["helium-3"] = Held(b, "helium-3") - he3; Ledger.Out(w, side, "helium-3", he3, "power"); }
                 return basePower * 1.5 * (side is Side s1 ? Tech.Factor(w, s1, "helium-3-reactors") : 1);
             }
             if (Held(b, "water") >= water)
             {
-                if (consume) b.Stock["water"] = Held(b, "water") - water;
+                if (consume) { b.Stock["water"] = Held(b, "water") - water; Ledger.Out(w, side, "water", water, "power"); }
                 return basePower;
             }
             return basePower * 0.2;
@@ -718,12 +727,12 @@ public static class Colonies
         var want = FissionFuelPerDay(w, b) * staff / 24;
         if (Held(b, "helium-3") >= want)
         {
-            if (consume) b.Stock["helium-3"] = Held(b, "helium-3") - want;
+            if (consume) { b.Stock["helium-3"] = Held(b, "helium-3") - want; Ledger.Out(w, side, "helium-3", want, "power"); }
             factor = 1.5;
         }
         else if (Held(b, "uranium") >= want)
         {
-            if (consume) b.Stock["uranium"] = Held(b, "uranium") - want;
+            if (consume) { b.Stock["uranium"] = Held(b, "uranium") - want; Ledger.Out(w, side, "uranium", want, "power"); }
             factor = 1;
         }
         return basePower * factor;
@@ -768,7 +777,7 @@ public static class Colonies
     /// <summary>A good used here per day (inputs and upkeep).</summary>
     public static double UsePerDay(Body b, string good)
     {
-        var total = 0.0;
+        var total = b.FuelUse.TryGetValue(good, out var drawn) ? drawn : 0;
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
@@ -854,22 +863,6 @@ public static class Colonies
     public static bool DockBuilds(World w, Body b, Side side) =>
         b.Owner == side && !b.Shipyard && Tech.Has(w, side, "colony-shipyards") && Built(b).Any(p => p.Kind == DryDock);
 
-    /// <summary>Refuelling at a planet: draws its fuel stock; with none, it goes slowly.</summary>
-    public static double RefuelRate(Body b, double suppliesWanted)
-    {
-        if (b.Board == null && b.Stock.Count == 0) return 1;
-        var fuel = suppliesWanted * C.FuelPerSupply;
-        if (fuel <= 0) return 1;
-        var have = Held(b, Fuel);
-        if (have >= fuel)
-        {
-            b.Stock[Fuel] = have - fuel;
-            return 1;
-        }
-        b.Stock[Fuel] = 0;
-        return Math.Max(C.NoFuelRefill, have / fuel);
-    }
-
     // ---- Research: refits ---------------------------------------------------------------------
 
     /// <summary>How many of the research ideas that upgrade this kind of building the side has.</summary>
@@ -896,6 +889,7 @@ public static class Colonies
                 // One after another, so not everything is down at once.
                 var days = kind.Id == Shipyard ? C.ShipyardRefitDays : C.RefitDays;
                 p.RefitHoursLeft = days * 24 * (1 + 0.5 * refits++);
+                Ledger.Out(w, side, Spares, Math.Min(2, Held(b, Spares)), "building refits");
                 b.Stock[Spares] = Math.Max(0, Held(b, Spares) - 2);
             }
             if (refits > 0)

@@ -239,7 +239,7 @@ public static class Research
                 if (order.Waiting != null) continue;
                 state.Industry -= cost;
                 state.Totals.IndustrySpent += cost;
-                if (home != null) Economy.TakeMaterials(home, mats);
+                if (home != null) Economy.TakeMaterials(w, home, mats, "research");
                 order.Paid = true;
                 sim.Log.Info("economy", $"{side} starts {Economy.NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, team = team.Id, materials = mats });
             }

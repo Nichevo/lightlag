@@ -226,6 +226,7 @@ public static class Wounds
         foreach (var (good, amount) in wr.Salvage.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             store.Stock[good] = Colonies.Held(store, good) + amount;
+            Ledger.In(w, f.Side, good, amount, "salvage");
             total += amount;
         }
         var haul = wr.Salvage;
@@ -270,6 +271,8 @@ public static class Wounds
             {
                 at.Stock["alloys"] = Colonies.Held(at, "alloys") - alloys;
                 at.Stock["electronics"] = Colonies.Held(at, "electronics") - elec;
+                Ledger.Out(w, s.Side, "alloys", alloys, "ship repairs");
+                Ledger.Out(w, s.Side, "electronics", elec, "ship repairs");
             }
             else pace = D.NoMaterialsPace;
         }

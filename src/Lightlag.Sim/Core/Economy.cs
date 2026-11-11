@@ -255,9 +255,9 @@ public static class Tech
 
     /// <summary>Fuel a burn takes: Efficient drives, and the fusion drive (Engine Mk IV and V) burns 15 % less.</summary>
     public static double SuppliesPerDeltaV(World w, Ship s) =>
-        Fitting.Spec(s).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives) * (FusionEngine(s) ? 0.85 : 1);
+        Fitting.Spec(s).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives) * (FusionEngine(s) ? 0.85 : 1) / Fuels.Reach(w, s);
 
-    private static bool FusionEngine(Ship s) => s.Fit.Any(m => m is "engine-mk4" or "engine-mk5");
+    private static bool FusionEngine(Ship s) => s.Fit.Any(m => m is "engine-mk4" or "engine-mk5" or "engine-mk6");
 
     /// <summary>A big hull (cruiser and up): Siege rail works only on these.</summary>
     public static bool BigHull(Ship s) => s.ClassId is "cruiser" or "siege-monitor" or "capital";
@@ -346,10 +346,14 @@ public static class Economy
     }
 
     /// <summary>Takes the materials out of the store (call after MaterialShort said there are enough).</summary>
-    public static void TakeMaterials(Body store, Dictionary<string, double>? mats)
+    public static void TakeMaterials(World w, Body store, Dictionary<string, double>? mats, string why)
     {
         if (mats == null) return;
-        foreach (var (good, amount) in mats) store.Stock[good] = Math.Max(0, Colonies.Held(store, good) - amount);
+        foreach (var (good, amount) in mats)
+        {
+            Ledger.Out(w, store.Owner, good, Math.Min(amount, Colonies.Held(store, good)), why);
+            store.Stock[good] = Math.Max(0, Colonies.Held(store, good) - amount);
+        }
     }
 
     public static double HoursFor(World w, Side side, OrderKind kind, string key) => kind == OrderKind.Ship
@@ -486,7 +490,7 @@ public static class Economy
             order.Waiting = null;
             state.Industry -= cost;
             state.Totals.IndustrySpent += cost;
-            TakeMaterials(yard, mats);
+            TakeMaterials(w, yard, mats, "ships");
             order.Paid = true;
             order.HoursLeft = order.TotalHours;
             sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, materials = mats });
@@ -580,6 +584,7 @@ public static class Economy
         var spec = Fitting.Spec(ship);
         ship.MaxSpeed = spec.MaxSpeedMmPerHour;
         ship.Accel = spec.AccelMmPerHour2;
+        ship.Fuel = Fuels.ForNewShip(w, ship, ShipyardOf(w, side));
         ship.Supplies = Fitting.MaxSupplies(w, ship);
         ship.Missiles = Tech.Racks(w, ship);
         ship.Ammo = SupplyLines.MaxAmmo(ship);

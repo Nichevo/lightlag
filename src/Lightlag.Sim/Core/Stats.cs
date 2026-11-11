@@ -22,8 +22,11 @@ public sealed class SideTotals
     /// <summary>Decisions its fleets made for themselves (see Autonomy).</summary>
     public int OwnDecisions { get; set; }
 
-    /// <summary>Times its ships overheated.</summary>
+    /// <summary>Times its ships overheated: in all, in a battle, with engines burning, and running cold.</summary>
     public int Overheats { get; set; }
+    public int OverheatsInBattle { get; set; }
+    public int OverheatsBurning { get; set; }
+    public int OverheatsCold { get; set; }
     public double DamageDealt { get; set; }
     public double ShipyardDamage { get; set; }
 
@@ -67,6 +70,10 @@ public sealed class SideTotals
     public int BlockadeWins { get; set; }
     public double BlockadeDays { get; set; }
     public double BlockadeHappiness { get; set; }
+
+    /// <summary>The goods ledger (see Ledger): per good, amounts gained and used by reason.</summary>
+    public Dictionary<string, Dictionary<string, double>> GoodsIn { get; set; } = new();
+    public Dictionary<string, Dictionary<string, double>> GoodsOut { get; set; } = new();
 }
 
 /// <summary>One side at the end of one game day.</summary>

@@ -156,7 +156,7 @@ public static class Refits
                 if (shortOf != null) { plan.Waiting = shortOf; break; }
                 state.Industry -= cost;
                 state.Totals.IndustrySpent += cost;
-                Economy.TakeMaterials(yard, mats);
+                Economy.TakeMaterials(w, yard, mats, "ship refits");
                 s.RefitHoursLeft = HoursFor(w, s, yard);
                 plan.Stage = RefitStage.Refitting;
                 sim.Log.Info("fitting", $"{s.Name} goes into a refit bay at {yard.Name}", new { side = f.Side.ToString(), shipId = s.Id, cost, materials = mats, hours = s.RefitHoursLeft });
