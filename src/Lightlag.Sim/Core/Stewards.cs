@@ -117,8 +117,14 @@ public static class Planner
         if (sparesShort && Staffed("workshop") && Pick("workshop") is string shop) return (shop, null, null, true);
         // Materials: ships, big buildings and later research wait for alloys, electronics and ammunition.
         // The plant for a short one goes up (at home first), then mines for the minerals it eats.
-        foreach (var (good, plant) in MaterialPlants)
-            if (MaterialShort(w, side, good) && Staffed(plant) && Fits(plant) && GoodSiteFor(w, side, b, plant)
+        // A material nobody makes yet goes first, and while one is short with no plant at all, no second plant of
+        // another kind takes the land; no second plant of any kind before the first electronics plant (home boards
+        // are small: second and third smelters used to leave no room for electronics, the yards' real bottleneck).
+        var shortNone = MaterialPlants.Where(m => MaterialShort(w, side, m.Good) && Fits(m.Plant) && !Has(w, side, m.Plant)).Select(m => m.Plant).ToList();
+        var noElectronics = !Has(w, side, "electronics-plant");
+        foreach (var (good, plant) in MaterialPlants.OrderBy(m => Has(w, side, m.Plant) ? 1 : 0))
+            if ((shortNone.Count == 0 || shortNone.Contains(plant)) && !(noElectronics && Has(w, side, plant))
+                && MaterialShort(w, side, good) && Staffed(plant) && Fits(plant) && GoodSiteFor(w, side, b, plant)
                 && !w.Bodies.Any(o => o.Owner == side && o.Pieces.Any(p => p.Kind == plant && !p.Built))) // one new plant at a time
             {
                 if (Powered(plant)) return (plant, null, null, true);
@@ -149,6 +155,9 @@ public static class Planner
         return null;
     }
 
+    /// <summary>Does the side have this kind of building (built or under way)?</summary>
+    private static bool Has(World w, Side side, string kind) => w.Bodies.Any(o => o.Owner == side && o.Pieces.Any(p => p.Kind == kind));
+
     /// <summary>The minerals mines dig.</summary>
     public static readonly string[] Minerals = { "iron", "copper", "rare-earths", "uranium", "water", "helium-3" };
 
@@ -176,8 +185,9 @@ public static class Planner
     }
 
     /// <summary>
-    /// The fuels a side wants made: those its ships burn, and the usual fuel of each engine it has
-    /// researched but can't fuel yet (so a better engine is not left waiting).
+    /// The fuels a side wants made: those its ships burn, the usual fuel of each engine it has researched but
+    /// can't fuel yet (so a better engine is not left waiting), and a fuel its best engine burns that would
+    /// suit its warships better than any it can get now (fission pellets once Engine Mk II is in).
     /// </summary>
     public static List<string> FuelsWanted(World w, Side side)
     {
@@ -187,6 +197,13 @@ public static class Planner
             if (!wanted.Contains(Fuels.IdOf(s))) wanted.Add(Fuels.IdOf(s));
         foreach (var m in GameData.Modules.Values.Where(m => m.Slot == "E" && m.Needs.Length > 0 && Tech.Has(w, side, m.Needs)).OrderBy(m => m.AccelFactor))
             if (!Fuels.EngineUsable(w, side, m) && !wanted.Contains(Fuels.Burns(m)[0])) wanted.Add(Fuels.Burns(m)[0]);
+        if (GameData.Module(Fitting.BestEngine(w, side)) is ModuleData best)
+        {
+            var burns = Fuels.Burns(best);
+            var have = burns.Where(f => Fuels.Obtainable(w, side, f)).Select(f => Fuels.Score(Fuels.Data(f), Fuels.Job.Fight)).DefaultIfEmpty(double.MinValue).Max();
+            foreach (var f in burns.Where(f => !Fuels.Obtainable(w, side, f) && Fuels.Score(Fuels.Data(f), Fuels.Job.Fight) > have).OrderBy(f => f, StringComparer.Ordinal))
+                if (!wanted.Contains(f)) wanted.Add(f);
+        }
         return wanted;
     }
 

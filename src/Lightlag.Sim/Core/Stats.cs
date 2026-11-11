@@ -27,6 +27,10 @@ public sealed class SideTotals
     public int OverheatsInBattle { get; set; }
     public int OverheatsBurning { get; set; }
     public int OverheatsCold { get; set; }
+
+    /// <summary>Ship-hours spent in battle, and of them overheated (guns and shields off).</summary>
+    public double BattleShipHours { get; set; }
+    public double OverheatedBattleHours { get; set; }
     public double DamageDealt { get; set; }
     public double ShipyardDamage { get; set; }
 

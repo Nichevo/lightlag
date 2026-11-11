@@ -17,13 +17,13 @@ public static class Audit
 
     private static readonly Dictionary<string, GoodRow> Goods = new();
     private static readonly Dictionary<string, (int Ships, double Heat, double HeatBudget, double Power, double PowerBudget)> Fits = new();
-    private static double _overheats, _inBattle, _burning, _cold, _sides;
+    private static double _overheats, _inBattle, _burning, _cold, _sides, _battleHours, _hotHours;
 
     public static void Clear()
     {
         Goods.Clear();
         Fits.Clear();
-        _overheats = _inBattle = _burning = _cold = _sides = 0;
+        _overheats = _inBattle = _burning = _cold = _sides = _battleHours = _hotHours = 0;
     }
 
     public static void Collect(World w)
@@ -49,6 +49,8 @@ public static class Audit
             _inBattle += t.OverheatsInBattle;
             _burning += t.OverheatsBurning;
             _cold += t.OverheatsCold;
+            _battleHours += t.BattleShipHours;
+            _hotHours += t.OverheatedBattleHours;
         }
         foreach (var s in w.Ships)
         {
@@ -86,6 +88,7 @@ public static class Audit
         md.AppendLine("## Balance audit: heat");
         md.AppendLine();
         md.AppendLine($"- Overheats per side per game: {_overheats / n:0.0}; in battle {_inBattle / n:0.0}, with engines burning {_burning / n:0.0}, running cold {_cold / n:0.0}");
+        md.AppendLine($"- Battle time spent overheated (guns and shields off): {100 * _hotHours / Math.Max(1e-9, _battleHours):0} % of {_battleHours / n:0} ship-hours in battle per side per game");
         md.AppendLine();
         md.AppendLine("| Class | Ships at end (per game) | Heat used of budget | Power used of budget |");
         md.AppendLine("|---|---|---|---|");

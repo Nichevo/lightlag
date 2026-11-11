@@ -107,6 +107,22 @@ public class FuelTests
     }
 
     [Fact]
+    public void A_ship_with_a_quarter_tank_or_more_keeps_its_fuel()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var f = Home(sim);
+        var yard = Yard(sim);
+        var ship = w.ShipsOf(f).First(s => s.ClassId == "gun-frigate");
+        SetEngine(sim, ship, "engine-mk2");
+        ship.Supplies = Fitting.MaxSupplies(w, ship) * 0.5;
+        yard.Stock["fission-pellets"] = 50;
+        Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5));
+        yard.Stock.Remove(Fuels.Standard);
+        Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5)); // none of its own fuel here, but no pouring back and forth
+    }
+
+    [Fact]
     public void A_fleet_told_a_fuel_uses_it_and_quiet_jobs_prefer_a_dim_burn()
     {
         var sim = NewGame();

@@ -113,29 +113,36 @@ public static class Fuels
     private static bool InStock(Body b, string fuel, double supplies) =>
         b.Board == null && b.Stock.Count == 0 || Colonies.Held(b, fuel) >= Data(fuel).PerSupply * Math.Min(supplies, 10) - 1e-9;
 
+    /// <summary>Tanks below this share may change fuel (what is left goes back to the store); above it the ship keeps its fuel.</summary>
+    public const double SwitchBelow = 0.25;
+
     /// <summary>
-    /// The fuel a ship should fill up with here: the fleet's chosen fuel if it has one in stock, else Auto's
-    /// pick for the fleet's job among the fuels in stock. It keeps the fuel it has unless that has run out
-    /// here, or its tanks are under half full and another fuel suits the job clearly better.
+    /// The fuel a ship should fill up with here. A ship keeps the fuel it has while its tanks are a quarter
+    /// full or more (so fuel is not poured back and forth). Below that: the fleet's chosen fuel if it is in
+    /// stock, else Auto's pick for the fleet's job among the fuels in stock (the one it has unless another
+    /// suits clearly better); with none in stock, water if the engine takes it and the tanks are all but dry.
     /// </summary>
     public static string Pick(World w, Ship s, Fleet? f, Body b, double wanted)
     {
         var burns = Burns(w, s);
         var current = IdOf(s);
         if (!On(w) || burns.Count == 1) return burns[0];
+        var full = Fitting.MaxSupplies(w, s);
+        var share = full <= 0 ? 0 : s.Supplies / full;
+        var burnable = burns.Contains(current);
+        if (burnable && share >= SwitchBelow) return current;
         if (f?.Fuel is { Length: > 0 } chosen && burns.Contains(chosen) && InStock(b, chosen, wanted)) return chosen;
         var job = JobOf(w, f);
         var stocked = burns.Where(x => InStock(b, x, wanted)).ToList();
         if (stocked.Count == 0)
         {
-            // Nothing in store: water if the engine takes it (scraped together anywhere), else keep what it burns, else the usual fuel.
-            return burns.FirstOrDefault(x => Data(x).Anywhere) ?? (burns.Contains(current) ? current : burns[0]);
+            var water = burns.FirstOrDefault(x => Data(x).Anywhere);
+            if (burnable && (water == null || share >= 0.05)) return current;
+            return water ?? burns[0];
         }
         var best = stocked.OrderByDescending(x => Score(Data(x), job)).ThenBy(x => x, StringComparer.Ordinal).First();
-        if (!burns.Contains(current) || !stocked.Contains(current)) return best;
-        var full = Fitting.MaxSupplies(w, s);
-        var low = full <= 0 || s.Supplies / full < 0.5;
-        return low && Score(Data(best), job) > Score(Data(current), job) + 0.15 ? best : current;
+        if (!burnable || !stocked.Contains(current)) return best;
+        return Score(Data(best), job) > Score(Data(current), job) + 0.15 ? best : current;
     }
 
     /// <summary>
@@ -146,7 +153,10 @@ public static class Fuels
         var old = IdOf(s);
         if (old == fuel) return;
         if (at != null && (at.Board != null || at.Stock.Count > 0) && s.Supplies > 0)
+        {
             at.Stock[old] = Colonies.Held(at, old) + s.Supplies * Data(old).PerSupply;
+            Ledger.In(w, at.Owner, old, s.Supplies * Data(old).PerSupply, "back from tanks");
+        }
         s.Supplies = 0;
         s.Fuel = fuel == Standard ? "" : fuel;
     }

@@ -1422,6 +1422,17 @@ public static class Mind
                 Note($"Builds a sensor station at {watch.Name}");
                 return;
             }
+            // Helium-3: a skimmer over a gas giant it holds, once its engines or reactors want helium-3.
+            var skimmer = Economy.StationKind(Works.Skimmer);
+            if (skimmer != null && spare >= skimmer.Cost * 1.5 && (skimmer.Needs == null || Tech.Has(_w, _side, skimmer.Needs))
+                && (Planner.FuelsWanted(_w, _side).Contains("helium-3") || Tech.Has(_w, _side, "helium-3-reactors"))
+                && !_w.Stations.Any(st => st.Side == _side && st.Kind == Works.Skimmer)
+                && _w.Bodies.Where(b => b.Owner == _side && skimmer.OnTypes?.Contains(b.Type) == true).OrderBy(b => b.Id).FirstOrDefault() is Body giant)
+            {
+                Do(new BuildStationCommand(_side, giant.Id, Works.Skimmer));
+                Note($"Builds a helium-3 skimmer at {giant.Name}");
+                return;
+            }
             var relay = Economy.StationKind(Economy.Relay);
             if (!_w.Light.On || relay == null || spare < relay.Cost * 2 || _home == null) return;
             if (_w.Stations.Any(st => st.Side == _side && st.Kind == Economy.Relay)) return;

@@ -122,6 +122,12 @@ public static class Heat
                     s.Overheated = false;
                     sim.Log.Info("heat", $"{s.Name} has cooled down", new { shipId = s.Id, heat = s.Heat });
                 }
+                if (w.Loop && InBattle(w, f))
+                {
+                    var t = Economy.Of(w, f.Side).Totals;
+                    t.BattleShipHours += dt;
+                    if (s.Overheated) t.OverheatedBattleHours += dt;
+                }
                 var max = MaxShield(w, s);
                 if (!s.Overheated && s.Shield < max) s.Shield = Math.Min(max, s.Shield + max * D.ShieldRegenPerHour * dt);
                 if (s.Overheated) s.Shield = 0;
