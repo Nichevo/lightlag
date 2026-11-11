@@ -830,6 +830,7 @@ public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, in
         state.Industry -= data.Cost;
         state.Totals.IndustrySpent += data.Cost;
         Colonies.AddPiece(world, b, data, x, y, turned, built: false);
+        Choices.Note(world, Side, "building", Kind, b.Name);
         sim.Log.Info("planets", $"{Side} starts a {data.Name.ToLowerInvariant()} at {b.Name}", new { side = Side.ToString(), BodyId, Kind, x, y, Source });
     }
 }

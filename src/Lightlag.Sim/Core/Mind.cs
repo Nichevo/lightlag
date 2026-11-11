@@ -18,7 +18,7 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 /// (null: the default, see GameRules).
 /// </summary>
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
-    bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null)
+    bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -68,6 +68,53 @@ public sealed class FleetJob
 
 public sealed record Thought(double Hour, string Text);
 
+/// <summary>
+/// Leanings a computer side rolls at the start of each game on top of its personality (and that drift a
+/// little day to day): missiles against railguns, the research field it favours, escorts and big ships
+/// against frigates, and the odds it wants before it fights. The choice log records them, so overnight
+/// runs show which ones win.
+/// </summary>
+public sealed class Leanings
+{
+    /// <summary>Added to the missile-destroyer share of new hulls (-0.2..0.2).</summary>
+    public double Missiles { get; set; }
+    public string Field { get; set; } = "";
+    /// <summary>Multipliers on the chance of an escort and of a cruiser among new hulls (0.4..1.6).</summary>
+    public double Escorts { get; set; } = 1;
+    public double BigShips { get; set; } = 1;
+    /// <summary>Multiplier on the odds it wants before fighting (0.85 bold .. 1.15 careful).</summary>
+    public double Odds { get; set; } = 1;
+
+    public static Leanings Roll(SimRandom rng) => new()
+    {
+        Missiles = Math.Round(rng.Range(-0.2, 0.2), 3),
+        Field = Research.Fields[rng.Range(0, Research.Fields.Length)],
+        Escorts = Math.Round(rng.Range(0.4, 1.6), 3),
+        BigShips = Math.Round(rng.Range(0.4, 1.6), 3),
+        Odds = Math.Round(rng.Range(0.85, 1.15), 3),
+    };
+
+    /// <summary>A small daily drift, kept in range.</summary>
+    public void Drift(SimRandom rng)
+    {
+        Missiles = Math.Round(Math.Clamp(Missiles + rng.Range(-0.01, 0.01), -0.2, 0.2), 3);
+        Escorts = Math.Round(Math.Clamp(Escorts + rng.Range(-0.02, 0.02), 0.4, 1.6), 3);
+        BigShips = Math.Round(Math.Clamp(BigShips + rng.Range(-0.02, 0.02), 0.4, 1.6), 3);
+        Odds = Math.Round(Math.Clamp(Odds + rng.Range(-0.005, 0.005), 0.85, 1.15), 3);
+    }
+
+    /// <summary>The leanings as choice-log entries, in bands (so games can be grouped).</summary>
+    public IEnumerable<string> Bands(PullPreset pull)
+    {
+        yield return Missiles > 0.07 ? "more missiles" : Missiles < -0.07 ? "more railguns" : "even guns";
+        yield return $"{Field} research first";
+        yield return Escorts > 1.2 ? "more escorts" : Escorts < 0.8 ? "fewer escorts" : "usual escorts";
+        yield return BigShips > 1.2 ? "more big ships" : BigShips < 0.8 ? "fewer big ships" : "usual big ships";
+        yield return Odds < 0.95 ? "bold odds" : Odds > 1.05 ? "careful odds" : "usual odds";
+        yield return $"pull back {pull}";
+    }
+}
+
 /// <summary>One computer-run side: its settings, its rolled temperament, its fleets' jobs and what it believes.</summary>
 public sealed class MindState
 {
@@ -81,6 +128,12 @@ public sealed class MindState
 
     /// <summary>The pull-back preset its fleets use away from home (home guards fight to the last).</summary>
     public PullPreset PullLeaning { get; set; } = PullPreset.Standard;
+
+    /// <summary>This game's leanings (see Leanings).</summary>
+    public Leanings Lean { get; set; } = new();
+
+    /// <summary>How far below the best score an option may be and still be picked (0.1: within 10 %).</summary>
+    public double Spread { get; set; } = Mind.NormalSpread;
     public double Ratio { get; set; }
     public double FirstProbeDay { get; set; }
 
@@ -128,6 +181,9 @@ public static class Mind
 
     public static MindState? Of(World w, Side side) => w.Minds.Find(m => m.Side == side);
 
+    /// <summary>Choice spread in normal games (headless runs use a wider one, see GameOptions.ChoiceSpread).</summary>
+    public const double NormalSpread = 0.04;
+
     /// <summary>Sets up the computer-run sides at the start of a game.</summary>
     public static void Setup(World w, GameOptions? options, ulong seed)
     {
@@ -155,6 +211,10 @@ public static class Mind
             // Pull-back leaning for this game (a choice the overnight runs compare): mostly Standard.
             var lean = rng.NextDouble();
             mind.PullLeaning = lean < 0.2 ? PullPreset.Cautious : lean < 0.7 ? PullPreset.Standard : lean < 0.95 ? PullPreset.FightOn : PullPreset.ToTheLast;
+            mind.Lean = Leanings.Roll(rng);
+            mind.Spread = setup.Difficulty == Difficulty.Easy ? 0 : options.ChoiceSpread ?? NormalSpread;
+            Choices.Note(w, setup.Side, "lean", $"personality {personality}");
+            foreach (var band in mind.Lean.Bands(mind.PullLeaning)) Choices.Note(w, setup.Side, "lean", band);
             mind.Random = rng.Save();
             w.Minds.Add(mind);
         }
@@ -345,7 +405,11 @@ public static class Mind
             var centre = _m.BaseRatio - impatience;
             var drifted = _m.Ratio + _rng.Range(-A.NerveDrift, A.NerveDrift);
             _m.Ratio = Math.Round(Math.Clamp(drifted, Math.Max(1.0, centre - A.NerveRange), Math.Max(1.0, centre + A.NerveRange)), 3);
+            _m.Lean.Drift(_rng);
         }
+
+        /// <summary>The odds it wants before it fights: about even, leaned bolder or more careful this game.</summary>
+        private double Fight => A.FightRatio * _m.Lean.Odds;
 
         /// <summary>The enemy holds most planets and is counting down to a win: time to take risks.</summary>
         private bool Desperate() => Economy.Of(_w, _enemy).MajoritySinceHour != null;
@@ -519,7 +583,7 @@ public static class Mind
                     GoHome(f, "running from a chaser", hard: true);
                     return;
                 }
-                if (mine >= theirs * A.FightRatio)
+                if (mine >= theirs * Fight)
                 {
                     var turn = new FlightRequest(null, chaser.Guess(_w.Hour), Burn(f), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick,
                         TargetFleetId: chaser.FleetId, Chase: ChaseMode.GunRange);
@@ -534,7 +598,7 @@ public static class Mind
             // An enemy in contact at about even odds or better: fight it (scouts don't).
             if (job.Kind != JobKind.Probe && f.Stance != Core.Stance.Engage && Combat.HasWorking(_w, f, Module.Railguns)
                 && Combat.NearestEnemyFleet(_w, f, GameData.Combat.ContactRangeMm) is Fleet e && _known.Find(s => s.FleetId == e.Id) is Sighting seen
-                && mine >= SightingPower(seen) * A.FightRatio)
+                && mine >= SightingPower(seen) * Fight)
             {
                 Orders(f, Core.Stance.Engage);
                 Note($"{f.Name} engages {seen.Name} ({mine:0} against about {SightingPower(seen):0})");
@@ -612,7 +676,7 @@ public static class Mind
                 if (!ours && (Easy || _rng.NextDouble() > _p.HuntWeight * 0.5)) continue; // a neutral planet: only some care
                 if (Slip()) continue;
                 var there = Math.Max(EnemyNear(b.Position, 0.05 * _au, 10 * 24), 2 * A.EnemyShipValue);
-                var need = there * (ours ? A.FightRatio * 1.1 : Math.Max(Want, 1.3)); // its own planets: about even odds will do
+                var need = there * (ours ? Fight * 1.1 : Math.Max(Want, 1.3)); // its own planets: about even odds will do
                 var group = TakeFromPool(need, $"break the enemy claim on {b.Name}");
                 if (group == null)
                 {
@@ -868,9 +932,9 @@ public static class Mind
             var freighters = mine.Count(s => s.ClassId == "freighter") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "freighter");
             var colonies = _w.Bodies.Count(b => b.Owner == _side && b.Board != null && !b.Home);
             if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
-            if (!Easy && _rng.Chance(0.25) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
-            if (!Easy && _rng.Chance(0.15) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
-            var frigateShare = Easy ? 0.6 : _p.FrigateShare;
+            if (!Easy && _rng.Chance(0.25 * _m.Lean.BigShips) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
+            if (!Easy && _rng.Chance(0.15 * _m.Lean.Escorts) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
+            var frigateShare = Easy ? 0.6 : Math.Clamp(_p.FrigateShare - _m.Lean.Missiles, 0.1, 0.9);
             return _rng.Chance(frigateShare) ? "gun-frigate" : "missile-destroyer";
         }
 
@@ -894,7 +958,10 @@ public static class Mind
                 if (open.Count == 0 && Planner.NextIdea(_w, _side, null) is string idea) open.Add(idea);
                 if (open.Count > 0)
                 {
-                    var pick = Easy ? open[_rng.Range(0, open.Count)] : open[0];
+                    // Near the top of its list, leaning to its favoured field: one of those close to the best.
+                    var pick = Easy ? open[_rng.Range(0, open.Count)]
+                        : Planner.HelpsMaterials(_w, _side, open[0]) ? open[0]
+                        : Choices.Band(open.Take(6).Select((r, i) => (r, Score: 1 - 0.03 * i + (GameData.Research(r).Field == _m.Lean.Field ? 0.04 : 0))).ToList(), _rng, _m.Spread);
                     // Research waits behind ships when Industry is short, so not to stall the shipyard: a ship
                     // waiting to start is paid for first.
                     var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;

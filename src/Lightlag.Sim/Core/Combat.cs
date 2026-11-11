@@ -37,6 +37,10 @@ public sealed class BattleSide
     public List<string> Crippled { get; set; } = new();  // ships whose hull gave out (they limp home)
     /// <summary>Ships this side brought into the fight, and whether any of its fleets pulled back (and before firing a shot).</summary>
     public int ShipsIn { get; set; }
+    /// <summary>Fighting power brought in (for the odds going in), each ship's class, and each fleet's pull-back preset.</summary>
+    public double PowerIn { get; set; }
+    public List<string> Makeup { get; set; } = new();
+    public List<string> Rules { get; set; } = new();
     public bool Withdrew { get; set; }
     public bool WithdrewBeforeShots { get; set; }
     public List<string> Fleets { get; set; } = new();
@@ -784,6 +788,9 @@ public static class Combat
                 {
                     battle.For(f.Side).Fleets.Add(f.Name);
                     battle.For(f.Side).ShipsIn += f.ShipIds.Count;
+                    battle.For(f.Side).PowerIn += Stats.Power(w, f);
+                    battle.For(f.Side).Makeup.AddRange(w.ShipsOf(f).Select(s => s.ClassId));
+                    battle.For(f.Side).Rules.Add(f.Rule.Preset.ToString());
                 }
             foreach (var f in new[] { a, b })
                 if (!battle.For(f.Side).Flagship && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id)
@@ -821,6 +828,7 @@ public static class Combat
                         else if (battle.Ending == BattleEnding.OneWithdrew) t.BattlesOneWithdrew++;
                         else if (battle.Ending == BattleEnding.BothWithdrew) t.BattlesBothWithdrew++;
                     }
+            if (fought) Choices.OnBattleOver(w, battle);
             BattleRules.OnBattleOver(sim, battle);
             sim.Log.Info("combat", "Battle over", new
             {

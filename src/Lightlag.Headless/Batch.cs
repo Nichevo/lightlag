@@ -102,10 +102,14 @@ public static class Batch
 
     private static LightSetup? _light;
 
+    /// <summary>Headless games use the full choice spread (normal games a smaller one), so the computer plays more varied games to compare.</summary>
+    public const double HeadlessSpread = 0.1;
+
     private static GameOptions? OptionsFor(string pilot) =>
-        _light == null && _autonomy == null && _rules == default ? BaseOptions(pilot)
+        _light == null && _autonomy == null && _rules == default ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
+                ChoiceSpread = HeadlessSpread,
                 Light = _light, Autonomy = _autonomy,
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null,
@@ -158,6 +162,10 @@ public static class Batch
             var w = sim.World;
             Directory.CreateDirectory(Path.Combine(runPaths.Root, "stats"));
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}.csv"), Stats.ToCsv(w));
+            File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}-choices.csv"), Choices.ToCsv(w));
+            if (w.Minds.Count == 2)
+                foreach (var side in new[] { Side.Player, Side.Rival })
+                    WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
             string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
@@ -275,6 +283,7 @@ public static class Batch
                           + $"{g.Average(x => x.End.Planets):0.0} | {g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Battles):0.0} |");
         md.AppendLine();
         AppendFights(md, ai);
+        WhatMatters.Append(md);
         md.AppendLine();
         md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "
                       + $"{ai.Average(r => r.Player!.ShipsLost + r.Rival!.ShipsLost):0.0} ships lost, "

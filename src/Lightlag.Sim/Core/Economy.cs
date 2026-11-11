@@ -494,6 +494,7 @@ public static class Economy
         var yard = from ?? ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
         Of(w, side).Totals.ShipsBuilt++;
+        Choices.Note(w, side, "ship", classId, yard.Name, string.Join(" ", ship.Fit));
         // The crew comes from the shipyard planet's people.
         if (yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, side, "ai-cores"));
         // Troop ships leave with their soldiers aboard, raised from the same people.
@@ -810,6 +811,7 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
         if (Kind == OrderKind.Research) order.TeamId = TeamId ?? Research.BestTeamFor(world, Side, Key)?.Id;
         order.HoursLeft = order.TotalHours;
         world.Orders.Add(order);
+        if (Kind == OrderKind.Research) Choices.Note(world, Side, "research", Key);
         sim.Log.Info("economy", $"{Side} queues {Economy.NameOf(order)}", new { side = Side.ToString(), order.Id, Kind, Key, Source });
     }
 }

@@ -240,6 +240,7 @@ public static class Lanes
         if (raider == null) return;
         var t = Economy.Of(w, raider.Side).Totals;
         t.AmbushCatches++;
+        Choices.Note(w, raider.Side, "raid", "caught a freighter");
         if (raider.ZoneId is int zid && w.Zones.Find(z => z.Id == zid) is Zone zone) zone.Catches++;
         if (s.Loaded && w.Bodies.Where(b => b.Owner == raider.Side && b.Board != null).OrderBy(b => Vec2.Distance(b.Position, at)).ThenBy(b => b.Id).FirstOrDefault() is Body store)
         {
@@ -283,6 +284,7 @@ public sealed record CreateZoneCommand(Side Side, ZoneKind Kind, Vec2 Center, do
         };
         z.Name = $"{(Kind == ZoneKind.Raid ? "Raiding" : Kind == ZoneKind.Guard ? "Guard" : "Picket")} zone {world.Zones.Count(o => o.Side == Side) + 1}";
         world.Zones.Add(z);
+        Choices.Note(world, Side, "zone", Kind.ToString().ToLowerInvariant());
         sim.Log.Info("lanes", $"{Side} draws {z.Name}", new { side = Side.ToString(), zone = z.Id, Kind, Center, RadiusMm, FromBodyId, ToBodyId, Source });
         if (FleetId is int f) new SetZoneFleetCommand(f, z.Id) { Source = Source }.Apply(world, sim);
     }
