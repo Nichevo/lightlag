@@ -898,6 +898,13 @@ public static class Mind
 
         private bool Fly(Fleet f, FlightRequest request)
         {
+            // A swing past a big planet, when one beats the direct route (the planner only offers those).
+            if (request is { TargetBodyId: not null, TargetFleetId: null, Waypoints: null, Route: RouteKind.Direct }
+                && FlightPlanner.BestSlingshot(_w, f, request with { Route = RouteKind.Slingshot }) is ({ Ok: true, Flight: not null } sling, Body via))
+            {
+                Note($"{f.Name} swings past {via.Name}");
+                return Do(new PlanFlightCommand(f.Id, request with { Route = RouteKind.Slingshot, FlybyBodyId = via.Id, DepartTick = _w.Tick })) || f.Flight != null;
+            }
             if (!FlightPlanner.Plan(_w, f, request).Ok) return false;
             return Do(new PlanFlightCommand(f.Id, request)) || f.Flight != null;
         }

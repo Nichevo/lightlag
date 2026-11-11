@@ -1049,7 +1049,7 @@ public partial class GameScreen : Node2D
     private FlightRequest Request(PlannerState p) => p.TargetFleetId != null
         ? new(null, p.Point, Settings.Speed, ArrivalStyle.Brake, HoldStyle.Drift, Sim.World.Tick, RouteKind.Direct, p.TargetFleetId,
             Chase: Settings.Chase)
-        : new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route, p.TargetFleetId,
+        : new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route == RouteKind.Slingshot && p.Waypoints.Count > 0 ? RouteKind.Direct : Settings.Route, p.TargetFleetId,
             p.Waypoints.Count > 0 ? p.Waypoints.Select(d => new Waypoint(d.Point, d.Stop, d.Speed, d.Stop ? d.WaitHours : 0)).ToList() : null);
 
     /// <summary>Add a waypoint on the way, in the stretch of the route it is closest to.</summary>
@@ -1102,7 +1102,7 @@ public partial class GameScreen : Node2D
     {
         if (Planner is not PlannerState p || p.Plan is not { Ok: true, Flight: Flight flight }) return;
         var depart = Settings.Route == RouteKind.Wait && p.TargetFleetId == null ? Math.Max(Sim.World.Tick, (long)Math.Round(flight.DepartHour)) : Sim.World.Tick;
-        var request = Request(p) with { DepartTick = depart };
+        var request = Request(p) with { DepartTick = depart, FlybyBodyId = flight.FlybyBodyId };
         if (p.TargetFleetId == null && Settings.FastAhead && Settings.Arrival == ArrivalStyle.Brake && Sim.World.FindFleet(p.FleetId) is Fleet f && HasFastShips(f))
             Sim.Issue(new SendAheadCommand(p.FleetId, request));
         else

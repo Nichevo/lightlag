@@ -11,7 +11,8 @@ public sealed record FlightRequest(
     RouteKind Route = RouteKind.Direct,
     int? TargetFleetId = null,
     List<Waypoint>? Waypoints = null,
-    ChaseMode Chase = ChaseMode.None);
+    ChaseMode Chase = ChaseMode.None,
+    int? FlybyBodyId = null);
 
 /// <summary>
 /// A point the route goes through on the way. The fleet flies through it and turns towards the next
@@ -36,7 +37,7 @@ public sealed record FlightPlan(bool Ok, string? Problem, Flight? Flight, double
 /// sooner. Targets move, so the planner aims at where the target will be on arrival.
 /// The game, the AI and the tests all plan through here, so what the planner shows is what flies.
 /// </summary>
-public static class FlightPlanner
+public static partial class FlightPlanner
 {
     public const double MinSpeedFraction = 0.2;
     public const int WaitSearchDays = 120;
@@ -54,6 +55,8 @@ public static class FlightPlanner
             if (p.Flight != null) p.Flight.FromBodyId = from;
             return p;
         }
+        if (req.Route == RouteKind.Slingshot && req.TargetFleetId == null)
+            return req.FlybyBodyId != null ? Straight(req) : BestSlingshot(w, fleet, req).Plan;
         var plan = Straight(req);
         return Avoidance.Steer(w, fleet, req, plan, Straight);
     }
@@ -96,6 +99,9 @@ public static class FlightPlanner
 
         if (enemy != null && req.Chase != ChaseMode.None)
             return PlanChase(w, fleet, enemy, req.Chase, req.SpeedFraction, perf);
+
+        if (req.Route == RouteKind.Slingshot && req.FlybyBodyId is int flyby)
+            return PlanSlingshot(w, fleet, req, perf, body, enemy, AimFrom, flyby);
 
         if (req.Waypoints is { Count: > 0 })
             return PlanWaypoints(w, fleet, req, perf, body, enemy, AimFrom);
@@ -653,8 +659,11 @@ public static class FlightPlanner
     }
 
     /// <summary>Plans with whichever route the request names.</summary>
-    public static FlightPlan PlanRoute(World w, Fleet fleet, FlightRequest req) =>
-        req.Route == RouteKind.Wait ? PlanWait(w, fleet, req) : Plan(w, fleet, req with { DepartTick = w.Tick });
+    public static FlightPlan PlanRoute(World w, Fleet fleet, FlightRequest req) => req.Route switch
+    {
+        RouteKind.Wait => PlanWait(w, fleet, req),
+        _ => Plan(w, fleet, req with { DepartTick = w.Tick }),
+    };
 
     private readonly record struct ProfileResult(double AccelHours, double CoastHours, double Peak, double DeltaV, double Total)
     {

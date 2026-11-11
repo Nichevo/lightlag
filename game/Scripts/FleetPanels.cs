@@ -669,7 +669,7 @@ public partial class PlannerPanel : PanelContainer
 
     private readonly GameScreen _screen;
     private Label _title = null!;
-    private Button _direct = null!, _wait = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
+    private Button _direct = null!, _wait = null!, _sling = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
     private Button _together = null!, _ahead = null!;
     private Button _addEnd = null!, _addMid = null!;
     private HBoxContainer _shipsRow = null!, _routeRow = null!, _arriveRow = null!, _thenRow = null!, _ctrlRow = null!, _chaseRow = null!, _keyRow = null!;
@@ -698,7 +698,8 @@ public partial class PlannerPanel : PanelContainer
         var s = _screen.Settings;
         _direct = Choice("Direct", "Leave now", () => s.Route = RouteKind.Direct);
         _wait = Choice("Wait", "Leave when the trip is shortest (within 120 days)", () => s.Route = RouteKind.Wait);
-        _routeRow = Row("Route", _direct, _wait);
+        _sling = Choice("Slingshot", "Swing past a big planet on the way when that beats the direct route (no waypoints)", () => s.Route = RouteKind.Slingshot);
+        _routeRow = Row("Route", _direct, _wait, _sling);
         box.AddChild(_routeRow);
 
         _chase = new OptionButton { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(250, 30) };
@@ -931,6 +932,7 @@ public partial class PlannerPanel : PanelContainer
         Mark(_addEnd, s.AddAtEnd);
         Mark(_addMid, !s.AddAtEnd);
         Mark(_wait, s.Route == RouteKind.Wait);
+        Mark(_sling, s.Route == RouteKind.Slingshot && p.Waypoints.Count == 0, p.Waypoints.Count == 0);
         Mark(_brake, s.Arrival == ArrivalStyle.Brake);
         Mark(_pass, s.Arrival == ArrivalStyle.FastPass);
         var canOrbit = s.Arrival == ArrivalStyle.Brake && p.TargetBodyId != null;
@@ -991,6 +993,8 @@ public partial class PlannerPanel : PanelContainer
             $"Distance: {Format.Distance(PathLength(f))} flown" + (fleet != null ? $" ({Format.Distance(Vec2.Distance(fleet.Position, f.Legs.Count > 0 ? f.Legs[^1].PositionAt(f.Legs[^1].End) : fleet.Position))} in a straight line)" : ""),
             $"Fuel: {Format.Speed(plan.DeltaV)} of speed change, {plan.FuelShare:P0} of what the fleet has",
         };
+        if (f.FlybyBodyId is int via && w.FindBody(via) is Body swing)
+            lines.Insert(1, $"Swing past {swing.Name} {GameTime.Format(f.FlybyHour)}" + (f.FlybyGain > 0.5 ? $" (+{Format.Speed(f.FlybyGain)} for free)" : ""));
         // What is left afterwards, and whether that is enough to stop again (a fly-by ends still moving).
         var left = Math.Max(0, plan.DeltaVLeft - plan.DeltaV);
         var endSpeed = f.Legs.Count > 0 ? f.Legs[^1].VelocityAt(f.Legs[^1].End).Length : 0;

@@ -966,6 +966,15 @@ public partial class MapView : Node2D
             if (v.Length > 1e-9)
                 DrawDashedLine(end, Camera.ToScreen(flight.Target + v * 24 * 3), new Color(baseColor, alpha * 0.4f), 1, 6);
         }
+        if (flight.FlybyBodyId is int flybyId && flight.FlybyHour > DrawHour && Sim.World.FindBody(flybyId) is Body swing)
+        {
+            // The slingshot: where the planet will be at the swing, and the swing point.
+            var at = Camera.ToScreen(flight.FlybyPoint);
+            var planetThen = Camera.ToScreen(FlightPlanner.PredictBody(Sim.World, swing, flight.FlybyHour));
+            DrawArc(planetThen, (float)ScreenRadius(swing) + 3, 0, Mathf.Tau, 24, new Color(baseColor, alpha * 0.5f), 1, true);
+            DrawArc(at, 6, 0, Mathf.Tau, 12, new Color(baseColor, Math.Min(1f, alpha + 0.2f)), 1.5f, true);
+            DrawString(_font, at + new Vector2(9, 14), $"swing past {swing.Name}", HorizontalAlignment.Left, -1, 11, new Color(baseColor, 0.8f));
+        }
         if (flight.TargetBodyId is int bodyId && Sim.World.FindBody(bodyId) is Body body)
         {
             var ghost = Camera.ToScreen(FlightPlanner.PredictBody(Sim.World, body, flight.ArriveHour));
