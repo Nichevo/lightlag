@@ -78,6 +78,10 @@ public static class Chases
             c.Detouring = false;
             if (plan is { Ok: true, Flight: Flight flight })
             {
+                // Re-aimed just after leaving orbit: still climbing away from the planet it left, so it keeps the
+                // launch allowance for its first hours.
+                if (f.Flight is { FromBodyId: int from } old && flight.FromBodyId == null && now < old.DepartHour + Flight.LaunchHours)
+                    flight.FromBodyId = from;
                 f.Flight = flight;
                 c.Detouring = flight.Detour;
                 c.Problem = null;

@@ -17,6 +17,17 @@ public class PlanetTests
 
     private static Body BodyNamed(Simulation sim, string key) => sim.World.Bodies.Single(b => b.Key == key);
     private static Fleet Home(Simulation sim, Side side = Side.Player) => sim.World.Fleets.First(f => f.Side == side);
+
+    /// <summary>Puts a finished building on a body's board at its best spot.</summary>
+    private static Piece Put(Simulation sim, Body b, string kind)
+    {
+        Planets.EnsureStarted(sim.World);
+        var data = Planets.BuildingKind(kind)!;
+        var (x, y, turned) = Colonies.BestSpot(b, data)!.Value;
+        var p = Colonies.AddPiece(sim.World, b, data, x, y, turned, built: true);
+        Colonies.SyncBuildings(b);
+        return p;
+    }
     private static void Days(Simulation sim, double days) => sim.StepMany((int)Math.Round(days * GameTime.TicksPerDay));
 
     private static void PlaceInOrbit(Simulation sim, Fleet f, Body b)
@@ -68,7 +79,8 @@ public class PlanetTests
     {
         var sim = NewGame();
         var verdant = BodyNamed(sim, "verdant");
-        verdant.Buildings.RemoveAll(x => x == Planets.Farm);
+        verdant.Pieces.RemoveAll(p => Planets.BuildingKind(p.Kind)?.Food > 0);
+        Colonies.SyncBuildings(verdant);
         verdant.FoodStock = 0;
         Days(sim, 5);
         Assert.True(verdant.Hungry);
@@ -197,7 +209,7 @@ public class PlanetTests
         vela.Owner = Side.Rival;
         vela.PopK = 30;
         vela.Happiness = 90;
-        vela.Buildings.Add(Planets.Farm);
+        Put(sim, vela, Planets.Farm);
         var fleet = Home(sim);
         PlaceInOrbit(sim, fleet, vela);
         sim.Issue(new SetBombingCommand(fleet.Id, BombTarget.Farms));
@@ -246,7 +258,7 @@ public class PlanetTests
         vela.Owner = Side.Rival;
         vela.PopK = 20;
         vela.Happiness = 90;
-        vela.Buildings.Add(Planets.Guns);
+        Put(sim, vela, Planets.Guns);
         var fleet = Home(sim);
         sim.Issue(new SetOrbitHeightCommand(fleet.Id, OrbitHeight.High));
         sim.Step();

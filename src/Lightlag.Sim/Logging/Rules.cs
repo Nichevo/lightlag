@@ -124,8 +124,25 @@ public sealed class RuleBook
             if (!(b.Happiness >= -1e-9 && b.Happiness <= 100 + 1e-9) || !(b.OwnShare >= -1e-9 && b.OwnShare <= 1 + 1e-9))
                 yield return $"{b.Name} has happiness {b.Happiness} and own share {b.OwnShare}";
             if (!(b.FoodStock >= -1e-9 && double.IsFinite(b.FoodStock))) yield return $"{b.Name} has food stock {b.FoodStock}";
-            if (b.Buildings.Count > Planets.Plots(b) || b.Buildings.Any(x => Planets.BuildingKind(x) == null))
-                yield return $"{b.Name} has buildings {string.Join(",", b.Buildings)} on {Planets.Plots(b)} plots";
+            if (b.Pieces.Any(p => Planets.BuildingKind(p.Kind) == null))
+                yield return $"{b.Name} has unknown buildings {string.Join(",", b.Pieces.Select(p => p.Kind))}";
+            if (b.Pieces.Count(p => !p.Built) > 1) yield return $"{b.Name} has more than one building under way";
+            if (b.Board is Board board)
+            {
+                var used = new HashSet<(int, int)>();
+                foreach (var p in b.Pieces)
+                {
+                    if (p.X < 0 || p.Y < 0 || p.X + p.W > board.W || p.Y + p.H > board.H)
+                        yield return $"{b.Name} has a {p.Kind} off the board at {p.X},{p.Y}";
+                    for (int x = p.X; x < p.X + p.W; x++)
+                        for (int y = p.Y; y < p.Y + p.H; y++)
+                            if (!used.Add((x, y))) yield return $"{b.Name} has pieces overlapping at {x},{y}";
+                }
+            }
+            if (!b.Buildings.SequenceEqual(Colonies.Built(b).Select(p => p.Kind)))
+                yield return $"{b.Name} building list is out of step with its board";
+            if (b.Stock.Any(kv => !double.IsFinite(kv.Value) || kv.Value < -1e-6))
+                yield return $"{b.Name} has a bad stock {string.Join(",", b.Stock.Select(kv => $"{kv.Key}={kv.Value}"))}";
             if (b.LandingSide != null && (b.LandingSide == b.Owner || b.LandingTroops < -1e-9 || b.Garrison < -1e-9))
                 yield return $"{b.Name} has a broken landing by {b.LandingSide}";
             if (b.PopK > 0 && b.Owner == null && !w.Rules.StartPopulation) yield return $"{b.Name} has people but no holder";

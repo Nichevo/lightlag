@@ -127,6 +127,12 @@ public partial class GameScreen : Node2D
     /// <summary>The research screen (T) covers the map while open.</summary>
     public bool ShowResearch { get; set; }
 
+    /// <summary>The planets list (Y) covers the map while open.</summary>
+    public bool ShowPlanets { get; set; }
+
+    /// <summary>The planet whose screen (board, priorities, storage, transport) is open, over the planets list.</summary>
+    public int? PlanetScreenId { get; set; }
+
     /// <summary>The fleets and planets list down the left (L folds it away).</summary>
     public bool ShowSide { get; set; } = true;
 
@@ -1324,7 +1330,13 @@ public partial class GameScreen : Node2D
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
             case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
+            case Key.Y when Sim.World.Loop:
+                if (PlanetScreenId != null || ShowPlanets) { PlanetScreenId = null; ShowPlanets = false; }
+                else ShowPlanets = true;
+                break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;
+            case Key.Escape when PlanetScreenId != null: PlanetScreenId = null; break;
+            case Key.Escape when ShowPlanets: ShowPlanets = false; break;
             case Key.Escape when FittingFleetId != null: FittingFleetId = null; break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));

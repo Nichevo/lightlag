@@ -352,7 +352,7 @@ public sealed class Simulation
                 if (body.Owner == f.Side && World.ActiveBattle == null)
                 {
                     // Any planet you hold refuels; only the shipyard repairs and rearms.
-                    Refill(f, dt);
+                    Refill(f, dt, body);
                     if (body.Shipyard) Combat.RepairAtHome(World, f, dt);
                 }
             }
@@ -444,12 +444,14 @@ public sealed class Simulation
             s.Supplies = Math.Max(0, s.Supplies - deltaV * Tech.SuppliesPerDeltaV(World, s));
     }
 
-    private void Refill(Fleet f, double hours)
+    private void Refill(Fleet f, double hours, Body body)
     {
         foreach (var s in World.ShipsOf(f))
         {
             var max = Fitting.MaxSupplies(World, s);
-            s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * hours / 24);
+            var want = Math.Min(max - s.Supplies, max * RefillPerDay * hours / 24);
+            // Fuel comes out of the planet's store; with none it goes slowly.
+            if (want > 1e-9) s.Supplies += want * Colonies.RefuelRate(body, want);
             SupplyLines.Restock(s, hours);
         }
     }

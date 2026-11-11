@@ -14,7 +14,6 @@ public partial class PlanetPanel : PanelContainer
     private readonly GameScreen _screen;
     private Label _title = null!, _body = null!;
     private HBoxContainer _build = null!, _people = null!;
-    private readonly Dictionary<string, Button> _buildButtons = new();
     private MenuButton _settle = null!;
     private CheckButton _topUp = null!;
     private int _bodyId;
@@ -37,14 +36,9 @@ public partial class PlanetPanel : PanelContainer
 
         _build = new HBoxContainer();
         _build.AddThemeConstantOverride("separation", 4);
-        foreach (var data in Planets.D.Buildings ?? new List<BuildingData>())
-        {
-            var kind = data.Id;
-            var b = Ui.SmallButton($"Build {data.Name.ToLowerInvariant()}", () => _screen.IssueNow(new BuildOnPlanetCommand(Side.Player, _bodyId, kind), "building"),
-                $"{data.Effect}. {data.Cost:0} Industry, {data.Days:0} days, needs {data.StaffK:0.#}k people to run");
-            _buildButtons[kind] = b;
-            _build.AddChild(b);
-        }
+        _build.AddChild(Ui.SmallButton("Open planet ▸", () => _screen.PlanetScreenId = _bodyId,
+            "The planet screen: lay out buildings on its map, set priorities, storage and transport"));
+        _build.AddChild(Ui.SmallButton("Planets list", () => _screen.ShowPlanets = true, "All worlds in one list (Y)"));
         box.AddChild(_build);
 
         _people = new HBoxContainer();
@@ -122,9 +116,17 @@ public partial class PlanetPanel : PanelContainer
         if (b.Buildings.Count > 0 || b.Building != null || (mine && b.PopK > 0))
         {
             var built = b.Buildings.GroupBy(x => x).Select(g => $"{Planets.BuildingKind(g.Key)?.Name ?? g.Key} ×{g.Count()}");
-            var line = $"Buildings ({b.Buildings.Count}/{Planets.Plots(b)} plots): " + (b.Buildings.Count > 0 ? string.Join(", ", built) : "none");
+            var line = "Buildings: " + (b.Buildings.Count > 0 ? string.Join(", ", built) : "none");
             if (b.Building != null) line += $" · building a {Planets.BuildingKind(b.Building)?.Name.ToLowerInvariant()}, {b.BuildingHoursLeft / 24:0.#} days left";
             lines.Add(line);
+        }
+        if (mine && b.Board != null)
+        {
+            lines.Add($"Power {b.PowerUsed:0}/{b.PowerMade:0}" + (b.PowerWanted > b.PowerMade + 1e-6 ? $" (SHORT: wants {b.PowerWanted:0})" : "")
+                      + $" · priorities: {Colonies.PresetName(b.Preset)}"
+                      + (Colonies.HoldsOutDays(b) is double days ? $" · holds out {days:0} days if cut off" : ""));
+            var held = Colonies.Goods.Where(g => Colonies.Held(b, g.Id) >= 0.5).Select(g => $"{g.Short} {Colonies.Held(b, g.Id):0}");
+            lines.Add("Goods: " + (held.Any() ? string.Join(" · ", held) : "none"));
         }
         if (b.LandingSide is Side lander)
             lines.Add($"GROUND FIGHT: {(lander == Side.Player ? "your" : "rival")} troops {b.LandingTroops:0.##}k against a garrison of {b.Garrison:0.##}k");
@@ -144,15 +146,7 @@ public partial class PlanetPanel : PanelContainer
         if (b.Shipyard && owner == Side.Rival && Economy.BombardStatus(w, b, Side.Player) is string attack) lines.Add("Shipyard: " + attack);
         _body.Text = string.Join("\n", lines);
 
-        _build.Visible = mine && b.PopK > 0;
-        foreach (var (kind, button) in _buildButtons)
-        {
-            var why = Planets.CanBuild(w, Side.Player, b.Id, kind);
-            button.Disabled = why != null;
-            var data = Planets.BuildingKind(kind)!;
-            button.TooltipText = (why != null ? why + ". " : "") + $"{data.Effect}. {data.Cost:0} Industry, {data.Days:0} days, needs {data.StaffK:0.#}k people to run";
-            button.Visible = kind != Planets.Farm || Planets.FarmFactor(b) > 0;
-        }
+        _build.Visible = mine && b.Board != null;
         _people.Visible = cap > 0 && (mine || owner == null && b.PopK <= 0);
         if (_people.Visible)
         {

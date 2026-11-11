@@ -469,6 +469,15 @@ public partial class Main : Node
             empire.Camera.SetScale(empire.Camera.TargetScale, instant: true);
             await Shoot("19b-planet-screen");
 
+            // Colonies: the planets list, then Verdant's planet screen with a mine being placed.
+            empire.Select(null);
+            empire.ShowPlanets = true;
+            await Shoot("19c-planets-screen");
+            empire.PlanetScreenId = Sim.World.Bodies.Single(b => b.Key == "verdant").Id;
+            await Shoot("19d-colony-board");
+            empire.PlanetScreenId = null;
+            empire.ShowPlanets = false;
+
             // The end of a game: the rival shipyard is gone.
             var rust = Sim.World.Bodies.Single(b => b.Key == "rust");
             rust.Shipyard = false;

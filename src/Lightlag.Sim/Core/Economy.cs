@@ -18,7 +18,7 @@ public sealed record ResearchData(string Id, string Name, string Effect, double 
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
-    TeamsData? Teams = null, PlanetsData? Planets = null);
+    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days);
@@ -43,6 +43,10 @@ public sealed class SideState
 {
     public Side Side { get; set; }
     public double Industry { get; set; }
+
+    /// <summary>Free freighters carry goods where planets ask for them (see Colonies), and freighters lost with cargo.</summary>
+    public bool AutoTransport { get; set; } = true;
+    public int CargoLost { get; set; }
     public List<string> Researched { get; set; } = new();
 
     /// <summary>Research teams (see Research). The first is made when the game starts.</summary>
@@ -313,7 +317,7 @@ public static class Economy
             order.HoursLeft = order.TotalHours;
             sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost });
         }
-        order.HoursLeft -= GameTime.HoursPerTick;
+        order.HoursLeft -= GameTime.HoursPerTick * Colonies.ShipyardRate(w, yard);
         if (order.HoursLeft > 1e-9) return;
         w.Orders.Remove(order);
         Launch(sim, side, order.Key, order.JoinFleetId, order);
@@ -445,7 +449,7 @@ public static class Economy
             var before = b.Owner;
             b.Owner = side;
             b.AutoTopUp = false;
-            b.Building = null;
+            b.Pieces.RemoveAll(p => !p.Built);
             Of(w, side).Totals.PlanetsClaimed++;
             if (before is Side loser) Of(w, loser).Totals.PlanetsLost++;
             b.ClaimSide = null;
