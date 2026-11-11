@@ -13,15 +13,20 @@ public sealed record HappinessData(double Base = 55, double Fed = 10, double Hun
     double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5);
 
 /// <summary>
-/// A building on a planet: a W×H piece on the board, paid when ordered and standing after Days. It needs
-/// StaffK people and Power (negative: it makes power) to run, and Upkeep spare parts a day to stay in
-/// repair. Area is its place in the priority list. See Colonies.
+/// A building on a planet: a W×H piece on the board, paid when ordered (Industry) and standing after Days
+/// once its Materials (alloys for big buildings) have come out of the planet's store. It needs StaffK
+/// people and Power (negative: it makes power) to run, and Upkeep spare parts a day to stay in repair.
+/// Area is its place in the priority list. Terrain: land, ocean, ice, oceanOrIce, landOrIce, mountain,
+/// deposit or any. See Colonies.
 /// </summary>
 public sealed record BuildingData(string Id, string Name, string Effect, double Cost, double Days, double StaffK, double Industry = 0,
     string Area = "industry", int W = 1, int H = 1, string Terrain = "land", double Power = 0, double Food = 0, double Mines = 0,
     Dictionary<string, double>? Makes = null, Dictionary<string, double>? Uses = null, double Upkeep = 0.05, double HousingK = 0,
     double StoreDays = 0, double Research = 0, double GunDamage = 0, bool HighOrbit = false, double BombShield = 0, double GarrisonK = 0,
-    string? Needs = null, bool AnyAir = false, bool Solar = false, bool Buildable = true, string[]? RefitBy = null, List<BonusData>? Bonus = null);
+    string? Needs = null, bool AnyAir = false, bool Solar = false, bool Buildable = true, string[]? RefitBy = null, List<BonusData>? Bonus = null,
+    Dictionary<string, double>? Materials = null, double Happiness = 0, double Growth = 0, Dictionary<string, double>? TouchHappiness = null,
+    double LaunchPerDay = 0, bool Hot = false, double TrainScientists = 0, bool Repairs = false, bool BombProof = false, double TroopRate = 0,
+    bool Sees = false, double Ammo = 0);
 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
@@ -69,7 +74,7 @@ public static class Planets
     public static double Cap(Body b)
     {
         if (b.Kind == BodyKind.Star) return 0;
-        var cap = TypeOf(b).Cap * (b.Kind == BodyKind.Moon ? D.MoonCapShare : 1);
+        var cap = TypeOf(b).Cap * (b.Kind == BodyKind.Moon ? D.MoonCapShare : 1) * b.CapFactor;
         if (cap <= 0) return 0;
         return (b.Home ? Math.Max(cap, D.HomeCap) : cap) + Colonies.HousingK(b);
     }
@@ -100,7 +105,20 @@ public static class Planets
     /// <summary>Food a day from the planet's farms: land farms by how well things grow here, fish and dome farms the same anywhere.</summary>
     public static double FoodMadePerDay(Body b) => Colonies.Built(b).Sum(p =>
         BuildingKind(p.Kind) is BuildingData data && data.Food > 0
-            ? data.Food * D.FarmFoodPerDay * (data.AnyAir || data.Terrain == "ocean" ? 1 : FarmFactor(b)) * Colonies.Output(null!, b, p, data) : 0);
+            ? data.Food * D.FarmFoodPerDay * (data.AnyAir || data.Terrain == "ocean" ? 1 : FarmFactor(b)) * Colonies.Output(null!, b, p, data)
+              * (data.Uses != null && !Colonies.Supplied(b, p, data) ? 0 : 1) // food vats need their water
+            : 0);
+
+    /// <summary>Happiness from clinics (each +Happiness while it works, more beside a habitat).</summary>
+    public static double ClinicHappiness(World w, Body b) => Colonies.Built(b).Sum(p =>
+        BuildingKind(p.Kind) is BuildingData data && data.Happiness > 0
+            ? (data.Happiness + (data.TouchHappiness ?? new()).Where(t => b.Pieces.Any(o => o.Built && o.Kind == t.Key && Colonies.Touch(o, p))).Sum(t => t.Value))
+              * Math.Min(1, Colonies.Output(w, b, p, data))
+            : 0);
+
+    /// <summary>Growth factor from clinics: 1 plus each working clinic's Growth.</summary>
+    public static double GrowthFactor(World w, Body b) => 1 + Colonies.Built(b).Sum(p =>
+        BuildingKind(p.Kind) is BuildingData data && data.Growth > 0 ? data.Growth * Math.Min(1, Colonies.Output(w, b, p, data)) : 0);
     public static double FoodNeedPerDay(Body b) => b.PopK * D.FoodPerKPerDay;
 
     /// <summary>The armed enemy side holding orbit here, if any (it cuts the planet off: see Economy.Blockaded).</summary>
@@ -121,7 +139,7 @@ public static class Planets
 
     public static bool IsColonyShip(Ship s) => Fitting.Spec(s).CargoKind == "people";
     public static bool IsTroopShip(Ship s) => Fitting.Spec(s).CargoKind == "troops";
-    public static double PeopleHold(Ship s) => IsColonyShip(s) ? Fitting.Spec(s).Cargo : 0;
+    public static double PeopleHold(Ship s) => IsColonyShip(s) ? Fitting.Spec(s).Cargo * s.TechPeople : 0;
     public static double TroopHold(Ship s) => IsTroopShip(s) ? Fitting.Spec(s).Cargo : 0;
 
     public static double PeopleAboard(World w, Fleet f) => w.ShipsOf(f).Sum(s => s.CargoPeople);
@@ -244,7 +262,7 @@ public static class Planets
         {
             var cap = Cap(b);
             if (b.Hungry) b.PopK -= D.StarvePerDay * b.PopK / 24;
-            else if (cap > 0) b.PopK += D.GrowthPerDay * b.PopK * (1 - b.PopK / cap) / 24;
+            else if (cap > 0) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * b.PopK * (1 - b.PopK / cap) / 24;
             if (cap <= 0 || b.PopK > cap) b.PopK = Math.Max(0, Math.Min(b.PopK, cap));
             if (b.PopK < 0.05) { b.PopK = 0; continue; }
             if (b.Owner is Side side && b.HungryHours >= D.LeaveAfterHungryDays * 24) Leave(sim, b, side);
@@ -282,6 +300,7 @@ public static class Planets
         if (b.LastStruckHour is double struck && w.Hour - struck < H.StruckDays * 24) parts.Add(("Buildings struck", H.Struck));
         if (b.OwnShare < 0.995) parts.Add(("Not your people", H.Foreign * (1 - b.OwnShare)));
         if (b.Owner is Side owner && w.Fleets.Any(f => f.Side == owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f))) parts.Add(("Guarded by a fleet", H.Guarded));
+        if (ClinicHappiness(w, b) is var clinics && clinics > 0) parts.Add(("Clinics", clinics));
         return (Math.Clamp(parts.Sum(p => p.Item2), 0, 100), parts);
     }
 
@@ -318,7 +337,7 @@ public static class Planets
     }
 
     /// <summary>Which pieces a kind of bombing goes for: farms, mines (and other goods makers) or planet guns (not bunkers).</summary>
-    public static Func<Piece, bool> TargetOf(BombTarget t) => p => BuildingKind(p.Kind) is BuildingData d && t switch
+    public static Func<Piece, bool> TargetOf(BombTarget t) => p => BuildingKind(p.Kind) is BuildingData d && !d.BombProof && t switch
     {
         BombTarget.Farms => d.Food > 0,
         BombTarget.Mines => d.Mines > 0 || d.Makes != null && d.Id != "workshop",
@@ -361,12 +380,13 @@ public static class Planets
                 f.Bombing = BombTarget.None;
                 continue;
             }
-            var damage = w.ShipsOf(f).Sum(s => Economy.HourlyDamage(w, s, consume: true)) * BombShare(b);
+            var damage = w.ShipsOf(f).Sum(s => Economy.HourlyDamage(w, s, consume: true)) * BombShare(b)
+                         * (b.Owner is Side held ? Tech.Factor(w, held, "hardened-bunkers") : 1);
             if (damage <= 0) continue;
             if (f.Bombing == BombTarget.People)
             {
                 var first = b.Grudge != f.Side;
-                b.PopK = Math.Max(0, b.PopK - damage * D.PeopleKPerDamage);
+                b.PopK = Math.Max(0, b.PopK - damage * D.PeopleKPerDamage * Tech.Factor(w, f.Side, "precision-strikes"));
                 b.LastBombedHour = w.Hour;
                 b.Grudge = f.Side;
                 if (first) sim.Log.Info("planets", $"{f.Side} bombs the people of {b.Name}: they will never give up to it", new { bodyId = b.Id, side = f.Side.ToString() });
@@ -389,6 +409,13 @@ public static class Planets
         {
             var low = Colonies.Sum(w, b, k => k.GunDamage);
             var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : 0);
+            // Guns fire ammunition: with none in store they fire half as hard.
+            if (w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)))
+            {
+                var ammo = Colonies.Sum(w, b, k => k.GunDamage > 0 ? k.Ammo : 0) / 24;
+                if (Colonies.Held(b, "ammunition") >= ammo) b.Stock["ammunition"] = Colonies.Held(b, "ammunition") - ammo;
+                else { low *= 0.5; high *= 0.5; }
+            }
             foreach (var f in w.Fleets.Where(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)).OrderBy(f => f.OrbitHeight).ThenBy(f => f.Id).ToList())
             {
                 var damage = f.OrbitHeight == OrbitHeight.Low ? low : high;
@@ -409,7 +436,8 @@ public static class Planets
 
     /// <summary>The planet's defenders against a landing: a share of its people (more if they are happy) and its guns.</summary>
     public static double GarrisonOf(Body b) =>
-        b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100) + Colonies.Built(b).Sum(p => BuildingKind(p.Kind)?.GarrisonK ?? 0);
+        b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100)
+        + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.GarrisonK ?? 0) * (p.Kind == "bunker" ? b.BunkerFactor : 1));
 
     /// <summary>Ground fights: each side wears the other down by a share of its own strength each hour.</summary>
     private static void Ground(Simulation sim)
@@ -430,6 +458,7 @@ public static class Planets
             }
             else if (b.LandingTroops <= 1e-6)
             {
+                Sparks.Fire(sim, side, "landing-failed");
                 b.LandingSide = null;
                 sim.Log.Info("planets", $"The landing on {b.Name} is beaten off", new { bodyId = b.Id, side = side.ToString() });
             }
@@ -727,7 +756,8 @@ public static class Planets
             foreach (var s in w.ShipsOf(f).Where(IsTroopShip))
             {
                 var spare = Math.Max(0, b.PopK - Math.Max(D.KeepAtSourceK, StaffNeeded(b)));
-                var take = Math.Min(Math.Min(TroopHold(s) * SupplyLines.LoadPerHour * 4, TroopHold(s) - s.CargoTroops), spare);
+                var rate = Math.Max(1, Colonies.Built(b).Sum(p => BuildingKind(p.Kind)?.TroopRate ?? 0)); // barracks
+                var take = Math.Min(Math.Min(TroopHold(s) * SupplyLines.LoadPerHour * 4 * rate, TroopHold(s) - s.CargoTroops), spare);
                 if (take <= 0) continue;
                 s.CargoTroops += take;
                 b.PopK -= take;
@@ -914,7 +944,8 @@ public sealed record LandTroopsCommand(int FleetId, int BodyId) : GameCommand, I
             sim.Log.Warn("planets", $"Can't land troops: {problem}", new { FleetId, BodyId, Source });
             return;
         }
-        var troops = Planets.TakeTroops(world, f, double.MaxValue);
+        // Marines fight half again as hard as the same number of plain troops.
+        var troops = Planets.TakeTroops(world, f, double.MaxValue) * Tech.Factor(world, f.Side, "marines");
         if (b.LandingSide == f.Side) b.LandingTroops += troops;
         else
         {

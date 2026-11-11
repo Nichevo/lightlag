@@ -135,6 +135,8 @@ public static class Flagships
                     if (carries && !Economy.Of(w, enemy).RadioSilence)
                         rate += D.SignalPerHour * (Tech.Has(w, enemy, Tech.TightBeam) ? D.TightBeamLeak : 1);
                     if (GuardsSomething(w, f)) rate += D.CoverPerHour;
+                    // Masked emissions: the flagship takes twice as long to pick out.
+                    rate /= Tech.Factor(w, enemy, "masked-emissions");
                     s.FlagScore = Math.Min(D.MaxGuess, s.FlagScore + rate);
                 }
             }

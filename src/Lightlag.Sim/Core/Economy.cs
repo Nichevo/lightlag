@@ -9,19 +9,24 @@ public sealed record ShipyardData(double Armour, double RepairPerDay, double Rai
 
 /// <summary>
 /// One research idea. What Factor does depends on the idea (see Tech). Field is the team skill it uses
-/// and grows; Needs lists ideas that must be researched (or queued) first; Unlocks groups ideas for the
-/// research screen's filters (hulls, engines, weapons, defence, supply, sensors, industry); Picture names
-/// the drawing on its card.
+/// and grows; Tier (1-5) places it in the research web; Needs lists ideas that must be researched (or
+/// queued) first; Unlocks groups ideas for the research screen's filters (hulls, engines, weapons, defence,
+/// supply, sensors, industry, colonies); Picture names the drawing on its card. Materials are taken from
+/// the home planet's store when its team starts it (T3 and up). Spark names an event that brings it into
+/// view early (or speeds it up, see Sparks). Later ideas sit in the web but can't be researched until
+/// the system they belong to is built.
 /// </summary>
 public sealed record ResearchData(string Id, string Name, string Effect, double Cost, double Days, double Factor,
-    string Field = "drives", List<string>? Needs = null, string Unlocks = "", string Picture = "", string Description = "");
+    string Field = "drives", List<string>? Needs = null, string Unlocks = "", string Picture = "", string Description = "",
+    int Tier = 1, Dictionary<string, double>? Materials = null, string? Spark = null, bool Later = false);
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
     TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
-public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days);
+public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days, string? Needs = null,
+    List<string>? OnTypes = null, Dictionary<string, double>? Makes = null);
 
 /// <summary>
 /// A station in orbit of a body: a relay passes signals round planets that block them; a sensor
@@ -52,6 +57,10 @@ public sealed class SideState
     /// <summary>Research teams (see Research). The first is made when the game starts.</summary>
     public List<ResearchTeam> Teams { get; set; } = new();
     public int TeamsFounded { get; set; }
+
+    /// <summary>Ideas a spark brought into view early (see Sparks), and the news of each spark.</summary>
+    public List<string> Sparked { get; set; } = new();
+    public List<SparkNote> SparkNotes { get; set; } = new();
 
     /// <summary>Ideas a survey find has sped up, and the finds themselves (for the discovery web).</summary>
     public List<string> Cuts { get; set; } = new();
@@ -94,6 +103,15 @@ public sealed class WorkOrder
 
     /// <summary>Ship orders: waiting because an enemy fleet in orbit blockades the shipyard.</summary>
     public bool Blockaded { get; set; }
+
+    /// <summary>Ship orders: the dry dock planet building it (null: the shipyard).</summary>
+    public int? YardBodyId { get; set; }
+
+    /// <summary>Why it can't start yet (Industry or materials short), for the queue; null once started or nothing stops it.</summary>
+    public string? Waiting { get; set; }
+
+    /// <summary>Placed by an Auto manager rather than by hand (hand orders stay pinned: Auto never moves or cancels them).</summary>
+    public bool ByAuto { get; set; }
 
     /// <summary>Ship orders: the fleet the new ship flies out to join (null: the fleet at the shipyard).</summary>
     public int? JoinFleetId { get; set; }
@@ -157,21 +175,85 @@ public static class Tech
     public const string FoodRecyclers = "food-recyclers";
     public const string EfficientUpkeep = "efficient-upkeep";
 
+    public const string MissileBrain5 = "missile-brain-5";
+
     /// <summary>Missile guidance level from research: 1, or the highest brain researched.</summary>
     public static int MissileBrain(World w, Side side) =>
-        Has(w, side, MissileBrain4) ? 4 : Has(w, side, MissileBrain3) ? 3 : Has(w, side, MissileBrain2) ? 2 : 1;
+        Has(w, side, MissileBrain5) ? 5 : Has(w, side, MissileBrain4) ? 4 : Has(w, side, MissileBrain3) ? 3 : Has(w, side, MissileBrain2) ? 2 : 1;
 
     /// <summary>What finishing an idea changes at once.</summary>
-    public static void OnLearn(World w, Side side, string id)
+    public static void OnLearn(Simulation sim, Side side, string id)
     {
-        if (id is MissileBrain2 or MissileBrain3 or MissileBrain4)
+        var w = sim.World;
+        if (id is MissileBrain2 or MissileBrain3 or MissileBrain4 or MissileBrain5)
             w.MissileBrain[(int)side] = Math.Max(w.MissileBrain[(int)side], MissileBrain(w, side));
+        // Assays: every world held shows one more deposit.
+        if (id == "rare-element-assays")
+            foreach (var b in w.Bodies.Where(b => b.Owner == side && b.Board != null)) Colonies.ExtraDeposit(w, b);
+        Refresh(w);
+    }
+
+    /// <summary>Hourly (and when research lands): the per-ship numbers research changes that are read where there is no world at hand.</summary>
+    public static void Refresh(World w)
+    {
+        foreach (var s in w.Ships)
+        {
+            s.TechHeat = Factor(w, s.Side, "heat-sink-tanks") * Factor(w, s.Side, "heat-sink-armour");
+            s.TechSinks = Has(w, s.Side, "ejectable-heat-sinks") ? 1 : 0;
+            s.TechPeople = Has(w, s.Side, "cryo-sleep") ? GameData.Research("cryo-sleep").Factor : 1;
+        }
+        foreach (var b in w.Bodies)
+        {
+            b.BunkerFactor = b.Owner is Side side && Has(w, side, "hardened-bunkers") ? 1.5 : 1;
+            // Low-gravity medicine: asteroids and small moons hold half again as many people.
+            b.CapFactor = b.Owner is Side holder && Has(w, holder, "low-g-medicine") && b.Kind is BodyKind.Asteroid or BodyKind.Moon
+                          && Planets.TypeOf(b).Cap <= 30 ? GameData.Research("low-g-medicine").Factor : 1;
+        }
     }
 
     public static double MaxArmour(World w, Ship s) => Fitting.Spec(s).Armour * Factor(w, s.Side, HeavyArmour) * Factor(w, s.Side, ArmourMk3);
 
+    /// <summary>Fuel a burn takes: Efficient drives, and the fusion drive (Engine Mk IV and V) burns 15 % less.</summary>
     public static double SuppliesPerDeltaV(World w, Ship s) =>
-        Fitting.Spec(s).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives);
+        Fitting.Spec(s).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives) * (FusionEngine(s) ? 0.85 : 1);
+
+    private static bool FusionEngine(Ship s) => s.Fit.Any(m => m is "engine-mk4" or "engine-mk5");
+
+    /// <summary>A big hull (cruiser and up): Siege rail works only on these.</summary>
+    public static bool BigHull(Ship s) => s.ClassId is "cruiser" or "siege-monitor" or "capital";
+
+    /// <summary>A railgun slug's damage: Railgun Mk III, and Siege rail on big hulls.</summary>
+    public static double RailDamage(World w, Ship s) =>
+        GameData.Combat.Railgun.Damage * Factor(w, s.Side, RailgunMk3) * (BigHull(s) ? Factor(w, s.Side, "railgun-mk5") : 1);
+
+    /// <summary>Railgun reach: Coil-boosted rail adds 20 %.</summary>
+    public static double RailRange(World w, Side side) => GameData.Combat.Railgun.RangeMm * Factor(w, side, "railgun-mk4");
+
+    /// <summary>Railgun reload time factor: Fast railguns and Capacitor banks.</summary>
+    public static double ReloadFactor(World w, Side side) => Factor(w, side, FastRailguns) * Factor(w, side, "capacitor-banks");
+
+    /// <summary>A missile's damage: Heavy warheads add 30 %.</summary>
+    public static double MissileDamage(World w, Side side) => GameData.Combat.Missile.Damage * Factor(w, side, "heavy-warheads");
+
+    /// <summary>Missiles a ship's racks hold: Heavy warheads hold 20 % fewer.</summary>
+    public static int Racks(World w, Ship s) =>
+        Has(w, s.Side, "heavy-warheads") ? (int)Math.Round(Fitting.Spec(s).Missiles * 0.8) : Fitting.Spec(s).Missiles;
+
+    /// <summary>
+    /// Point defence kill chance factor for a side against a missile of this brain: Mk II and III, counter-missiles,
+    /// fleet data links, predictive fire control (brain 3 and up) and capacitor banks (faster recharge).
+    /// </summary>
+    public static double PointDefence(World w, Side side, int brain) =>
+        Factor(w, side, PointDefence2) * Factor(w, side, PointDefence3) * Factor(w, side, CounterMissiles) * Factor(w, side, "fleet-data-links")
+        * (brain >= 3 ? Factor(w, side, "predictive-fire-control") : 1) * (Has(w, side, "capacitor-banks") ? 1.1 : 1);
+
+    /// <summary>Signature factor from research for a fleet seen by the enemy: Jamming (seen from 30 % closer) and Stealth coatings when cold.</summary>
+    public static double SignatureFactor(World w, Side side, bool burning)
+    {
+        if (!w.Loop) return 1;
+        var range = Factor(w, side, "jamming") * (burning ? 1 : Factor(w, side, "stealth-coatings"));
+        return range * range; // range goes with the square root of the signature
+    }
 }
 
 // ---- The loop -----------------------------------------------------------------------------
@@ -202,6 +284,33 @@ public static class Economy
     public static double CostOf(WorkOrder o) => o.Kind == OrderKind.Ship
         ? GameData.ShipClass(o.Key).Cost
         : GameData.Research(o.Key).Cost;
+
+    /// <summary>The materials an order takes when it starts: a ship's alloys and electronics, or a T3+ idea's material.</summary>
+    public static Dictionary<string, double>? MaterialsOf(WorkOrder o) => o.Kind == OrderKind.Ship
+        ? GameData.ShipClass(o.Key).Materials
+        : GameData.Research(o.Key).Materials;
+
+    /// <summary>Where a ship order is built: its dry dock, or the shipyard.</summary>
+    public static Body? YardFor(World w, WorkOrder o) =>
+        o.Kind != OrderKind.Ship ? null : o.YardBodyId is int id ? w.FindBody(id) : ShipyardOf(w, o.Side);
+
+    /// <summary>The first material short at this store for these needs, as a line ("needs 12 more alloys at Verdant"), or null.</summary>
+    public static string? MaterialShort(Body? store, Dictionary<string, double>? mats)
+    {
+        if (mats == null || mats.Count == 0) return null;
+        if (store == null) return "No store to take materials from";
+        foreach (var (good, amount) in mats.OrderBy(m => m.Key, StringComparer.Ordinal))
+            if (Colonies.Held(store, good) < amount - 1e-9)
+                return $"needs {amount - Colonies.Held(store, good):0} more {Colonies.GoodName(good).ToLowerInvariant()} at {store.Name}";
+        return null;
+    }
+
+    /// <summary>Takes the materials out of the store (call after MaterialShort said there are enough).</summary>
+    public static void TakeMaterials(Body store, Dictionary<string, double>? mats)
+    {
+        if (mats == null) return;
+        foreach (var (good, amount) in mats) store.Stock[good] = Math.Max(0, Colonies.Held(store, good) - amount);
+    }
 
     public static double HoursFor(World w, Side side, OrderKind kind, string key) => kind == OrderKind.Ship
         ? GameData.ShipClass(key).Cost / (E.BuildIndustryPerDay * Tech.Factor(w, side, Tech.FastShipyard)) * 24
@@ -251,6 +360,8 @@ public static class Economy
         if (StationKind(kind) is not StationData data) return $"Unknown station '{kind}'";
         if (w.FindBody(bodyId) is not Body b || b.Owner != side) return "Only on a body you hold";
         if (HasStation(w, side, bodyId, kind)) return $"{b.Name} already has a {data.Name.ToLowerInvariant()}";
+        if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
+        if (data.OnTypes is { Count: > 0 } types && !types.Contains(b.Type)) return $"Only over a gas giant";
         if (Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
         return null;
     }
@@ -274,6 +385,7 @@ public static class Economy
         Research.EnsureTeams(w);
         Planets.Update(sim);
         if (w.Winner != null) return;
+        Works.Update(sim);
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
             var earned = IncomePerDay(w, side) / 24;
@@ -284,20 +396,29 @@ public static class Economy
             SupplyLines.Upkeep(sim, side);
         }
         Research.Surveys(sim);
+        Sparks.Check(sim);
         Claims(sim);
         LoseStations(sim);
         Bombard(sim);
         CheckWin(sim);
     }
 
+    /// <summary>Each yard (the shipyard, and dry docks once Colony shipyards is researched) works on the first ship order for it.</summary>
     private static void Work(Simulation sim, Side side)
     {
-        const OrderKind kind = OrderKind.Ship;
         var w = sim.World;
-        var order = w.Orders.Find(o => o.Side == side && o.Kind == kind);
+        if (ShipyardOf(w, side) is Body main) Work(sim, side, main, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null));
+        foreach (var dock in w.Bodies.Where(b => b.Owner == side && Colonies.DockBuilds(w, b, side)).ToList())
+            Work(sim, side, dock, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == dock.Id));
+        // Orders for a dock that is gone go back to the shipyard.
+        foreach (var o in w.Orders.Where(o => o.Side == side && o.YardBodyId is int id && !(w.FindBody(id) is Body b && Colonies.DockBuilds(w, b, side))))
+            o.YardBodyId = null;
+    }
+
+    private static void Work(Simulation sim, Side side, Body yard, WorkOrder? order)
+    {
+        var w = sim.World;
         if (order == null) return;
-        var yard = ShipyardOf(w, side);
-        if (yard == null) return;
         // An enemy fleet in orbit over the shipyard blockades it: nothing is launched, the build waits.
         if (Blockaded(w, yard))
         {
@@ -310,31 +431,43 @@ public static class Economy
         if (!order.Paid)
         {
             var cost = CostOf(order);
-            if (state.Industry < cost) return;
+            var mats = MaterialsOf(order);
+            var shortOf = MaterialShort(yard, mats);
+            var wait = state.Industry < cost ? $"needs {cost - state.Industry:0} more Industry" : shortOf;
+            if (wait != null)
+            {
+                if (order.Waiting == null && shortOf != null)
+                    sim.Log.Info("economy", $"{side} shipyard waits for materials", new { side = side.ToString(), order.Id, order.Key, why = shortOf });
+                if (shortOf != null) state.Totals.MaterialStallHours += GameTime.HoursPerTick;
+                order.Waiting = wait;
+                return;
+            }
+            order.Waiting = null;
             state.Industry -= cost;
             state.Totals.IndustrySpent += cost;
+            TakeMaterials(yard, mats);
             order.Paid = true;
             order.HoursLeft = order.TotalHours;
-            sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost });
+            sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, materials = mats });
         }
         order.HoursLeft -= GameTime.HoursPerTick * Colonies.ShipyardRate(w, yard);
         if (order.HoursLeft > 1e-9) return;
         w.Orders.Remove(order);
-        Launch(sim, side, order.Key, order.JoinFleetId, order);
+        Launch(sim, side, order.Key, order.JoinFleetId, order, yard);
     }
 
     /// <summary>
     /// A new ship leaves the shipyard. With no fleet named it joins a fleet waiting there, or forms a new one.
     /// With a fleet named it joins it at once if it is at the shipyard, or forms its own fleet and flies out to it.
     /// </summary>
-    private static void Launch(Simulation sim, Side side, string classId, int? joinFleetId = null, WorkOrder? order = null)
+    private static void Launch(Simulation sim, Side side, string classId, int? joinFleetId = null, WorkOrder? order = null, Body? from = null)
     {
         var w = sim.World;
-        var yard = ShipyardOf(w, side)!;
+        var yard = from ?? ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
         Of(w, side).Totals.ShipsBuilt++;
         // The crew comes from the shipyard planet's people.
-        if (yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost);
+        if (yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, side, "ai-cores"));
         // Troop ships leave with their soldiers aboard, raised from the same people.
         if (Planets.IsTroopShip(ship))
         {
@@ -403,7 +536,7 @@ public static class Economy
         ship.MaxSpeed = spec.MaxSpeedMmPerHour;
         ship.Accel = spec.AccelMmPerHour2;
         ship.Supplies = Fitting.MaxSupplies(w, ship);
-        ship.Missiles = spec.Missiles;
+        ship.Missiles = Tech.Racks(w, ship);
         ship.Ammo = SupplyLines.MaxAmmo(ship);
         ship.Food = SupplyLines.MaxFood(ship);
         SupplyLines.FillCargo(ship);
@@ -617,8 +750,10 @@ public static class Economy
             if (ShipyardOf(w, side) == null) return "No shipyard";
             return null;
         }
-        if (!GameData.ResearchById.ContainsKey(key)) return $"Unknown research '{key}'";
+        if (!GameData.ResearchById.TryGetValue(key, out var idea)) return $"Unknown research '{key}'";
         if (Of(w, side).Researched.Contains(key)) return "Already researched";
+        if (idea.Later) return "Comes with a later build";
+        if (!Research.Seen(w, side, key)) return "Not discovered yet: research one of the ideas it needs first";
         if (w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == key)) return "Already in the queue";
         if (Research.Missing(w, side, key) is string missing) return missing;
         if (teamId is int t && Research.Team(w, side, t) == null) return "No such team";

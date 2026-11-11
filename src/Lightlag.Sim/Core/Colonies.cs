@@ -19,6 +19,9 @@ public sealed class Board
     public char At(int x, int y) => x < 0 || y < 0 || x >= W || y >= H ? 'm' : Tiles[y * W + x];
     public Deposit? DepositAt(int x, int y) => Deposits.Find(d => d.X == x && d.Y == y);
     [System.Text.Json.Serialization.JsonIgnore] public int Buildable => Tiles.Count(c => c != 'm');
+
+    /// <summary>Rare-element assays have found this board's extra deposit.</summary>
+    public bool Assayed { get; set; }
 }
 
 public sealed class Deposit
@@ -49,6 +52,15 @@ public sealed class Piece
     public double Staff { get; set; } = 1;
     public bool Powered { get; set; } = true;
     public double SparesShare { get; set; } = 1;
+
+    /// <summary>Materials still to come out of the planet's store before building can go on (null: none).</summary>
+    public Dictionary<string, double>? MaterialsLeft { get; set; }
+
+    /// <summary>Research that makes this kind of piece make more (worked out each hour; see Colonies.MakesFactor).</summary>
+    public double Boost { get; set; } = 1;
+
+    /// <summary>Academies: hours of training done towards the next batch of scientists.</summary>
+    public double TrainHours { get; set; }
 
     [System.Text.Json.Serialization.JsonIgnore] public bool Built => HoursLeft <= 1e-9;
     public bool Covers(int x, int y) => x >= X && y >= Y && x < X + W && y < Y + H;
@@ -220,6 +232,26 @@ public static class Colonies
         return board;
     }
 
+    /// <summary>
+    /// Rare-element assays: the body shows one more deposit (once), on a free land tile, of the mineral its
+    /// type has fewest of. No dice: the tile is picked from the body's id, so both sides see the same find.
+    /// </summary>
+    public static void ExtraDeposit(World w, Body b)
+    {
+        if (b.Board is not Board board || board.Assayed) return;
+        board.Assayed = true;
+        var minerals = Planets.TypeOf(b).Minerals ?? Array.Empty<string>();
+        if (minerals.Length == 0) return;
+        var mineral = minerals.OrderBy(m => board.Deposits.Count(d => d.Mineral == m)).ThenBy(m => Array.IndexOf(minerals, m)).First();
+        var free = new List<(int X, int Y)>();
+        for (var y = 0; y < board.H; y++)
+            for (var x = 0; x < board.W; x++)
+                if (board.At(x, y) == 'l' && board.DepositAt(x, y) == null && !b.Pieces.Any(p => p.Covers(x, y))) free.Add((x, y));
+        if (free.Count == 0) return;
+        var (fx, fy) = free[(b.Id * 7 + 3) % free.Count];
+        board.Deposits.Add(new Deposit { X = fx, Y = fy, Mineral = mineral });
+    }
+
     private static IEnumerable<(int X, int Y)> FreeLand(Board board)
     {
         for (var y = 0; y < board.H; y++)
@@ -233,6 +265,8 @@ public static class Colonies
         var c = board.At(x, y);
         return data.Terrain switch
         {
+            "mountain" => c == 'm',
+            "any" => c is 'l' or 'o' or 'i',
             "ocean" => c == 'o',
             "ice" => c == 'i',
             "oceanOrIce" => c is 'o' or 'i',
@@ -267,13 +301,13 @@ public static class Colonies
         {
             var tx = x + dx;
             var ty = y + dy;
-            if (board.At(tx, ty) == 'm') return "Mountains: nothing can be built there";
+            if (board.At(tx, ty) == 'm' && data.Terrain != "mountain") return "Mountains: nothing can be built there";
             if (covered != null ? covered[ty * board.W + tx] : b.Pieces.Any(p => p.Covers(tx, ty))) return "Something is already there";
             if (!TileFits(board, data, tx, ty))
                 return data.Terrain switch
                 {
                     "ocean" => "Must sit on ocean", "ice" => "Needs ice", "oceanOrIce" => "Must sit on ocean or ice",
-                    "landOrIce" => "Needs land or ice", _ => "Needs land",
+                    "landOrIce" => "Needs land or ice", "mountain" => "Must sit on mountains", "any" => "Not on mountains", _ => "Needs land",
                 };
             if (board.DepositAt(tx, ty) != null) deposit = true;
         }
@@ -357,6 +391,7 @@ public static class Colonies
         {
             Id = w.NextId++, Kind = data.Id, X = x, Y = y, W = pw, H = ph, HoursLeft = built ? 0 : data.Days * 24,
             Level = b.Owner is Side side ? LevelFor(w, side, data) : 0,
+            MaterialsLeft = !built && data.Materials is { Count: > 0 } m ? new Dictionary<string, double>(m) : null,
         };
         b.Pieces.Add(piece);
         return piece;
@@ -380,6 +415,7 @@ public static class Colonies
     public static void Update(Simulation sim)
     {
         var w = sim.World;
+        UpdateWants(w);
         foreach (var b in w.Bodies.Where(b => b.Pieces.Count > 0 || b.Stock.Count > 0))
         {
             if (b.Owner == null) { b.Pieces.RemoveAll(p => !p.Built); continue; }
@@ -396,6 +432,8 @@ public static class Colonies
         {
             if (!p.Built)
             {
+                // Big buildings wait for their materials (alloys) to come out of the planet's store.
+                if (!TakeMaterials(b, p)) continue;
                 p.HoursLeft -= GameTime.HoursPerTick;
                 if (!p.Built) continue;
                 p.HoursLeft = 0;
@@ -411,6 +449,51 @@ public static class Colonies
             }
         }
     }
+
+    /// <summary>Takes what it can of a piece's materials from the planet's store; true once none are left to come.</summary>
+    private static bool TakeMaterials(Body b, Piece p)
+    {
+        if (p.MaterialsLeft is not { Count: > 0 } left) return true;
+        foreach (var good in left.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList())
+        {
+            var take = Math.Min(left[good], Held(b, good));
+            if (take > 0) b.Stock[good] = Held(b, good) - take;
+            left[good] -= take;
+            if (left[good] <= 1e-9) left.Remove(good);
+        }
+        if (left.Count > 0) return false;
+        p.MaterialsLeft = null;
+        return true;
+    }
+
+    /// <summary>
+    /// What each held body waits for: materials for its buildings under way, for the next ship at its yard
+    /// (or dry dock), and (at home) for the research its teams start next. Freighters bring them.
+    /// </summary>
+    public static void UpdateWants(World w)
+    {
+        foreach (var b in w.Bodies)
+        {
+            if (b.Wants.Count > 0) b.Wants.Clear();
+            if (b.Owner is not Side side) continue;
+            foreach (var g in Goods)
+                if (MaterialsWanted(b, g.Id) is var m && m > 0) b.Wants[g.Id] = m;
+            foreach (var o in w.Orders.Where(o => o.Side == side && !o.Paid))
+            {
+                Dictionary<string, double>? mats = null;
+                if (o.Kind == OrderKind.Ship && Economy.YardFor(w, o) == b) mats = Economy.MaterialsOf(o);
+                else if (o.Kind == OrderKind.Research && Economy.HomeOf(w, side) == b && Research.Next(w, o)) mats = GameData.Research(o.Key).Materials;
+                if (mats == null) continue;
+                foreach (var (good, amount) in mats) b.Wants[good] = b.Wants.GetValueOrDefault(good) + amount;
+            }
+        }
+    }
+
+    public static double Want(Body b, string good) => b.Wants.TryGetValue(good, out var v) ? v : 0;
+
+    /// <summary>Materials pieces under way here still wait for (each good summed).</summary>
+    public static double MaterialsWanted(Body b, string good) =>
+        b.Pieces.Sum(p => p.MaterialsLeft != null && p.MaterialsLeft.TryGetValue(good, out var v) ? v : 0);
 
     /// <summary>
     /// Staff, power, goods and upkeep for one hour, in the planet's priority order: the top areas are
@@ -434,14 +517,14 @@ public static class Colonies
                 people -= baseGot;
                 baseTaken = true;
             }
-            var need = data!.StaffK;
+            var need = StaffKOf(w, b, data!);
             p.Staff = need <= 0 ? 1 : Math.Clamp(people / need, 0, 1);
             people -= need * p.Staff;
         }
         if (!baseTaken) baseGot = Math.Min(Math.Max(0, people), baseStaff);
         b.BaseStaff = baseStaff <= 0 ? 1 : Math.Clamp(baseGot / baseStaff, 0, 1);
         // An empty world you hold still works its buildings at the unsettled share, with nobody to staff them.
-        if (b.PopK <= 0) foreach (var (p, _) in built) p.Staff = D.UnsettledShare;
+        if (b.PopK <= 0) foreach (var (p, data) in built) p.Staff = StaffKOf(w, b, data!) <= 0 ? 1 : D.UnsettledShare;
 
         // Power.
         // Every settled world has a little power of its own (small generators), enough for a first building or two.
@@ -468,16 +551,19 @@ public static class Colonies
         }
         foreach (var (p, data) in built)
         {
-            var output = Output(w, b, p, data!);
+            p.Boost = MakesFactor(w, b, data!);
+            var output = Output(w, b, p, data!) * p.Boost;
             if (data!.Makes != null)
-                foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(b, p, data, consume: true) / 24);
+                foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(w, b, p, data, consume: true) / 24);
+            else if (data.Uses != null && data.Power >= 0) InputShare(w, b, p, data, consume: true); // labs, academies, arcologies, food vats
             if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral != "")
                 Add(d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output / 24);
-            if (data.Id == "research-lab" || data.Research > 0) InputShare(b, p, data, consume: true);
         }
+        var upkeepFactor = b.UpkeepFactor = b.Owner is Side keeper ? Tech.Factor(w, keeper, "recycling") : 1;
+        b.FissionFuel = FissionFuelPerDay(w, b);
         foreach (var (p, data) in built)
         {
-            var want = data!.Upkeep / 24;
+            var want = data!.Upkeep * upkeepFactor / 24;
             var have = Held(b, Spares);
             var got = Math.Min(want, have);
             if (want > 0) b.Stock[Spares] = have - got;
@@ -509,22 +595,52 @@ public static class Colonies
         Planets.TypeOf(b).Farm <= 0 && !b.Home && b.Owner is Side side && !Tech.Has(w, side, "sealed-habitats")
         && Built(b).Any(p => (Planets.BuildingKind(p.Kind)?.HousingK ?? 0) > 0);
 
-    /// <summary>Share of the piece's inputs on hand this hour (taking them if asked): 1 with no inputs.</summary>
-    private static double InputShare(Body b, Piece p, BuildingData data, bool consume)
+    /// <summary>What a piece takes in a day of each good it uses (fuel plants on ocean draw their own water).</summary>
+    public static IEnumerable<(string Good, double PerDay)> Inputs(Body b, Piece p, BuildingData data)
     {
-        if (data.Uses == null || data.Uses.Count == 0) return 1;
-        var share = 1.0;
+        if (data.Uses == null) yield break;
         foreach (var (good, perDay) in data.Uses)
         {
+            if (good == "water" && data.Id == "fuel-plant" && b.Board?.At(p.X, p.Y) == 'o') continue;
+            yield return (good, perDay);
+        }
+    }
+
+    /// <summary>Share of the piece's inputs on hand this hour (taking them if asked): 1 with no inputs.</summary>
+    private static double InputShare(World w, Body b, Piece p, BuildingData data, bool consume)
+    {
+        var share = 1.0;
+        var any = false;
+        foreach (var (good, perDay) in Inputs(b, p, data))
+        {
+            any = true;
             var want = perDay * Math.Max(0.01, p.Staff) / 24;
             var have = Held(b, good);
             share = Math.Min(share, want <= 0 ? 1 : Math.Min(1, have / want));
         }
+        if (!any) return 1;
         if (consume)
-            foreach (var (good, perDay) in data.Uses)
+            foreach (var (good, perDay) in Inputs(b, p, data))
                 b.Stock[good] = Math.Max(0, Held(b, good) - perDay * Math.Max(0.01, p.Staff) / 24 * share);
-        // Without iron a workshop still makes half; without rare earths a lab still works (no boost).
-        return data.Id == "workshop" ? 0.5 + 0.5 * share : data.Id == "research-lab" ? 1 + 0.5 * share - 0.5 : share;
+        // Without iron a workshop still makes half; labs and academies still work without electronics (no boost).
+        return data.Id == "workshop" ? 0.5 + 0.5 * share : data.Research > 0 || data.TrainScientists > 0 ? 1 + 0.5 * share - 0.5 : share;
+    }
+
+    /// <summary>Did this piece have its inputs last hour (labs boost, vats grow food, arcologies stay in repair)?</summary>
+    public static bool Supplied(Body b, Piece p, BuildingData data) =>
+        Inputs(b, p, data).All(x => Held(b, x.Good) >= x.PerDay * Math.Max(0.01, p.Staff) / 24 - 1e-9);
+
+    /// <summary>People a building needs (self-replicating miners run mines with nobody).</summary>
+    public static double StaffKOf(World w, Body b, BuildingData data) =>
+        data.Mines > 0 && b.Owner is Side side && Tech.Has(w, side, "self-replicating-miners") ? 0 : data.StaffK;
+
+    /// <summary>Research that makes a kind of building make more: deuterium for fuel plants, self-replicating miners for mines.</summary>
+    public static double MakesFactor(World w, Body b, BuildingData data)
+    {
+        if (b.Owner is not Side side) return 1;
+        if (data.Id == "fuel-plant") return Tech.Factor(w, side, "deuterium-extraction");
+        if (data.Mines > 0) return Tech.Factor(w, side, "self-replicating-miners");
+        return 1;
     }
 
     /// <summary>Power a plant or solar field makes this hour, using its fuel if asked.</summary>
@@ -536,8 +652,28 @@ public static class Colonies
             var au = Math.Max(0.2, Vec2.Distance(b.Position, Vec2.Zero) / Physics.MmPerAu);
             return basePower * Math.Clamp(1 / (au * au), 0.05, 2);
         }
+        if (data.Hot) return basePower; // geothermal: no fuel
+        var staff = Math.Max(0.01, p.Staff);
+        var side = b.Owner;
+        if (data.Id == "fusion-plant")
+        {
+            // Water, or a little helium-3 for half again (Helium-3 reactors: half again more).
+            var he3 = 0.1 * staff / 24;
+            var water = 0.4 * staff / 24;
+            if (Held(b, "helium-3") >= he3)
+            {
+                if (consume) b.Stock["helium-3"] = Held(b, "helium-3") - he3;
+                return basePower * 1.5 * (side is Side s1 ? Tech.Factor(w, s1, "helium-3-reactors") : 1);
+            }
+            if (Held(b, "water") >= water)
+            {
+                if (consume) b.Stock["water"] = Held(b, "water") - water;
+                return basePower;
+            }
+            return basePower * 0.2;
+        }
         var factor = 0.3;
-        var want = 0.2 * Math.Max(0.01, p.Staff) / 24;
+        var want = FissionFuelPerDay(w, b) * staff / 24;
         if (Held(b, "helium-3") >= want)
         {
             if (consume) b.Stock["helium-3"] = Held(b, "helium-3") - want;
@@ -548,13 +684,11 @@ public static class Colonies
             if (consume) b.Stock["uranium"] = Held(b, "uranium") - want;
             factor = 1;
         }
-        if (Held(b, "copper") > 0.01)
-        {
-            if (consume) b.Stock["copper"] = Math.Max(0, Held(b, "copper") - 0.05 / 24);
-            factor *= 1.25;
-        }
         return basePower * factor;
     }
+
+    /// <summary>Uranium a fission plant burns a day (Breeder reactors: 40 % less).</summary>
+    public static double FissionFuelPerDay(World w, Body b) => 0.2 * (b.Owner is Side side ? Tech.Factor(w, side, "breeder-reactors") : 1);
 
     /// <summary>
     /// How hard a built piece works, 0 to about 1.5: its staff, power, repair (worn pieces make down to
@@ -582,7 +716,7 @@ public static class Colonies
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
-            var run = p.Powered ? p.Staff * (0.5 + 0.5 * p.Condition) * (p.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p)) : 0;
+            var run = p.Powered ? p.Staff * (0.5 + 0.5 * p.Condition) * (p.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p)) * p.Boost : 0;
             if (data.Makes != null && data.Makes.TryGetValue(good, out var perDay)) total += perDay * run;
             if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral == good) total += data.Mines * (d.Rich ? 1.5 : 1) * run;
         }
@@ -596,16 +730,22 @@ public static class Colonies
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
-            if (data.Uses != null && data.Uses.TryGetValue(good, out var perDay)) total += perDay * Math.Max(0.01, p.Staff);
-            if (good == Spares) total += data.Upkeep;
-            if (good == "uranium" && data.Power < 0 && !data.Solar) total += 0.2;
+            foreach (var (g, perDay) in Inputs(b, p, data)) if (g == good) total += perDay * Math.Max(0.01, p.Staff);
+            if (good == Spares) total += data.Upkeep * b.UpkeepFactor;
+            if (good == "uranium" && data.Id == "power-plant") total += b.FissionFuel;
+            if (good == "water" && data.Id == "fusion-plant") total += 0.4;
             if (good == "water" && data.HousingK > 0 && b.Thirsty) total += 0.2;
+            if (good == "ammunition") total += data.Ammo * 0.25; // guns fire now and then: keep some in store
         }
         return total;
     }
 
-    /// <summary>The stock the planet aims to keep of a good: its siege days of what it uses.</summary>
-    public static double Target(Body b, string good) => Math.Min(StoreCap(b, good), b.SiegeDays * UsePerDay(b, good));
+    /// <summary>
+    /// The stock the planet aims to keep of a good: its siege days of what it uses, plus what is waited
+    /// for here (materials for buildings under way, ships at the yard, research at home).
+    /// </summary>
+    public static double Target(Body b, string good) =>
+        Math.Min(StoreCap(b, good), b.SiegeDays * UsePerDay(b, good)) + (b.Wants.TryGetValue(good, out var want) ? want : 0);
 
     /// <summary>What can be sent away: stock beyond the planet's own siege target.</summary>
     public static double SpareOf(Body b, string good) => Math.Max(0, Held(b, good) - Target(b, good));
@@ -633,23 +773,27 @@ public static class Colonies
     {
         var boost = w.Bodies.Where(b => b.Owner == side && !Economy.Blockaded(w, b))
             .Sum(b => Built(b).Where(p => (Planets.BuildingKind(p.Kind)?.Research ?? 0) > 0)
-                .Sum(p => Planets.BuildingKind(p.Kind)!.Research * Output(w, b, p) * (Held(b, "rare-earths") > 0.01 ? 1.5 : 1)));
+                .Sum(p => Planets.BuildingKind(p.Kind)!.Research * Output(w, b, p) * (Supplied(b, p, Planets.BuildingKind(p.Kind)!) ? 1.5 : 1)));
         return 1 + Math.Min(C.LabBoostCap, boost);
     }
 
-    /// <summary>How fast the shipyard works: slower while its tools are refitted or it is worn, faster with rare earths in store.</summary>
+    /// <summary>How fast a shipyard (or a dry dock building ships) works: slower while its tools are refitted, it is worn or short of power.</summary>
     public static double ShipyardRate(World w, Body yard)
     {
-        var piece = Built(yard).FirstOrDefault(p => p.Kind == Shipyard);
+        var piece = Built(yard).FirstOrDefault(p => p.Kind == Shipyard) ?? Built(yard).FirstOrDefault(p => p.Kind == DryDock);
         if (piece == null) return 1;
-        var rate = (piece.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (0.5 + 0.5 * piece.Condition) * (piece.Powered ? 1 : 0.5);
-        if (Held(yard, "rare-earths") > 0.01)
-        {
-            yard.Stock["rare-earths"] = Math.Max(0, Held(yard, "rare-earths") - 0.2 / 24);
-            rate *= 1.2;
-        }
-        return rate;
+        return (piece.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (0.5 + 0.5 * piece.Condition) * (piece.Powered ? 1 : 0.5) * (piece.Kind == DryDock ? 0.6 : 1);
     }
+
+    public const string DryDock = "dry-dock";
+
+    /// <summary>Does this body have a working repair yard of this side's (the shipyard, or a built dry dock)?</summary>
+    public static bool RepairsHere(World w, Body b, Side side) =>
+        b.Owner == side && (b.Shipyard || Built(b).Any(p => p.Kind == DryDock && p.Powered));
+
+    /// <summary>A body whose dry dock can build ships (Colony shipyards researched).</summary>
+    public static bool DockBuilds(World w, Body b, Side side) =>
+        b.Owner == side && !b.Shipyard && Tech.Has(w, side, "colony-shipyards") && Built(b).Any(p => p.Kind == DryDock);
 
     /// <summary>Refuelling at a planet: draws its fuel stock; with none, it goes slowly.</summary>
     public static double RefuelRate(Body b, double suppliesWanted)
@@ -735,14 +879,17 @@ public static class Colonies
         var free = FreeHaulers(w, side).ToList();
         if (free.Count == 0) return;
         var mine = w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id).ToList();
+        // Sources also take in stations' stores (a skimmer's helium-3 over a gas giant).
+        var sources = w.Bodies.Where(b => b.Owner == side && (b.Board != null || b.Stock.Count > 0)).OrderBy(b => b.Id).ToList();
         foreach (var to in mine)
         {
             if (free.Count == 0) return;
             foreach (var good in Goods.Select(g => g.Id))
             {
                 var target = Target(to, good);
-                if (target <= 0.5 || Held(to, good) >= target * C.AskBelow || ShipmentTo(w, side, to.Id, good) != null) continue;
-                var from = mine.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
+                var waiting = Held(to, good) < Want(to, good) - 1e-6;
+                if (target <= 0.5 || (Held(to, good) >= target * C.AskBelow && !waiting) || ShipmentTo(w, side, to.Id, good) != null) continue;
+                var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
                     .OrderByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
                 if (from == null) continue;
                 var fleet = free.OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).First();
@@ -832,6 +979,7 @@ public static class Colonies
             if (!Economy.InOrbitAt(fleet, to)) { Fly(sim, fleet, to); continue; }
             foreach (var (good, amount) in s.Cargo) to.Stock[good] = Held(to, good) + amount;
             w.Shipments.Remove(s);
+            Economy.Of(w, s.Side).Totals.Deliveries++;
             sim.Log.Info("planets", $"{fleet.Name} delivers to {to.Name}", new { side = s.Side.ToString(), cargo = s.Cargo });
         }
     }
@@ -856,10 +1004,14 @@ public static class Colonies
         if (b.Board == null) return $"Nothing can be built on {b.Name}: only stations";
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
         if (data.Food > 0 && !data.AnyAir && data.Terrain != "ocean" && Planets.TypeOf(b).Farm <= 0 && !b.Home) return "Nothing grows here without a dome";
+        if (data.Hot && !Hot(b)) return "Only on volcanic worlds and planets close to the sun";
         if (Economy.Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
         if (x is int px && y is int py) return FitProblem(b, data, px, py, turned);
         return BestSpot(b, data) == null ? $"No room for a {data.Name.ToLowerInvariant()} on {b.Name}" : null;
     }
+
+    /// <summary>Hot enough for a geothermal plant: a volcanic world, or within 0.6 AU of the sun.</summary>
+    public static bool Hot(Body b) => b.Type == "volcanic" || Vec2.Distance(b.Position, Vec2.Zero) < 0.6 * Physics.MmPerAu;
 
     /// <summary>The Industry and spare parts a refit costs, and other small numbers the screens show.</summary>
     public static IEnumerable<BuildingData> Kinds => (D.Buildings ?? new List<BuildingData>()).Where(k => k.Buildable);

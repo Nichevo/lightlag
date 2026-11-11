@@ -67,10 +67,13 @@ public static class Drones
             // Enemy fleets that see it close by shoot it down.
             foreach (var e in w.Fleets)
             {
-                if (e.Side == d.Side || Vec2.Distance(e.Position, d.Position) > D.ShotRangeMm || !Combat.HasWorking(w, e, Module.Railguns)) continue;
+                // Stealth courier drones are only seen from half as far.
+                var reach = D.ShotRangeMm * (w.Loop ? Tech.Factor(w, d.Side, "stealth-drones") : 1);
+                if (e.Side == d.Side || Vec2.Distance(e.Position, d.Position) > reach || !Combat.HasWorking(w, e, Module.Railguns)) continue;
                 if (sim.Rng.NextDouble() < Math.Min(1, D.KillPerHour * dt))
                 {
                     w.Drones.Remove(d);
+                    Sparks.Fire(sim, d.Side, "drone-lost");
                     sim.Log.Info("drone", $"{e.Name} shoots down a drone", new { droneId = d.Id, fleetId = e.Id, side = d.Side.ToString() });
                     break;
                 }

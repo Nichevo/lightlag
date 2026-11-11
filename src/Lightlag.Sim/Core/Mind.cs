@@ -894,6 +894,24 @@ public static class Mind
             }
         }
 
+        /// <summary>The plant that makes each material good.</summary>
+        private static readonly (string Good, string Plant)[] MaterialPlants =
+            { ("alloys", "smelter"), ("electronics", "electronics-plant"), ("ammunition", "munitions-plant") };
+
+        /// <summary>Reserve of each material the rival likes to keep across its linked planets.</summary>
+        private static double MaterialReserve(string good) => good switch { "alloys" => 60, "electronics" => 20, _ => 40 };
+
+        /// <summary>A material is short: something waits for it, or the side makes less than it uses and holds under its reserve.</summary>
+        private bool MaterialShort(string good)
+        {
+            var linked = _w.Bodies.Where(b => b.Owner == _side && !Economy.Blockaded(_w, b)).ToList();
+            var held = linked.Sum(b => Colonies.Held(b, good));
+            var wanted = linked.Sum(b => Colonies.Want(b, good));
+            if (wanted > held) return true;
+            if (_w.Orders.Any(o => o.Side == _side && o.Waiting != null && o.Waiting.Contains(Colonies.GoodName(good).ToLowerInvariant()))) return true;
+            return held < MaterialReserve(good) && linked.Sum(b => Colonies.MadePerDay(b, good)) <= linked.Sum(b => Colonies.UsePerDay(b, good));
+        }
+
         /// <summary>A free deposit of this mineral a mine fits on, richest first.</summary>
         private static (int X, int Y)? DepositFor(Body b, string mineral)
         {
@@ -928,6 +946,17 @@ public static class Mind
                 if (Short(good) && Powered(Planets.Mine) && DepositFor(b, good) is var (mx, my))
                     return (Planets.Mine, mx, my, true);
             if (sparesShort && Staffed("workshop") && Pick("workshop") is string shop) return (shop, null, null, true);
+            // Materials: ships, big buildings and later research wait for alloys, electronics and ammunition.
+            // The plant for a short one goes up (at home first), then mines for the minerals it eats.
+            foreach (var (good, plant) in MaterialPlants)
+                if (MaterialShort(good) && (b.Home || !_w.Bodies.Any(o => o.Owner == _side && o.Home)) && Staffed(plant) && Pick(plant) is string make)
+                    return (make, null, null, true);
+            foreach (var good in new[] { "copper", "rare-earths", "uranium", "water" })
+                if ((Short(good) || Colonies.Want(b, good) > Colonies.Held(b, good)) && Powered(Planets.Mine) && DepositFor(b, good) is var (gx, gy))
+                    return (Planets.Mine, gx, gy, true);
+            if (b.Home && Colonies.Built(b).Count(p => p.Kind == "dry-dock") == 0 && Planets.Count(b, Planets.Mine) >= 3 && Staffed("dry-dock") && Pick("dry-dock") is string dock)
+                return (dock, null, null, false);
+            if (_w.Rules.Happiness && b.Happiness < 45 && Planets.Count(b, "clinic") == 0 && Pick("clinic") is string clinic) return (clinic, null, null, false);
             if (Staffed(Planets.Mine) && Pick(Planets.Mine) is string dig) return (dig, null, null, false);
             if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return (home, null, null, false);
             if (!Colonies.Built(b).Any(p => p.Kind == "storehouse") && b.Pieces.Count >= 3 && Pick("storehouse") is string store) return (store, null, null, false);

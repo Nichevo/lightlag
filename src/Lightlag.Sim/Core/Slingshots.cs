@@ -123,6 +123,8 @@ public static partial class FlightPlanner
             var escapeSq = 2 * gm / rp;
             var atPass = Math.Sqrt(speed * speed + escapeSq) + burn;
             var leaving = Math.Sqrt(Math.Max(speed * speed, atPass * atPass - escapeSq)) + S.GiantKickKmS * KmSToMmPerHour * weight;
+            // Gravity assist navigation: the swing hands over a fifth more speed.
+            if (w.Loop && Tech.Has(w, fleet.Side, "gravity-assist")) leaving = speed + (leaving - speed) * GameData.Research("gravity-assist").Factor;
             var outInf = vInf * (leaving / speed);
             for (var i = 0; i <= FlybySteps; i++)
             {

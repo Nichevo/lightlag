@@ -198,6 +198,19 @@ public sealed class Body
     public double BaseStaff { get; set; } = 1;
     public bool Thirsty { get; set; }
 
+    /// <summary>Worked out each hour: spare parts upkeep factor (Recycling) and uranium a fission plant burns a day (Breeder reactors).</summary>
+    public double UpkeepFactor { get; set; } = 1;
+    public double FissionFuel { get; set; } = 0.2;
+
+    /// <summary>Garrison factor for bunkers (Hardened bunkers: 1.5), worked out each hour.</summary>
+    public double BunkerFactor { get; set; } = 1;
+
+    /// <summary>People cap factor from research (Low-gravity medicine on small bodies), worked out each hour.</summary>
+    public double CapFactor { get; set; } = 1;
+
+    /// <summary>Goods waited for here (building materials, ships at the yard, research at home), worked out each hour: freighters bring them.</summary>
+    public Dictionary<string, double> Wants { get; set; } = new();
+
     /// <summary>A side whose bombing of the people here they won't forgive: the planet never surrenders to it.</summary>
     public Side? Grudge { get; set; }
     public double? LastBombedHour { get; set; }
@@ -271,6 +284,13 @@ public sealed class Ship
     public bool Overheated { get; set; }
     public int HeatSinks { get; set; }
     public double Shield { get; set; }
+
+    /// <summary>Research on heat (see Tech.Refresh): heat capacity factor and extra heat sinks.</summary>
+    public double TechHeat { get; set; } = 1;
+
+    /// <summary>Settler ships: people carried as a share of the hold (Cryo-sleep doubles it).</summary>
+    public double TechPeople { get; set; } = 1;
+    public int TechSinks { get; set; }
 
     /// <summary>Railgun ammunition (supply units; see SupplyLines) and food (days for the crew).</summary>
     public double Ammo { get; set; }

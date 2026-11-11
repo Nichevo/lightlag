@@ -26,6 +26,15 @@ public sealed class SideTotals
     public int Overheats { get; set; }
     public double DamageDealt { get; set; }
     public double ShipyardDamage { get; set; }
+
+    /// <summary>Spark counters: our slugs a dodge made miss, our missiles shot down, enemy missiles we shot down, deliveries made.</summary>
+    public int SlugsDodged { get; set; }
+    public int MissilesStopped { get; set; }
+    public int MissilesShotDown { get; set; }
+    public int Deliveries { get; set; }
+
+    /// <summary>Hours a ship order at a yard waited for materials (alloys, electronics), not Industry.</summary>
+    public double MaterialStallHours { get; set; }
 }
 
 /// <summary>One side at the end of one game day.</summary>

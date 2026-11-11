@@ -351,9 +351,9 @@ public sealed class Simulation
                 f.Velocity = Vec2.Zero;
                 if (body.Owner == f.Side && World.ActiveBattle == null)
                 {
-                    // Any planet you hold refuels; only the shipyard repairs and rearms.
+                    // Any planet you hold refuels; only the shipyard and dry docks repair and rearm.
                     Refill(f, dt, body);
-                    if (body.Shipyard) Combat.RepairAtHome(World, f, dt);
+                    if (Colonies.RepairsHere(World, body, f.Side)) Combat.RepairAtHome(World, f, dt, body);
                 }
             }
             else
@@ -452,7 +452,7 @@ public sealed class Simulation
             var want = Math.Min(max - s.Supplies, max * RefillPerDay * hours / 24);
             // Fuel comes out of the planet's store; with none it goes slowly.
             if (want > 1e-9) s.Supplies += want * Colonies.RefuelRate(body, want);
-            SupplyLines.Restock(s, hours);
+            SupplyLines.Restock(s, hours, World.Loop ? body : null);
         }
     }
 }

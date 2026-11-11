@@ -154,10 +154,17 @@ public class ResearchTests
     [Fact]
     public void Every_idea_has_a_known_field_and_needs()
     {
-        Assert.InRange(GameData.Economy.Research.Count, 25, 40);
+        // The research web: 112 ideas in six fields, 24 of them "later" nodes.
+        Assert.Equal(112, GameData.Economy.Research.Count);
+        Assert.Equal(24, GameData.Economy.Research.Count(r => r.Later));
+        Assert.All(Research.Fields, f => Assert.Contains(GameData.Economy.Research, r => r.Field == f));
         foreach (var r in GameData.Economy.Research)
         {
             Assert.True(Research.FieldIndex(r.Field) >= 0, r.Id);
+            Assert.InRange(r.Tier, 1, 5);
+            // Only "later" ideas may need a "later" idea (otherwise it could never be researched).
+            if (!r.Later) Assert.All(r.Needs ?? new List<string>(), n => Assert.False(GameData.Research(n).Later, $"{r.Id} needs later {n}"));
+            foreach (var (good, _) in r.Materials ?? new()) Assert.Contains(Colonies.Goods, g => g.Id == good);
             foreach (var n in r.Needs ?? new List<string>()) Assert.True(GameData.ResearchById.ContainsKey(n), $"{r.Id} needs {n}");
             Assert.False(string.IsNullOrEmpty(r.Unlocks), r.Id);
         }

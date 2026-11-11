@@ -41,7 +41,7 @@ public sealed class ResearchTeam
     public double Scientists { get; set; }
 
     /// <summary>Skill per field, in Research.Fields order. 1 is normal; skills not kept fade back to 1.</summary>
-    public double[] Skill { get; set; } = { 1, 1, 1 };
+    public double[] Skill { get; set; } = { 1, 1, 1, 1, 1, 1 };
 
     /// <summary>The 1-2 fields the team keeps (they don't fade). Empty: it keeps its best field.</summary>
     public List<string> Kept { get; set; } = new();
@@ -63,8 +63,8 @@ public static class Research
 {
     public static TeamsData T => GameData.Economy.Teams ?? new TeamsData();
 
-    public static readonly string[] Fields = { "drives", "weapons", "sensors" };
-    public static readonly string[] FieldNames = { "Drives and ships", "Weapons and defence", "Sensors and industry" };
+    public static readonly string[] Fields = { "drives", "weapons", "defence", "sensors", "industry", "life" };
+    public static readonly string[] FieldNames = { "Drives and hulls", "Weapons", "Defence", "Sensors and signals", "Industry and power", "Life and colonies" };
     private static readonly string[] TeamNames = { "First team", "Second team", "Third team", "Fourth team", "Fifth team" };
 
     public static int FieldIndex(string field) => Array.IndexOf(Fields, field);
@@ -102,6 +102,10 @@ public static class Research
     public static IEnumerable<WorkOrder> QueueOf(World w, Side side, int teamId) =>
         w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Research && o.TeamId == teamId);
 
+    /// <summary>Is this research order the next its team will start (first in its queue)?</summary>
+    public static bool Next(World w, WorkOrder o) =>
+        o.TeamId is int id && QueueOf(w, o.Side, id).FirstOrDefault() == o;
+
     /// <summary>Hours of base work for an idea, after any survey discovery cut.</summary>
     public static double BaseHours(World w, Side side, string id) =>
         GameData.Research(id).Days * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1);
@@ -134,6 +138,28 @@ public static class Research
         return best;
     }
 
+    /// <summary>
+    /// Has the side seen this idea in the web (its name and links show)? Ideas with no needs are always
+    /// seen; others once one of their needs is researched, a spark has brought them into view, or every
+    /// need is researched or queued (so chains can be queued ahead). Others show blurred.
+    /// </summary>
+    public static bool Seen(World w, Side side, string id)
+    {
+        var state = Economy.Of(w, side);
+        var needs = GameData.Research(id).Needs;
+        if (needs is not { Count: > 0 } || state.Researched.Contains(id) || state.Sparked.Contains(id)) return true;
+        if (needs.Any(state.Researched.Contains)) return true;
+        return needs.All(n => state.Researched.Contains(n) || w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == n));
+    }
+
+    /// <summary>Can the idea be researched now (all needs done)? Later ideas never can.</summary>
+    public static bool Open(World w, Side side, string id)
+    {
+        var r = GameData.Research(id);
+        var state = Economy.Of(w, side);
+        return !r.Later && !state.Researched.Contains(id) && (r.Needs ?? new List<string>()).All(state.Researched.Contains);
+    }
+
     /// <summary>Why this idea can't be researched yet (a missing idea it needs), or null.</summary>
     public static string? Missing(World w, Side side, string id)
     {
@@ -160,7 +186,24 @@ public static class Research
     public static void EnsureTeams(World w)
     {
         foreach (var side in new[] { Side.Player, Side.Rival })
+        {
             if (Economy.Of(w, side).Teams.Count == 0) NewTeam(w, side, T.StartScientists);
+            foreach (var team in Economy.Of(w, side).Teams) MapOldFields(team);
+        }
+    }
+
+    /// <summary>
+    /// Saves from before the six fields had three (drives, weapons, sensors): weapons skill carries to
+    /// weapons and defence, sensors skill to sensors, industry and life.
+    /// </summary>
+    public static void MapOldFields(ResearchTeam team)
+    {
+        if (team.Skill.Length == Fields.Length) return;
+        var old = team.Skill;
+        double At(int i) => i < old.Length ? old[i] : 1;
+        team.Skill = old.Length == 3
+            ? new[] { At(0), At(1), At(1), At(2), At(2), At(2) }
+            : Enumerable.Range(0, Fields.Length).Select(At).ToArray();
     }
 
     /// <summary>One game hour of research for a side: each ready team works on the first idea in its queue.</summary>
@@ -189,11 +232,16 @@ public static class Research
             if (!order.Paid)
             {
                 var cost = Economy.CostOf(order);
-                if (state.Industry < cost) continue;
+                var mats = Economy.MaterialsOf(order);
+                var home = Economy.HomeOf(w, side);
+                var shortOf = Economy.MaterialShort(home, mats);
+                order.Waiting = state.Industry < cost ? $"needs {cost - state.Industry:0} more Industry" : shortOf;
+                if (order.Waiting != null) continue;
                 state.Industry -= cost;
                 state.Totals.IndustrySpent += cost;
+                if (home != null) Economy.TakeMaterials(home, mats);
                 order.Paid = true;
-                sim.Log.Info("economy", $"{side} starts {Economy.NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, team = team.Id });
+                sim.Log.Info("economy", $"{side} starts {Economy.NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, team = team.Id, materials = mats });
             }
             order.HoursLeft -= GameTime.HoursPerTick * Speed(team, GameData.Research(order.Key).Field) * Colonies.ResearchBoost(w, side);
             if (order.HoursLeft > 1e-9) continue;
@@ -218,7 +266,7 @@ public static class Research
         var i = FieldIndex(data.Field);
         if (i >= 0) team.Skill[i] = Math.Min(T.MaxSkill, team.Skill[i] + T.SkillPerIdea);
         team.Ideas++;
-        Tech.OnLearn(w, side, id);
+        Tech.OnLearn(sim, side, id);
         Colonies.OnResearched(sim, side, id);
         sim.Log.Info("economy", $"{side} finishes research: {data.Name}", new { side = side.ToString(), id, team = team.Id });
     }
@@ -239,7 +287,9 @@ public static class Research
                 if (b.SurveyHours[i] < T.SurveyHours) continue;
                 b.Surveyed[i] = true;
                 var state = Economy.Of(w, side);
-                var open = GameData.Economy.Research.Where(r => !state.Researched.Contains(r.Id) && !state.Cuts.Contains(r.Id)).ToList();
+                if (Tech.Has(w, side, "rare-element-assays")) Colonies.ExtraDeposit(w, b);
+                Sparks.OnSurvey(sim, side, b);
+                var open = GameData.Economy.Research.Where(r => !r.Later && !state.Researched.Contains(r.Id) && !state.Cuts.Contains(r.Id)).ToList();
                 if (open.Count == 0)
                 {
                     sim.Log.Info("research", $"{side} surveys {b.Name}: nothing new", new { side = side.ToString(), bodyId = b.Id });
@@ -268,12 +318,15 @@ public static class Research
         return null;
     }
 
+    /// <summary>Industry to train a batch of scientists (Scientist training: 30 % cheaper).</summary>
+    public static double TrainCost(World w, Side side) => T.TrainCost * Tech.Factor(w, side, "scientist-training");
+
     public static string? CanTrain(World w, Side side, int teamId)
     {
         if (!w.Loop) return "There is no research in the battle sandbox";
         if (Team(w, side, teamId) is not ResearchTeam team) return "No such team";
         if (team.TrainingUntilHour != null) return "Already training";
-        if (Economy.Of(w, side).Industry < T.TrainCost) return $"Needs {T.TrainCost:0} Industry";
+        if (Economy.Of(w, side).Industry < TrainCost(w, side)) return $"Needs {TrainCost(w, side):0} Industry";
         return null;
     }
 
@@ -303,9 +356,9 @@ public static class Research
     {
         var w = sim.World;
         var team = Team(w, side, teamId)!;
-        Economy.Of(w, side).Industry -= T.TrainCost;
-        Economy.Of(w, side).Totals.IndustrySpent += T.TrainCost;
-        team.TrainingUntilHour = w.Hour + T.TrainDays * 24;
+        Economy.Of(w, side).Industry -= TrainCost(w, side);
+        Economy.Of(w, side).Totals.IndustrySpent += TrainCost(w, side);
+        team.TrainingUntilHour = w.Hour + T.TrainDays * 24 * Tech.Factor(w, side, "scientist-training");
         team.TrainingScientists = T.TrainScientists;
         sim.Log.Info("research", $"{side} trains scientists for {team.Name}", new { side = side.ToString(), team = team.Id, until = team.TrainingUntilHour });
     }
