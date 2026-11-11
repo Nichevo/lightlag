@@ -13,8 +13,10 @@ public static class FireControl
     {
         var w = sim.World;
         if (fleet.FireAt == FireAt.Flagship && Flagships.FlagTarget(sim, ship, range) is Ship flag) return flag;
-        var targets = InReach(w, ship, range);
-        if (targets.Count == 0) return null;
+        var all = InReach(w, ship, range).Where(t => Combat.MayFireAt(w, fleet, t)).ToList();
+        if (all.Count == 0) return null;
+        // Crippled ships are left for last (they can't fire, and they are leaving), unless finishing off.
+        var targets = fleet.FireAt == FireAt.Weakest || all.All(t => t.Crippled) ? all : all.Where(t => !t.Crippled).ToList();
         switch (fleet.FireAt)
         {
             case FireAt.Largest:

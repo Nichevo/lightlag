@@ -263,6 +263,9 @@ public sealed class Ship
     public int FleetId { get; set; }
     public Vec2 Position { get; set; }
     public Vec2 FormationOffset { get; set; }
+
+    /// <summary>When its railguns last found a fleet-mate in the line of fire.</summary>
+    public double BlockedHour { get; set; } = -1e9;
     public double MaxSpeed { get; set; }         // Mm per hour
     public double Accel { get; set; }            // Mm per hour per hour
 

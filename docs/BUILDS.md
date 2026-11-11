@@ -79,3 +79,23 @@ win rate with and without it, and battle win rate and ships lost per battle with
 15 points or more are flagged, choices nobody picked are listed as dead, and rows from fewer than 30 games
 either way are marked thin. Personality and its research list go together, so read research rows next to
 the personality rows.
+
+## The overnight "what matters" report
+
+Before the detail, the summary opens with "What matters tonight", and the same report is written as a
+page, `summary.html`, in the run folder. Targets take one hour of play as about one game year.
+
+- Headline numbers against their targets: battles per game year (2 to 4), battles ending in a wipe (under a
+  third), warships per side at mid-game (6 to 12), contacts that ended before a shot, shipyard days stalled
+  on materials, and games won.
+- How battles ended (wiped out, one side withdrew, both withdrew, drifted apart), the pull-back presets
+  used and how Hold on went; each fight's formation (fights, wins, railgun volleys blocked by the fleet's
+  own ships); and fleet size against results (1, 2, 3-5, 6+ ships: wins, losses, freighters caught).
+- Warships per side over the game (average of both sides at each tenth; `warships` is also a column of the
+  stats CSV).
+- The what-matters table with kind, choice, games, win rate with and without, gap size and flags
+  ("Choice that matters", "Thin: under 30 games", "Dead: never picked"), and suggested next tunes the
+  runner writes from all of the above.
+
+The balance table has one row per personality (Raider, Expander, Turtle, Trader, Hunter, Opportunist;
+profiles in `ai.json`).

@@ -25,8 +25,9 @@ public static class Cli
           replay  <replay.json | save.json> [--until-tick T]
                   Replays a game and checks it matches what was recorded. Exit code 0 = exact.
 
-          ai-trace [--seed S] [--days D] [--every N] [--easy]
+          ai-trace [--seed S] [--days D] [--every N] [--easy] [--economy] [--thoughts]
                   Plays one computer-vs-computer game and prints each side's goal and fleet jobs every N days.
+                  --economy also prints each held planet's buildings and materials, and what the yard waits for; --thoughts its recent thoughts.
 
           logs    <file.jsonl | folder> [--level warn] [--area rule] [--text words] [--seed S] [--days A-B] [--max N]
                   Searches game logs. --level shows that level and worse.

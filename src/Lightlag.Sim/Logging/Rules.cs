@@ -124,6 +124,12 @@ public sealed class RuleBook
             .Concat(w.Light.Reports.Where(r => !double.IsFinite(r.ArriveHour) || r.ArriveHour < r.Snapshot.Hour - 1e-9)
                 .Select(r => $"report on fleet {r.Snapshot.FleetId} arrives at {r.ArriveHour}, before it was made"))
             .Concat(!w.Light.On && (w.Light.InTransit.Count > 0 || w.Picture.Count > 0) ? new[] { "light lag is off but orders or reports are in transit" } : Array.Empty<string>()))
+        // A fleet pulling back over and over within one fight (it was already where it would pull back to).
+        .Add("pull-backs-sane", w => w.Sides.Where(s => s.Totals.PullBacks > 100 + 20 * (s.Totals.Contacts + s.Totals.Battles))
+            .Select(s => $"{s.Side} has pulled back {s.Totals.PullBacks} times in {s.Totals.Contacts} contacts"))
+        // Ships stay in formation: never further from the fleet's centre than its row or column could reach.
+        .Add("formation-tight", w => w.Fleets.SelectMany(f => w.ShipsOf(f).Where(s => s.FormationOffset.Length > Fleets.FormationSpacing * (f.ShipIds.Count + 1))
+            .Select(s => $"{s.Name} sits {s.FormationOffset.Length:0.0} Mm from the centre of {f.Name}")))
         .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>());
 
     private static IEnumerable<string> PlanetsSane(World w)

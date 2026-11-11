@@ -79,6 +79,9 @@ public sealed class PullRule
 public static class BattleRules
 {
     /// <summary>Called for every fleet before it steers (see Combat.Steer).</summary>
+    /// <summary>How much stronger the enemy must be before a small group (see Combat.SmallGroup) slips away on contact.</summary>
+    public const double OutgunnedRatio = 1.5;
+
     public static void Check(Simulation sim, Fleet f, Fleet? enemy)
     {
         var w = sim.World;
@@ -87,7 +90,7 @@ public static class BattleRules
         {
             if (f.FightPower <= 0)
             {
-                f.FightPower = Stats.Power(w, f);
+                f.FightPower = Strength(w, f);
                 f.FightShips = f.ShipIds.Count;
                 f.FightLost = 0;
                 f.FightPulledPower = 0;
@@ -113,7 +116,22 @@ public static class BattleRules
             PullBack(sim, f, $"pulls out ({(ships[0].Crippled ? "crippled" : "badly hurt")})", toYard: true);
             return;
         }
-        if (f.HoldOn) return;
+        if (f.HoldOn)
+        {
+            if (w.ActiveBattle is Battle held && held.For(f.Side).Fleets.Contains(f.Name)) held.For(f.Side).HeldOn = true;
+            return;
+        }
+        // Already in orbit where it would pull back to (its yard): there is nowhere further to go, so it stays.
+        if (NearestYard(w, f.Side, f.Position) is Body yard && Economy.InOrbitAt(f, yard) && f.Flight == null) return;
+        // A lone ship or a pair met by a much stronger enemy slips away at once (small groups get away more easily);
+        // one guarding home or set to fight to the last stays.
+        if (w.Loop && enemy != null && f.ShipIds.Count <= Combat.SmallGroup && rule.Preset != PullPreset.ToTheLast && !f.Retreating
+            && w.Fleets.Where(e => e.Side == enemy.Side && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm).Sum(e => Strength(w, e))
+               > OutgunnedRatio * Math.Max(1e-9, Strength(w, f)))
+        {
+            PullBack(sim, f, "is outgunned and slips away");
+            return;
+        }
         if (Trigger(w, f, rule) is string why) PullBack(sim, f, why);
     }
 
@@ -121,7 +139,10 @@ public static class BattleRules
     public static PullRule Effective(Fleet f) => f.RetreatWhenDamaged ? f.Rule : PullRule.For(PullPreset.ToTheLast);
 
     /// <summary>Strength lost since the fight began (ships that pulled out alone count at what they had left when they went).</summary>
-    public static double StrengthLost(World w, Fleet f) => f.FightPower > 0 ? Math.Clamp(1 - (Stats.Power(w, f) + f.FightPulledPower) / f.FightPower, 0, 1) : 0;
+    public static double StrengthLost(World w, Fleet f) => f.FightPower > 0 ? Math.Clamp(1 - (Strength(w, f) + f.FightPulledPower) / f.FightPower, 0, 1) : 0;
+
+    /// <summary>Fighting strength for the pull-back rule: damage counts, missiles fired don't (low ammunition is its own trigger).</summary>
+    public static double Strength(World w, Fleet f) => w.ShipsOf(f).Sum(s => Stats.ShipPower(w, s, racks: false));
 
     /// <summary>Railgun ammunition and missiles left, across the armed ships (1 with nothing to fire).</summary>
     public static double AmmoShare(World w, Fleet f)
@@ -162,7 +183,7 @@ public static class BattleRules
         if (rule.Escort && w.ShipsOf(f).Where(s => !leaving.Contains(s) && Fitting.Spec(s).PointDefence > 0).OrderBy(s => Fitting.Spec(s).Cost).ThenBy(s => s.Id).FirstOrDefault() is Ship guard
             && f.ShipIds.Count - leaving.Count > 1)
             leaving.Add(guard);
-        var pulled = leaving.Sum(s => Stats.ShipPower(w, s));
+        var pulled = leaving.Sum(s => Stats.ShipPower(w, s, racks: false));
         var group = Split(sim, f, leaving);
         if (group == null) return;
         f.FightPulledPower += pulled;
@@ -271,7 +292,8 @@ public static class BattleRules
     {
         var home = Economy.HomeOf(w, f.Side);
         var at = f.OrbitBodyId is int b ? w.FindBody(b) : null;
-        if (at != null && at.Owner == f.Side && Economy.InOrbitAt(f, at) && (at.Id == home?.Id || at.Shipyard || Economy.Blockaded(w, at) || at.Home)) return "home";
+        if (at != null && at.Owner == f.Side && Economy.InOrbitAt(f, at) && (at.Id == home?.Id || at.Shipyard || at.Home)) return "home";
+        if (at != null && at.Owner == f.Side && Economy.InOrbitAt(f, at) && Economy.Blockaded(w, at)) return "colony";
         if (f.Mission is Mission.Raid or Mission.Ambush or Mission.Hunt) return "raid";
         if (w.ShipsOf(f).All(SupplyLines.IsSupplyShip)) return "support";
         var near = w.Sightings.Where(s => s.SeenBy == f.Side && !s.Own && w.Hour - s.Hour < 12 && Vec2.Distance(s.Position, f.Position) < 0.2 * Physics.MmPerAu).Sum(s => s.Ships);
@@ -282,13 +304,14 @@ public static class BattleRules
     public static string SituationName(string s) => s switch
     {
         "home" => "home defence",
+        "colony" => "colony defence",
         "raid" => "raids",
         "support" => "support ships",
         "outnumbered" => "outnumbered fleets",
         _ => "other fleets",
     };
 
-    /// <summary>Auto's preset for a situation: the side's learned default if any, else raid Cautious, home To the last, else Standard.</summary>
+    /// <summary>Auto's preset for a situation: the side's learned default if any, else raid Cautious, home To the last, a blockaded colony Fight on, else Standard.</summary>
     public static PullPreset AutoPick(World w, Side side, string situation) =>
         Economy.Of(w, side).PullDefaults.TryGetValue(situation, out var p) ? p : BuiltIn(situation);
 
@@ -296,6 +319,7 @@ public static class BattleRules
     public static PullPreset BuiltIn(string situation) => situation switch
         {
             "home" => PullPreset.ToTheLast,
+            "colony" => PullPreset.FightOn,
             "raid" or "support" or "outnumbered" => PullPreset.Cautious,
             _ => PullPreset.Standard,
         };

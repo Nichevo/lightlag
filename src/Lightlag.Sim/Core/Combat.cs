@@ -41,6 +41,13 @@ public sealed class BattleSide
     public double PowerIn { get; set; }
     public List<string> Makeup { get; set; } = new();
     public List<string> Rules { get; set; } = new();
+    /// <summary>Each fleet's formation and mission when it came in, and railgun volleys a fleet-mate blocked.</summary>
+    public List<string> Formations { get; set; } = new();
+    public List<string> Missions { get; set; } = new();
+    public int BlockedVolleys { get; set; }
+    /// <summary>"Hold on" was on for one of its fleets, and freighters this side caught in the fight.</summary>
+    public bool HeldOn { get; set; }
+    public int CargoCaught { get; set; }
     public bool Withdrew { get; set; }
     public bool WithdrewBeforeShots { get; set; }
     public List<string> Fleets { get; set; } = new();
@@ -474,8 +481,22 @@ public static class Combat
         var rail = C.Railgun;
         var railRange = Tech.RailRange(w, ship.Side);
         var reach = fleet.LongShots || AiLongShots(w, fleet) ? Math.Max(railRange, Heat.D.LongRangeMm) : railRange;
-        var target = FireControl.Pick(sim, ship, fleet, railRange) ?? (reach > railRange ? NearestEnemyShip(w, ship, reach) : null);
+        var target = FireControl.Pick(sim, ship, fleet, railRange) ?? (reach > railRange ? NearestEnemyShip(w, ship, reach, fleet) : null);
         if (target == null) return;
+        // Railguns need a clear line: with a fleet-mate in the way, try another target in reach, else hold fire a little.
+        if (Formations.Blocked(w, ship, target))
+        {
+            var clear = FireControl.InReach(w, ship, railRange).Where(t => MayFireAt(w, fleet, t) && !Formations.Blocked(w, ship, t))
+                .OrderBy(t => t.Crippled ? 1 : 0).ThenBy(t => Vec2.Distance(ship.Position, t.Position)).ThenBy(t => t.Id).FirstOrDefault();
+            if (clear == null)
+            {
+                ship.BlockedHour = t1;
+                battle.For(ship.Side).BlockedVolleys++;
+                ship.RailsReadyHour = t1 + rail.ReloadSeconds * 0.5 / 3600;
+                return;
+            }
+            target = clear;
+        }
         target = Flagships.Screened(sim, target);
         var dist = Vec2.Distance(ship.Position, target.Position);
         var longShot = dist > railRange;
@@ -543,7 +564,7 @@ public static class Combat
         var launch = Heat.LaunchRange(fleet);
         var target = (fleet.FireAt == FireAt.Flagship ? Flagships.FlagTarget(sim, ship, launch) : null)
                      ?? (fleet.FireAt is FireAt.Largest or FireAt.Weakest ? FireControl.Pick(sim, ship, fleet, launch) : null)
-                     ?? SalvoTarget(w, ship, launch);
+                     ?? SalvoTarget(w, ship, launch, fleet);
         if (target == null) return;
         target.LastTargetedHour = t1;
         battle.Action(t1);
@@ -636,8 +657,9 @@ public static class Combat
         var pd = C.PointDefence;
 
         // Point defence: every working mount in the target's fleet gets shots while the missile crosses its range.
+        // Point defence covers fleet-mates close by fully, those further out of the formation less.
         var mounts = w.ShipsOf(targetFleet).Where(s => !s.Out(Module.PointDefence))
-            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1) * Wounds.DefenceFactor(s));
+            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1) * Wounds.DefenceFactor(s) * Formations.PdCover(s, target));
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)
@@ -705,6 +727,12 @@ public static class Combat
     {
         var w = sim.World;
         if (w.FleetOf(target) is Fleet tf && Heat.RadiatorsOut(w, tf, target)) amount *= Heat.D.RadiatorsOutDamage;
+        // A ship with its shield down close to a fleet-mate with shield emitters: that shield takes part of the hit.
+        if (Formations.ShieldCover(w, target) is Ship cover)
+        {
+            var share = amount * Formations.D.ShieldShare;
+            amount = amount - share + Heat.Absorb(cover, share, missile, battle);
+        }
         amount = Heat.Absorb(target, amount, missile, battle);
         battle.For(by).DamageDealt += amount;
         if (w.Loop) Economy.Of(w, by).Totals.DamageDealt += amount;
@@ -791,6 +819,8 @@ public static class Combat
                     battle.For(f.Side).PowerIn += Stats.Power(w, f);
                     battle.For(f.Side).Makeup.AddRange(w.ShipsOf(f).Select(s => s.ClassId));
                     battle.For(f.Side).Rules.Add(f.Rule.Preset.ToString());
+                    battle.For(f.Side).Formations.Add(Formations.Shape(w, f).ToString());
+                    battle.For(f.Side).Missions.Add(f.Mission != Mission.None ? f.Mission.ToString() : Mind.Of(w, f.Side)?.JobOf(f.Id)?.Kind.ToString() ?? "None");
                 }
             foreach (var f in new[] { a, b })
                 if (!battle.For(f.Side).Flagship && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id)
@@ -869,9 +899,9 @@ public static class Combat
     /// off, so salvos spread over a fleet instead of all chasing one ship that dies before most arrive.
     /// When every ship in reach is already covered, the nearest one.
     /// </summary>
-    private static Ship? SalvoTarget(World w, Ship ship, double range)
+    private static Ship? SalvoTarget(World w, Ship ship, double range, Fleet fleet)
     {
-        var nearest = NearestEnemyShip(w, ship, range);
+        var nearest = NearestEnemyShip(w, ship, range, fleet);
         if (nearest == null) return null;
         var inbound = w.Missiles.Where(x => x.Side == ship.Side).GroupBy(x => x.TargetShipId).ToDictionary(g => g.Key, g => g.Count());
         var seen = w.Fleets.Where(f => f.Side != ship.Side && Sensors.Sees(w, ship.Side, f)).Select(f => f.Id).ToHashSet();
@@ -879,7 +909,7 @@ public static class Combat
         var bestD = range;
         foreach (var s in w.Ships)
         {
-            if (s.Side == ship.Side || !seen.Contains(s.FleetId)) continue;
+            if (s.Side == ship.Side || !seen.Contains(s.FleetId) || !MayFireAt(w, fleet, s) || s.Crippled && !nearest.Crippled) continue;
             var d = Vec2.Distance(s.Position, ship.Position);
             if (d > bestD) continue;
             // Roughly a third of missiles get through point defence: enough inbound to kill it covers it.
@@ -914,22 +944,38 @@ public static class Combat
         return best;
     }
 
-    private static Ship? NearestEnemyShip(World w, Ship ship, double range) =>
-        NearestShipOfSide(w, Other(ship.Side), ship.Position, range);
-
-    /// <summary>The nearest ship of a side that the other side can see, within range.</summary>
-    private static Ship? NearestShipOfSide(World w, Side side, Vec2 at, double range)
+    /// <summary>The nearest enemy ship this fleet may fire at, within range: healthy ships before crippled ones.</summary>
+    private static Ship? NearestEnemyShip(World w, Ship ship, double range, Fleet fleet)
     {
         Ship? best = null;
         var bestD = range;
-        var seen = w.Fleets.Where(f => f.Side == side && Sensors.Sees(w, Other(side), f)).Select(f => f.Id).ToHashSet();
+        var bestCrippled = true;
+        var side = Other(ship.Side);
+        var seen = w.Fleets.Where(f => f.Side == side && Sensors.Sees(w, ship.Side, f)).Select(f => f.Id).ToHashSet();
         foreach (var s in w.Ships)
         {
-            if (s.Side != side || !seen.Contains(s.FleetId)) continue;
-            var d = Vec2.Distance(s.Position, at);
-            if (d <= bestD) { best = s; bestD = d; }
+            if (s.Side != side || !seen.Contains(s.FleetId) || !MayFireAt(w, fleet, s)) continue;
+            var d = Vec2.Distance(s.Position, ship.Position);
+            if (d > range) continue;
+            if (best == null || (bestCrippled && !s.Crippled) || (s.Crippled == bestCrippled && d <= bestD)) { best = s; bestD = d; bestCrippled = s.Crippled; }
         }
         return best;
+    }
+
+    /// <summary>
+    /// Whether a fleet's guns may go for this ship. Breaking off is mutual: a fleet pulling back holds its
+    /// fire and is let go, unless one of the two is chasing the other (or the shooter is set to finish off).
+    /// </summary>
+    /// <summary>A group this small disengages more easily (see MayFireAt) and is what raiders send out.</summary>
+    public const int SmallGroup = 2;
+
+    public static bool MayFireAt(World w, Fleet shooter, Ship target)
+    {
+        if (w.FleetOf(target) is not Fleet them) return true;
+        // A pulling-back fleet is let go unless chased, or finished off; one or two ships slip away even then, unless chased.
+        if (them.Retreating && shooter.Chase?.TargetFleetId != them.Id && (shooter.FireAt != FireAt.Weakest || them.ShipIds.Count <= SmallGroup)) return false;
+        if (shooter.Retreating && them.Chase?.TargetFleetId != shooter.Id) return false;
+        return true;
     }
 
     public static bool HasWorking(World w, Fleet f, Module m) => w.ShipsOf(f).Any(s => !s.Out(m) && m switch
