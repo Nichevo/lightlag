@@ -290,7 +290,10 @@ public static class BattleRules
 
     /// <summary>Auto's preset for a situation: the side's learned default if any, else raid Cautious, home To the last, else Standard.</summary>
     public static PullPreset AutoPick(World w, Side side, string situation) =>
-        Economy.Of(w, side).PullDefaults.TryGetValue(situation, out var p) ? p : situation switch
+        Economy.Of(w, side).PullDefaults.TryGetValue(situation, out var p) ? p : BuiltIn(situation);
+
+    /// <summary>The built-in preset for a situation (before anything is learned).</summary>
+    public static PullPreset BuiltIn(string situation) => situation switch
         {
             "home" => PullPreset.ToTheLast,
             "raid" or "support" or "outnumbered" => PullPreset.Cautious,

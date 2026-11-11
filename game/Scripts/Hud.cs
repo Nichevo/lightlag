@@ -256,8 +256,10 @@ public partial class Hud : CanvasLayer
             var tipped = Planets.Tipped(w, Side.Player) ? " TIPPED" : Planets.Tipped(w, Side.Rival) ? " (rival tipped)" : "";
             _empireButton.Text = $"Industry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/day) · planets {held}/{Economy.Claimable(w).Count()}"
                                  + $" · people {Planets.PopulationOf(w, Side.Player):0}k · control {control:P0}{tipped}"
-                                 + (attacked ? " · SHIPYARD UNDER ATTACK" : "") + " · Empire ▾";
-            _empireButton.Modulate = attacked ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
+                                 + (attacked ? " · SHIPYARD UNDER ATTACK" : "")
+                                 + (me.Needs.Count > 0 ? $" · {me.Needs.Count} need you" : "") + " · Empire ▾";
+            var urgent = me.Needs.Any(n => n.Level == NeedLevel.Urgent);
+            _empireButton.Modulate = attacked || urgent ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
         }
         _researchButton.Visible = w.Loop;
         if (w.Loop) _researchButton.Text = ResearchLine(w);

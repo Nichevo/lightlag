@@ -220,6 +220,7 @@ public partial class MapView : Node2D
         foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
         if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
             DrawRoute(pf, preview, true, Preview.Ok);
+        DrawLanesAndZones();
         DrawPlannerWaypoints();
         if (Engagement == null && SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
         RecordTracks();

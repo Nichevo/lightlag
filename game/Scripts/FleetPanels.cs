@@ -85,7 +85,7 @@ public partial class FleetPanel : PanelContainer
         box.AddChild(_status);
         _shipList = new VBoxContainer();
         box.AddChild(_shipList);
-        _barsKey = Ui.Label("bars: armour · fuel · ammo · heat (hover a ship for numbers)", 11, Ui.Dim);
+        _barsKey = Ui.Label("bars: hull · weapons · engines · defence · crew | fuel (hover a ship for numbers)", 11, Ui.Dim);
         box.AddChild(_barsKey);
         _buttons = new HBoxContainer();
         _buttons.AddThemeConstantOverride("separation", 4);
@@ -124,6 +124,8 @@ public partial class FleetPanel : PanelContainer
         _orders.AddChild(_stance);
         _orders.AddChild(_retreat);
         box.AddChild(_orders);
+        _rules = new FleetRules(_screen);
+        box.AddChild(_rules);
 
         // Mission and autonomy: what the fleet does without orders, and how much it decides when cut off.
         _missionRow = new HBoxContainer();
@@ -298,6 +300,7 @@ public partial class FleetPanel : PanelContainer
     private static bool _tucked, _showInfo, _showMore;
     private Button _infoButton = null!, _moreButton = null!, _tuckButton = null!, _fittings = null!;
     private Label _barsKey = null!;
+    private FleetRules _rules = null!;
 
     private Button HeaderToggle(string text, string tip, Action flip)
     {
@@ -521,9 +524,12 @@ public partial class FleetPanel : PanelContainer
             if (s.Disabled is Module m) bits.Add($"{Combat.ModuleName(m)} out");
             if (Light.Flagship(w, s.Side)?.Id == s.Id) bits.Insert(0, "FLAGSHIP");
             // Bars for the everyday numbers; words only for what needs attention. The tooltip has it all.
-            var ammo = mine && SupplyLines.MaxAmmo(s) > 0 ? s.Ammo / SupplyLines.MaxAmmo(s) : -1;
-            row.Bars.Set((armour, armour < 0.5 ? Ui.Danger : new Color("7fd67f")), (share, share < 0.2 ? Ui.Danger : new Color("5fb0ff")),
-                (ammo, ammo is >= 0 and < 0.2 ? Ui.Danger : new Color("e6c95a")), (mine ? heat : -1, s.Overheated || heat >= 0.75 ? Ui.Danger : new Color("ff9a4d")));
+            // Five damage bars (hull, weapons, engines, defence, crew), then fuel.
+            Color Bar(double v) => v < 0.35 ? Ui.Danger : v < 0.7 ? Ui.Rival : new Color("7fd67f");
+            row.Bars.Set((armour, Bar(armour)), (s.Weapons, Bar(s.Weapons)), (s.Engines, Bar(s.Engines)), (s.Defence, Bar(s.Defence)), (s.Crew, Bar(s.Crew)),
+                (mine ? share : -1, share < 0.2 ? Ui.Danger : new Color("5fb0ff")));
+            bits.Add($"weapons {s.Weapons:P0} · engines {s.Engines:P0} · defence {s.Defence:P0} · crew {s.Crew:P0}");
+            if (s.Crippled) bits.Insert(0, "CRIPPLED");
             var tip = $"{s.Name}: " + string.Join(" · ", bits);
             row.Bars.TooltipText = tip;
             row.Box.TooltipText = tip;
@@ -531,6 +537,7 @@ public partial class FleetPanel : PanelContainer
             if (Light.Flagship(w, s.Side)?.Id == s.Id) alerts.Add("FLAG");
             if (mine && SupplyLines.Hungry(s)) alerts.Add("HUNGRY");
             if (s.Overheated) alerts.Add("HOT");
+            if (s.Crippled) alerts.Add("CRIPPLED");
             if (s.Disabled is Module dm) alerts.Add($"{Combat.ModuleName(dm)} out");
             if (cls.Missiles > 0) alerts.Add($"{s.Missiles}m");
             row.Supplies.Text = string.Join(" ", alerts);
@@ -555,6 +562,8 @@ public partial class FleetPanel : PanelContainer
         _tuckButton.Text = _tucked ? "▸ Open" : "◂ Tuck";
         _buttons.Visible = mine && open;
         _orders.Visible = mine && open;
+        _rules.Visible = mine && open && sim.World.Loop;
+        if (_rules.Visible) _rules.Refresh(sim.World, f);
         _engagementButton.Visible = mine && open && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
         _supplyRun.Visible &= open;
         _planetRow.Visible &= open;
@@ -745,12 +754,12 @@ public partial class FleetPanel : PanelContainer
 /// <summary>A ship's armour, fuel, ammunition and heat as four small bars (a value below 0 draws an empty slot).</summary>
 public partial class ShipBars : Control
 {
-    private const float W = 20, Gap = 3, H = 7;
+    private const float W = 14, Gap = 3, H = 7;
     private (float Value, Color Color)[] _bars = Array.Empty<(float, Color)>();
 
     public ShipBars()
     {
-        CustomMinimumSize = new Vector2(4 * W + 3 * Gap, 16);
+        CustomMinimumSize = new Vector2(6 * W + 5 * Gap, 16);
         MouseFilter = MouseFilterEnum.Pass;
         SizeFlagsVertical = SizeFlags.ShrinkCenter;
     }

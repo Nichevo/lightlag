@@ -426,9 +426,20 @@ public partial class ResearchScreen : PanelContainer
             CustomMinimumSize = new Vector2(width, width * 12 / 35), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore,
         };
         if (state == IdeaState.Locked) pic.Modulate = new Color(0.4f, 0.45f, 0.55f);
-        var tag = Ui.Label(Research.FieldName(r.Field), 11, new Color("aab4c3"));
+        // The field, and pips for how far along its line the idea is (tier).
+        var tag = Ui.Label($"{Research.FieldName(r.Field)}  {new string('●', Math.Clamp(r.Tier, 1, 5))}", 11, new Color("aab4c3"));
         tag.Position = new Vector2(8, 6);
+        tag.TooltipText = $"Tier {r.Tier}";
         pic.AddChild(tag);
+        if (Economy.Of(w, Side.Player).Sparked.Contains(r.Id))
+        {
+            // A spark: something that happened in the game (a find, a hardship, a capture) brought this idea on.
+            var spark = Ui.Label("✦ sparked", 11, new Color("ffd27a"));
+            spark.Position = new Vector2(width - 74, 6);
+            spark.TooltipText = Economy.Of(w, Side.Player).SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "Something in the game brought this idea on";
+            spark.MouseFilter = MouseFilterEnum.Pass;
+            pic.AddChild(spark);
+        }
         v.AddChild(pic);
 
         var body = new MarginContainer();

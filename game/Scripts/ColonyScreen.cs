@@ -423,7 +423,7 @@ public partial class ColonyScreen : PanelContainer
         var col = Column(4);
         col.AddChild(Ui.Label(data.Name, 16, BoardView.AreaColors.GetValueOrDefault(data.Area, Ui.Text)));
         col.AddChild(Wrap(data.Effect, 13, Ui.Dim));
-        col.AddChild(LiveWrap(w2 => !p.Built ? $"Being built: {p.HoursLeft / 24:0.#} days left"
+        col.AddChild(LiveWrap(w2 => !p.Built ? $"Being built: {p.HoursLeft / 24:0.#} days left" + (Colonies.MaterialShort(b, p) is string waits ? $" · WAITING: {waits}" : "")
             : $"Output {Colonies.Output(w2, b, p):P0} · staff {p.Staff:P0} · {(p.Powered ? "powered" : "NO POWER")} · condition {p.Condition:P0}"
               + (p.Level > 0 ? $" · level {p.Level + 1}" : "") + (p.RefitHoursLeft > 0 ? $" · refit {p.RefitHoursLeft / 24:0.#} d" : "")
               + (Colonies.BonusFor(b, p) > 0 ? $" · bonus +{Colonies.BonusFor(b, p):P0}" : "")
@@ -446,6 +446,16 @@ public partial class ColonyScreen : PanelContainer
         filters.AddChild(Pick(new[] { ("", "All areas") }.Concat(Colonies.Areas.Where(a => a != "shipyard").Select(a => (a, Colonies.AreaName(a)))).ToList(), _area, k => _area = k, "Show one area"));
         filters.AddChild(Pick(BuildSorts.Select(s => (s, "By " + s)).ToList(), _buildSort, k => _buildSort = k, "Order of the list"));
         col.AddChild(filters);
+        // This planet's own automation level for buildings (or the Empire screen's level for the area).
+        var own = Economy.Of(w, Side.Player).AutoOverrides.Find(o => o.Area == AutoArea.Building && o.BodyId == b.Id && o.FleetId == null);
+        var autoRow = Row(6);
+        autoRow.AddChild(Ui.Label("Automation", 13, Ui.Dim));
+        var levels = new List<(string, string)> { ("", $"As the empire ({Stewards.LevelFor(w, Side.Player, AutoArea.Building)})") }
+            .Concat(Enum.GetValues<AutoLevel>().Select(l => (l.ToString(), l.ToString()))).ToList();
+        autoRow.AddChild(Pick(levels, own?.Level.ToString() ?? "", k => _screen.IssueNow(new SetAutoLevelCommand(Side.Player, AutoArea.Building,
+            k == "" ? null : Enum.Parse<AutoLevel>(k), b.Id), "planet automation"),
+            "Auto lays down this planet's buildings, Advise suggests them under Needs you, Manual leaves them to you"));
+        col.AddChild(autoRow);
         var only = new CheckBox { Text = "Only what I can build here", ButtonPressed = _onlyHere, FocusMode = FocusModeEnum.None };
         only.AddThemeFontSizeOverride("font_size", 13);
         only.Toggled += on => _onlyHere = on;
@@ -471,7 +481,8 @@ public partial class ColonyScreen : PanelContainer
             var power = k.Power < 0 ? $"+{-k.Power:0} power" : k.Power > 0 ? $"{k.Power:0} power" : "no power";
             var button = new Button
             {
-                Text = $"{k.Name}  {k.W}×{k.H}\n{k.Cost:0} Ind · {k.Days:0} d · {k.StaffK:0.#}k staff · {power}",
+                Text = $"{k.Name}  {k.W}×{k.H}\n{k.Cost:0} Ind · {k.Days:0} d · {k.StaffK:0.#}k staff · {power}"
+                       + (k.Materials is { Count: > 0 } mats ? "\n" + string.Join(", ", mats.Select(m => $"{m.Value:0} {Colonies.GoodName(m.Key).ToLowerInvariant()}")) : ""),
                 Alignment = HorizontalAlignment.Left, FocusMode = FocusModeEnum.None, ToggleMode = true, ButtonPressed = _placing == k.Id,
                 Disabled = why != null, SizeFlagsHorizontal = SizeFlags.ExpandFill,
                 TooltipText = (why != null ? why + ". " : "") + k.Effect + $". Goes on {TerrainName(k.Terrain)}. Upkeep {k.Upkeep:0.##} spare parts a day."
