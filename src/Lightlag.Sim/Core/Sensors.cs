@@ -128,7 +128,7 @@ public static class Sensors
     public static double CueRadius(Sighting s, double hour) => S.CueRadiusMm + S.CueGrowthMmPerHour * Math.Max(0, hour - s.Hour);
 
     /// <summary>How close one of this side's fleets or planets must be to tell an enemy ship's class.</summary>
-    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.Factor(w, side, Tech.LongSensors);
+    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.Factor(w, side, Tech.LongSensors) * Tech.Factor(w, side, Tech.SignalsAnalysis);
 
     public static List<string> ClassesOf(World w, Fleet f) => w.ShipsOf(f).Select(s => s.ClassId).OrderBy(c => c, StringComparer.Ordinal).ToList();
 

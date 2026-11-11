@@ -122,6 +122,10 @@ public sealed class Body
     /// <summary>The side holding orbit here to claim it, and for how long so far.</summary>
     public Side? ClaimSide { get; set; }
     public double ClaimHours { get; set; }
+
+    /// <summary>Per side (Player, Rival): hours spent in orbit here towards a survey, and whether it is done (see Research.Surveys).</summary>
+    public double[] SurveyHours { get; set; } = { 0, 0 };
+    public bool[] Surveyed { get; set; } = { false, false };
 }
 
 /// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>

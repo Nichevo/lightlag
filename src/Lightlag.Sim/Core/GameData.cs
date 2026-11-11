@@ -155,7 +155,13 @@ public static class GameData
         {
             if (!ids.Add(r.Id)) throw new InvalidDataException($"economy.json: research '{r.Id}' is listed twice");
             if (!(r.Cost > 0 && r.Days > 0 && r.Factor > 0)) throw new InvalidDataException($"economy.json: research '{r.Id}' needs cost, days and factor above 0");
+            if (Array.IndexOf(Core.Research.Fields, r.Field) < 0) throw new InvalidDataException($"economy.json: research '{r.Id}' has unknown field '{r.Field}'");
         }
+        foreach (var r in e.Research)
+            foreach (var need in r.Needs ?? new List<string>())
+                if (!ids.Contains(need) || need == r.Id) throw new InvalidDataException($"economy.json: research '{r.Id}' needs unknown '{need}'");
+        if (e.Teams is { } t && !(t.Slots >= 1 && t.StartScientists > 0 && t.BaseScientists > 0 && t.MaxSkill >= 1 && t.SurveyCut is >= 0 and < 1))
+            throw new InvalidDataException("economy.json: teams needs slots of at least 1, scientists above 0, maxSkill of at least 1 and surveyCut in [0, 1)");
         return e;
     }
 

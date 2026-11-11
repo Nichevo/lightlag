@@ -38,7 +38,7 @@ public static class Heat
 
     public static double Capacity(Ship s) => GameData.ShipClass(s.ClassId).HeatCapacity;
 
-    public static double MaxShield(World w, Ship s) => GameData.ShipClass(s.ClassId).Shield * Tech.Factor(w, s.Side, Tech.DeflectorGrid);
+    public static double MaxShield(World w, Ship s) => GameData.ShipClass(s.ClassId).Shield * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3);
 
     /// <summary>Is this fleet in the battle being fought (so Auto radiators are in)?</summary>
     public static bool InBattle(World w, Fleet f) => w.ActiveBattle is Battle b && b.For(f.Side).Fleets.Contains(f.Name);
@@ -293,7 +293,7 @@ public sealed record DropMissilesCommand(int FleetId, double WaitHours) : GameCo
                 {
                     Id = world.NextId++, Side = ship.Side, FromShipId = ship.Id, TargetShipId = 0,
                     Position = ship.Position + new Vec2(0.3 * i, -0.3 * i), Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
-                    Brain = Math.Clamp(world.MissileBrain[(int)ship.Side], 1, 2),
+                    Brain = Math.Clamp(world.MissileBrain[(int)ship.Side], 1, 4),
                     WakeHour = world.Hour + wait, ExpiresHour = world.Hour + wait + d.DropWaitHoursMax,
                 });
                 count++;

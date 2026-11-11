@@ -7,11 +7,18 @@ namespace Lightlag.Sim.Core;
 public sealed record ShipyardData(double Armour, double RepairPerDay, double RailDamagePerHour, double RailSuppliesPerHour,
     double MissileDamage, double MissileEveryHours);
 
-/// <summary>One research upgrade. What Factor does depends on the upgrade (see Tech).</summary>
-public sealed record ResearchData(string Id, string Name, string Effect, double Cost, double Days, double Factor);
+/// <summary>
+/// One research idea. What Factor does depends on the idea (see Tech). Field is the team skill it uses
+/// and grows; Needs lists ideas that must be researched (or queued) first; Unlocks groups ideas for the
+/// research screen's filters (hulls, engines, weapons, defence, supply, sensors, industry); Picture names
+/// the drawing on its card.
+/// </summary>
+public sealed record ResearchData(string Id, string Name, string Effect, double Cost, double Days, double Factor,
+    string Field = "drives", List<string>? Needs = null, string Unlocks = "", string Picture = "", string Description = "");
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
-    ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1);
+    ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
+    TeamsData? Teams = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days);
@@ -37,6 +44,14 @@ public sealed class SideState
     public Side Side { get; set; }
     public double Industry { get; set; }
     public List<string> Researched { get; set; } = new();
+
+    /// <summary>Research teams (see Research). The first is made when the game starts.</summary>
+    public List<ResearchTeam> Teams { get; set; } = new();
+    public int TeamsFounded { get; set; }
+
+    /// <summary>Ideas a survey find has sped up, and the finds themselves (for the discovery web).</summary>
+    public List<string> Cuts { get; set; } = new();
+    public List<SurveyFind> Finds { get; set; } = new();
 
     /// <summary>The ship command sits on (see Light); null once none is left.</summary>
     public int? FlagshipId { get; set; }
@@ -75,6 +90,9 @@ public sealed class WorkOrder
 
     /// <summary>Ship orders: the fleet the new ship flies out to join (null: the fleet at the shipyard).</summary>
     public int? JoinFleetId { get; set; }
+
+    /// <summary>Research orders: the team working on it. HoursLeft counts base hours; a team gets through Research.Speed of them an hour.</summary>
+    public int? TeamId { get; set; }
     public double HoursLeft { get; set; }
     public double TotalHours { get; set; }
 }
@@ -104,7 +122,38 @@ public static class Tech
     /// <summary>The upgrade's factor once researched, otherwise 1.</summary>
     public static double Factor(World w, Side side, string id) => Has(w, side, id) ? GameData.Research(id).Factor : 1;
 
-    public static double MaxArmour(World w, Ship s) => GameData.ShipClass(s.ClassId).Armour * Factor(w, s.Side, HeavyArmour);
+    public const string ArmourMk3 = "armour-mk3";
+    public const string MissileBrain3 = "missile-brain-3";
+    public const string MissileBrain4 = "missile-brain-4";
+    public const string PointDefence3 = "point-defence-3";
+    public const string CounterMissiles = "counter-missiles";
+    public const string Spoofing = "spoofing";
+    public const string RailgunMk3 = "railgun-mk3";
+    public const string ShieldsMk3 = "shields-mk3";
+    public const string FastShipyard = "fast-shipyard";
+    public const string SignalsAnalysis = "signals-analysis";
+    public const string LargeTanks = "large-tanks";
+    public const string EngineMk2 = "engine-mk2";
+    public const string EngineMk3 = "engine-mk3";
+    public const string EscortHull = "escort-hull";
+    public const string CruiserHull = "cruiser-hull";
+    public const string TankerHull = "tanker-hull";
+    public const string FreighterHull = "freighter-hull";
+    public const string FoodRecyclers = "food-recyclers";
+    public const string EfficientUpkeep = "efficient-upkeep";
+
+    /// <summary>Missile guidance level from research: 1, or the highest brain researched.</summary>
+    public static int MissileBrain(World w, Side side) =>
+        Has(w, side, MissileBrain4) ? 4 : Has(w, side, MissileBrain3) ? 3 : Has(w, side, MissileBrain2) ? 2 : 1;
+
+    /// <summary>What finishing an idea changes at once.</summary>
+    public static void OnLearn(World w, Side side, string id)
+    {
+        if (id is MissileBrain2 or MissileBrain3 or MissileBrain4)
+            w.MissileBrain[(int)side] = Math.Max(w.MissileBrain[(int)side], MissileBrain(w, side));
+    }
+
+    public static double MaxArmour(World w, Ship s) => GameData.ShipClass(s.ClassId).Armour * Factor(w, s.Side, HeavyArmour) * Factor(w, s.Side, ArmourMk3);
 
     public static double SuppliesPerDeltaV(World w, Ship s) =>
         GameData.ShipClass(s.ClassId).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives);
@@ -139,9 +188,9 @@ public static class Economy
         ? GameData.ShipClass(o.Key).Cost
         : GameData.Research(o.Key).Cost;
 
-    public static double HoursFor(OrderKind kind, string key) => kind == OrderKind.Ship
-        ? GameData.ShipClass(key).Cost / E.BuildIndustryPerDay * 24
-        : GameData.Research(key).Days * 24;
+    public static double HoursFor(World w, Side side, OrderKind kind, string key) => kind == OrderKind.Ship
+        ? GameData.ShipClass(key).Cost / (E.BuildIndustryPerDay * Tech.Factor(w, side, Tech.FastShipyard)) * 24
+        : Research.BaseHours(w, side, key);
 
     public static string NameOf(WorkOrder o) => o.Kind == OrderKind.Ship ? GameData.ShipClass(o.Key).Name : GameData.Research(o.Key).Name;
 
@@ -207,29 +256,32 @@ public static class Economy
     {
         var w = sim.World;
         if (!w.Loop || w.Winner != null) return;
+        Research.EnsureTeams(w);
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
             var earned = IncomePerDay(w, side) / 24;
             Of(w, side).Industry += earned;
             Of(w, side).Totals.IndustryEarned += earned;
-            Work(sim, side, OrderKind.Ship);
-            Work(sim, side, OrderKind.Research);
+            Work(sim, side);
+            Research.Work(sim, side);
         }
+        Research.Surveys(sim);
         Claims(sim);
         LoseStations(sim);
         Bombard(sim);
         CheckWin(sim);
     }
 
-    private static void Work(Simulation sim, Side side, OrderKind kind)
+    private static void Work(Simulation sim, Side side)
     {
+        const OrderKind kind = OrderKind.Ship;
         var w = sim.World;
         var order = w.Orders.Find(o => o.Side == side && o.Kind == kind);
         if (order == null) return;
         var yard = ShipyardOf(w, side);
-        if (kind == OrderKind.Ship && yard == null) return;
+        if (yard == null) return;
         // An enemy fleet in orbit over the shipyard blockades it: nothing is launched, the build waits.
-        if (kind == OrderKind.Ship && Blockaded(w, yard!))
+        if (Blockaded(w, yard))
         {
             if (order.Paid && !order.Blockaded) sim.Log.Info("economy", $"{side} shipyard is blockaded: building paused", new { side = side.ToString(), order.Id });
             order.Blockaded = true;
@@ -250,16 +302,7 @@ public static class Economy
         order.HoursLeft -= GameTime.HoursPerTick;
         if (order.HoursLeft > 1e-9) return;
         w.Orders.Remove(order);
-        if (kind == OrderKind.Ship) Launch(sim, side, order.Key, order.JoinFleetId);
-        else Learn(sim, side, order.Key);
-    }
-
-    private static void Learn(Simulation sim, Side side, string id)
-    {
-        var w = sim.World;
-        Of(w, side).Researched.Add(id);
-        if (id == Tech.MissileBrain2) w.MissileBrain[(int)side] = Math.Max(w.MissileBrain[(int)side], 2);
-        sim.Log.Info("economy", $"{side} finishes research: {GameData.Research(id).Name}", new { side = side.ToString(), id });
+        Launch(sim, side, order.Key, order.JoinFleetId);
     }
 
     /// <summary>
@@ -503,7 +546,7 @@ public static class Economy
     }
 
     /// <summary>Why this order can't be queued, or null if it can.</summary>
-    public static string? CanQueue(World w, Side side, OrderKind kind, string key)
+    public static string? CanQueue(World w, Side side, OrderKind kind, string key, int? teamId = null)
     {
         if (!w.Loop) return "There is no economy in the battle sandbox";
         if (w.Winner != null) return "The game is over";
@@ -516,6 +559,8 @@ public static class Economy
         if (!GameData.ResearchById.ContainsKey(key)) return $"Unknown research '{key}'";
         if (Of(w, side).Researched.Contains(key)) return "Already researched";
         if (w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == key)) return "Already in the queue";
+        if (Research.Missing(w, side, key) is string missing) return missing;
+        if (teamId is int t && Research.Team(w, side, t) == null) return "No such team";
         return null;
     }
 }
@@ -523,20 +568,22 @@ public static class Economy
 // ---- Commands -------------------------------------------------------------------------------
 
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
-public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null) : GameCommand
+public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null) : GameCommand
 {
     /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
     public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
 
     public override void Apply(World world, Simulation sim)
     {
-        if (Economy.CanQueue(world, Side, Kind, Key) is string problem)
+        if (Kind == OrderKind.Research) Research.EnsureTeams(world);
+        if (Economy.CanQueue(world, Side, Kind, Key, TeamId) is string problem)
         {
             sim.Log.Warn("economy", $"Can't queue {Key}: {problem}", new { side = Side.ToString(), Kind, Key, Source });
             return;
         }
-        var order = new WorkOrder { Id = world.NextId++, Side = Side, Kind = Kind, Key = Key, TotalHours = Economy.HoursFor(Kind, Key) };
+        var order = new WorkOrder { Id = world.NextId++, Side = Side, Kind = Kind, Key = Key, TotalHours = Economy.HoursFor(world, Side, Kind, Key) };
         if (Kind == OrderKind.Ship && JoinFleetId is int j && world.FindFleet(j)?.Side == Side) order.JoinFleetId = j;
+        if (Kind == OrderKind.Research) order.TeamId = TeamId ?? Research.BestTeamFor(world, Side, Key)?.Id;
         order.HoursLeft = order.TotalHours;
         world.Orders.Add(order);
         sim.Log.Info("economy", $"{Side} queues {Economy.NameOf(order)}", new { side = Side.ToString(), order.Id, Kind, Key, Source });

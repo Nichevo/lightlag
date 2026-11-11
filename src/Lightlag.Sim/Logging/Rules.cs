@@ -50,6 +50,7 @@ public sealed class RuleBook
     /// <summary>The rules every game uses.</summary>
     public static RuleBook Default() => new RuleBook()
         .Add("time-not-negative", w => w.Tick < 0 ? new[] { $"tick is {w.Tick}" } : Array.Empty<string>())
+        .Add("research-teams-sane", ResearchTeamsSane)
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)
@@ -158,5 +159,22 @@ public sealed class RuleBook
             if (Math.Abs(r - b.OrbitRadius) > Math.Max(1e-6, b.OrbitRadius * 1e-6))
                 yield return $"body {b.Id} {b.Name} is {r:0.###} Mm from {parent.Name}, orbit says {b.OrbitRadius:0.###}";
         }
+    }
+
+    private static IEnumerable<string> ResearchTeamsSane(World w)
+    {
+        var t = Research.T;
+        foreach (var side in w.Sides)
+        {
+            if (side.Teams.Count > t.Slots) yield return $"{side.Side} has {side.Teams.Count} teams for {t.Slots} slots";
+            foreach (var team in side.Teams)
+            {
+                if (team.Skill.Length != Research.Fields.Length || team.Skill.Any(k => !(k >= 1 - 1e-9 && k <= t.MaxSkill + 1e-9)))
+                    yield return $"{side.Side} {team.Name} has skills {string.Join(",", team.Skill)}";
+                if (!(team.Scientists > 0) || team.Kept.Count > 2) yield return $"{side.Side} {team.Name} has {team.Scientists} scientists and keeps {team.Kept.Count} fields";
+            }
+        }
+        foreach (var o in w.Orders.Where(o => o.Kind == OrderKind.Research && o.TeamId is int id && Research.Team(w, o.Side, id) == null))
+            yield return $"research order {o.Id} is for missing team {o.TeamId}";
     }
 }

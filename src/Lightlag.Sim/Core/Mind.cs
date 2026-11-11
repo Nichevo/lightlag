@@ -740,10 +740,16 @@ public static class Mind
                 if (Economy.CanQueue(_w, _side, OrderKind.Ship, cls) == null)
                     Do(new QueueOrderCommand(_side, OrderKind.Ship, cls));
             }
-            if (!orders.Any(o => o.Kind == OrderKind.Research))
+            // Keep every ready team busy: one idea queued per team.
+            var teams = Economy.Of(_w, _side).Teams;
+            if (orders.Count(o => o.Kind == OrderKind.Research) < Math.Max(1, teams.Count(t => Research.Ready(_w, t))))
             {
                 var open = _p.Research.Where(r => GameData.ResearchById.ContainsKey(r) && Economy.CanQueue(_w, _side, OrderKind.Research, r) == null
                                                   && (_w.Light.On || !Tech.LagOnly(r))).ToList();
+                if (open.Count == 0)
+                    open = GameData.Economy.Research.Where(r => Economy.CanQueue(_w, _side, OrderKind.Research, r.Id) == null
+                                                               && (_w.Light.On || !Tech.LagOnly(r.Id)))
+                        .OrderBy(r => r.Cost).Select(r => r.Id).ToList();
                 if (open.Count > 0)
                 {
                     var pick = Easy ? open[_rng.Range(0, open.Count)] : open[0];
@@ -755,6 +761,22 @@ public static class Mind
                 }
             }
             if (!Easy) Stations(orders);
+            if (!Easy) Teams(orders);
+        }
+
+        /// <summary>
+        /// With Industry to spare after the next ship, a second team is founded in the field the
+        /// personality's research list leans on most; it keeps that field.
+        /// </summary>
+        private void Teams(List<WorkOrder> orders)
+        {
+            var state = Economy.Of(_w, _side);
+            if (_w.Day < 15 || state.Teams.Count >= 2) return;
+            var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
+            if (state.Industry < Research.T.FoundCost + shipWaiting + 60) return;
+            var field = _p.Research.Where(GameData.ResearchById.ContainsKey).GroupBy(r => GameData.Research(r).Field)
+                .OrderByDescending(g => g.Count()).ThenBy(g => Research.FieldIndex(g.Key)).Select(g => g.Key).FirstOrDefault() ?? "weapons";
+            if (Research.CanFound(_w, _side, field) == null) Do(new FoundTeamCommand(_side, field));
         }
 
         /// <summary>

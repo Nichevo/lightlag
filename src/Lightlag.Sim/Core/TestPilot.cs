@@ -101,6 +101,22 @@ public sealed class TestPilot
                 if (open.Count > 0)
                     sim.Issue(new QueueOrderCommand(side, OrderKind.Research, open[_rng.Range(0, open.Count)].Id) { Source = "test-pilot" });
             }
+            var teams = Economy.Of(world, side).Teams;
+            if (_rng.Chance(0.02))
+            {
+                var field = Research.Fields[_rng.Range(0, Research.Fields.Length)];
+                var team = teams.Count > 0 ? teams[_rng.Range(0, teams.Count)] : null;
+                GameCommand? cmd = _rng.Range(0, 5) switch
+                {
+                    0 => new FoundTeamCommand(side, field),
+                    1 when team != null => new TrainTeamCommand(side, team.Id),
+                    2 when team != null => new SplitTeamCommand(side, team.Id, field),
+                    3 when team != null => new SetTeamKeptCommand(side, team.Id, new List<string> { field }),
+                    4 when team != null && orders.FirstOrDefault(o => o.Kind == OrderKind.Research) is WorkOrder r => new SetOrderTeamCommand(side, r.Id, team.Id),
+                    _ => null,
+                };
+                if (cmd != null) sim.Issue(cmd with { Source = "test-pilot" });
+            }
             if (orders.Count > 0 && _rng.Chance(0.03))
                 sim.Issue(new CancelOrderCommand(side, orders[_rng.Range(0, orders.Count)].Id) { Source = "test-pilot" });
         }

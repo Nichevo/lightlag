@@ -503,7 +503,7 @@ public static class Combat
             if (hit)
             {
                 stats.RailHits++;
-                Damage(sim, battle, target, rail.Damage, ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
+                Damage(sim, battle, target, rail.Damage * Tech.Factor(w, ship.Side, Tech.RailgunMk3), ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
                 if (w.FindShip(target.Id) == null) break;
             }
         }
@@ -533,7 +533,7 @@ public static class Combat
             {
                 Id = w.NextId++, Side = ship.Side, TargetShipId = target.Id, FromShipId = ship.Id,
                 Position = ship.Position + spread, Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
-                Brain = Math.Clamp(w.MissileBrain[(int)ship.Side], 1, 2), ExpiresHour = t1 + m.LifetimeHours,
+                Brain = Math.Clamp(w.MissileBrain[(int)ship.Side], 1, 4), ExpiresHour = t1 + m.LifetimeHours,
             });
         }
         sim.Log.Info("combat", $"{ship.Name} fires {count} missiles at {target.Name}", new { shipId = ship.Id, targetId = target.Id, count });
@@ -613,7 +613,9 @@ public static class Combat
             .Sum(s => GameData.ShipClass(s.ClassId).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1));
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
-        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2)
+        var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)
+                   * Tech.Factor(w, targetFleet.Side, Tech.PointDefence2) * Tech.Factor(w, targetFleet.Side, Tech.PointDefence3)
+                   * Tech.Factor(w, targetFleet.Side, Tech.CounterMissiles)
                    * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target)
                    * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)); // fuel to weave on the way in
         var survive = PowSurvive(1 - kill, shots);
@@ -627,8 +629,15 @@ public static class Combat
         }
         // A missile launched close still has most of its fuel at the end: it follows a dodge.
         var fuelShare = Heat.FuelShare(missile);
-        var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
+        var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
+                    * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
+        {
+            stats.Dodged++;
+            return;
+        }
+        // Spoofing: the target's jammers lead some missiles off (researched: a share of 1 - factor).
+        if (Tech.Has(w, targetFleet.Side, Tech.Spoofing) && sim.Rng.NextDouble() < 1 - GameData.Research(Tech.Spoofing).Factor * BrainSpoofResist(missile))
         {
             stats.Dodged++;
             return;
@@ -637,6 +646,12 @@ public static class Combat
         sim.AddEffect(new CombatEffect(w.Hour, EffectKind.MissileHit, missile.Position, target.Position, missile.Side));
         Damage(sim, battle, target, C.Missile.Damage, missile.Side, missile: true);
     }
+
+    /// <summary>Missile brains 3 and 4 (research): each level past 2 cuts point defence kills and dodges by a further 15 %.</summary>
+    public static double BrainBeyond2(Missile m) => m.Brain switch { >= 4 => 0.85 * 0.85, 3 => 0.85, _ => 1 };
+
+    /// <summary>Spoofing works less on smarter missiles: brain 3 and 4 are fooled less.</summary>
+    private static double BrainSpoofResist(Missile m) => m.Brain switch { >= 4 => 1.1, 3 => 1.05, _ => 1 };
 
     /// <summary>base^exponent for a fractional exponent, using only exact operations (see DetMath).</summary>
     private static double PowSurvive(double b, double exponent)
