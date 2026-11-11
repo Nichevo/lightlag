@@ -144,6 +144,7 @@ public class SupplyChainTests
         Assert.Equal(RouteRisk.Low, SupplyChain.RiskOf(w, Side.Player, kesh.Position, verdant.Position, null, false).Risk);
         var mid = kesh.Position + (verdant.Position - kesh.Position) * 0.5;
         w.Sightings.Add(new Sighting { SeenBy = Side.Player, FleetId = 9999, Name = "R-1", Ships = 2, Position = mid, Hour = w.Hour, Visible = true, Classes = new List<string> { "gun-frigate", "gun-frigate" } });
+        Intel.Update(sim); // route risk reads the intel file, which takes in sightings each hour
         Assert.Equal(RouteRisk.Medium, SupplyChain.RiskOf(w, Side.Player, kesh.Position, verdant.Position, null, false).Risk);
         w.LossSpots.Add(new LossSpot(Side.Player, mid, w.Hour));
         var (risk, why) = SupplyChain.RiskOf(w, Side.Player, kesh.Position, verdant.Position, null, false);

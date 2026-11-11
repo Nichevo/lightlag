@@ -13,6 +13,7 @@ namespace Lightlag.Sim.Logging;
 ///   stats.csv      each side at the end of each game day (full games only)
 ///   choices.csv    what each side chose (buildings, research, ships, leanings, battles), for the "what matters" table
 ///   rival-mind.md  what the computer rival is doing and why (full games only)
+///   intel.md       what each side believes about the other against the truth (full games only)
 ///   error.txt      the full exception (crash reports only)
 ///   screenshot.png (F8 reports from the game; the game adds it)
 /// Writing a report must never throw: every part is tried separately and failures are noted inside.
@@ -79,6 +80,7 @@ public static class Reports
         Try(problems, "choices.csv", () => File.WriteAllText(Path.Combine(dir, "choices.csv"), Choices.ToCsv(sim.World)));
         if (sim.World.Minds.Count > 0)
             Try(problems, "rival-mind.md", () => File.WriteAllText(Path.Combine(dir, "rival-mind.md"), Mind.Describe(sim.World)));
+        Try(problems, "intel.md", () => File.WriteAllText(Path.Combine(dir, "intel.md"), Intel.Describe(sim.World)));
     }
 
     private static void AppendFacts(StringBuilder md, GameLog log, Simulation? sim)
