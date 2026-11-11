@@ -22,6 +22,10 @@ public partial class FleetRules : VBoxContainer
     private Button _cancelRefit = null!;
     private MenuButton _zone = null!;
     private ZonePanel _zonePanel = null!;
+    private OptionButton _formation = null!;
+    private Label _formationLine = null!;
+
+    private static readonly Formation[] Shapes = { Formation.Auto, Formation.Staggered, Formation.Wall, Formation.Line, Formation.Column };
 
     private static readonly PullPreset[] Presets = { PullPreset.Cautious, PullPreset.Standard, PullPreset.FightOn, PullPreset.ToTheLast };
 
@@ -56,6 +60,19 @@ public partial class FleetRules : VBoxContainer
         }
         _ruleLine = Line();
 
+        var shape = Row();
+        shape.AddChild(Caption("Formation"));
+        _formation = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "The shape the fleet keeps. Railguns need a clear line; missiles launch over friendly ships; point defence and shields cover ships close by" };
+        _formation.AddThemeFontSizeOverride("font_size", 13);
+        for (var i = 0; i < Shapes.Length; i++)
+        {
+            _formation.AddItem(Formations.Name(Shapes[i]), i);
+            _formation.SetItemTooltip(i, ShapeTip(Shapes[i]));
+        }
+        _formation.ItemSelected += i => Do(f => new SetFormationCommand(f.Id, Shapes[i]), "formation");
+        shape.AddChild(_formation);
+        _formationLine = Line();
+
         var refit = Row();
         _refit = Ui.SmallButton("Send for refit", () => Do(f => new SendForRefitCommand(Side.Player, f.Id), "send for refit"), "");
         _cancelRefit = Ui.SmallButton("Cancel refit", () => Do(f => new CancelRefitCommand(Side.Player, f.Id), "cancel refit"), "Stop the refit; ships already in the bays finish");
@@ -87,6 +104,11 @@ public partial class FleetRules : VBoxContainer
         _ruleLine.Text = RuleText(w, f);
         _ruleLine.AddThemeColorOverride("font_color", f.Retreating ? Ui.Rival : Ui.Dim);
 
+        var shapeIndex = Array.IndexOf(Shapes, f.Formation);
+        if (shapeIndex >= 0 && _formation.Selected != shapeIndex) _formation.Select(shapeIndex);
+        _formationLine.Text = FormationText(w, f);
+        _formationLine.AddThemeColorOverride("font_color", Formations.BlockedShips(w, f) > 0 ? Ui.Rival : Ui.Dim);
+
         var why = Refits.CanSend(w, f);
         _refit.Visible = f.Refit == null;
         _refit.Disabled = why != null;
@@ -116,6 +138,25 @@ public partial class FleetRules : VBoxContainer
         if (f.HoldOn) text += " · HOLDING ON: the rule is off for this fight";
         return text;
     }
+
+    private static string FormationText(World w, Fleet f)
+    {
+        var shape = Formations.Shape(w, f);
+        var text = f.Formation == Formation.Auto ? $"{Formations.Name(shape)} (Auto, from its weapons and the threat)" : $"{Formations.Name(shape)} (set by hand)";
+        var blocked = Formations.BlockedShips(w, f);
+        if (blocked > 0) text += $" · {blocked} of {f.ShipIds.Count} ships blocked by their own fleet";
+        return text;
+    }
+
+    private static string ShapeTip(Formation f) => f switch
+    {
+        Formation.Auto => "Picks for you: Wall for missile boats behind heavy ships, Line for all-gun fleets against no missiles, Column when flying, else Staggered",
+        Formation.Staggered => "Big ships apart in front, small ones in the gaps: nearly every gun clear, most ships near cover",
+        Formation.Wall => "Heavy ships in front, the rest tight behind: strong cover, but guns behind are blocked (missiles still launch)",
+        Formation.Line => "One row abreast: nothing blocked, little cover against missiles",
+        Formation.Column => "One behind the other: quick through lanes, but almost every gun is blocked",
+        _ => "",
+    };
 
     private static string PresetTip(PullPreset p) => p switch
     {

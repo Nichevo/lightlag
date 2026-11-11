@@ -125,8 +125,9 @@ public class HeatTests
     {
         foreach (var dodge in new[] { DodgeMode.Sidestep, DodgeMode.Off })
         {
+            // 65 Mm: past railgun range, but inside what the frigates' sensors make of a lone ship running cold.
             var sim = Sandbox(new SandboxSetup(PlayerFrigates: 3, PlayerDestroyers: 0, RivalFrigates: 1, RivalDestroyers: 0,
-                PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 70));
+                PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 65));
             var w = sim.World;
             FleetOf(sim, Side.Player).LongShots = true;
             var rival = FleetOf(sim, Side.Rival);

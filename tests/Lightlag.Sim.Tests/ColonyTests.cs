@@ -182,4 +182,21 @@ public class ColonyTests
             Assert.Equal(c.GetType(), System.Text.Json.JsonSerializer.Deserialize<GameCommand>(json)!.GetType());
         }
     }
+
+    [Fact]
+    public void A_damaged_fleet_at_the_yard_adds_its_repair_bill_to_the_yard_wants()
+    {
+        var sim = NewGame();
+        sim.Step();
+        var w = sim.World;
+        var home = Economy.HomeOf(w, Side.Player)!;
+        var fleet = w.Fleets.First(f => f.Side == Side.Player && f.ShipIds.Count > 0 && f.OrbitBodyId == home.Id && f.Flight == null);
+        var before = Colonies.YardBills(w, home, Side.Player).GetValueOrDefault("alloys");
+        var ship = w.ShipsOf(fleet).First();
+        ship.Armour = Tech.MaxArmour(w, ship) * 0.5;
+        var after = Colonies.YardBills(w, home, Side.Player).GetValueOrDefault("alloys");
+        Assert.True(after > before, $"alloys bill {before} -> {after}");
+        Colonies.UpdateWants(w);
+        Assert.True(Colonies.Want(home, "alloys") >= after - 1e-6);
+    }
 }

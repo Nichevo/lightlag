@@ -61,9 +61,16 @@ public static class Planner
         { ("alloys", "smelter"), ("electronics", "electronics-plant"), ("ammunition", "munitions-plant") };
 
     /// <summary>Reserve of each material the rival likes to keep across its linked planets.</summary>
-    public static double MaterialReserve(string good) => good switch { "alloys" => 60, "electronics" => 20, _ => 40 };
+    public static double MaterialReserve(string good) => good switch { "alloys" => 60, "electronics" => 40, _ => 40 };
 
-    /// <summary>A material is short: something waits for it, or the side makes less than it uses and holds under its reserve.</summary>
+    /// <summary>
+    /// How much of each material a day the side wants to make, so the shipyard keeps working (the yard's draw
+    /// is not counted as use): alloys for about a frigate every week, electronics to match.
+    /// </summary>
+    public static double MaterialRate(string good) => good switch { "alloys" => 2.0, "electronics" => 0.4, _ => 0 };
+
+    /// <summary>A material is short: something waits for it, or the side makes less than it uses (or than the
+    /// yard wants) and holds under its reserve.</summary>
     public static bool MaterialShort(World w, Side side, string good)
     {
         var linked = w.Bodies.Where(b => b.Owner == side && !Economy.Blockaded(w, b)).ToList();
@@ -71,7 +78,7 @@ public static class Planner
         var wanted = linked.Sum(b => Colonies.Want(b, good));
         if (wanted > held) return true;
         if (w.Orders.Any(o => o.Side == side && o.Waiting != null && o.Waiting.Contains(Colonies.GoodName(good).ToLowerInvariant()))) return true;
-        return held < MaterialReserve(good) && linked.Sum(b => Colonies.MadePerDay(b, good)) <= linked.Sum(b => Colonies.UsePerDay(b, good));
+        return held < MaterialReserve(good) && linked.Sum(b => Colonies.MadePerDay(b, good)) <= linked.Sum(b => Colonies.UsePerDay(b, good)) + MaterialRate(good);
     }
 
     /// <summary>A free deposit of this mineral a mine fits on, richest first.</summary>
@@ -111,9 +118,15 @@ public static class Planner
         // Materials: ships, big buildings and later research wait for alloys, electronics and ammunition.
         // The plant for a short one goes up (at home first), then mines for the minerals it eats.
         foreach (var (good, plant) in MaterialPlants)
-            if (MaterialShort(w, side, good) && Staffed(plant) && Pick(plant) is string make
+            if (MaterialShort(w, side, good) && Staffed(plant) && Fits(plant) && GoodSiteFor(w, side, b, plant)
                 && !w.Bodies.Any(o => o.Owner == side && o.Pieces.Any(p => p.Kind == plant && !p.Built))) // one new plant at a time
-                return (make, null, null, true);
+            {
+                if (Powered(plant)) return (plant, null, null, true);
+                // Not enough power to run it: a power plant first (else the plant never goes up).
+                var fuelled = Colonies.Held(b, "uranium") > 20 || Colonies.MadePerDay(b, "uranium") > 0.2 || DepositFor(b, "uranium") != null;
+                if (Fits("power-plant") && fuelled) return ("power-plant", null, null, true);
+                if (Fits("solar-field")) return ("solar-field", null, null, true);
+            }
         foreach (var good in new[] { "copper", "rare-earths", "uranium", "water" })
             if ((Short(good) || Colonies.Want(b, good) > Colonies.Held(b, good)) && Powered(Planets.Mine) && DepositFor(b, good) is var (gx, gy))
                 return (Planets.Mine, gx, gy, true);
@@ -131,6 +144,21 @@ public static class Planner
         }
         if (Colonies.Held(b, Colonies.Fuel) < 40 && b.Home && Pick("fuel-plant", "ice-mine") is string fuel) return (fuel, null, null, false);
         return null;
+    }
+
+    /// <summary>
+    /// Is this planet a sensible place for a material plant? An electronics plant goes where rare earths are
+    /// dug or stored, if the side has such a planet with room and people for it (it can't run without them,
+    /// and hauling rare earths home is slow); elsewhere only as a last resort.
+    /// </summary>
+    private static bool GoodSiteFor(World w, Side side, Body b, string plant)
+    {
+        if (plant != "electronics-plant") return true;
+        static bool HasRareEarths(Body o) => Colonies.MadePerDay(o, "rare-earths") > 0.1 || Colonies.Held(o, "rare-earths") > 10;
+        if (HasRareEarths(b)) return true;
+        var data = Planets.BuildingKind(plant)!;
+        return !w.Bodies.Any(o => o.Owner == side && o.Id != b.Id && o.Board != null && HasRareEarths(o) && Colonies.BestSpot(o, data) != null
+                                  && o.PopK >= Planets.StaffNeeded(o) + data.StaffK);
     }
 
     /// <summary>The side is short of food across its linked planets.</summary>
@@ -163,9 +191,15 @@ public static class Planner
             .Select(r => r.Id).FirstOrDefault();
     }
 
-    /// <summary>Research that opens the way to a plant for a material the side is short of (electronics: assays, then fabs).</summary>
-    public static bool HelpsMaterials(World w, Side side, string id) =>
-        id is "electronics-fabs" && MaterialShort(w, side, "electronics");
+    /// <summary>Research that gets materials flowing: the electronics plant when electronics run short, freighters once colonies dig.</summary>
+    public static bool HelpsMaterials(World w, Side side, string id) => id switch
+    {
+        "electronics-fabs" => MaterialShort(w, side, "electronics"),
+        // Freighters carry what colonies dig to the plants and the yard: without them colonies only fill up.
+        "freighter-hull" => w.Bodies.Any(b => b.Owner == side && !b.Home && b.Board != null
+                                             && Colonies.Goods.Any(g => g.Id != Colonies.Spares && Colonies.MadePerDay(b, g.Id) > 0.2)),
+        _ => false,
+    };
 
     /// <summary>Only supply ships (tankers), not freighter-only fleets.</summary>
     public static bool SupplyFleet(World w, Fleet f) =>
@@ -300,6 +334,7 @@ public static class Stewards
             foreach (var key in _state.Dismissed.Where(d => d.Value <= _w.Hour).Select(d => d.Key).ToList()) _state.Dismissed.Remove(key);
             _state.AutoTransport = LevelFor(_w, _side, AutoArea.Transport) == AutoLevel.Auto;
             Alerts();
+            SupplyProblems();
             Learn();
             Building();
             Workers();
@@ -484,6 +519,29 @@ public static class Stewards
                             lost.FleetId is int fid && _w.FindFleet(fid) is { ShipIds.Count: > 0 } ? fid : null), label: "Build it", area: AutoArea.Shipyard);
         }
 
+        /// <summary>How many of the supply chain's ranked problems Needs you shows.</summary>
+        private const int SupplyProblemsShown = 5;
+
+        /// <summary>
+        /// One problem list: the supply chain's ranked problems (Short, Risk, Soon, Stock) are the Needs you
+        /// entries for supply, each with its first one-click fix as the act button.
+        /// </summary>
+        private void SupplyProblems()
+        {
+            foreach (var p in SupplyChain.Problems(_w, _side, SupplyProblemsShown))
+            {
+                var fix = p.Fixes.FirstOrDefault(f => f.Command != null && f.Command is not DismissNeedCommand);
+                var level = p.Kind switch
+                {
+                    ProblemKind.Risk => p.Severity >= (int)RouteRisk.High ? NeedLevel.Urgent : NeedLevel.Soon,
+                    ProblemKind.Short or ProblemKind.Soon => NeedLevel.Soon,
+                    _ => NeedLevel.Advice,
+                };
+                var area = p.Kind switch { ProblemKind.Short or ProblemKind.Stock => AutoArea.Transport, _ => AutoArea.Supply };
+                Need(level, p.Key, $"{p.Title}. {p.Cause}", p.BodyId, p.FleetId, fix?.Command, fix?.Label, area);
+            }
+        }
+
         private IEnumerable<ResearchTeam> IdleTeams() => _state.Teams.Where(t => Research.Ready(_w, t)
             && !_w.Orders.Any(o => o.Side == _side && o.Kind == OrderKind.Research && o.TeamId == t.Id)).OrderBy(t => t.Id);
 
@@ -528,6 +586,7 @@ public static class Stewards
         {
             if (LevelFor(_w, _side, AutoArea.Transport) != AutoLevel.Advise) return;
             foreach (var (from, to, good, amount) in Colonies.TransportWanted(_w, _side).Take(6))
+                if (!_needs.Any(n => n.Key == $"chain:short:{to.Id}:{good}"))
                 Need(NeedLevel.Advice, $"ship:{to.Id}:{good}", $"Send {amount:0} {Colonies.GoodName(good).ToLowerInvariant()} from {from.Name} to {to.Name}",
                     to.Id, act: new ShipGoodsCommand(_side, from.Id, to.Id, good, amount), label: "Send", area: AutoArea.Transport);
         }
