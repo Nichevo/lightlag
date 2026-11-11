@@ -59,13 +59,45 @@ public class SlingshotTests(ITestOutputHelper output)
             output.WriteLine($"{target}: {best.Ok} {best.Problem} via {via?.Key} {best.Flight?.ArriveHour / 24:0} d vs {direct.Flight?.ArriveHour / 24:0} d");
             if (best.Flight != null) Assert.True(FlightPlanner.Beats(best, direct));
         }
-        // Going out to Azure, a pass behind Tamber saves months for about the same fuel.
+        // Going out to Azure, a pass behind Tamber cuts the trip by about a third (braking off the extra speed costs some fuel).
         var azure = FlightPlanner.BestSlingshot(sim.World, f, To(sim, BodyNamed(sim, "azure"), 0.3, RouteKind.Slingshot));
         Assert.NotNull(azure.Plan.Flight);
         Assert.Equal("tamber", azure.Via!.Key);
         var straight = FlightPlanner.Plan(sim.World, f, To(sim, BodyNamed(sim, "azure"), 0.3));
-        Assert.True(azure.Plan.Flight!.ArriveHour < straight.Flight!.ArriveHour - 60 * 24);
-        Assert.True(azure.Plan.DeltaV < straight.DeltaV * 1.3);
+        Assert.True(azure.Plan.Flight!.ArriveHour - sim.World.Hour < (straight.Flight!.ArriveHour - sim.World.Hour) * 0.75);
+        Assert.True(azure.Plan.DeltaV < straight.DeltaV * 1.6);
+    }
+
+    [Fact]
+    public void A_giant_hits_harder_than_a_small_planet()
+    {
+        var d = GameData.Slingshots;
+        var sim = NewGame();
+        Assert.True(d.Weight(BodyNamed(sim, "tamber").Gm) > 0.9);
+        Assert.True(d.Weight(BodyNamed(sim, "verdant").Gm) < 0.1);
+        Assert.True(d.Weight(BodyNamed(sim, "coldwell").Gm) > d.Weight(BodyNamed(sim, "azure").Gm));
+    }
+
+    [Fact]
+    public void Flying_by_Azure_via_Tamber_beats_a_direct_trip_that_arrives_as_soon()
+    {
+        var sim = NewGame();
+        var f = Home(sim);
+        var req = To(sim, BodyNamed(sim, "azure"), 0.3) with { Arrival = ArrivalStyle.FastPass };
+        var (sling, via) = FlightPlanner.BestSlingshot(sim.World, f, req with { Route = RouteKind.Slingshot });
+        Assert.Equal("tamber", via!.Key);
+        // The direct trip burned just hard enough to arrive at the same time.
+        double lo = FlightPlanner.MinSpeedFraction, hi = 1;
+        FlightPlan? match = null;
+        for (var i = 0; i < 14; i++)
+        {
+            var mid = (lo + hi) / 2;
+            var d = FlightPlanner.Plan(sim.World, f, req with { SpeedFraction = mid });
+            if (d.Flight == null || d.Flight.ArriveHour > sling.Flight!.ArriveHour) lo = mid; else { hi = mid; match = d; }
+        }
+        output.WriteLine($"slingshot {sling.DeltaV:0}, direct as soon {match?.DeltaV:0}");
+        Assert.NotNull(match);
+        Assert.True(sling.DeltaV < match!.DeltaV * 0.9);
     }
 
     [Fact]

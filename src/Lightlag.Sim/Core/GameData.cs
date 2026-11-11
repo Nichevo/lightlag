@@ -102,13 +102,20 @@ public sealed record ModuleData(string Id, string Name, string Slot, double Powe
     double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "");
 
 /// <summary>
-/// Slingshot tuning. AssistStrength multiplies the planets' pull for flybys only (1 = real physics; real
-/// flybys barely bend a fast torch ship, so the game makes them stronger). DepartShares are the burn
-/// levels tried for the stretch to the planet: a gentler burn there leaves the swing to add the speed.
+/// Slingshot tuning (game physics: real flybys barely touch a fast torch ship, so giants hit harder).
+/// A planet's weight for a swing is the square root of (its mass / GiantEarthMasses), at most 1: about 1 for
+/// Tamber, 0.55 for Coldwell, 0.2 for Azure and 0.06 for an Earth-sized planet. AssistStrength
+/// multiplies a planet's pull for the bend, scaled by that weight, and a swing adds up to GiantKickKmS
+/// of speed, also scaled by it. DepartShares are the burn levels tried for the stretch to the planet:
+/// a gentler burn there leaves the swing to add the speed.
 /// </summary>
 public sealed record SlingshotData(double AssistStrength = 40, double MinTimeGain = 0.02, double MinFuelGain = 0.06,
-    double FuelHourWeight = 0.5, List<double>? DepartShares = null, List<double>? FuelSaverShares = null)
+    double FuelHourWeight = 0.5, List<double>? DepartShares = null, List<double>? FuelSaverShares = null,
+    double GiantEarthMasses = 318, double GiantKickKmS = 30)
 {
+    /// <summary>How much a planet counts for a swing (0..1), by its mass.</summary>
+    public double Weight(double gm) => Math.Min(1, Math.Sqrt(Math.Max(0, gm / Physics.GmEarth / GiantEarthMasses)));
+
     /// <summary>Speed settings tried for a slingshot, as shares of the one asked for (lower ones save fuel).</summary>
     public IReadOnlyList<double> FuelSaverSpeeds => FuelSaverShares is { Count: > 0 } f ? f : new[] { 1.0, 0.7 };
 
