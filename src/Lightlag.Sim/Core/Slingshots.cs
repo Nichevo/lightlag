@@ -14,6 +14,7 @@ public static partial class FlightPlanner
     private const int FlybySteps = 12;
 
     private static SlingshotData S => GameData.Slingshots;
+    private const double KmSToMmPerHour = 3.6;
 
     /// <summary>Planets light enough that a flyby does nothing worth planning are skipped (Earth masses).</summary>
     public const double MinFlybyMassEarth = 0.5;
@@ -113,13 +114,15 @@ public static partial class FlightPlanner
             // The swing: in the planet's frame the fleet leaves bent round by up to maxBend. The burn held back
             // on the way out is spent at the closest pass, deep in the planet's pull, where it adds more speed
             // than it would out in open space (the Oberth effect).
-            var gm = planet.Gm * S.AssistStrength;
+            // Game physics: the heavier the planet, the harder it pulls and the more speed it hands over.
+            var weight = S.Weight(planet.Gm);
+            var gm = planet.Gm * (1 + (S.AssistStrength - 1) * weight);
             var e = 1 + rp * speed * speed / gm;           // eccentricity of the pass
             var maxBend = 2 * DetMath.Atan2(1 / e, Math.Sqrt(1 - 1 / (e * e)));
             var burn = cruise * (1 - share);
             var escapeSq = 2 * gm / rp;
             var atPass = Math.Sqrt(speed * speed + escapeSq) + burn;
-            var leaving = Math.Sqrt(Math.Max(speed * speed, atPass * atPass - escapeSq));
+            var leaving = Math.Sqrt(Math.Max(speed * speed, atPass * atPass - escapeSq)) + S.GiantKickKmS * KmSToMmPerHour * weight;
             var outInf = vInf * (leaving / speed);
             for (var i = 0; i <= FlybySteps; i++)
             {
