@@ -49,6 +49,10 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetBombingCommand), "setBombing")]
 [JsonDerivedType(typeof(LandTroopsCommand), "landTroops")]
 [JsonDerivedType(typeof(BoardSlipwayCommand), "boardSlipway")]
+[JsonDerivedType(typeof(SetPriorityCommand), "setPriority")]
+[JsonDerivedType(typeof(SetSiegeStockCommand), "setSiegeStock")]
+[JsonDerivedType(typeof(SetAutoTransportCommand), "setAutoTransport")]
+[JsonDerivedType(typeof(FixedRunCommand), "fixedRun")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

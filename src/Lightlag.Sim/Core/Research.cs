@@ -195,7 +195,7 @@ public static class Research
                 order.Paid = true;
                 sim.Log.Info("economy", $"{side} starts {Economy.NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, team = team.Id });
             }
-            order.HoursLeft -= GameTime.HoursPerTick * Speed(team, GameData.Research(order.Key).Field);
+            order.HoursLeft -= GameTime.HoursPerTick * Speed(team, GameData.Research(order.Key).Field) * Colonies.ResearchBoost(w, side);
             if (order.HoursLeft > 1e-9) continue;
             w.Orders.Remove(order);
             Learn(sim, side, order.Key, team);
@@ -219,6 +219,7 @@ public static class Research
         if (i >= 0) team.Skill[i] = Math.Min(T.MaxSkill, team.Skill[i] + T.SkillPerIdea);
         team.Ideas++;
         Tech.OnLearn(w, side, id);
+        Colonies.OnResearched(sim, side, id);
         sim.Log.Info("economy", $"{side} finishes research: {data.Name}", new { side = side.ToString(), id, team = team.Id });
     }
 

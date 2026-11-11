@@ -56,6 +56,10 @@ public sealed class World
     /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
     public List<Station> Stations { get; set; } = new();
 
+    /// <summary>Freighters carrying goods, and fixed runs set by the player (see Colonies).</summary>
+    public List<Shipment> Shipments { get; set; } = new();
+    public List<FixedRun> FixedRuns { get; set; } = new();
+
     /// <summary>How many ships of each class each side has had, so new ships get fresh numbers ("player:gun-frigate").</summary>
     public Dictionary<string, int> ShipNumbers { get; set; } = new();
 
@@ -168,10 +172,31 @@ public sealed class Body
     public bool Hungry { get; set; }
     public double HungryHours { get; set; }
 
-    /// <summary>Buildings standing here (ids from economy.json, one entry each), and the one being built.</summary>
+    /// <summary>Buildings standing here (kinds from economy.json, one entry each): kept in step with Pieces.</summary>
     public List<string> Buildings { get; set; } = new();
-    public string? Building { get; set; }
-    public double BuildingHoursLeft { get; set; }
+
+    /// <summary>The first building under way, and its hours left (from Pieces).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? Building => Pieces.FirstOrDefault(p => !p.Built)?.Kind;
+    [System.Text.Json.Serialization.JsonIgnore] public double BuildingHoursLeft => Pieces.FirstOrDefault(p => !p.Built)?.HoursLeft ?? 0;
+
+    /// <summary>The surface (tiles and deposits; null where nothing can be built) and the pieces on it.</summary>
+    public Board? Board { get; set; }
+    public List<Piece> Pieces { get; set; } = new();
+
+    /// <summary>Goods held here (spares, fuel, minerals), and how many days of them to keep for a siege.</summary>
+    public Dictionary<string, double> Stock { get; set; } = new();
+    public int SiegeDays { get; set; } = 30;
+
+    /// <summary>Priority order of the areas (null: the preset's), for staff, power and spare parts.</summary>
+    public string Preset { get; set; } = "balanced";
+    public List<string>? Priority { get; set; }
+
+    /// <summary>Worked out each hour (see Colonies): power made, used and wanted, base work staffed, short of water.</summary>
+    public double PowerMade { get; set; }
+    public double PowerUsed { get; set; }
+    public double PowerWanted { get; set; }
+    public double BaseStaff { get; set; } = 1;
+    public bool Thirsty { get; set; }
 
     /// <summary>A side whose bombing of the people here they won't forgive: the planet never surrenders to it.</summary>
     public Side? Grudge { get; set; }

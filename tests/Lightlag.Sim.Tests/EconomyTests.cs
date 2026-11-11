@@ -242,13 +242,14 @@ public class EconomyTests
         var sim = NewGame();
         var w = sim.World;
         foreach (var b in Economy.Claimable(w).Where(b => b.Owner == null)) b.Owner = Side.Player;
-        BodyNamed(sim, "rust").PopK = 10;
+        BodyNamed(sim, "rust").PopK = 40; // enough to staff its farms and its mines
         foreach (var ship in w.Ships.Where(s => s.Side == Side.Rival).ToList()) Combat.Destroy(sim, ship);
         Economy.Of(w, Side.Rival).FlagshipId = null;
         var share = Planets.Control(w, Side.Player).Share;
-        Assert.InRange(share, GameData.Economy.Planets!.TipShare, GameData.Economy.Planets.WinShare);
+        var c = Planets.Control(w, Side.Player);
+        Assert.True(share >= GameData.Economy.Planets!.TipShare && share <= GameData.Economy.Planets.WinShare, $"{c}");
         sim.Step();
-        Assert.True(Planets.Tipped(w, Side.Player));
+        Assert.True(Planets.Tipped(w, Side.Player), $"{Planets.Control(w, Side.Player)} before {c}");
         Days(sim, Planets.D.WinAfterDays - 1);
         Assert.Null(w.Winner);
         Days(sim, 1.1);

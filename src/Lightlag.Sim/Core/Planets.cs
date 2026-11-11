@@ -5,14 +5,23 @@ namespace Lightlag.Sim.Core;
 // ---- Data (Data/economy.json, "planets") ---------------------------------------------------
 
 /// <summary>What a type of world can hold: people (thousands), how well farms do there, and building plots.</summary>
-public sealed record PlanetTypeData(double Cap = 0, double Farm = 0, int Plots = 2);
+public sealed record PlanetTypeData(double Cap = 0, double Farm = 0, int Plots = 2, int W = 0, int H = 0, double Ocean = 0, double Ice = 0,
+    double Mountain = 0, string[]? Minerals = null, int Deposits = 0);
 
 /// <summary>The pulls on a planet's happiness (see Planets.TargetHappiness).</summary>
 public sealed record HappinessData(double Base = 55, double Fed = 10, double Hungry = -30, double Blockaded = -20, double Bombed = -30,
     double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5);
 
-/// <summary>A building on a planet: paid when ordered, standing after Days, and needing StaffK people to run fully.</summary>
-public sealed record BuildingData(string Id, string Name, string Effect, double Cost, double Days, double StaffK, double Industry = 0);
+/// <summary>
+/// A building on a planet: a W×H piece on the board, paid when ordered and standing after Days. It needs
+/// StaffK people and Power (negative: it makes power) to run, and Upkeep spare parts a day to stay in
+/// repair. Area is its place in the priority list. See Colonies.
+/// </summary>
+public sealed record BuildingData(string Id, string Name, string Effect, double Cost, double Days, double StaffK, double Industry = 0,
+    string Area = "industry", int W = 1, int H = 1, string Terrain = "land", double Power = 0, double Food = 0, double Mines = 0,
+    Dictionary<string, double>? Makes = null, Dictionary<string, double>? Uses = null, double Upkeep = 0.05, double HousingK = 0,
+    double StoreDays = 0, double Research = 0, double GunDamage = 0, bool HighOrbit = false, double BombShield = 0, double GarrisonK = 0,
+    string? Needs = null, bool AnyAir = false, bool Solar = false, bool Buildable = true, string[]? RefitBy = null, List<BonusData>? Bonus = null);
 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
@@ -50,7 +59,8 @@ public static class Planets
     {
         if (b.Kind == BodyKind.Star) return 0;
         var cap = TypeOf(b).Cap * (b.Kind == BodyKind.Moon ? D.MoonCapShare : 1);
-        return b.Home ? Math.Max(cap, D.HomeCap) : cap;
+        if (cap <= 0) return 0;
+        return (b.Home ? Math.Max(cap, D.HomeCap) : cap) + Colonies.HousingK(b);
     }
 
     public static bool Settleable(Body b) => Cap(b) > 0;
@@ -64,7 +74,7 @@ public static class Planets
 
     /// <summary>People needed to run the planet fully: its base industry and every building.</summary>
     public static double StaffNeeded(Body b) =>
-        (b.Industry > 0 ? D.BaseStaffK : 0) + b.Buildings.Sum(x => BuildingKind(x)?.StaffK ?? 0);
+        (b.Industry > 0 ? D.BaseStaffK : 0) + Colonies.Built(b).Sum(p => BuildingKind(p.Kind)?.StaffK ?? 0);
 
     /// <summary>Share of the work that gets done: 1 with enough people, less with too few.</summary>
     public static double Staffing(Body b)
@@ -76,7 +86,10 @@ public static class Planets
     /// <summary>Happy planets work a little harder: 0.7 at happiness 0, 1 at 60, 1.2 at 100.</summary>
     public static double HappyFactor(World w, Body b) => w.Rules.Happiness ? 0.7 + 0.5 * b.Happiness / 100 : 1;
 
-    public static double FoodMadePerDay(Body b) => Count(b, Farm) * D.FarmFoodPerDay * FarmFactor(b) * Staffing(b);
+    /// <summary>Food a day from the planet's farms: land farms by how well things grow here, fish and dome farms the same anywhere.</summary>
+    public static double FoodMadePerDay(Body b) => Colonies.Built(b).Sum(p =>
+        BuildingKind(p.Kind) is BuildingData data && data.Food > 0
+            ? data.Food * D.FarmFoodPerDay * (data.AnyAir || data.Terrain == "ocean" ? 1 : FarmFactor(b)) * Colonies.Output(null!, b, p, data) : 0);
     public static double FoodNeedPerDay(Body b) => b.PopK * D.FoodPerKPerDay;
 
     /// <summary>The armed enemy side holding orbit here, if any (it cuts the planet off: see Economy.Blockaded).</summary>
@@ -89,8 +102,8 @@ public static class Planets
         if (b.Owner == null || b.Kind == BodyKind.Star) return 0;
         if (Economy.Blockaded(w, b)) return 0;
         if (b.PopK <= 0) return b.Industry * D.UnsettledShare;
-        var mines = b.Buildings.Sum(x => BuildingKind(x)?.Industry ?? 0);
-        return (b.Industry + mines) * Staffing(b) * HappyFactor(w, b);
+        var mines = Colonies.Sum(w, b, k => k.Industry);
+        return (b.Industry * b.BaseStaff + mines) * HappyFactor(w, b);
     }
 
     public static double PopulationOf(World w, Side side) => w.Bodies.Where(b => b.Owner == side).Sum(b => b.PopK);
@@ -130,11 +143,12 @@ public static class Planets
     {
         if (!w.Loop || w.PeopleStarted) return;
         w.PeopleStarted = true;
+        Colonies.MakeBoards(w);
         foreach (var b in w.Bodies.Where(b => b.Shipyard && b.Owner != null))
         {
             b.Home = true;
+            Colonies.StartHome(w, b);
             b.PopK = Math.Min(Cap(b), D.HomeStartK);
-            b.Buildings = new List<string>(D.HomeBuildings ?? new List<string>());
             b.Happiness = D.HappinessStart;
             b.OwnShare = 1;
             b.FoodStock = FoodNeedPerDay(b) * D.FoodStockDays;
@@ -154,7 +168,7 @@ public static class Planets
     {
         var w = sim.World;
         EnsureStarted(w);
-        Construction(sim);
+        Colonies.Update(sim);
         Food(w);
         Grow(sim);
         Moods(w);
@@ -166,21 +180,6 @@ public static class Planets
         Runs(sim);
         TopUps(sim);
         LoadTroops(w);
-    }
-
-    private static void Construction(Simulation sim)
-    {
-        foreach (var b in sim.World.Bodies.Where(b => b.Building != null))
-        {
-            if (b.Owner == null) { b.Building = null; continue; }
-            if (Economy.Blockaded(sim.World, b)) continue;
-            b.BuildingHoursLeft -= GameTime.HoursPerTick;
-            if (b.BuildingHoursLeft > 1e-9) continue;
-            b.Buildings.Add(b.Building!);
-            sim.Log.Info("planets", $"{BuildingKind(b.Building!)?.Name ?? b.Building} built at {b.Name}", new { bodyId = b.Id, side = b.Owner.ToString(), kind = b.Building });
-            b.Building = null;
-            b.BuildingHoursLeft = 0;
-        }
     }
 
     /// <summary>
@@ -288,7 +287,10 @@ public static class Planets
         }
     }
 
-    /// <summary>Under a long blockade, buildings fail one by one for want of parts and upkeep.</summary>
+    /// <summary>
+    /// Under a long blockade, buildings that have worn right down for want of spare parts fail one by one
+    /// (the lowest priority first). Wear itself is in Colonies.
+    /// </summary>
     private static void Decay(Simulation sim)
     {
         foreach (var b in sim.World.Bodies.Where(b => b.Owner != null))
@@ -296,14 +298,28 @@ public static class Planets
             if (!Economy.Blockaded(sim.World, b)) { b.BlockadeHours = 0; continue; }
             b.BlockadeHours += GameTime.HoursPerTick;
             var over = b.BlockadeHours - D.DecayAfterDays * 24;
-            if (over <= 0 || b.Buildings.Count == 0 || Math.Abs(over % (D.DecayEveryDays * 24)) > 1e-6) continue;
-            var lost = b.Buildings[^1];
-            b.Buildings.RemoveAt(b.Buildings.Count - 1);
-            sim.Log.Info("planets", $"A {BuildingKind(lost)?.Name.ToLowerInvariant() ?? lost} on blockaded {b.Name} fails", new { bodyId = b.Id, kind = lost });
+            if (over <= 0 || Math.Abs(over % (D.DecayEveryDays * 24)) > 1e-6) continue;
+            var worn = Colonies.Built(b).Where(p => p.Condition <= 0.05 && p.Kind != Colonies.Shipyard)
+                .OrderByDescending(p => Colonies.Rank(b, BuildingKind(p.Kind)?.Area ?? "")).ThenByDescending(p => p.Id).FirstOrDefault();
+            if (worn == null || Colonies.RemoveOne(b, p => p == worn) is not Piece lost) continue;
+            sim.Log.Info("planets", $"A {BuildingKind(lost.Kind)?.Name.ToLowerInvariant() ?? lost.Kind} on blockaded {b.Name} fails", new { bodyId = b.Id, kind = lost.Kind });
         }
     }
 
-    public static string BuildingFor(BombTarget t) => t switch { BombTarget.Farms => Farm, BombTarget.Mines => Mine, BombTarget.Guns => Guns, _ => "" };
+    /// <summary>Which pieces a kind of bombing goes for: farms, mines (and other goods makers) or planet guns (not bunkers).</summary>
+    public static Func<Piece, bool> TargetOf(BombTarget t) => p => BuildingKind(p.Kind) is BuildingData d && t switch
+    {
+        BombTarget.Farms => d.Food > 0,
+        BombTarget.Mines => d.Mines > 0 || d.Makes != null && d.Id != "workshop",
+        BombTarget.Guns => d.GunDamage > 0 || d.BombShield > 0,
+        _ => false,
+    };
+
+    public static int Targets(Body b, BombTarget t) => Colonies.Built(b).Count(TargetOf(t));
+
+    /// <summary>Share of bombing that gets through the planet's point defence grids and shield domes.</summary>
+    public static double BombShare(Body b) =>
+        1 / (1 + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.BombShield ?? 0) * Colonies.Output(null!, b, p)));
 
     /// <summary>Is any of the planet's holders' fleets close enough to stop bombing (as for the shipyard)?</summary>
     public static bool Defended(World w, Body b) =>
@@ -328,14 +344,13 @@ public static class Planets
         {
             if (f.OrbitBodyId is not int id || w.FindBody(id) is not Body b || !Economy.InOrbitAt(f, b)) continue;
             if (b.Owner is not Side owner || owner == f.Side || f.OrbitHeight != OrbitHeight.Low || Defended(w, b)) continue;
-            var kind = BuildingFor(f.Bombing);
-            if (f.Bombing == BombTarget.People ? b.PopK <= 0 : Count(b, kind) == 0)
+            if (f.Bombing == BombTarget.People ? b.PopK <= 0 : Targets(b, f.Bombing) == 0)
             {
                 Autonomy.Report(sim, f, $"{f.Name} stops bombing {b.Name}: nothing left to hit", NoteKind.OwnDecision);
                 f.Bombing = BombTarget.None;
                 continue;
             }
-            var damage = w.ShipsOf(f).Sum(s => Economy.HourlyDamage(w, s, consume: true));
+            var damage = w.ShipsOf(f).Sum(s => Economy.HourlyDamage(w, s, consume: true)) * BombShare(b);
             if (damage <= 0) continue;
             if (f.Bombing == BombTarget.People)
             {
@@ -350,24 +365,27 @@ public static class Planets
             b.StrikeDamage += damage;
             if (b.StrikeDamage < D.BuildingArmour) continue;
             b.StrikeDamage = 0;
-            b.Buildings.RemoveAt(b.Buildings.LastIndexOf(kind));
-            sim.Log.Info("planets", $"{f.Side} knocks out a {BuildingKind(kind)?.Name.ToLowerInvariant() ?? kind} on {b.Name}", new { bodyId = b.Id, side = f.Side.ToString(), kind });
+            if (Colonies.RemoveOne(b, TargetOf(f.Bombing)) is not Piece hit) continue;
+            sim.Log.Info("planets", $"{f.Side} knocks out a {BuildingKind(hit.Kind)?.Name.ToLowerInvariant() ?? hit.Kind} on {b.Name}", new { bodyId = b.Id, side = f.Side.ToString(), kind = hit.Kind });
         }
     }
 
-    /// <summary>Planet guns fire on enemy ships holding low orbit.</summary>
+    /// <summary>Rail batteries fire on enemy ships holding low orbit; missile silos reach high orbit too.</summary>
     private static void PlanetGuns(Simulation sim)
     {
         var w = sim.World;
-        foreach (var b in w.Bodies.Where(b => b.Owner != null && Count(b, Guns) > 0).ToList())
+        foreach (var b in w.Bodies.Where(b => b.Owner != null && Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0)).ToList())
         {
-            var damage = Count(b, Guns) * D.GunDamagePerHour * Staffing(b);
-            foreach (var f in w.Fleets.Where(f => f.Side != b.Owner && Economy.InOrbitAt(f, b) && f.OrbitHeight == OrbitHeight.Low).ToList())
+            var low = Colonies.Sum(w, b, k => k.GunDamage);
+            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : 0);
+            foreach (var f in w.Fleets.Where(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)).OrderBy(f => f.OrbitHeight).ThenBy(f => f.Id).ToList())
             {
-                if (damage <= 0) break;
+                var damage = f.OrbitHeight == OrbitHeight.Low ? low : high;
+                if (damage <= 0) continue;
                 var ship = w.ShipsOf(f).OrderBy(s => s.Armour).ThenBy(s => s.Id).First();
                 var hit = Math.Min(damage, ship.Armour);
-                damage -= hit;
+                if (f.OrbitHeight == OrbitHeight.Low) low -= hit;
+                high -= hit;
                 ship.Armour -= hit;
                 if (ship.Armour > 1e-9) continue;
                 Economy.Of(w, ship.Side).Totals.ShipsLost++;
@@ -380,7 +398,7 @@ public static class Planets
 
     /// <summary>The planet's defenders against a landing: a share of its people (more if they are happy) and its guns.</summary>
     public static double GarrisonOf(Body b) =>
-        b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100) + Count(b, Guns) * D.GunGarrisonK;
+        b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100) + Colonies.Built(b).Sum(p => BuildingKind(p.Kind)?.GarrisonK ?? 0);
 
     /// <summary>Ground fights: each side wears the other down by a share of its own strength each hour.</summary>
     private static void Ground(Simulation sim)
@@ -435,8 +453,9 @@ public static class Planets
         b.LandingSide = null;
         b.LandingTroops = 0;
         b.Garrison = 0;
-        b.Building = null;
-        b.BuildingHoursLeft = 0;
+        b.Pieces.RemoveAll(p => !p.Built);
+        b.Priority = null;
+        b.Preset = "balanced";
         b.AutoTopUp = false;
         if (b.Shipyard && before is Side loser)
         {
@@ -596,6 +615,8 @@ public static class Planets
                         w.Ships.Remove(s);
                         f.ShipIds.Remove(s.Id);
                     }
+                    if (to.Owner == f.Side)
+                        to.Stock["spares"] = Colonies.Held(to, "spares") + Colonies.C.SettlerSpares * ships.Count;
                     if (f.ShipIds.Count == 0) w.Fleets.Remove(f);
                     else Fleets.Arrange(w, f);
                     Autonomy.Report(sim, f, $"Settlers land on {to.Name}: the settler ship is taken apart for the colony", NoteKind.Supply);
@@ -739,59 +760,55 @@ public static class Planets
         return taken;
     }
 
-    /// <summary>Why this building can't be ordered here, or null if it can.</summary>
-    public static string? CanBuild(World w, Side side, int bodyId, string kind)
+    /// <summary>Why this building can't be ordered here (at its best spot, or at x, y), or null if it can.</summary>
+    public static string? CanBuild(World w, Side side, int bodyId, string kind, int? x = null, int? y = null, bool turned = false)
     {
-        if (!w.Loop) return "There is no economy in the battle sandbox";
-        if (w.Winner != null) return "The game is over";
-        if (BuildingKind(kind) is not BuildingData data) return $"Unknown building '{kind}'";
-        if (w.FindBody(bodyId) is not Body b || b.Owner != side) return "Only on a planet you hold";
-        if (b.PopK <= 0) return "Settle it first: buildings need people";
-        if (b.Building != null) return $"Already building a {BuildingKind(b.Building)?.Name.ToLowerInvariant()}";
-        if (b.Buildings.Count >= Plots(b)) return $"No room: {b.Name} has {Plots(b)} plots";
-        if (kind == Farm && FarmFactor(b) <= 0) return "Nothing grows here";
-        if (Economy.Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
-        return null;
+        if (w.FindBody(bodyId) is Body b && b.Owner == side && b.PopK <= 0) return "Settle it first: buildings need people";
+        return Colonies.CanPlace(w, side, bodyId, kind, x, y, turned);
     }
 }
 
 // ---- Commands -------------------------------------------------------------------------------
 
 /// <summary>Start a building on a planet you hold: paid now, standing after its build time.</summary>
-public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind) : GameCommand
+public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, int? X = null, int? Y = null, bool Turned = false) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
 
     public override void Apply(World world, Simulation sim)
     {
-        if (Planets.CanBuild(world, Side, BodyId, Kind) is string problem)
+        if (Planets.CanBuild(world, Side, BodyId, Kind, X, Y, Turned) is string problem)
         {
-            sim.Log.Warn("planets", $"Can't build: {problem}", new { side = Side.ToString(), BodyId, Kind, Source });
+            sim.Log.Warn("planets", $"Can't build: {problem}", new { side = Side.ToString(), BodyId, Kind, X, Y, Source });
             return;
         }
         var data = Planets.BuildingKind(Kind)!;
         var b = world.FindBody(BodyId)!;
+        var (x, y, turned) = X is int px && Y is int py ? (px, py, Turned) : Colonies.BestSpot(b, data)!.Value;
         var state = Economy.Of(world, Side);
         state.Industry -= data.Cost;
         state.Totals.IndustrySpent += data.Cost;
-        b.Building = Kind;
-        b.BuildingHoursLeft = data.Days * 24;
-        sim.Log.Info("planets", $"{Side} starts a {data.Name.ToLowerInvariant()} at {b.Name}", new { side = Side.ToString(), BodyId, Kind, Source });
+        Colonies.AddPiece(world, b, data, x, y, turned, built: false);
+        sim.Log.Info("planets", $"{Side} starts a {data.Name.ToLowerInvariant()} at {b.Name}", new { side = Side.ToString(), BodyId, Kind, x, y, Source });
     }
 }
 
-/// <summary>Take down a building (to free its plot and its people).</summary>
-public sealed record DemolishCommand(Side Side, int BodyId, string Kind) : GameCommand
+/// <summary>Take down a building (to free its tiles and its people), or call off one being built: by piece, or the last of a kind.</summary>
+public sealed record DemolishCommand(Side Side, int BodyId, string Kind, int? PieceId = null) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
 
     public override void Apply(World world, Simulation sim)
     {
-        if (world.FindBody(BodyId) is not Body b || b.Owner != Side || !b.Buildings.Remove(Kind))
+        var b = world.FindBody(BodyId);
+        var piece = b?.Pieces.LastOrDefault(p => PieceId is int id ? p.Id == id : p.Kind == Kind);
+        if (b == null || b.Owner != Side || piece == null || piece.Kind == Colonies.Shipyard)
         {
-            sim.Log.Warn("planets", "Bad demolish order", new { side = Side.ToString(), BodyId, Kind, Source });
+            sim.Log.Warn("planets", "Bad demolish order", new { side = Side.ToString(), BodyId, Kind, PieceId, Source });
             return;
         }
+        b.Pieces.Remove(piece);
+        Colonies.SyncBuildings(b);
         sim.Log.Info("planets", $"{Side} takes down a {Kind} at {b.Name}", new { side = Side.ToString(), BodyId, Kind, Source });
     }
 }

@@ -253,6 +253,7 @@ public static class Mind
                 }
             }
             SupplyRuns();
+            Routes();
             Settle();
             Siege();
             Spend();
@@ -388,7 +389,8 @@ public static class Mind
             var served = Mine().Where(f => _m.JobOf(f.Id) is { Kind: not JobKind.Refit } && !AtHome(f))
                 .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
                 ?? Mine().Where(AtHome).OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault();
-            foreach (var run in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip)).ToList())
+            foreach (var run in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip)
+                                                     && !_w.ShipsOf(f).All(s => s.ClassId == "freighter")).ToList())
             {
                 var current = run.SupplyRunFor is int id ? _w.FindFleet(id) : null;
                 if (current is { ShipIds.Count: > 0 } && current.Side == _side && !SupplyOnly(current)
@@ -396,6 +398,24 @@ public static class Mind
                 if (served == null || served.Id == current?.Id) continue;
                 Do(new SetSupplyRunCommand(_side, run.Id, served.Id));
                 Note($"{run.Name} runs supplies to {served.Name}");
+            }
+        }
+
+        /// <summary>
+        /// Freighters are left to Auto transport between planets. Every few days a colony that digs a mineral
+        /// with some to spare gets a fixed run carrying it home, so rich deposits feed the home workshops.
+        /// </summary>
+        private void Routes()
+        {
+            if (Easy || _home == null) return;
+            foreach (var b in _w.Bodies.Where(b => b.Owner == _side && b.Id != _home.Id && b.Board != null).OrderBy(b => b.Id))
+            {
+                if (_w.FixedRuns.Any(r => r.Side == _side && r.FromBodyId == b.Id)) continue;
+                var good = Colonies.Goods.Select(g => g.Id).Where(g => g != "spares" && Colonies.MadePerDay(b, g) > 0.2)
+                    .OrderByDescending(g => Colonies.MadePerDay(b, g)).FirstOrDefault();
+                if (good == null) continue;
+                Do(new FixedRunCommand(_side, b.Id, _home.Id, good, 20));
+                Note($"Sets a run carrying {good} from {b.Name} home");
             }
         }
 
@@ -791,6 +811,9 @@ public static class Mind
             var tankers = mine.Count(s => s.ClassId == "tanker") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "tanker");
             var warships = mine.Count(s => !SupplyLines.IsSupplyShip(s) && Fitting.Spec(s).Railguns + Fitting.Spec(s).Missiles > 0);
             if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
+            var freighters = mine.Count(s => s.ClassId == "freighter") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "freighter");
+            var colonies = _w.Bodies.Count(b => b.Owner == _side && b.Board != null && !b.Home);
+            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 4 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
             if (!Easy && _rng.Chance(0.25) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
             if (!Easy && _rng.Chance(0.15) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
             var frigateShare = Easy ? 0.6 : _p.FrigateShare;
@@ -838,36 +861,56 @@ public static class Mind
             Economy.Of(_w, _side).Industry - (orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0);
 
         /// <summary>
-        /// Planet buildings: a farm when food runs short, otherwise a mine where there are people to staff it,
-        /// with Industry to spare after the next ship. Planet guns on the home once it has a few mines.
+        /// Planet buildings, one under way per planet: food when it runs short, power before anything that
+        /// needs it, a workshop when spare parts run short, then mines on free deposits, habitats when a
+        /// planet fills up, a storehouse, guns and a point defence grid at home, and a research lab or two,
+        /// with Industry to spare after the next ship. Each goes to its best spot on the board.
         /// </summary>
         private void Build(List<WorkOrder> orders)
         {
             var spare = Spare(orders);
-            var mine = _w.Bodies.Where(b => b.Owner == _side && b.PopK > 0 && b.Building == null && b.Buildings.Count < Planets.Plots(b)).ToList();
+            var mine = _w.Bodies.Where(b => b.Owner == _side && b.PopK > 0 && b.Board != null && b.Building == null)
+                .OrderByDescending(b => b.Home).ThenByDescending(b => b.PopK).ThenBy(b => b.Id).ToList();
             if (mine.Count == 0) return;
             var linked = _w.Bodies.Where(b => b.Owner == _side && !Economy.Blockaded(_w, b)).ToList();
-            var made = linked.Sum(Planets.FoodMadePerDay);
-            var need = linked.Sum(Planets.FoodNeedPerDay);
-            string? kind = null;
-            Body? where = null;
-            if (made < need * 1.15 + 0.1)
+            var hungry = linked.Sum(Planets.FoodMadePerDay) < linked.Sum(Planets.FoodNeedPerDay) * 1.15 + 0.1;
+            var sparesShort = linked.Sum(b => Colonies.MadePerDay(b, Colonies.Spares)) < linked.Sum(b => Colonies.UsePerDay(b, Colonies.Spares)) * 1.1;
+            var reserve = Easy ? 120 : 60;
+            foreach (var b in mine)
             {
-                kind = Planets.Farm;
-                where = mine.Where(b => Planets.FarmFactor(b) > 0).OrderByDescending(Planets.FarmFactor).ThenBy(b => b.Id).FirstOrDefault();
+                if (WantedHere(b, hungry, sparesShort) is not string kind || Planets.BuildingKind(kind) is not BuildingData data) continue;
+                var urgent = data.Food > 0 || data.Power < 0;
+                if (spare < data.Cost + (urgent ? 0 : reserve) || Planets.CanBuild(_w, _side, b.Id, kind) != null) continue;
+                Do(new BuildOnPlanetCommand(_side, b.Id, kind));
+                Note($"Builds a {data.Name.ToLowerInvariant()} at {b.Name}");
+                return;
             }
-            else if (spare >= (Planets.BuildingKind(Planets.Mine)?.Cost ?? 1e9) + (Easy ? 120 : 60))
+        }
+
+        /// <summary>What this planet most needs next, if anything fits and can be staffed.</summary>
+        private string? WantedHere(Body b, bool hungry, bool sparesShort)
+        {
+            bool Fits(string kind) => Planets.BuildingKind(kind) is BuildingData d
+                                      && (d.Needs == null || Tech.Has(_w, _side, d.Needs)) && Colonies.BestSpot(b, d) != null;
+            bool Staffed(string kind) => b.PopK >= Planets.StaffNeeded(b) + (Planets.BuildingKind(kind)?.StaffK ?? 0);
+            bool Powered(string kind) => b.PowerMade - b.PowerWanted >= (Planets.BuildingKind(kind)?.Power ?? 0);
+            string? Pick(params string[] kinds) => kinds.FirstOrDefault(k => Fits(k) && Powered(k));
+            if (hungry && Pick("fish-farm", Planets.TypeOf(b).Farm > 0 || b.Home ? Planets.Farm : "dome-farm") is string food) return food;
+            if (b.PowerWanted > b.PowerMade - 3)
+                return Fits("power-plant") && (Colonies.Held(b, "uranium") > 5 || Colonies.MadePerDay(b, "uranium") > 0 || b.Home) ? "power-plant"
+                    : Fits("solar-field") ? "solar-field" : null;
+            if (sparesShort && Staffed("workshop") && Pick("workshop") is string shop) return shop;
+            if (Staffed(Planets.Mine) && Pick(Planets.Mine) is string dig) return dig;
+            if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return home;
+            if (!Colonies.Built(b).Any(p => p.Kind == "storehouse") && b.Pieces.Count >= 3 && Pick("storehouse") is string store) return store;
+            if (b.Home && Planets.Count(b, Planets.Mine) >= 2)
             {
-                kind = Planets.Mine;
-                where = mine.Where(b => b.PopK >= Planets.StaffNeeded(b) + Planets.BuildingKind(Planets.Mine)!.StaffK)
-                    .OrderByDescending(b => b.Home).ThenByDescending(b => b.PopK).ThenBy(b => b.Id).FirstOrDefault();
-                if (where == null && _home != null && _home.Building == null && Planets.Count(_home, Planets.Mine) >= 3 && Planets.Count(_home, Planets.Guns) == 0
-                    && _home.Buildings.Count < Planets.Plots(_home))
-                    (kind, where) = (Planets.Guns, _home);
+                if (Planets.Count(b, Planets.Guns) == 0 && Pick(Planets.Guns) is string guns) return guns;
+                if (Planets.Count(b, "pd-grid") == 0 && Pick("pd-grid") is string pd) return pd;
+                if (Planets.Count(b, "research-lab") < (Easy ? 1 : 2) && Staffed("research-lab") && Pick("research-lab") is string lab) return lab;
             }
-            if (kind == null || where == null || Planets.CanBuild(_w, _side, where.Id, kind) != null) return;
-            Do(new BuildOnPlanetCommand(_side, where.Id, kind));
-            Note($"Builds a {Planets.BuildingKind(kind)!.Name.ToLowerInvariant()} at {where.Name}");
+            if (Colonies.Held(b, Colonies.Fuel) < 40 && b.Home && Pick("fuel-plant", "ice-mine") is string fuel) return fuel;
+            return null;
         }
 
         /// <summary>
