@@ -108,6 +108,10 @@ public sealed class EmpireTabs
         AutoArea.Supply => "Supply ships and refill runs for fleets",
         AutoArea.Refits => "Sending fleets to the yard to refit to the current designs",
         AutoArea.Battle => "The pull-back rule each fleet uses (fleets set by hand keep theirs)",
+        AutoArea.Crews => "Spreading veteran crews across a fleet, and the best crew on the flagship",
+        AutoArea.Boarding => "The calls during a boarding (seal the bridge, hostages, scuttle charge); Manual or Advise asks you and pauses",
+        AutoArea.Ground => "The ground war plan and its calls (the guns, spare the mines, the last stand); Manual or Advise asks you and pauses",
+        AutoArea.AfterBattle => "After a battle: rescue, capture, salvage, then the way home; Manual or Advise waits for your pick of the way home",
         _ => "",
     };
 

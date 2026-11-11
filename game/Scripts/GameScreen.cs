@@ -133,6 +133,14 @@ public partial class GameScreen : Node2D
     /// <summary>The planet whose screen (board, priorities, storage, transport) is open, over the planets list.</summary>
     public int? PlanetScreenId { get; set; }
 
+    /// <summary>The planet whose ground fight board is open (see GroundScreen).</summary>
+    public int? GroundScreenId { get; set; }
+
+    /// <summary>A tab the empire panel should switch to on its next refresh (from a toast, say).</summary>
+    public EmpirePanel.Tab? EmpireTabWanted { get; set; }
+
+    private readonly HashSet<string> _warCallsSeen = new();
+
     /// <summary>The ship whose card is open (click ⓘ on a ship row; null: none).</summary>
     public int? ShipCardId { get; set; }
 
@@ -263,6 +271,8 @@ public partial class GameScreen : Node2D
             WatchNotes();
             WatchChasers();
             WatchEconomy();
+            if (WarTab.WatchCalls(Sim.World, _warCallsSeen, text => _main.Toast(text + ". Paused.", onClick: () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.War; })))
+                _paused = true;
             // Pausing, or switching in or out of battle time: show where things really are now, so the
             // map neither stops part way back to the last step nor jumps when time runs again.
             if (switched || _paused) SnapToNow();
@@ -1351,6 +1361,7 @@ public partial class GameScreen : Node2D
                 if (PlanetScreenId != null || ShowPlanets) { PlanetScreenId = null; ShowPlanets = false; }
                 else ShowPlanets = true;
                 break;
+            case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;
             case Key.Escape when PlanetScreenId != null: PlanetScreenId = null; break;
             case Key.Escape when ShowPlanets: ShowPlanets = false; break;

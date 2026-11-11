@@ -204,7 +204,7 @@ public static class Planets
         Decay(sim);
         Bomb(sim);
         PlanetGuns(sim);
-        Ground(sim);
+        Core.Ground.Update(sim);
         Surrenders(sim);
         Runs(sim);
         TopUps(sim);
@@ -436,34 +436,9 @@ public static class Planets
 
     /// <summary>The planet's defenders against a landing: a share of its people (more if they are happy) and its guns.</summary>
     public static double GarrisonOf(Body b) =>
-        b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100)
-        + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.GarrisonK ?? 0) * (p.Kind == "bunker" ? b.BunkerFactor : 1));
-
-    /// <summary>Ground fights: each side wears the other down by a share of its own strength each hour.</summary>
-    private static void Ground(Simulation sim)
-    {
-        var w = sim.World;
-        foreach (var b in w.Bodies.Where(b => b.LandingSide != null).ToList())
-        {
-            var side = b.LandingSide!.Value;
-            if (b.Owner == side) { b.LandingSide = null; b.LandingTroops = 0; continue; }
-            var troops = b.LandingTroops - b.Garrison * D.GroundLossPerHour;
-            var garrison = b.Garrison - b.LandingTroops * D.GroundLossPerHour;
-            b.LandingTroops = Math.Max(0, troops);
-            b.Garrison = Math.Max(0, garrison);
-            if (b.Garrison <= 1e-6)
-            {
-                b.PopK *= 0.95;
-                Take(sim, b, side, "troops took it");
-            }
-            else if (b.LandingTroops <= 1e-6)
-            {
-                Sparks.Fire(sim, side, "landing-failed");
-                b.LandingSide = null;
-                sim.Log.Info("planets", $"The landing on {b.Name} is beaten off", new { bodyId = b.Id, side = side.ToString() });
-            }
-        }
-    }
+        (b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100)
+         + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.GarrisonK ?? 0) * (p.Kind == "bunker" ? b.BunkerFactor : 1))
+         + Core.Ground.MilitiaOf(b)) * Core.Ground.BlockadeFactor(b);
 
     /// <summary>The line below which a blockaded planet gives up to this side.</summary>
     public static double SurrenderLine(World w, Side to) => Tipped(w, to) ? D.SurrenderBelowTipped : D.SurrenderBelow;
@@ -476,7 +451,13 @@ public static class Planets
         {
             if (Blockader(w, b) is not Side by || b.Grudge == by) continue;
             var gives = w.Rules.Happiness ? b.Happiness < SurrenderLine(w, by) : b.HungryHours >= D.HungryDaysToSurrender * 24;
-            if (gives) Take(sim, b, by, "surrendered to the blockade");
+            if (!gives) continue;
+            var t = Economy.Of(w, by).Totals;
+            t.BlockadeWins++;
+            t.BlockadeDays += b.BlockadeHours / 24;
+            Choices.Note(w, by, "blockade-won", b.Name, "", $"{b.BlockadeHours / 24:0.#} days");
+            Take(sim, b, by, "surrendered to the blockade");
+            t.BlockadeHappiness += b.Happiness;
         }
     }
 
@@ -493,6 +474,8 @@ public static class Planets
         b.LandingSide = null;
         b.LandingTroops = 0;
         b.Garrison = 0;
+        b.Front = null;
+        b.PartisansAgainst = null;
         b.Pieces.RemoveAll(p => !p.Built);
         // Housing that was going up is gone with the old owner: people it would have held leave.
         b.PopK = Math.Min(b.PopK, Cap(b));
@@ -937,7 +920,7 @@ public sealed record SetBombingCommand(int FleetId, BombTarget Target) : GameCom
 }
 
 /// <summary>Land the fleet's troops on the planet it holds low orbit over.</summary>
-public sealed record LandTroopsCommand(int FleetId, int BodyId) : GameCommand, IFleetCommand
+public sealed record LandTroopsCommand(int FleetId, int BodyId, GroundPlan? Plan = null) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
     {
@@ -949,14 +932,7 @@ public sealed record LandTroopsCommand(int FleetId, int BodyId) : GameCommand, I
         }
         // Marines fight half again as hard as the same number of plain troops.
         var troops = Planets.TakeTroops(world, f, double.MaxValue) * Tech.Factor(world, f.Side, "marines");
-        if (b.LandingSide == f.Side) b.LandingTroops += troops;
-        else
-        {
-            b.LandingSide = f.Side;
-            b.LandingTroops = troops;
-            b.Garrison = Planets.GarrisonOf(b);
-        }
-        sim.Log.Info("planets", $"{f.Side} lands troops on {b.Name}", new { FleetId, BodyId, troops = Math.Round(troops, 2), garrison = Math.Round(b.Garrison, 2), Source });
+        Ground.Land(sim, f, b, troops, Plan);
     }
 }
 

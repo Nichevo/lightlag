@@ -55,7 +55,7 @@ public sealed record ShipClass(
     int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
     double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
     string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null,
-    double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null)
+    double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false)
 {
     /// <summary>The class's slots (none for old data).</summary>
     public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();

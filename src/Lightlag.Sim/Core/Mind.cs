@@ -1361,12 +1361,17 @@ public static class Mind
             {
                 if (f.OrbitBodyId is not int id || _w.FindBody(id) is not Body b || b.Owner != _enemy || b.PopK <= 0 || !Economy.InOrbitAt(f, b)) continue;
                 var stubborn = b.Grudge == _side || b.Happiness > Planets.SurrenderLine(_w, _side) + 15 && !b.Hungry;
-                if (!stubborn) continue;
+                // A raider tires of a blockade after a week, the others after three: then they go in.
+                var raider = _m.Personality == Personality.Raider;
+                var tired = b.BlockadeHours > (raider ? 7 : 21) * 24;
+                if (!stubborn && !tired) continue;
                 var troops = Planets.TroopsAboard(_w, f);
-                if (troops >= Planets.GarrisonOf(b) * 1.5 && Planets.CanLand(_w, f, b) == null)
+                // A raider goes in hard and early; the others land with a safe margin on Auto's plan.
+                if (troops >= Planets.GarrisonOf(b) * (raider ? 1.25 : 1.5) && Planets.CanLand(_w, f, b) == null)
                 {
-                    Do(new LandTroopsCommand(f.Id, b.Id));
-                    Note($"{f.Name} lands troops on {b.Name}");
+                    var plan = raider ? GroundPlan.Blitz : Ground.AutoPlan(_w, _side, b, troops);
+                    Do(new LandTroopsCommand(f.Id, b.Id, plan));
+                    Note($"{f.Name} lands troops on {b.Name} ({Ground.PlanName(plan)})");
                     continue;
                 }
                 if (f.OrbitHeight != OrbitHeight.Low && troops > 0) Do(new SetOrbitHeightCommand(f.Id, OrbitHeight.Low));

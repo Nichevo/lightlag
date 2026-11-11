@@ -174,7 +174,10 @@ public static class Batch
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}-choices.csv"), Choices.ToCsv(w));
             if (w.Minds.Count == 2)
                 foreach (var side in new[] { Side.Player, Side.Rival })
+                {
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
+                    WarReport.Rows.Add(WarReport.Row.Of(w, side));
+                }
             Overnight.Collect(w);
             var (mid, curve) = Overnight.Warships(w, days);
             string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
@@ -304,6 +307,7 @@ public static class Batch
         Overnight.Append(md, report);
         _report = Overnight.Html(report, "Lightlag overnight report", html.ToString());
         AppendFights(md, ai);
+        WarReport.Append(md);
         WhatMatters.Append(md);
         md.AppendLine();
         md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "

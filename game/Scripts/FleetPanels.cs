@@ -298,10 +298,16 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetBombingCommand(sf.Id, (BombTarget)(int)id), "bombing");
         });
         _planetRow.AddChild(_bomb);
-        _land = Ui.SmallButton("Land troops", () =>
+        _land = new MenuButton { Text = "Land troops ▾", Flat = false, FocusMode = FocusModeEnum.None };
+        _land.AddThemeFontSizeOverride("font_size", 13);
+        _land.GetPopup().AddItem("Land, Auto picks the plan", -1);
+        foreach (var plan in Enum.GetValues<GroundPlan>())
+            _land.GetPopup().AddItem($"Land: {Ground.PlanName(plan)} ({Ground.PlanWhat(plan)})", (int)plan);
+        _land.GetPopup().IdPressed += id => Main.Instance.RunGuarded("landing", () =>
         {
-            if (_screen.SelectedFleet is Fleet sf && sf.OrbitBodyId is int b) _screen.IssueNow(new LandTroopsCommand(sf.Id, b), "landing");
-        }, "Land the troops aboard on the planet below");
+            if (_screen.SelectedFleet is Fleet sf && sf.OrbitBodyId is int b)
+                _screen.IssueNow(new LandTroopsCommand(sf.Id, b, id < 0 ? null : (GroundPlan)(int)id), "landing");
+        });
         _planetRow.AddChild(_land);
         _board = Ui.SmallButton("Board slipway", () =>
         {
@@ -309,7 +315,63 @@ public partial class FleetPanel : PanelContainer
         }, $"Send {Planets.D.BoardTroopsK:0.#}k troops to take the ship being built on the blockaded enemy slipway");
         _planetRow.AddChild(_board);
         box.AddChild(_planetRow);
+
+        // Boarding crippled enemy ships nearby (the menu lists them when opened).
+        _boardRow = new HBoxContainer();
+        _boardRow.AddThemeConstantOverride("separation", 4);
+        _boardShip = new MenuButton { Text = "Board ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Send a boarding party to a crippled enemy ship near this fleet: troops if aboard, else parties from the crews" };
+        _boardShip.AddThemeFontSizeOverride("font_size", 13);
+        _boardShip.AboutToPopup += FillBoardMenu;
+        _boardShip.GetPopup().IdPressed += id => Main.Instance.RunGuarded("boarding", () =>
+        {
+            if (_screen.SelectedFleet is not Fleet sf) return;
+            var approach = (BoardApproach)(int)(id % 10);
+            var goal = (BoardGoal)(int)(id / 10 % 10);
+            _screen.IssueNow(new BoardShipCommand(sf.Id, (int)(id / 100), approach, goal), "boarding");
+        });
+        _boardRow.AddChild(_boardShip);
+        _boardNote = Ui.Label("", 12, Ui.Dim);
+        _boardRow.AddChild(_boardNote);
+        box.AddChild(_boardRow);
         Arrange(box);
+    }
+
+    private HBoxContainer _boardRow = null!;
+    private MenuButton _boardShip = null!;
+    private Label _boardNote = null!;
+
+    /// <summary>One line per target, approach and goal; the id packs them (ship id × 100 + goal × 10 + approach).</summary>
+    private void FillBoardMenu()
+    {
+        var popup = _boardShip.GetPopup();
+        popup.Clear();
+        var w = Main.Instance.Sim!.World;
+        if (_screen.SelectedFleet is not Fleet f) return;
+        foreach (var t in Boarders.Targets(w, f).OrderBy(t => t.Id))
+            foreach (var approach in Enum.GetValues<BoardApproach>())
+                foreach (var goal in Enum.GetValues<BoardGoal>())
+                {
+                    var why = Boarders.CanBoard(w, f, t, approach);
+                    if (approach == BoardApproach.Cyber && why != null) continue;
+                    var index = popup.ItemCount;
+                    popup.AddItem($"{t.Name}: {Boarders.Approach(approach)}, make for the {Boarders.Goal(goal)}" + (why != null ? $" ({why})" : ""),
+                        t.Id * 100 + (int)goal * 10 + (int)approach);
+                    popup.SetItemDisabled(index, why != null);
+                }
+        if (popup.ItemCount == 0) popup.AddItem("No crippled enemy ship in reach", -1);
+    }
+
+    private void RefreshBoardRow(World w, Fleet f, bool mine)
+    {
+        var boarding = w.Boardings.Find(b => b.Outcome == null && b.FleetId == f.Id);
+        var targets = mine && w.Loop ? Boarders.Targets(w, f).ToList() : new List<Ship>();
+        _boardRow.Visible = mine && w.Loop && (targets.Count > 0 || boarding != null);
+        if (!_boardRow.Visible) return;
+        _boardShip.Visible = boarding == null;
+        _boardNote.Text = boarding != null
+            ? $"Boarding {boarding.TargetName}: {boarding.Progress:P0} across, chance {Boarders.WinChance(w, boarding):P0} (Empire > War)"
+            : $"{targets.Count} crippled enem{(targets.Count == 1 ? "y" : "ies")} in reach";
     }
 
     // ---- Sections ---------------------------------------------------------------------------------
@@ -490,7 +552,8 @@ public partial class FleetPanel : PanelContainer
     }
 
     private HBoxContainer _planetRow = null!;
-    private Button _height = null!, _land = null!, _board = null!;
+    private Button _height = null!, _board = null!;
+    private MenuButton _land = null!;
     private MenuButton _bomb = null!;
 
     // Panel view: tucked to its name and job (kept between selections).
@@ -607,6 +670,7 @@ public partial class FleetPanel : PanelContainer
         var perf = FleetPerformance.Of(w, f);
         _supplyRun.Visible = mine && ships.Any(SupplyLines.IsSupplyShip);
         RefreshPlanetRow(w, f, mine, ships);
+        RefreshBoardRow(w, f, mine);
         if (_supplyRun.Visible)
             _supplyRun.Text = f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t ? $"Supply run: {t.Name} ▾" : "Supply run ▾";
         _title.Text = f.Name + (mine ? "" : "  (rival)");
@@ -749,6 +813,9 @@ public partial class FleetPanel : PanelContainer
                 (mine ? share : -1, share < 0.2 ? Ui.Danger : new Color("5fb0ff")));
             bits.Add($"weapons {s.Weapons:P0} · engines {s.Engines:P0} · defence {s.Defence:P0} · crew {s.Crew:P0}");
             if (s.Crippled) bits.Insert(0, "CRIPPLED");
+            if (w.Loop && Crews.Crewed(s)) bits.Add($"{Crews.RankOf(s)} crew ({s.Xp:0.#} xp)");
+            else if (w.Loop) bits.Add("AI crewed (no ranks)");
+            if (Boarders.BeingBoarded(w, s.Id)) bits.Insert(0, "BEING BOARDED");
             var tip = $"{s.Name}: " + string.Join(" · ", bits);
             row.Bars.TooltipText = tip;
             row.Box.TooltipText = tip;
@@ -757,6 +824,8 @@ public partial class FleetPanel : PanelContainer
             if (mine && SupplyLines.Hungry(s)) alerts.Add("HUNGRY");
             if (s.Overheated) alerts.Add("HOT");
             if (s.Crippled) alerts.Add("CRIPPLED");
+            if (Boarders.BeingBoarded(w, s.Id)) alerts.Add("BOARDED");
+            if (w.Loop && Crews.Crewed(s) && Crews.RankOf(s) >= Rank.Seasoned) alerts.Add(Crews.RankOf(s).ToString().ToUpperInvariant()[..3]);
             if (s.Disabled is Module dm) alerts.Add($"{Combat.ModuleName(dm)} out");
             if (cls.Missiles > 0) alerts.Add($"{s.Missiles}m");
             row.Supplies.Text = string.Join(" ", alerts);

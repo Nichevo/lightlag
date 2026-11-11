@@ -58,6 +58,7 @@ public sealed class RuleBook
                      && s.CargoPeople >= -1e-9 && s.CargoPeople <= Planets.PeopleHold(s) + 1e-6 && s.CargoTroops >= -1e-9 && s.CargoTroops <= Planets.TroopHold(s) + 1e-6))
             .Select(s => $"ship {s.Id} {s.Name} has ammo {s.Ammo}, food {s.Food}, cargo {s.CargoFuel}/{s.CargoAmmo}/{s.CargoFood}, people {s.CargoPeople}, troops {s.CargoTroops}"))
         .Add("planets-sane", PlanetsSane)
+        .Add("war-sane", WarSane)
         .Add("supply-rules-sane", SupplyRulesSane)
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
@@ -190,6 +191,31 @@ public sealed class RuleBook
         }
         foreach (var f in w.Fleets.Where(f => f.PeopleRun != null && !w.ShipsOf(f).Any(Planets.IsColonyShip)))
             yield return $"fleet {f.Id} {f.Name} is on a people run with no colony ship";
+    }
+
+    /// <summary>Boardings, invasions, crews and after-battle plans hold together.</summary>
+    private static IEnumerable<string> WarSane(World w)
+    {
+        foreach (var s in w.Ships.Where(s => !double.IsFinite(s.Xp) || s.Xp < -1e-9 || s.Crew < -1e-9 || s.Crew > 1 + 1e-9))
+            yield return $"ship {s.Id} {s.Name} has crew {s.Crew}, experience {s.Xp}";
+        foreach (var b in w.Boardings.Where(b => b.Outcome == null))
+        {
+            if (!double.IsFinite(b.Marines) || b.Marines < -1e-9 || b.Progress < -1e-9 || b.Progress > 1 + 1e-9)
+                yield return $"boarding {b.Id} has {b.Marines} marines at {b.Progress} progress";
+            if (w.Boardings.Count(o => o.Outcome == null && o.TargetShipId == b.TargetShipId) > 1)
+                yield return $"ship {b.TargetShipId} is boarded twice at once";
+        }
+        foreach (var b in w.Bodies)
+        {
+            if ((b.Front != null) != (b.LandingSide != null)) yield return $"{b.Name} has a landing without a front, or a front without a landing";
+            if (b.Front is GroundFront f && b.Board is Board board && f.Tiles.Length != board.W * board.H)
+                yield return $"{b.Name} front has {f.Tiles.Length} tiles for a {board.W}x{board.H} board";
+            if (b.Front is GroundFront g && g.Side != b.LandingSide) yield return $"{b.Name} front side is out of step with its landing";
+        }
+        foreach (var a in w.Aftermaths.Where(a => !a.Done))
+            if (w.Aftermaths.Count(o => !o.Done && o.FleetId == a.FleetId) > 1) yield return $"fleet {a.FleetId} has two after-battle plans";
+        foreach (var wr in w.Wrecks.Where(x => !double.IsFinite(x.CrewK) || x.CrewK < -1e-9))
+            yield return $"wreck {wr.Id} has {wr.CrewK} crew";
     }
 
     private static IEnumerable<string> PositionsFinite(World w)

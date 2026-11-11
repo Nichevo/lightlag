@@ -150,14 +150,15 @@ public static class Wounds
         Combat.Destroy(sim, target);
     }
 
-    /// <summary>A destroyed ship leaves a drifting wreck holding part of its materials.</summary>
+    /// <summary>A destroyed ship leaves a drifting wreck holding part of its materials, and its crew in pods (see AfterBattle).</summary>
     public static void LeaveWreck(World w, Ship s)
     {
         if (!w.Loop) return;
         var cls = GameData.ShipClass(s.ClassId);
         var salvage = (cls.Materials ?? new()).Where(m => m.Value * D.WreckShare >= 0.5)
             .ToDictionary(m => m.Key, m => Math.Round(m.Value * D.WreckShare, 1));
-        if (salvage.Count == 0) return;
+        var crew = War.CrewK(s) * Math.Clamp(s.Crew, 0, 1) * War.D.After.PodShare;
+        if (salvage.Count == 0 && crew <= 1e-6) return;
         var f = w.FleetOf(s);
         var orbit = f is { Hold: HoldStyle.Orbit, Flight: null, OrbitBodyId: int id } ? w.FindBody(id) : null;
         w.Wrecks.Add(new Wreck
@@ -165,10 +166,14 @@ public static class Wounds
             Id = w.NextId++, Side = s.Side, ClassId = s.ClassId, Name = s.Name, Position = s.Position,
             Velocity = orbit == null ? f?.Velocity ?? Vec2.Zero : Vec2.Zero, Hour = w.Hour, Salvage = salvage,
             BodyId = orbit?.Id, Offset = orbit == null ? Vec2.Zero : s.Position - orbit.Position,
+            CrewK = crew, CrewXp = s.Xp, PodsUntilHour = w.Hour + War.D.After.PodDays * 24,
         });
     }
 
-    /// <summary>Hourly: wrecks drift and fade; a fleet out of battle near one strips it, and the haul goes to the side's nearest store.</summary>
+    /// <summary>
+    /// Hourly: wrecks drift and fade, and pods run out of air. A fleet out of battle near one (and not
+    /// clearing up after its own battle: see AfterBattle) picks up the pods and strips the wreck at once.
+    /// </summary>
     public static void UpdateWrecks(Simulation sim)
     {
         var w = sim.World;
@@ -176,23 +181,59 @@ public static class Wounds
         {
             if (wr.BodyId is int b && w.FindBody(b) is Body body) wr.Position = body.Position + wr.Offset;
             else wr.Position += wr.Velocity * GameTime.HoursPerTick;
-            if (w.Hour - wr.Hour > D.WreckDays * 24) { w.Wrecks.Remove(wr); continue; }
-            var f = w.Fleets.Where(f => f.ShipIds.Count > 0 && !Heat.InBattle(w, f) && Vec2.Distance(f.Position, wr.Position) <= D.SalvageRangeMm)
+            if (wr.CrewK > 0 && w.Hour >= wr.PodsUntilHour)
+            {
+                sim.Log.Info("combat", $"The pods of {wr.Name} run out of air", new { wreck = wr.Id, crewK = Math.Round(wr.CrewK, 3) });
+                wr.CrewK = 0;
+            }
+            if (w.Hour - wr.Hour > D.WreckDays * 24 || wr.Salvage.Count == 0 && wr.CrewK <= 0) { w.Wrecks.Remove(wr); continue; }
+            var f = w.Fleets.Where(f => f.ShipIds.Count > 0 && !Heat.InBattle(w, f) && !AfterBattle.Busy(w, f) && !Boarders.Grappled(w, f) && Vec2.Distance(f.Position, wr.Position) <= D.SalvageRangeMm)
                 .OrderBy(f => Vec2.Distance(f.Position, wr.Position)).ThenBy(f => f.Id).FirstOrDefault();
             if (f == null) continue;
-            var store = w.Bodies.Where(b => b.Owner == f.Side && b.Board != null).OrderBy(b => Vec2.Distance(b.Position, f.Position)).ThenBy(b => b.Id).FirstOrDefault();
-            if (store == null) continue;
-            var total = 0.0;
-            foreach (var (good, amount) in wr.Salvage.OrderBy(kv => kv.Key, StringComparer.Ordinal))
-            {
-                store.Stock[good] = Colonies.Held(store, good) + amount;
-                total += amount;
-            }
-            w.Wrecks.Remove(wr);
-            if (w.Loop) Economy.Of(w, f.Side).Totals.Salvaged += total;
-            Sparks.Fire(sim, f.Side, "wreck-salvaged");
-            sim.Log.Info("combat", $"{f.Name} salvages the wreck of {wr.Name}", new { fleetId = f.Id, wreck = wr.Id, store = store.Name, wr.Salvage });
+            Rescue(sim, f, wr);
+            Strip(sim, f, wr);
+            if (wr.Salvage.Count == 0 && wr.CrewK <= 0) w.Wrecks.Remove(wr);
         }
+    }
+
+    /// <summary>Picks up a wreck's pods: your own crew keep their rank and wait at home for a new ship; the enemy's become prisoners.</summary>
+    public static void Rescue(Simulation sim, Fleet f, Wreck wr)
+    {
+        var w = sim.World;
+        if (wr.CrewK <= 1e-9) return;
+        if (wr.Side == f.Side)
+        {
+            Economy.Of(w, f.Side).ReserveCrews.Add(wr.CrewXp);
+            Economy.Of(w, f.Side).Totals.CrewsRescued += wr.CrewK;
+            sim.Log.Info("combat", $"{f.Name} picks up the crew of {wr.Name}", new { fleetId = f.Id, wreck = wr.Id, crewK = Math.Round(wr.CrewK, 3), xp = Math.Round(wr.CrewXp, 2) });
+        }
+        else
+        {
+            sim.Log.Info("combat", $"{f.Name} takes the crew of {wr.Name} prisoner", new { fleetId = f.Id, wreck = wr.Id, crewK = Math.Round(wr.CrewK, 3) });
+            Spoils.TakePrisoners(sim, f.Side, wr.CrewK, wr.Name);
+        }
+        wr.CrewK = 0;
+    }
+
+    /// <summary>Strips a wreck: the materials go to the side's nearest store; an enemy wreck also gives a scrap of intel on its parts.</summary>
+    public static void Strip(Simulation sim, Fleet f, Wreck wr)
+    {
+        var w = sim.World;
+        if (wr.Salvage.Count == 0) return;
+        var store = w.Bodies.Where(b => b.Owner == f.Side && b.Board != null).OrderBy(b => Vec2.Distance(b.Position, f.Position)).ThenBy(b => b.Id).FirstOrDefault();
+        if (store == null) return;
+        var total = 0.0;
+        foreach (var (good, amount) in wr.Salvage.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            store.Stock[good] = Colonies.Held(store, good) + amount;
+            total += amount;
+        }
+        var haul = wr.Salvage;
+        wr.Salvage = new();
+        if (w.Loop) Economy.Of(w, f.Side).Totals.Salvaged += total;
+        sim.Log.Info("combat", $"{f.Name} salvages the wreck of {wr.Name}", new { fleetId = f.Id, wreck = wr.Id, store = store.Name, salvage = haul });
+        Sparks.Fire(sim, f.Side, "wreck-salvaged");
+        if (wr.Side != f.Side) Spoils.Scrap(sim, f.Side, $"parts from the wreck of {wr.Name}", IntelSource.Wreck, part: true);
     }
 
     /// <summary>What mending this ship fully at a yard will cost: alloys for the hull, electronics for the other bars.</summary>
@@ -222,6 +263,7 @@ public static class Wounds
         var alloys = (cls.Materials?.GetValueOrDefault("alloys") ?? 0) * D.RepairAlloys * hullShare;
         var elec = (cls.Materials?.GetValueOrDefault("electronics") ?? 0) * D.RepairElectronics * worn;
         var pace = 1.0;
+        var crewBefore = s.Crew;
         if (w.Loop && at != null && (alloys > 0 || elec > 0))
         {
             if (Colonies.Held(at, "alloys") >= alloys && Colonies.Held(at, "electronics") >= elec)
@@ -233,6 +275,7 @@ public static class Wounds
         }
         s.Armour = Math.Min(max, s.Armour + max * hullShare * pace);
         foreach (var b in Bars.Skip(1)) Set(s, b, Share(w, s, b) + barsShare * pace);
+        if (w.Loop) Crews.Replaced(s, crewBefore, s.Crew);
         if (s.Crippled && s.Armour >= max * 0.25) { s.Crippled = false; s.CrippleLeft = 0; }
         if (s.Armour >= max * 0.5) s.Knocked.RemoveAll(m => Bars.Skip(1).All(b => !PartsOf(s, b).Contains(m) || Share(w, s, b) >= 0.5));
     }
