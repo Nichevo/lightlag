@@ -115,11 +115,36 @@ public class FuelTests
         var yard = Yard(sim);
         var ship = w.ShipsOf(f).First(s => s.ClassId == "gun-frigate");
         SetEngine(sim, ship, "engine-mk2");
-        ship.Supplies = Fitting.MaxSupplies(w, ship) * 0.5;
-        yard.Stock["fission-pellets"] = 50;
-        Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5));
+        var full = Fitting.MaxSupplies(w, ship);
+        ship.Supplies = full * 0.5;
+        yard.Stock["fission-pellets"] = Fuels.Data("fission-pellets").PerSupply * full * 0.9;
+        Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5)); // pellets here, but not a full tank's worth
+        yard.Stock["water"] = 1000;
+        Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5)); // water is no better for a warship
         yard.Stock.Remove(Fuels.Standard);
         Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5)); // none of its own fuel here, but no pouring back and forth
+    }
+
+    [Fact]
+    public void A_ship_with_fuel_left_moves_up_to_a_clearly_better_fuel_with_a_full_tank_in_store()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var f = Home(sim);
+        var yard = Yard(sim);
+        var ship = w.ShipsOf(f).First(s => s.ClassId == "gun-frigate");
+        SetEngine(sim, ship, "engine-mk2");
+        var full = Fitting.MaxSupplies(w, ship);
+        ship.Supplies = full * 0.6;
+        yard.Stock["fission-pellets"] = Fuels.Data("fission-pellets").PerSupply * full + 1;
+        Assert.Equal("fission-pellets", Fuels.Pick(w, ship, f, yard, 5));
+        var fuel = Colonies.Held(yard, Fuels.Standard);
+        Fuels.Refuel(w, ship, f, yard, full);
+        Assert.Equal("fission-pellets", ship.Fuel);
+        Assert.True(Colonies.Held(yard, Fuels.Standard) > fuel, "the hydrogen left in the tanks went back to the store");
+        Assert.Equal("fission-pellets", Fuels.Pick(w, ship, f, yard, 5)); // and does not go back
+        f.Fuel = Fuels.Standard; // the fleet's choice wins straight away
+        Assert.Equal(Fuels.Standard, Fuels.Pick(w, ship, f, yard, 5));
     }
 
     [Fact]

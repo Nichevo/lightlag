@@ -118,7 +118,8 @@ public static class Fuels
 
     /// <summary>
     /// The fuel a ship should fill up with here. A ship keeps the fuel it has while its tanks are a quarter
-    /// full or more (so fuel is not poured back and forth). Below that: the fleet's chosen fuel if it is in
+    /// full or more (so fuel is not poured back and forth), unless a clearly better one (or the fleet's chosen
+    /// fuel) fills the whole tank here. Below that: the fleet's chosen fuel if it is in
     /// stock, else Auto's pick for the fleet's job among the fuels in stock (the one it has unless another
     /// suits clearly better); with none in stock, water if the engine takes it and the tanks are all but dry.
     /// </summary>
@@ -130,7 +131,7 @@ public static class Fuels
         var full = Fitting.MaxSupplies(w, s);
         var share = full <= 0 ? 0 : s.Supplies / full;
         var burnable = burns.Contains(current);
-        if (burnable && share >= SwitchBelow) return current;
+        if (burnable && share >= SwitchBelow) return Upgrade(w, s, f, b, burns, current, full) ?? current;
         if (f?.Fuel is { Length: > 0 } chosen && burns.Contains(chosen) && InStock(b, chosen, wanted)) return chosen;
         var job = JobOf(w, f);
         var stocked = burns.Where(x => InStock(b, x, wanted)).ToList();
@@ -143,6 +144,21 @@ public static class Fuels
         var best = stocked.OrderByDescending(x => Score(Data(x), job)).ThenBy(x => x, StringComparer.Ordinal).First();
         if (!burnable || !stocked.Contains(current)) return best;
         return Score(Data(best), job) > Score(Data(current), job) + 0.15 ? best : current;
+    }
+
+    /// <summary>Tanks a quarter full or more change fuel only for a clearly better one (Auto, or the fleet's choice) with a full tank's worth in the store.</summary>
+    public const double UpgradeMargin = 0.2;
+
+    private static string? Upgrade(World w, Ship s, Fleet? f, Body b, IReadOnlyList<string> burns, string current, double full)
+    {
+        if (b.Board == null || full <= 0) return null;
+        bool FullTank(string x) => Colonies.Held(b, x) >= Data(x).PerSupply * full - 1e-9;
+        if (f?.Fuel is { Length: > 0 } chosen)
+            return chosen != current && burns.Contains(chosen) && FullTank(chosen) ? chosen : null;
+        var job = JobOf(w, f);
+        var bar = Score(Data(current), job) + UpgradeMargin;
+        return burns.Where(x => x != current && FullTank(x) && Score(Data(x), job) > bar)
+            .OrderByDescending(x => Score(Data(x), job)).ThenBy(x => x, StringComparer.Ordinal).FirstOrDefault();
     }
 
     /// <summary>

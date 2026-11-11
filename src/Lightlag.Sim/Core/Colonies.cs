@@ -478,6 +478,7 @@ public static class Colonies
     /// </summary>
     public static void UpdateWants(World w)
     {
+        var tanks = new Dictionary<Side, List<(string Fuel, double Tank)>>();
         foreach (var b in w.Bodies)
         {
             if (b.Wants.Count > 0) b.Wants.Clear();
@@ -496,7 +497,37 @@ public static class Colonies
             // the fleets sent to it will take, so Auto transport ships those materials in.
             if (!RepairsHere(w, b, side)) continue;
             foreach (var (good, amount) in YardBills(w, b, side)) b.Wants[good] = b.Wants.GetValueOrDefault(good) + amount;
+            // And the fuels its ships burn or should move up to (fission pellets made out at a uranium mine are
+            // no use there): a tank's worth for each ship that can burn them, as far as the store holds.
+            if (!tanks.TryGetValue(side, out var fuels)) tanks[side] = fuels = FuelTanks(w, side);
+            foreach (var (fuel, tank) in fuels)
+            {
+                var want = Math.Min(tank, StoreCap(b, fuel) * 0.8) - Held(b, fuel);
+                if (want > 0.5) b.Wants[fuel] = b.Wants.GetValueOrDefault(fuel) + want;
+            }
         }
+    }
+
+    /// <summary>
+    /// For each fuel other than water (made anywhere): a full tank for every ship that burns it now, or whose
+    /// engine burns it and would take it over what it has (the side makes it or has some), or that the side wants made.
+    /// </summary>
+    private static List<(string, double)> FuelTanks(World w, Side side)
+    {
+        var tanks = new Dictionary<string, double>();
+        if (!Fuels.On(w)) return new List<(string, double)>();
+        var wanted = Planner.FuelsWanted(w, side);
+        var got = GameData.Fuels.Where(f => !f.Anywhere && (wanted.Contains(f.Id) || Fuels.Obtainable(w, side, f.Id))).ToList();
+        foreach (var s in w.Ships.Where(s => s.Side == side).OrderBy(s => s.Id))
+        {
+            var burns = Fuels.Burns(w, s);
+            var job = Fuels.JobOf(w, w.FleetOf(s));
+            var best = got.Where(f => burns.Contains(f.Id)).OrderByDescending(f => Fuels.Score(f, job)).ThenBy(f => f.Id, StringComparer.Ordinal).FirstOrDefault();
+            var full = Fitting.MaxSupplies(w, s);
+            foreach (var f in got.Where(f => f.Id == Fuels.IdOf(s) || f == best))
+                tanks[f.Id] = tanks.GetValueOrDefault(f.Id) + full * f.PerSupply;
+        }
+        return tanks.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
     }
 
     /// <summary>Materials a yard needs for the repairs and refits it has coming: damaged ships in orbit or flying there, and fleets sent to it for refit.</summary>
