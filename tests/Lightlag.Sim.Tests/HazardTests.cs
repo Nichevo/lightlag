@@ -304,6 +304,23 @@ public class HazardTests
     }
 
     [Fact]
+    public void People_over_the_cap_after_a_lost_building_move_to_another_world()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var home = w.Bodies.First(b => b.Owner == Side.Player && b.Home);
+        var other = w.Bodies.First(b => b.Owner == null && b.Kind == BodyKind.Planet && Planets.Cap(b) > 2);
+        other.Owner = Side.Player;
+        other.PopK = 1;
+        home.PopK = Planets.Cap(home) + 0.5;
+        var (moved, lost) = Planets.Overflow(w, home);
+        Assert.Equal(Planets.Cap(home), home.PopK, 9);
+        Assert.Equal(0.5, moved, 9);
+        Assert.Equal(0, lost, 9);
+        Assert.Equal(1.5, other.PopK, 9);
+    }
+
+    [Fact]
     public void Pushing_a_rock_costs_industry_and_saves_the_colony()
     {
         var sim = NewGame();

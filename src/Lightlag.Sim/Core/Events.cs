@@ -537,14 +537,17 @@ public static class Events
             Colonies.RemoveOne(b, x => x.Id == p.Id);
             gone = Planets.BuildingKind(p.Kind)?.Name ?? p.Kind;
         }
+        var dead = pick == 1 ? 0 : b.PopK * E.RockPeopleLost;
+        b.PopK -= dead;
+        var (moved, homeless) = Planets.Overflow(w, b);
+        var after = (moved > 0 ? $"; {moved * 1000:0} people had to move to other worlds" : "")
+                    + (homeless > 0 ? $"; {homeless * 1000:0} found no room and were lost" : "");
         if (pick == 1)
         {
             if (w.Rules.Happiness) b.Happiness = Math.Max(0, b.Happiness - 3);
-            return $"It hit {b.Name}: the {gone.ToLowerInvariant()} is lost, but everyone got out";
+            return $"It hit {b.Name}: the {gone.ToLowerInvariant()} is lost, but everyone got out" + after;
         }
-        var dead = b.PopK * E.RockPeopleLost;
-        b.PopK -= dead;
-        return $"It hit {b.Name}: the {gone.ToLowerInvariant()} is lost and {dead * 1000:0} people with it";
+        return $"It hit {b.Name}: the {gone.ToLowerInvariant()} is lost and {dead * 1000:0} people with it" + after;
     }
 
     /// <summary>A find brings an idea the side hasn't got into view (or a quarter off if queued). Returns its name, or null.</summary>

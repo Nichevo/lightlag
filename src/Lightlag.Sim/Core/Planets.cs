@@ -270,6 +270,26 @@ public static class Planets
     }
 
     /// <summary>The hungry people of a planet give up on it and move to the nearest of their side's planets that can feed them.</summary>
+    /// <summary>People over a planet's cap (after a building is lost) move to the side's nearest planet with room; the rest are lost. Returns (moved, lost) in thousands.</summary>
+    public static (double Moved, double Lost) Overflow(World w, Body b)
+    {
+        var extra = b.PopK - Math.Max(0, Cap(b));
+        if (extra <= 1e-9) return (0, 0);
+        b.PopK -= extra;
+        var moved = 0.0;
+        if (b.Owner is Side side)
+            foreach (var to in w.Bodies.Where(o => o.Owner == side && o.Id != b.Id && o.PopK > 0 && Cap(o) > o.PopK)
+                         .OrderBy(o => Vec2.Distance(o.Position, b.Position)).ThenBy(o => o.Id))
+            {
+                var m = Math.Min(extra - moved, Cap(to) - to.PopK);
+                to.OwnShare = (to.OwnShare * to.PopK + b.OwnShare * m) / Math.Max(1e-9, to.PopK + m);
+                to.PopK += m;
+                moved += m;
+                if (extra - moved <= 1e-9) break;
+            }
+        return (moved, extra - moved);
+    }
+
     private static void Leave(Simulation sim, Body b, Side side)
     {
         var w = sim.World;
