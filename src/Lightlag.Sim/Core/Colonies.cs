@@ -243,7 +243,20 @@ public static class Colonies
     }
 
     /// <summary>Why this piece can't go at (x, y) on the body's board, or null if it fits.</summary>
-    public static string? FitProblem(Body b, BuildingData data, int x, int y, bool turned)
+    public static string? FitProblem(Body b, BuildingData data, int x, int y, bool turned) => FitProblem(b, data, x, y, turned, null);
+
+    /// <summary>Which tiles pieces cover (row by row), for checking many spots at once.</summary>
+    private static bool[] Covered(Body b, Board board)
+    {
+        var covered = new bool[board.W * board.H];
+        foreach (var p in b.Pieces)
+            for (var y = Math.Max(0, p.Y); y < Math.Min(board.H, p.Y + p.H); y++)
+                for (var x = Math.Max(0, p.X); x < Math.Min(board.W, p.X + p.W); x++)
+                    covered[y * board.W + x] = true;
+        return covered;
+    }
+
+    private static string? FitProblem(Body b, BuildingData data, int x, int y, bool turned, bool[]? covered)
     {
         if (b.Board is not Board board) return $"Nothing can be built on {b.Name}";
         var (pw, ph) = turned ? (data.H, data.W) : (data.W, data.H);
@@ -255,7 +268,7 @@ public static class Colonies
             var tx = x + dx;
             var ty = y + dy;
             if (board.At(tx, ty) == 'm') return "Mountains: nothing can be built there";
-            if (b.Pieces.Any(p => p.Covers(tx, ty))) return "Something is already there";
+            if (covered != null ? covered[ty * board.W + tx] : b.Pieces.Any(p => p.Covers(tx, ty))) return "Something is already there";
             if (!TileFits(board, data, tx, ty))
                 return data.Terrain switch
                 {
@@ -278,11 +291,12 @@ public static class Colonies
         if (b.Board is not Board board) return null;
         (int, int, bool)? best = null;
         var bestScore = double.MinValue;
+        var covered = Covered(b, board);
         foreach (var turned in data.W == data.H ? new[] { false } : new[] { false, true })
         for (var y = 0; y < board.H; y++)
         for (var x = 0; x < board.W; x++)
         {
-            if (FitProblem(b, data, x, y, turned) != null) continue;
+            if (FitProblem(b, data, x, y, turned, covered) != null) continue;
             var (pw, ph) = turned ? (data.H, data.W) : (data.W, data.H);
             var probe = new Piece { Kind = data.Id, X = x, Y = y, W = pw, H = ph };
             var score = 0.0;
@@ -323,8 +337,15 @@ public static class Colonies
     {
         b.Pieces.Clear();
         foreach (var kind in D.HomeBuildings ?? new List<string>())
-            if (Planets.BuildingKind(kind) is BuildingData data && BestSpot(b, data) is var (x, y, turned))
-                AddPiece(w, b, data, x, y, turned, built: true);
+        {
+            if (Planets.BuildingKind(kind) is not BuildingData data) continue;
+            // The first mine digs iron, which the workshop turns into spare parts.
+            var iron = data.Terrain == "deposit" && !b.Pieces.Any(p => DepositUnder(b, p)?.Mineral == "iron")
+                ? b.Board?.Deposits.Where(d => d.Mineral == "iron" && FitProblem(b, data, d.X, d.Y, false) == null).OrderByDescending(d => d.Rich).FirstOrDefault()
+                : null;
+            if (iron != null) AddPiece(w, b, data, iron.X, iron.Y, false, built: true);
+            else if (BestSpot(b, data) is var (x, y, turned)) AddPiece(w, b, data, x, y, turned, built: true);
+        }
         foreach (var (good, amount) in C.HomeStock ?? new Dictionary<string, double>()) b.Stock[good] = amount;
         SyncBuildings(b);
     }
@@ -438,13 +459,20 @@ public static class Colonies
 
         // Goods: inputs first, then what each piece makes, then upkeep in spare parts.
         var cap = StoreDaysOf(b);
+        var caps = new Dictionary<string, double>(); // storage room per good, worked out once this hour
+        void Add(string good, double amount)
+        {
+            if (amount <= 0) return;
+            if (!caps.TryGetValue(good, out var room)) caps[good] = room = StoreCap(b, good, cap);
+            b.Stock[good] = Math.Min(Math.Max(room, Held(b, good)), Held(b, good) + amount);
+        }
         foreach (var (p, data) in built)
         {
             var output = Output(w, b, p, data!);
             if (data!.Makes != null)
-                foreach (var (good, perDay) in data.Makes) Add(b, good, perDay * output * InputShare(b, p, data, consume: true) / 24, cap);
+                foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(b, p, data, consume: true) / 24);
             if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral != "")
-                Add(b, d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output / 24, cap);
+                Add(d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output / 24);
             if (data.Id == "research-lab" || data.Research > 0) InputShare(b, p, data, consume: true);
         }
         foreach (var (p, data) in built)
@@ -466,13 +494,6 @@ public static class Colonies
             b.Thirsty = have < want - 1e-12;
             b.Stock["water"] = Math.Max(0, have - want);
         }
-    }
-
-    private static void Add(Body b, string good, double amount, double capDays)
-    {
-        if (amount <= 0) return;
-        var room = StoreCap(b, good, capDays);
-        b.Stock[good] = Math.Min(Math.Max(room, Held(b, good)), Held(b, good) + amount);
     }
 
     public static double Held(Body b, string good) => b.Stock.TryGetValue(good, out var v) ? v : 0;
@@ -701,8 +722,9 @@ public static class Colonies
         if (w.Tick % 6 != 0) return;
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
-            FixedRuns(sim, side);
+            // Planets that ask come first; fixed runs take the freighters left over.
             if (Economy.Of(w, side).AutoTransport) AutoTransport(sim, side);
+            FixedRuns(sim, side);
         }
     }
 
@@ -724,7 +746,8 @@ public static class Colonies
                     .OrderByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
                 if (from == null) continue;
                 var fleet = free.OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).First();
-                var amount = Math.Min(Math.Min(Hold(w, fleet), target - Held(to, good)), SpareOf(from, good));
+                // Bring it up to half again its target (at least 20), so a freighter isn't sent for a handful.
+                var amount = Math.Min(Math.Min(Hold(w, fleet), Math.Max(target * 1.5, 20) - Held(to, good)), SpareOf(from, good));
                 if (amount < 0.5) continue;
                 free.Remove(fleet);
                 Start(sim, side, fleet, from, to, new Dictionary<string, double> { [good] = amount }, null);

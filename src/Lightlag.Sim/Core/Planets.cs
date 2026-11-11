@@ -49,7 +49,18 @@ public static class Planets
 
     public const string Farm = "farm", Mine = "mine", Guns = "guns";
 
-    public static BuildingData? BuildingKind(string id) => D.Buildings?.Find(b => b.Id == id);
+    public static BuildingData? BuildingKind(string id)
+    {
+        if (D.Buildings is not List<BuildingData> list) return null;
+        var cache = _kinds;
+        if (cache == null || !ReferenceEquals(cache.For, list))
+            _kinds = cache = new KindCache(list, list.GroupBy(k => k.Id).ToDictionary(g => g.Key, g => g.First()));
+        return cache.ById.TryGetValue(id, out var data) ? data : null;
+    }
+
+    /// <summary>Building kinds by id, for the data loaded (looked up many times an hour).</summary>
+    private sealed record KindCache(List<BuildingData> For, Dictionary<string, BuildingData> ById);
+    private static KindCache? _kinds;
 
     public static PlanetTypeData TypeOf(Body b) =>
         D.Types != null && D.Types.TryGetValue(b.Type, out var t) ? t : new PlanetTypeData();

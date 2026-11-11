@@ -80,6 +80,9 @@ public sealed class MindState
     /// <summary>Until this hour it is pulling fleets home to gather for a strike, so it starts no new claims.</summary>
     public double GatherUntilHour { get; set; } = -1e9;
 
+    /// <summary>When the planets may next have a building ahead of the next ship (see Mind.Build).</summary>
+    public double NextBuildHour { get; set; }
+
     /// <summary>What it is mostly trying to do now, and why.</summary>
     public string Goal { get; set; } = "Getting started";
     public List<FleetJob> Jobs { get; set; } = new();
@@ -813,7 +816,7 @@ public static class Mind
             if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
             var freighters = mine.Count(s => s.ClassId == "freighter") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "freighter");
             var colonies = _w.Bodies.Count(b => b.Owner == _side && b.Board != null && !b.Home);
-            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 4 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
+            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
             if (!Easy && _rng.Chance(0.25) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
             if (!Easy && _rng.Chance(0.15) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
             var frigateShare = Easy ? 0.6 : _p.FrigateShare;
@@ -868,48 +871,73 @@ public static class Mind
         /// </summary>
         private void Build(List<WorkOrder> orders)
         {
-            var spare = Spare(orders);
             var mine = _w.Bodies.Where(b => b.Owner == _side && b.PopK > 0 && b.Board != null && b.Building == null)
                 .OrderByDescending(b => b.Home).ThenByDescending(b => b.PopK).ThenBy(b => b.Id).ToList();
             if (mine.Count == 0) return;
             var linked = _w.Bodies.Where(b => b.Owner == _side && !Economy.Blockaded(_w, b)).ToList();
             var hungry = linked.Sum(Planets.FoodMadePerDay) < linked.Sum(Planets.FoodNeedPerDay) * 1.15 + 0.1;
             var sparesShort = linked.Sum(b => Colonies.MadePerDay(b, Colonies.Spares)) < linked.Sum(b => Colonies.UsePerDay(b, Colonies.Spares)) * 1.1;
-            var reserve = Easy ? 120 : 60;
+            var industry = Economy.Of(_w, _side).Industry;
+            if (industry < Colonies.Kinds.Min(k => k.Cost)) return; // nothing is affordable: skip the board searches
+            // Urgent buildings (food, power, the minerals that keep power and spare parts coming) go ahead of
+            // the next ship; others wait for Industry to spare after it, or for their turn every so often.
+            var turn = _w.Hour >= _m.NextBuildHour;
             foreach (var b in mine)
             {
-                if (WantedHere(b, hungry, sparesShort) is not string kind || Planets.BuildingKind(kind) is not BuildingData data) continue;
-                var urgent = data.Food > 0 || data.Power < 0;
-                if (spare < data.Cost + (urgent ? 0 : reserve) || Planets.CanBuild(_w, _side, b.Id, kind) != null) continue;
-                Do(new BuildOnPlanetCommand(_side, b.Id, kind));
+                if (WantedHere(b, hungry, sparesShort) is not var (kind, x, y, urgent) || Planets.BuildingKind(kind) is not BuildingData data) continue;
+                var budget = urgent || turn ? industry : Spare(orders) - (Easy ? 120 : 60);
+                if (budget < data.Cost || Planets.CanBuild(_w, _side, b.Id, kind, x, y) != null) continue;
+                Do(new BuildOnPlanetCommand(_side, b.Id, kind, x, y));
                 Note($"Builds a {data.Name.ToLowerInvariant()} at {b.Name}");
+                if (!urgent) _m.NextBuildHour = _w.Hour + (Easy ? 30 : 12) * 24;
                 return;
             }
         }
 
-        /// <summary>What this planet most needs next, if anything fits and can be staffed.</summary>
-        private string? WantedHere(Body b, bool hungry, bool sparesShort)
+        /// <summary>A free deposit of this mineral a mine fits on, richest first.</summary>
+        private static (int X, int Y)? DepositFor(Body b, string mineral)
         {
-            bool Fits(string kind) => Planets.BuildingKind(kind) is BuildingData d
-                                      && (d.Needs == null || Tech.Has(_w, _side, d.Needs)) && Colonies.BestSpot(b, d) != null;
+            var data = Planets.BuildingKind(Planets.Mine)!;
+            return b.Board?.Deposits.Where(d => d.Mineral == mineral && Colonies.FitProblem(b, data, d.X, d.Y, false) == null)
+                .OrderByDescending(d => d.Rich).ThenBy(d => d.Y).ThenBy(d => d.X).Select(d => ((int, int)?)(d.X, d.Y)).FirstOrDefault();
+        }
+
+        /// <summary>What this planet most needs next (and where, for a mine on a given mineral), if anything fits.</summary>
+        private (string Kind, int? X, int? Y, bool Urgent)? WantedHere(Body b, bool hungry, bool sparesShort)
+        {
+            var fits = new Dictionary<string, bool>();
+            bool Fits(string kind)
+            {
+                if (fits.TryGetValue(kind, out var ok)) return ok;
+                return fits[kind] = Planets.BuildingKind(kind) is BuildingData d && (d.Needs == null || Tech.Has(_w, _side, d.Needs))
+                                    && Colonies.BestSpot(b, d) != null;
+            }
             bool Staffed(string kind) => b.PopK >= Planets.StaffNeeded(b) + (Planets.BuildingKind(kind)?.StaffK ?? 0);
             bool Powered(string kind) => b.PowerMade - b.PowerWanted >= (Planets.BuildingKind(kind)?.Power ?? 0);
             string? Pick(params string[] kinds) => kinds.FirstOrDefault(k => Fits(k) && Powered(k));
-            if (hungry && Pick("fish-farm", Planets.TypeOf(b).Farm > 0 || b.Home ? Planets.Farm : "dome-farm") is string food) return food;
+            bool Short(string good) => Colonies.UsePerDay(b, good) > 0 && Colonies.MadePerDay(b, good) < Colonies.UsePerDay(b, good)
+                                       && Colonies.Held(b, good) < 30 + 30 * Colonies.UsePerDay(b, good);
+            if (hungry && Pick("fish-farm", Planets.TypeOf(b).Farm > 0 || b.Home ? Planets.Farm : "dome-farm") is string food) return (food, null, null, true);
             if (b.PowerWanted > b.PowerMade - 3)
-                return Fits("power-plant") && (Colonies.Held(b, "uranium") > 5 || Colonies.MadePerDay(b, "uranium") > 0 || b.Home) ? "power-plant"
-                    : Fits("solar-field") ? "solar-field" : null;
-            if (sparesShort && Staffed("workshop") && Pick("workshop") is string shop) return shop;
-            if (Staffed(Planets.Mine) && Pick(Planets.Mine) is string dig) return dig;
-            if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return home;
-            if (!Colonies.Built(b).Any(p => p.Kind == "storehouse") && b.Pieces.Count >= 3 && Pick("storehouse") is string store) return store;
+            {
+                var fuelled = Colonies.Held(b, "uranium") > 20 || Colonies.MadePerDay(b, "uranium") > 0.2 || DepositFor(b, "uranium") != null;
+                return Fits("power-plant") && fuelled ? ("power-plant", null, null, true) : Fits("solar-field") ? ("solar-field", null, null, true) : null;
+            }
+            // The minerals that keep the lights on and the spare parts coming.
+            foreach (var good in new[] { "uranium", "iron" })
+                if (Short(good) && Powered(Planets.Mine) && DepositFor(b, good) is var (mx, my))
+                    return (Planets.Mine, mx, my, true);
+            if (sparesShort && Staffed("workshop") && Pick("workshop") is string shop) return (shop, null, null, true);
+            if (Staffed(Planets.Mine) && Pick(Planets.Mine) is string dig) return (dig, null, null, false);
+            if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return (home, null, null, false);
+            if (!Colonies.Built(b).Any(p => p.Kind == "storehouse") && b.Pieces.Count >= 3 && Pick("storehouse") is string store) return (store, null, null, false);
             if (b.Home && Planets.Count(b, Planets.Mine) >= 2)
             {
-                if (Planets.Count(b, Planets.Guns) == 0 && Pick(Planets.Guns) is string guns) return guns;
-                if (Planets.Count(b, "pd-grid") == 0 && Pick("pd-grid") is string pd) return pd;
-                if (Planets.Count(b, "research-lab") < (Easy ? 1 : 2) && Staffed("research-lab") && Pick("research-lab") is string lab) return lab;
+                if (Planets.Count(b, Planets.Guns) == 0 && Pick(Planets.Guns) is string guns) return (guns, null, null, false);
+                if (Planets.Count(b, "pd-grid") == 0 && Pick("pd-grid") is string pd) return (pd, null, null, false);
+                if (Planets.Count(b, "research-lab") < (Easy ? 1 : 2) && Staffed("research-lab") && Pick("research-lab") is string lab) return (lab, null, null, false);
             }
-            if (Colonies.Held(b, Colonies.Fuel) < 40 && b.Home && Pick("fuel-plant", "ice-mine") is string fuel) return fuel;
+            if (Colonies.Held(b, Colonies.Fuel) < 40 && b.Home && Pick("fuel-plant", "ice-mine") is string fuel) return (fuel, null, null, false);
             return null;
         }
 

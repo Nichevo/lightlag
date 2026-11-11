@@ -32,6 +32,8 @@ public partial class Hud : CanvasLayer
     private EmpirePanel _empire = null!;
     private Button _researchButton = null!;
     private ResearchScreen _research = null!;
+    private ColonyScreen _colonies = null!;
+    private Button _planetsButton = null!;
     private FittingPanel _fitting = null!;
     private EndPanel _end = null!;
     private EngagementPanel _engagement = null!;
@@ -85,6 +87,8 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_empireButton);
         _researchButton = SmallButton("Research", () => _screen.ShowResearch = !_screen.ShowResearch, "Research teams, ideas and the discovery web (T)");
         bar.AddChild(_researchButton);
+        _planetsButton = SmallButton("Planets ▸", () => _screen.ShowPlanets = !_screen.ShowPlanets, "Your planets and every other world: people, goods, status (Y)");
+        bar.AddChild(_planetsButton);
         AddChild(bar);
 
         _side = new SidePanel(_screen) { Position = new Vector2(16, 56) };
@@ -106,7 +110,7 @@ public partial class Hud : CanvasLayer
         AddChild(_scaleBar);
 
         var help = Ui.Label("Wheel zoom · WASD, arrows or right-drag pan · click select · drag a box or Shift+click to pick several · Tab next fleet · double-click follow\n"
-            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · T research · L list · R report · P pause on contact · B sight view · Z zoom in · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
+            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · T research · Y planets · L list · R report · P pause on contact · B sight view · Z zoom in · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -188,6 +192,8 @@ public partial class Hud : CanvasLayer
         AddChild(_fitting);
         _research = new ResearchScreen(_screen) { Visible = false };
         AddChild(_research);
+        _colonies = new ColonyScreen(_screen) { Visible = false };
+        AddChild(_colonies);
 
         _menu = new GameMenu(_screen) { Visible = false };
         _end = new EndPanel(_screen);
@@ -255,9 +261,12 @@ public partial class Hud : CanvasLayer
         }
         _researchButton.Visible = w.Loop;
         if (w.Loop) _researchButton.Text = ResearchLine(w);
+        _planetsButton.Visible = w.Loop;
         _research.Visible = w.Loop && _screen.ShowResearch;
         if (_research.Visible) _research.Refresh(sim);
-        _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible;
+        _colonies.Visible = w.Loop && (_screen.ShowPlanets || _screen.PlanetScreenId != null) && !_research.Visible;
+        if (_colonies.Visible) _colonies.Refresh(sim);
+        _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
         var rivalMind = Mind.Of(w, Side.Rival);
         _mindPanel.Visible = _screen.RevealAll && rivalMind != null && !_empire.Visible;
@@ -285,16 +294,16 @@ public partial class Hud : CanvasLayer
         // panel draws, so while it is open the engagement panel steps aside; it comes back when you close it.
         var fittingFleet = _screen.FittingFleetId is int ff ? w.FindFleet(ff) : null;
         if (fittingFleet == null || fittingFleet.Side != Side.Player) _screen.FittingFleetId = null;
-        _fitting.Visible = fittingFleet != null && fittingFleet.Side == Side.Player && !_research.Visible;
+        _fitting.Visible = fittingFleet != null && fittingFleet.Side == Side.Player && !_research.Visible && !_colonies.Visible;
         if (_fitting.Visible) _fitting.Refresh(sim, fittingFleet!);
         var screen = _side.GetViewportRect().Size;
-        _side.Visible = _screen.ShowSide && !_research.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
+        _side.Visible = _screen.ShowSide && !_research.Visible && !_colonies.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
         if (_side.Visible) _side.Refresh(sim, Mathf.Max(200, screen.Y - 56 - 110));
         _sideButton.Modulate = _side.Visible ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : 16;
         _contacts.Position = new Vector2(leftEdge, 84);
         _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
-        var covered = _research.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
+        var covered = _research.Visible || _colonies.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;
@@ -310,7 +319,7 @@ public partial class Hud : CanvasLayer
 
         // In a full game a selected planet gets the planet screen; the sandbox keeps the short description.
         var planet = fleet == null && group.Count < 2 && engagement == null && w.Loop ? _screen.SelectedBody : null;
-        _planetPanel.Visible = planet != null && planet.Kind != BodyKind.Star;
+        _planetPanel.Visible = planet != null && planet.Kind != BodyKind.Star && !_colonies.Visible && !_research.Visible;
         if (_planetPanel.Visible) _planetPanel.Refresh(sim, planet!);
         var text = fleet == null && group.Count < 2 && engagement == null && !_planetPanel.Visible ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
