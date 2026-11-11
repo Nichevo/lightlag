@@ -21,7 +21,7 @@ public partial class FleetRules : VBoxContainer
     private Button _refit = null!;
     private Button _cancelRefit = null!;
     private MenuButton _zone = null!;
-    private Label _zoneLine = null!;
+    private ZonePanel _zonePanel = null!;
     private OptionButton _formation = null!;
     private Label _formationLine = null!;
 
@@ -89,7 +89,8 @@ public partial class FleetRules : VBoxContainer
         _zone.GetPopup().IdPressed += id => Main.Instance.RunGuarded("zone order", () => PickZone((int)id));
         refit.AddChild(_zone);
         _refitLine = Line();
-        _zoneLine = Line();
+        _zonePanel = new ZonePanel(_screen);
+        AddChild(_zonePanel);
     }
 
     public void Refresh(World w, Fleet f)
@@ -119,16 +120,8 @@ public partial class FleetRules : VBoxContainer
         _refitLine.Visible = _refitLine.Text.Length > 0;
 
         var zone = f.ZoneId is int z ? w.Zones.Find(x => x.Id == z) : null;
-        _zone.Text = zone != null ? $"{zone.Name} ▾" : "Zone ▾";
-        if (zone != null)
-        {
-            var (catches, due, chance) = Lanes.Info(w, zone);
-            _zoneLine.Text = $"{(f.Mission == Mission.Hunt ? "Hunting" : "Holding")} {zone.Name}: {(zone.Hold == ZoneHold.Drift ? "drifting" : "keeping station")}"
-                             + $" · {catches} caught" + (due is double h ? $" · next ship due in about {Format.Hours(h)}" : "")
-                             + (chance > 0 ? $" · catch about {chance:P0}" : "")
-                             + (zone.Hold == ZoneHold.StationKeep ? $" · {Lanes.FuelPerDay(w, f, zone):0.#} fuel a day" : "");
-        }
-        _zoneLine.Visible = zone != null;
+        _zone.Text = zone != null ? $"{(f.Mission == Mission.Hunt ? "Hunting" : "Holding")} {zone.Name} ▾" : "Zone ▾";
+        _zonePanel.Refresh(w, f, zone);
     }
 
     private static string RuleText(World w, Fleet f)

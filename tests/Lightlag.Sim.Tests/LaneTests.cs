@@ -49,6 +49,7 @@ public class LaneTests
         Assert.Equal(Side.Rival, lane.SeenBy);
         Assert.Equal(new[] { verdant.Id, pale.Id }.OrderBy(i => i), new[] { lane.FromBodyId, lane.ToBodyId });
         Assert.True(Lanes.Confidence(sim.World, lane) > 0);
+        Assert.Single(lane.Recent);
         Assert.Empty(sim.World.LaneObs);
     }
 

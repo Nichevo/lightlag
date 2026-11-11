@@ -51,6 +51,7 @@ public partial class Main : Node
 
         _overlay = new CanvasLayer { Layer = 100 };
         AddChild(_overlay);
+        Graphics.Load(this, Paths.Root);
         if (OS.GetCmdlineUserArgs().Contains("--smoke-test"))
         {
             CallDeferred(MethodName.RunSmokeTest);
@@ -357,7 +358,7 @@ public partial class Main : Node
             };
             async Task Shoot(string name)
             {
-                for (var i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                for (var i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 var image = GetViewport().GetTexture().GetImage();
                 image.SavePng(System.IO.Path.Combine(dir, name + ".png"));
                 Log.Info("game", $"Screenshot {name}");
@@ -530,6 +531,8 @@ public partial class Main : Node
             var fought = Sim.World.Battles[^1];
             battle.OpenReplay(fought, fought.StartHour + ((fought.EndHour ?? Sim.World.Hour) - fought.StartHour) / 3);
             await Shoot("40-battle-replay");
+            battle.CloseReplay();
+            await ShootVisuals(Shoot);
         }
         catch (Exception ex)
         {
@@ -538,6 +541,104 @@ public partial class Main : Node
         }
         GD.Print(ok ? "SCREENSHOTS DONE" : "SCREENSHOTS FAILED");
         Quit(ok ? 0 : 1);
+    }
+
+    /// <summary>
+    /// The visual upgrades: battle effects close up, ship damage art and wrecks, the map with the plain
+    /// (Low) look for comparison, and the title screen over a live computer-v-computer game.
+    /// </summary>
+    private async Task ShootVisuals(Func<string, Task> shoot)
+    {
+        // Mid-battle close up: tracers, flashes, debris, missile smoke and engine plumes.
+        StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 60), 11);
+        var battle = (GameScreen)_screen!;
+        var mine = Sim!.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+        var theirs = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Rival);
+        battle.Settings.Route = RouteKind.Direct;
+        battle.StartPlanning(null, theirs.Position, theirs.Id);
+        battle.ConfirmPlan();
+        var hits = 0;
+        for (var i = 0; i < 40000 && hits < 3; i++)
+        {
+            battle.Map.BeforeStep();
+            Sim.Step();
+            hits = Sim.Effects.Count(e => e.Kind is EffectKind.RailHit or EffectKind.MissileHit && Sim.World.Hour - e.Hour < 0.4 / 60);
+        }
+        battle.SnapToNow();
+        battle.Select(null);
+        battle.Camera.Center = (mine.Position + theirs.Position) * 0.5;
+        battle.Camera.FitRadius(Math.Max(8, Vec2.Distance(mine.Position, theirs.Position) * 0.6), instant: true);
+        await shoot("41-battle-effects");
+
+        // Damage art close up: one ship hit (a railgun out, hull worn), one crippled, and a wreck nearby.
+        StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 400), 12);
+        var hurt = (GameScreen)_screen!;
+        var w = Sim!.World;
+        var fleet = w.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+        var ships = w.ShipsOf(fleet).ToList();
+        ships[0].Armour = Tech.MaxArmour(w, ships[0]) * 0.45;
+        ships[0].Weapons = 0.2;
+        ships[0].Knocked.Add(Module.Railguns);
+        if (ships.Count > 1)
+        {
+            ships[1].Crippled = true;
+            ships[1].Armour = 0;
+            ships[1].Engines = 0.1;
+        }
+        w.Wrecks.Add(new Wreck { Id = w.NextId++, Side = Lightlag.Sim.Core.Side.Rival, ClassId = "gun-frigate", Name = "RF-9", Position = fleet.Position + new Vec2(5, 2.5), Hour = w.Hour });
+        hurt.SnapToNow();
+        hurt.Camera.Center = fleet.Position + new Vec2(3, 1);
+        hurt.Camera.SetScale(70, instant: true);
+        await shoot("42-damage-close");
+        hurt.Camera.SetScale(4, instant: true);
+        await shoot("43-damage-map");
+
+        // Lanes and a raiding zone: two rival runs spotted (one a regular run), your own run, and a fleet
+        // hunting on the regular one, with its zone panel open and the lane's sightings shown.
+        RandomStartsChoice = false;
+        StartNewGame(7);
+        var lanes = (GameScreen)_screen!;
+        w = Sim!.World;
+        Sim.StepMany(30 * GameTime.TicksPerDay);
+        lanes.TogglePause();
+        int Body(string key) => w.Bodies.First(b => b.Key == key).Id;
+        var rustId = Body("rust");
+        var regular = new Lane { Id = w.NextId++, SeenBy = Lightlag.Sim.Core.Side.Player, FromBodyId = rustId, ToBodyId = Body("kesh"), Seen = 4,
+            FirstHour = w.Hour - 22 * 24, LastHour = w.Hour - 30, Speed = 40 };
+        for (var i = 0; i < 4; i++)
+        {
+            var hour = w.Hour - 30 - (3 - i) * 6 * 24;
+            var a = FlightPlanner.PredictBody(w, w.FindBody(rustId)!, hour);
+            var b = FlightPlanner.PredictBody(w, w.FindBody(Body("kesh"))!, hour);
+            regular.Recent.Add(new LaneSighting(hour, a + (b - a) * (0.2 + 0.2 * i)));
+        }
+        w.Lanes.Add(regular);
+        w.Lanes.Add(new Lane { Id = w.NextId++, SeenBy = Lightlag.Sim.Core.Side.Player, FromBodyId = rustId, ToBodyId = Body("orrin"), Seen = 2,
+            FirstHour = w.Hour - 9 * 24, LastHour = w.Hour - 4 * 24, Speed = 30 });
+        var hunter = w.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+        Sim.Issue(new HuntCommand(hunter.Id, rustId, Body("kesh")));
+        Sim.ApplyPending();
+        lanes.SnapToNow();
+        lanes.Select(hunter.Id);
+        var mid = (w.FindBody(rustId)!.Position + w.FindBody(Body("kesh"))!.Position) * 0.5;
+        lanes.Camera.Center = mid;
+        lanes.Camera.FitRadius(Vec2.Distance(w.FindBody(rustId)!.Position, w.FindBody(Body("kesh"))!.Position) * 0.75, instant: true);
+        lanes.Map.UpdatePositions();
+        Input.WarpMouse(lanes.Camera.ToScreen(w.FindBody(rustId)!.Position).Lerp(lanes.Camera.ToScreen(w.FindBody(Body("kesh"))!.Position), 0.7f));
+        await shoot("46-lanes");
+
+        // The same inner system on Low (the original look), then back.
+        var level = Graphics.Level;
+        Graphics.Set(this, GraphicsLevel.Low);
+        StartNewGame(7);
+        ((GameScreen)_screen!).TogglePause();
+        await shoot("44-low-graphics");
+        Graphics.Set(this, level);
+
+        // The title screen, drifting over a live game.
+        ShowTitle();
+        for (var i = 0; i < 30; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await shoot("45-title");
     }
 
     /// <summary>
