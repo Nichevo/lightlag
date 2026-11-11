@@ -71,6 +71,12 @@ public sealed class World
 
     public int NextId { get; set; } = 1;
 
+    /// <summary>Game-start switches for the optional systems (see GameRules).</summary>
+    public GameRules Rules { get; set; } = new();
+
+    /// <summary>Planets have been given their first people (old saves get them on load).</summary>
+    public bool PeopleStarted { get; set; }
+
     /// <summary>How many fleets each side has numbered so far, so new fleets get fresh numbers.</summary>
     public int[] FleetNumbers { get; set; } = new int[2];
 
@@ -88,7 +94,23 @@ public sealed class World
     public Fleet? FleetOf(Ship s) => FindFleet(s.FleetId);
 }
 
-public enum BodyKind { Star, Planet, Moon, Station }
+/// <summary>Optional systems, chosen at the start of a game.</summary>
+public sealed class GameRules
+{
+    /// <summary>Happiness moves with food, blockades and bombing (off: it stays put, and only hunger makes planets give up).</summary>
+    public bool Happiness { get; set; } = true;
+
+    /// <summary>Ammunition and food run down away from home (off: ships keep full stocks).</summary>
+    public bool SupplyLines { get; set; } = true;
+
+    /// <summary>Planets start with a few people, not empty.</summary>
+    public bool StartPopulation { get; set; }
+
+    /// <summary>The two homes are picked at random from the planets that can hold people.</summary>
+    public bool RandomStarts { get; set; }
+}
+
+public enum BodyKind { Star, Planet, Moon, Station, Asteroid }
 
 /// <summary>A sun, planet or moon on a circular orbit around its parent (or fixed, if no parent).</summary>
 public sealed class Body
@@ -126,6 +148,49 @@ public sealed class Body
     /// <summary>Per side (Player, Rival): hours spent in orbit here towards a survey, and whether it is done (see Research.Surveys).</summary>
     public double[] SurveyHours { get; set; } = { 0, 0 };
     public bool[] Surveyed { get; set; } = { false, false };
+
+    // ---- People (see Planets) ----
+
+    /// <summary>A side's starting world: it holds more people and its farms do well whatever the planet.</summary>
+    public bool Home { get; set; }
+
+    /// <summary>People living here, in thousands (0: nobody, an outpost at most).</summary>
+    public double PopK { get; set; }
+
+    /// <summary>0 to 100. Unhappy planets work worse, and a blockaded one gives itself up below the surrender line.</summary>
+    public double Happiness { get; set; } = 60;
+
+    /// <summary>Share of the people here who are the holder's own (settlers raise it; a taken planet starts at 0).</summary>
+    public double OwnShare { get; set; } = 1;
+
+    /// <summary>Food stored here, in days of what the people eat. A blockaded planet lives off it.</summary>
+    public double FoodStock { get; set; }
+    public bool Hungry { get; set; }
+    public double HungryHours { get; set; }
+
+    /// <summary>Buildings standing here (ids from economy.json, one entry each), and the one being built.</summary>
+    public List<string> Buildings { get; set; } = new();
+    public string? Building { get; set; }
+    public double BuildingHoursLeft { get; set; }
+
+    /// <summary>A side whose bombing of the people here they won't forgive: the planet never surrenders to it.</summary>
+    public Side? Grudge { get; set; }
+    public double? LastBombedHour { get; set; }
+    public double? LastStruckHour { get; set; }
+
+    /// <summary>Bombing damage so far towards knocking out the next building.</summary>
+    public double StrikeDamage { get; set; }
+
+    /// <summary>Hours this planet has been blockaded without a break (buildings start to fail after a while).</summary>
+    public double BlockadeHours { get; set; }
+
+    /// <summary>Colony ships fill this planet up from other planets you hold.</summary>
+    public bool AutoTopUp { get; set; }
+
+    /// <summary>Troops fighting on the ground: whose, how many (k) and the garrison left.</summary>
+    public Side? LandingSide { get; set; }
+    public double LandingTroops { get; set; }
+    public double Garrison { get; set; }
 }
 
 /// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>
@@ -190,6 +255,10 @@ public sealed class Ship
     public double CargoFuel { get; set; }
     public double CargoAmmo { get; set; }
     public double CargoFood { get; set; }
+
+    /// <summary>Colony ships: settlers aboard (k). Troop ships: soldiers aboard (k). See Planets.</summary>
+    public double CargoPeople { get; set; }
+    public double CargoTroops { get; set; }
 
     /// <summary>The module in each slot of its class (see Fitting). Empty: the standard fit.</summary>
     public List<string> Fit { get; set; } = new();

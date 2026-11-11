@@ -159,6 +159,15 @@ public sealed class Fleet
     /// <summary>Supply fleets on an Auto supply run: the fleet they keep topped up (see SupplyLines).</summary>
     public int? SupplyRunFor { get; set; }
 
+    /// <summary>Colony ships: carrying people from one planet to another (see Planets).</summary>
+    public PeopleRun? PeopleRun { get; set; }
+
+    /// <summary>High orbit is out of reach of planet guns, but only low orbit can bomb or land troops.</summary>
+    public OrbitHeight OrbitHeight { get; set; }
+
+    /// <summary>What the fleet bombs when it holds low orbit over an enemy planet (None: it only blockades).</summary>
+    public BombTarget Bombing { get; set; }
+
     /// <summary>The body whose orbit it broke to fight, until it orbits something again (claims and bombardment need orbit).</summary>
     public int? LeftOrbitBodyId { get; set; }
 
@@ -545,4 +554,19 @@ public static class Fleets
         f.OrbitRadius = 0;
         f.OrbitAngle = 0;
     }
+}
+
+public enum OrbitHeight { Low, High }
+
+public enum BombTarget { None, Farms, Mines, Guns, People }
+
+/// <summary>A colony fleet's errand: load people at From, carry them to To, and (Repeat) go back for more.</summary>
+public sealed class PeopleRun
+{
+    public int FromBodyId { get; set; }
+    public int ToBodyId { get; set; }
+    public bool Repeat { get; set; }
+
+    /// <summary>Set by Auto top-up rather than by a direct order.</summary>
+    public bool Auto { get; set; }
 }

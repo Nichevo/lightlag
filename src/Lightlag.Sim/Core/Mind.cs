@@ -13,7 +13,12 @@ public enum Personality { Raider, Expander, Turtle }
 public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Normal, Personality? Personality = null);
 
 /// <summary>Choices made when a game starts that are not in the scenario file. Stored in the replay.</summary>
-public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null)
+/// <summary>
+/// Game-start choices. Happiness, SupplyLines, StartPopulation and RandomStarts are the optional systems
+/// (null: the default, see GameRules).
+/// </summary>
+public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
+    bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 

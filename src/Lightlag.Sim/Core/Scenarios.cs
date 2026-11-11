@@ -12,10 +12,12 @@ public static class Scenarios
 
     public static IReadOnlyList<string> All { get; } = new[] { TestSystem };
 
-    public static World Create(string name, ulong seed, SimRandom rng)
+    public static World Create(string name, ulong seed, SimRandom rng, bool randomStarts = false)
     {
         if (!All.Contains(name)) throw new ArgumentException($"Unknown scenario '{name}'. Known: {string.Join(", ", All)}");
-        var w = FromData(GameData.LoadSystem(name + ".json"), seed, rng);
+        var data = GameData.LoadSystem(name + ".json");
+        if (randomStarts) data = RandomHomes(data, rng);
+        var w = FromData(data, seed, rng);
         Economy.Start(w);
         return w;
     }
@@ -64,6 +66,28 @@ public static class Scenarios
         Fleets.EnterDrift(fleet);
     }
 
+    /// <summary>
+    /// Random starts: each side's start ships (and so its home and shipyard) move to a different planet
+    /// that can hold a home's people (a planet, not a moon or giant, of a type that holds at least 30k).
+    /// </summary>
+    public static SystemData RandomHomes(SystemData data, SimRandom rng)
+    {
+        var homes = data.Bodies.Where(b => b.Kind == BodyKind.Planet && HomeTypes.Contains(b.Type)).Select(b => b.Id).ToList();
+        var sides = (data.Ships ?? new()).Select(s => s.Side).Distinct().ToList();
+        if (homes.Count < sides.Count) return data;
+        var picked = new Dictionary<Side, string>();
+        foreach (var side in sides)
+        {
+            var at = rng.Range(0, homes.Count);
+            picked[side] = homes[at];
+            homes.RemoveAt(at);
+        }
+        return data with { Ships = data.Ships!.Select(s => s with { Near = picked[s.Side] }).ToList() };
+    }
+
+    /// <summary>World types a home can be on.</summary>
+    public static readonly string[] HomeTypes = { "terran", "desert", "cloudy", "rocky" };
+
     /// <summary>How close a moon can orbit its planet: outside the Roche limit and clear of the surface.</summary>
     public static double ClosestMoonOrbit(BodyData planet, BodyData moon, double scale)
     {
@@ -75,6 +99,7 @@ public static class Scenarios
     {
         var w = new World { Scenario = data.Name, Seed = seed };
         var ids = new Dictionary<string, Body>();
+        var rocks = new SimRandom(seed, 77);
 
         var scale = data.SizeScale > 0 ? data.SizeScale : 1;
         // Enlarged planets push their moons out, by gravity: a moon can't orbit inside its Roche limit (the
@@ -98,7 +123,8 @@ public static class Scenarios
                 ParentId = parent?.Id,
                 OrbitRadius = parent != null ? radius : 0,
                 OrbitPeriodDays = parent != null ? Physics.OrbitPeriodHours(radius, parent.Gm) / 24 : 0,
-                Angle = parent != null ? rng.Range(0, Math.PI * 2) : 0,
+                // Asteroids came later: they take their places from a stream of their own, so older seeds keep their maps.
+                Angle = parent != null ? (d.Kind == BodyKind.Asteroid ? rocks : rng).Range(0, Math.PI * 2) : 0,
                 Industry = d.Industry ?? 0,
             };
             ids[d.Id] = b;
