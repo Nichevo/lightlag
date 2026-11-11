@@ -46,6 +46,8 @@ public sealed class SideTotals
     public int BattlesOneWithdrew { get; set; }
     public int BattlesBothWithdrew { get; set; }
     public double Salvaged { get; set; }
+    public int AmbushCatches { get; set; }
+    public double CargoCaptured { get; set; }
 }
 
 /// <summary>One side at the end of one game day.</summary>

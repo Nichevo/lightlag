@@ -21,6 +21,10 @@ public sealed class World
     public List<Fleet> Fleets { get; set; } = new();
     public List<Missile> Missiles { get; set; } = new();
     public List<Wreck> Wrecks { get; set; } = new();
+    public List<Lane> Lanes { get; set; } = new();
+    public List<Zone> Zones { get; set; } = new();
+    public List<LaneObs> LaneObs { get; set; } = new();
+    public List<LossSpot> LossSpots { get; set; } = new();
     public List<Battle> Battles { get; set; } = new();
 
     /// <summary>What each side knows about the other's fleets (see Sensors).</summary>

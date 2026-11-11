@@ -19,7 +19,7 @@ public enum Stance { Engage, Hold, EngageIfStronger, HoldPosition, Avoid, Return
 /// A fleet's standing mission, carried out without further orders: Hold a body; Patrol a planet and its
 /// moons; Raid an enemy-held body; Escort one of its own fleets; Scout the planets in turn.
 /// </summary>
-public enum Mission { None, Hold, Patrol, Raid, Escort, Scout }
+public enum Mission { None, Hold, Patrol, Raid, Escort, Scout, Ambush, Hunt }
 
 /// <summary>
 /// How much a fleet decides for itself when command is far away. Strict: only its standing orders
@@ -146,6 +146,9 @@ public sealed class Fleet
 
     /// <summary>A ship (or group) that pulled out: rejoin this fleet once mended.</summary>
     public int? RejoinFleetId { get; set; }
+
+    /// <summary>The zone this fleet holds (Ambush or Hunt mission), if any.</summary>
+    public int? ZoneId { get; set; }
     public bool Retreating { get; set; }
 
     /// <summary>Closing in on an enemy, or braking after a fight (moved by velocity, outside any flight plan).</summary>

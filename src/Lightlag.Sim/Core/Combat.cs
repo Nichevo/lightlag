@@ -724,6 +724,8 @@ public static class Combat
     {
         Stewards.OnLost(sim.World, ship);
         Wounds.LeaveWreck(sim.World, ship);
+        if (sim.World.FleetOf(ship) is Fleet hauler && hauler.ShipIds.Count == 1 && sim.World.Shipments.Find(s => s.FleetId == hauler.Id) is Shipment load)
+            Lanes.OnCargoLost(sim, hauler, load);
         RemoveShip(sim.World, ship);
         if (Economy.Of(sim.World, ship.Side).FlagshipId == ship.Id) Light.Succeed(sim, ship.Side, ship.Position);
     }

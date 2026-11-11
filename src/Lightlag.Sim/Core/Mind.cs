@@ -52,7 +52,7 @@ public sealed record AutomationData(Dictionary<string, string> Defaults, int Hab
 
 // ---- State (saved with the world) ----------------------------------------------------------------
 
-public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit }
+public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush }
 
 /// <summary>What the computer has told one of its fleets to do, and why (shown in the debug view).</summary>
 public sealed class FleetJob
@@ -266,6 +266,7 @@ public static class Mind
                 if (!Strike())
                 {
                     Hunt();
+                    Ambush();
                     Probe();
                     if (_w.Hour >= _m.GatherUntilHour) Expand();
                 }
@@ -478,6 +479,7 @@ public static class Mind
                     JobKind.Hunt => job.EnemyFleetId is not int e || Sensors.Find(_w, _side, e, seat: true) is not Sighting s || _w.Hour - s.Hour > 48,
                     JobKind.Probe => f.Flight == null && _w.Hour - job.Since > A.ProbeDays * 24,
                     JobKind.Refit => AtHome(f) && Ready(f),
+                    JobKind.Ambush => f.ZoneId == null || _w.Hour - job.Since > AmbushDays * 24 || Supplies(f) < 0.4,
                     _ => false,
                 };
                 // A flight that ended somewhere else (an order it could not finish): think again.
@@ -721,6 +723,31 @@ public static class Mind
                 Orders(group, Core.Stance.Engage);
                 Assign(group, JobKind.Hunt, null, at, $"{s.Name} ({s.Ships} ships) seen near our planets", s.FleetId);
             }
+        }
+
+        /// <summary>How long a raiding party waits on a lane before coming home.</summary>
+        private const double AmbushDays = 20;
+
+        /// <summary>
+        /// Raiders lie in wait on the enemy's best-known supply lane: a small group drifts in a raiding zone
+        /// on it and goes after the cargo that comes by (one party at a time).
+        /// </summary>
+        private void Ambush()
+        {
+            if (_m.Personality != Personality.Raider || Easy || _m.Jobs.Any(j => j.Kind == JobKind.Ambush) || Slip()) return;
+            var lane = _w.Lanes.Where(l => l.SeenBy == _side && Lanes.Confidence(_w, l) >= 0.5)
+                .OrderByDescending(l => Lanes.Confidence(_w, l)).ThenBy(l => l.Id).FirstOrDefault();
+            if (lane == null || _w.FindBody(lane.FromBodyId) is not Body a || _w.FindBody(lane.ToBodyId) is not Body b) return;
+            var mid = (a.Position + b.Position) * 0.5;
+            var guard = EnemyNear(mid, A.DangerRadiusAu * _au, 48);
+            var need = Math.Max(guard * A.DangerRatio, A.EnemyShipValue);
+            if (Pool().Where(Ready).Sum(f => Stats.Power(_w, f)) * (1 - _p.GuardShare) < need) return;
+            var group = TakeFromPool(need, $"ambush on the {a.Name}–{b.Name} lane");
+            if (group == null) return;
+            Do(new HuntCommand(group.Id, a.Id, b.Id));
+            Orders(group, Core.Stance.Engage);
+            Assign(group, JobKind.Ambush, null, mid, $"lie in wait on the {a.Name}–{b.Name} supply lane");
+            Note($"{group.Name} lies in wait on the {a.Name}–{b.Name} supply lane");
         }
 
         /// <summary>Send a small, quiet scout towards the enemy home to see what it has.</summary>
@@ -1125,6 +1152,11 @@ public static class Mind
         private void GoHome(Fleet f, string why, bool hard = false)
         {
             if (_home == null || Busy(f)) return;
+            if (f.ZoneId is int zone)
+            {
+                Do(new SetZoneFleetCommand(f.Id, null));
+                if (!_w.Fleets.Any(o => o.ZoneId == zone)) Do(new DeleteZoneCommand(_side, zone));
+            }
             _m.Jobs.RemoveAll(j => j.FleetId == f.Id);
             if (AtHome(f))
             {

@@ -272,7 +272,7 @@ public static class BattleRules
         var home = Economy.HomeOf(w, f.Side);
         var at = f.OrbitBodyId is int b ? w.FindBody(b) : null;
         if (at != null && at.Owner == f.Side && Economy.InOrbitAt(f, at) && (at.Id == home?.Id || at.Shipyard || Economy.Blockaded(w, at) || at.Home)) return "home";
-        if (f.Mission is Mission.Raid) return "raid";
+        if (f.Mission is Mission.Raid or Mission.Ambush or Mission.Hunt) return "raid";
         if (w.ShipsOf(f).All(SupplyLines.IsSupplyShip)) return "support";
         var near = w.Sightings.Where(s => s.SeenBy == f.Side && !s.Own && w.Hour - s.Hour < 12 && Vec2.Distance(s.Position, f.Position) < 0.2 * Physics.MmPerAu).Sum(s => s.Ships);
         if (near >= f.ShipIds.Count * 2) return "outnumbered";

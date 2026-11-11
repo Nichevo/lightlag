@@ -15,7 +15,8 @@ public sealed record GameResult(
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
     int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0, int Overheats = 0,
     int ShipsCrippled = 0, int PartsKnocked = 0, int PullBacks = 0, int PulledBeforeShots = 0, int Wiped = 0, int OneWithdrew = 0, int BothWithdrew = 0,
-    double MaterialStallHours = 0, double Salvaged = 0, int Warships = 0, int Contacts = 0)
+    double MaterialStallHours = 0, double Salvaged = 0, int Warships = 0, int Contacts = 0,
+    int AmbushCatches = 0, double CargoCaptured = 0, int CargoLost = 0)
 {
     public static SideEnd Of(World w, Side side)
     {
@@ -24,7 +25,8 @@ public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuil
             Math.Round(Stats.Power(w, side)), t.ShipsBuilt, t.ShipsLost, t.Battles, t.PlanetsClaimed,
             Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions, t.Overheats,
             t.ShipsCrippled, t.PartsKnocked, t.PullBacks, t.PulledBeforeShots, t.BattlesWiped, t.BattlesOneWithdrew, t.BattlesBothWithdrew,
-            t.MaterialStallHours, t.Salvaged, w.Ships.Count(s => s.Side == side && Planner.Warship(s)), t.Contacts);
+            t.MaterialStallHours, t.Salvaged, w.Ships.Count(s => s.Side == side && Planner.Warship(s)), t.Contacts,
+            t.AmbushCatches, Math.Round(t.CargoCaptured), Economy.Of(w, side).CargoLost);
     }
 }
 
@@ -249,6 +251,7 @@ public static class Batch
                       + $"warships lost per battle {(battles > 0 ? Avg(e => e.ShipsLost) / battles : 0):0.00}");
         md.AppendLine($"- Pull-backs per side per game: {Avg(e => e.PullBacks):0.0}, of them before firing a shot: {Avg(e => e.PulledBeforeShots):0.0}");
         md.AppendLine($"- Warships per side at the end: {Avg(e => e.Warships):0.0} (target 6-12); materials salvaged: {Avg(e => e.Salvaged):0}");
+        md.AppendLine($"- Raiding per side per game: {Avg(e => e.AmbushCatches):0.0} freighters caught, {Avg(e => e.CargoCaptured):0} cargo taken, {Avg(e => e.CargoLost):0.0} freighters lost");
         md.AppendLine($"- Shipyard days waiting for materials, per side: {Avg(e => e.MaterialStallHours) / 24:0.0}");
     }
 

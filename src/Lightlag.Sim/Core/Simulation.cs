@@ -175,6 +175,8 @@ public sealed class Simulation
         Mind.Update(this);
         Stewards.Update(this);
         Autonomy.Update(this);
+        Lanes.Observe(this);
+        Lanes.UpdateZones(this);
         Supply.Update(this);
         SupplyLines.Update(this);
         Combat.ReturnToOrbit(this);

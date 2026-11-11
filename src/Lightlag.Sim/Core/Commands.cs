@@ -63,6 +63,11 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetAutoLevelCommand), "setAutoLevel")]
 [JsonDerivedType(typeof(AcceptNeedCommand), "acceptNeed")]
 [JsonDerivedType(typeof(DismissNeedCommand), "dismissNeed")]
+[JsonDerivedType(typeof(CreateZoneCommand), "createZone")]
+[JsonDerivedType(typeof(EditZoneCommand), "editZone")]
+[JsonDerivedType(typeof(DeleteZoneCommand), "deleteZone")]
+[JsonDerivedType(typeof(SetZoneFleetCommand), "setZoneFleet")]
+[JsonDerivedType(typeof(HuntCommand), "hunt")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

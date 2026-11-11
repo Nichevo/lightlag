@@ -889,8 +889,9 @@ public static class Colonies
                 var target = Target(to, good);
                 var waiting = Held(to, good) < Want(to, good) - 1e-6;
                 if (target <= 0.5 || (Held(to, good) >= target * C.AskBelow && !waiting) || ShipmentTo(w, side, to.Id, good) != null) continue;
+                // Runs where cargo was lost lately go last (and get an escort if one is free).
                 var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
-                    .OrderByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
+                    .OrderBy(b => Lanes.RiskyRun(w, side, b, to) ? 1 : 0).ThenByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
                 if (from == null) continue;
                 var fleet = free.OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).First();
                 // Bring it up to half again its target (at least 20), so a freighter isn't sent for a handful.
@@ -898,9 +899,24 @@ public static class Colonies
                 if (amount < 0.5) continue;
                 free.Remove(fleet);
                 Start(sim, side, fleet, from, to, new Dictionary<string, double> { [good] = amount }, null);
+                if (Lanes.RiskyRun(w, side, from, to)) EscortRisky(sim, fleet);
                 break;
             }
         }
+    }
+
+    /// <summary>A freighter on a run where cargo was lost lately: the nearest idle warfleet without a mission goes with it.</summary>
+    private static void EscortRisky(Simulation sim, Fleet freighter)
+    {
+        var w = sim.World;
+        var escort = w.Fleets.Where(f => f.Side == freighter.Side && f.Id != freighter.Id && f.ShipIds.Count > 0 && f.Mission == Mission.None
+                                         && f.Flight == null && f.Chase == null && !f.Retreating && f.Refit == null && Combat.Armed(w, f) && !Heat.InBattle(w, f))
+            .OrderBy(f => Vec2.Distance(f.Position, freighter.Position)).ThenBy(f => f.Id).FirstOrDefault();
+        if (escort == null) return;
+        escort.Mission = Mission.Escort;
+        escort.MissionFleetId = freighter.Id;
+        escort.MissionBodyId = null;
+        sim.Log.Info("planets", $"{escort.Name} escorts {freighter.Name} on a risky run", new { escort = escort.Id, freighter = freighter.Id });
     }
 
     /// <summary>
