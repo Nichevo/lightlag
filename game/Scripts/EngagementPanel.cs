@@ -359,8 +359,8 @@ public partial class EngagementPanel : Control
         _hold.Modulate = stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
         var ships = w.ShipsOf(f).ToList();
         var supplies = Combat.SupplyShare(w, f);
-        var armour = ships.Count == 0 ? 0 : ships.Average(s => s.Armour / GameData.ShipClass(s.ClassId).Armour);
-        var pd = ships.Count(s => GameData.ShipClass(s.ClassId).PointDefence > 0 && s.Disabled != Module.PointDefence);
+        var armour = ships.Count == 0 ? 0 : ships.Average(s => s.Armour / Fitting.Spec(s).Armour);
+        var pd = ships.Count(s => Fitting.Spec(s).PointDefence > 0 && s.Disabled != Module.PointDefence);
         var lines = new List<string>
         {
             dodge == DodgeMode.Off ? "Not dodging" : Combat.Dodging(w, f) || dodge != f.Dodge ? $"Dodging ({(dodge == DodgeMode.HardBurn ? "hard burn" : "sidestep")})" : $"Dodging stopped: supplies below {GameData.Combat.DodgeStopsBelow:P0}",
@@ -377,7 +377,7 @@ public partial class EngagementPanel : Control
         var shipLines = new List<string> { $"{f.Name}" };
         foreach (var s in ships)
         {
-            var cls = GameData.ShipClass(s.ClassId);
+            var cls = Fitting.Spec(s);
             var hurt = s.Disabled is Module m ? $", {Combat.ModuleName(m)} out" : "";
             shipLines.Add($"  {s.Name} ({cls.Short}): armour {s.Armour / cls.Armour:P0}, supplies {s.Supplies / cls.Supplies:P0}" + (cls.Missiles > 0 ? $", {s.Missiles} missiles" : "") + hurt);
         }

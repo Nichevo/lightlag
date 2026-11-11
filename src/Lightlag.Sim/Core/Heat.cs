@@ -36,9 +36,9 @@ public static class Heat
 {
     public static HeatData D => GameData.Heat;
 
-    public static double Capacity(Ship s) => GameData.ShipClass(s.ClassId).HeatCapacity;
+    public static double Capacity(Ship s) => Fitting.Spec(s).HeatCapacity;
 
-    public static double MaxShield(World w, Ship s) => GameData.ShipClass(s.ClassId).Shield * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3);
+    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3);
 
     /// <summary>Is this fleet in the battle being fought (so Auto radiators are in)?</summary>
     public static bool InBattle(World w, Fleet f) => w.ActiveBattle is Battle b && b.For(f.Side).Fleets.Contains(f.Name);
@@ -54,11 +54,22 @@ public static class Heat
     /// <summary>Heat gained per hour with radiators in and engines off (the cold clock), less what it sheds.</summary>
     public static double ColdNetPerHour => D.IdlePerHour - D.RadiateInPerHour;
 
+    /// <summary>
+    /// How hard the engines are burning, as a share of full burn heat: half the heat at idle thrust up to
+    /// all of it at a Hard burn (Gentle 0.7, Cruise 0.85, Hard 1). Engine Mk II and III scale it down further.
+    /// </summary>
+    public static double BurnShare(Fleet f)
+    {
+        var fraction = f.Flight?.SpeedFraction ?? 1;
+        if (!(fraction > 0)) fraction = 1;
+        return 0.5 + 0.5 * Math.Clamp(fraction, 0, 1);
+    }
+
     /// <summary>Hours until the hottest ship of a fleet running cold has to vent (null: not running cold, or never).</summary>
     public static double? ColdClockHours(World w, Fleet f)
     {
         if (f.Radiators != RadiatorMode.Cold) return null;
-        var net = ColdNetPerHour + (f.Thrusting ? D.BurnPerHour : 0);
+        var net = ColdNetPerHour + (f.Thrusting ? D.BurnPerHour * BurnShare(f) : 0);
         if (net <= 0) return null;
         double? least = null;
         foreach (var s in w.ShipsOf(f))
@@ -88,7 +99,7 @@ public static class Heat
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
-                var gain = D.IdlePerHour + (f.Thrusting ? D.BurnPerHour : 0);
+                var gain = D.IdlePerHour + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) : 0);
                 var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour : D.RadiateInPerHour;
                 s.Heat = Math.Max(0, s.Heat + (gain - shed) * dt);
                 if (!s.Overheated && s.Heat > cap)
@@ -163,14 +174,14 @@ public static class Heat
     /// <summary>A fresh ship (built or set up): full shield, sinks loaded, cool.</summary>
     public static void Fit(World w, Ship s)
     {
-        var cls = GameData.ShipClass(s.ClassId);
+        var cls = Fitting.Spec(s);
         s.Shield = MaxShield(w, s);
         s.HeatSinks = cls.HeatSinks;
         s.Heat = 0;
     }
 
     /// <summary>At home: heat sinks are refilled.</summary>
-    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, GameData.ShipClass(s.ClassId).HeatSinks);
+    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, Fitting.Spec(s).HeatSinks);
 
     /// <summary>A missile's fuel left as a share of a full load (held missiles arrive with more).</summary>
     public static double FuelShare(Missile m) => GameData.Combat.Missile.DeltaV > 0 ? Math.Clamp(m.DeltaVLeft / GameData.Combat.Missile.DeltaV, 0, 1) : 0;

@@ -92,7 +92,7 @@ public static class Sensors
         var count = 0;
         foreach (var s in w.ShipsOf(f))
         {
-            largest = Math.Max(largest, GameData.ShipClass(s.ClassId).SignatureSize);
+            largest = Math.Max(largest, Fitting.Spec(s).SignatureSize);
             count++;
         }
         return count == 0 ? 0 : largest * (1 + S.ExtraShip * (count - 1));
@@ -109,7 +109,7 @@ public static class Sensors
     public static double SensorOf(World w, Fleet f)
     {
         double best = 0;
-        foreach (var s in w.ShipsOf(f)) best = Math.Max(best, GameData.ShipClass(s.ClassId).SensorMm);
+        foreach (var s in w.ShipsOf(f)) best = Math.Max(best, Fitting.Spec(s).SensorMm);
         return best * Tech.Factor(w, f.Side, Tech.LongSensors);
     }
 

@@ -18,7 +18,7 @@ public static class FireControl
         switch (fleet.FireAt)
         {
             case FireAt.Largest:
-                return targets.OrderByDescending(s => GameData.ShipClass(s.ClassId).Cost).ThenBy(s => Vec2.Distance(s.Position, ship.Position)).ThenBy(s => s.Id).First();
+                return targets.OrderByDescending(s => Fitting.Spec(s).Cost).ThenBy(s => Vec2.Distance(s.Position, ship.Position)).ThenBy(s => s.Id).First();
             case FireAt.Weakest:
                 return targets.OrderBy(s => s.Armour + s.Shield).ThenBy(s => s.Id).First();
             case FireAt.Split:

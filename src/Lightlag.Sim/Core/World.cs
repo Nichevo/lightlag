@@ -181,6 +181,13 @@ public sealed class Ship
     public bool Overheated { get; set; }
     public int HeatSinks { get; set; }
     public double Shield { get; set; }
+
+    /// <summary>The module in each slot of its class (see Fitting). Empty: the standard fit.</summary>
+    public List<string> Fit { get; set; } = new();
+
+    /// <summary>Working numbers for the fit, worked out once per fit (not saved).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public ShipClass? SpecCache { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore] public string SpecKey { get; set; } = "";
 }
 
 public enum Module { Engines, Railguns, Missiles, PointDefence }

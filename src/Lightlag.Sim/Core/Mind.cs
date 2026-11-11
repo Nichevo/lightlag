@@ -366,11 +366,11 @@ public static class Mind
         }
 
         private double Supplies(Fleet f) =>
-            _w.ShipsOf(f).Select(s => Math.Clamp(s.Supplies / GameData.ShipClass(s.ClassId).Supplies, 0, 1)).DefaultIfEmpty(1).Min();
+            _w.ShipsOf(f).Select(s => Math.Clamp(s.Supplies / Fitting.MaxSupplies(_w, s), 0, 1)).DefaultIfEmpty(1).Min();
 
         private double Missiles(Fleet f) =>
-            ShareOf(_w.ShipsOf(f).Where(s => GameData.ShipClass(s.ClassId).Missiles > 0)
-                .Select(s => ((double)s.Missiles, (double)GameData.ShipClass(s.ClassId).Missiles)));
+            ShareOf(_w.ShipsOf(f).Where(s => Fitting.Spec(s).Missiles > 0)
+                .Select(s => ((double)s.Missiles, (double)Fitting.Spec(s).Missiles)));
 
         private bool Ready(Fleet f) => Combat.ArmourShare(_w, f) >= 0.9 && Supplies(f) >= 0.7 && Missiles(f) >= 0.7;
 

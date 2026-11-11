@@ -774,8 +774,8 @@ public partial class GameScreen : Node2D
         foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
             if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
                 _main.Toast(f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
-                    ? $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} launched: flying out to join {to.Name}"
-                    : $"New {GameData.ShipClass(s.ClassId).Name} {s.Name} joins {f.Name}", onClick: GoToFleet(f.Id));
+                    ? $"New {Fitting.Spec(s).Name} {s.Name} launched: flying out to join {to.Name}"
+                    : $"New {Fitting.Spec(s).Name} {s.Name} joins {f.Name}", onClick: GoToFleet(f.Id));
 
         foreach (var b in Economy.Claimable(w))
         {

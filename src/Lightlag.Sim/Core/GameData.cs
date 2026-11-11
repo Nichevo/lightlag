@@ -53,8 +53,12 @@ public sealed record ShipClass(
     string Id, string Name, string Short, string Icon, double MaxSpeedMmPerHour, double AccelMmPerHour2,
     double Supplies, double SuppliesPerDeltaV, double Armour, double Evasion, int Railguns, int PointDefence,
     int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
-    double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0)
+    double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
+    string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null)
 {
+    /// <summary>The class's slots (none for old data).</summary>
+    public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();
+
     /// <summary>Total speed change a full load of supplies buys.</summary>
     public double FullDeltaV => Supplies / SuppliesPerDeltaV;
 }
@@ -85,7 +89,18 @@ public sealed record SensorData(double Cold, double Orbit, double Burn, double E
     double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
     double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0);
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null);
+/// <summary>A hull slot: W weapon, D defence, U utility, E engine. A pair is two mirrored mounts with one module type. Fit is the standard module ("" empty).</summary>
+public sealed record SlotData(string Type, bool Pair = false, string Fit = "")
+{
+    public int Mounts => Pair ? 2 : 1;
+}
+
+/// <summary>A module for a slot. Its numbers are added to the ship per mount (see Fitting).</summary>
+public sealed record ModuleData(string Id, string Name, string Slot, double Power, double Heat, double Cost,
+    int Railguns = 0, int PointDefence = 0, int Missiles = 0, double Shield = 0, double Armour = 0, double SensorMm = 0,
+    double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "");
+
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -101,6 +116,10 @@ public static class GameData
         new(() => _economy.Value.Research.ToDictionary(r => r.Id));
 
     public static IReadOnlyDictionary<string, ShipClass> ShipClasses => _classes.Value;
+    private static readonly Lazy<IReadOnlyDictionary<string, ModuleData>> _modules =
+        new(() => (_file.Value.Modules ?? new List<ModuleData>()).ToDictionary(m => m.Id));
+    public static IReadOnlyDictionary<string, ModuleData> Modules => _modules.Value;
+    public static ModuleData? Module(string id) => id.Length > 0 && Modules.TryGetValue(id, out var m) ? m : null;
     public static CombatData Combat => _file.Value.Combat;
     public static SensorData Sensors => _file.Value.Sensors;
     public static LightData Light => _file.Value.Light ?? new LightData();
@@ -195,6 +214,19 @@ public static class GameData
             if (!(c.Supplies > 0 && c.SuppliesPerDeltaV > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs supplies and suppliesPerDeltaV above 0");
             if (!(c.Armour > 0) || c.Evasion is < 0 or >= 1) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs armour above 0 and evasion from 0 to below 1");
             if (!(c.SensorMm > 0 && c.SignatureSize > 0)) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' needs sensorMm and signatureSize above 0");
+            var modules = (file.Modules ?? new List<ModuleData>()).ToDictionary(m => m.Id);
+            foreach (var slot in c.SlotList)
+            {
+                if (slot.Type is not ("W" or "D" or "U" or "E")) throw new InvalidDataException($"ship-classes.json: class '{c.Id}' has a slot of unknown type '{slot.Type}'");
+                if (slot.Fit.Length > 0 && (!modules.TryGetValue(slot.Fit, out var m) || m.Slot != slot.Type))
+                    throw new InvalidDataException($"ship-classes.json: class '{c.Id}' fits '{slot.Fit}' in a {slot.Type} slot");
+            }
+            if (c.SlotList.Count > 0)
+            {
+                var std = c.SlotList.Select(x => x.Fit).ToList();
+                if (Fitting.PowerUsed(c, std) > c.Power || Fitting.HeatUsed(c, std) > c.HeatBudget)
+                    throw new InvalidDataException($"ship-classes.json: class '{c.Id}' standard fit is over its power or heat budget");
+            }
         }
         return dict;
     }

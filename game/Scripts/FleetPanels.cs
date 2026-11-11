@@ -347,7 +347,7 @@ public partial class FleetPanel : PanelContainer
                     row.AddChild(protect);
                     _protect[s.Id] = protect;
                 }
-                var check = new CheckBox { Text = $"{s.Name}  {GameData.ShipClass(s.ClassId).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
+                var check = new CheckBox { Text = $"{s.Name}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 row.AddChild(check);
@@ -361,7 +361,7 @@ public partial class FleetPanel : PanelContainer
         foreach (var s in ships)
         {
             if (!_rows.TryGetValue(s.Id, out var row)) continue;
-            var cls = GameData.ShipClass(s.ClassId);
+            var cls = Fitting.Spec(s);
             var share = s.Supplies / cls.Supplies;
             var armour = s.Armour / cls.Armour;
             var bits = new List<string> { $"armour {armour:P0}", $"supplies {share:P0}" };

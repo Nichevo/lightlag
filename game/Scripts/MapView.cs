@@ -256,7 +256,7 @@ public partial class MapView : Node2D
         string Km(double mm) => $"{mm * 1000:#,0} km";
         Ring(c.ContactRangeMm, 0.12f, $"Contact {Km(c.ContactRangeMm)}: battle time starts");
         if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.2f, $"Missile launch {Km(c.Missile.LaunchRangeMm)}");
-        if (ships.Any(s => GameData.ShipClass(s.ClassId).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.28f, $"Railguns {Km(c.Railgun.RangeMm)}");
+        if (ships.Any(s => Fitting.Spec(s).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.28f, $"Railguns {Km(c.Railgun.RangeMm)}");
         if (f.Side == Side.Player)
         {
             // How far this fleet's sensors pick up a single cold frigate.
@@ -528,7 +528,7 @@ public partial class MapView : Node2D
         var w = Sim.World;
         double Avg(Func<Ship, double> f) => ships.Average(f);
         var armour = Avg(s => Math.Max(0, s.Armour) / Math.Max(1, Tech.MaxArmour(w, s)));
-        var supplies = ships.Min(s => s.Supplies / Math.Max(1e-9, GameData.ShipClass(s.ClassId).Supplies));
+        var supplies = ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)));
         var shieldMax = ships.Sum(s => Heat.MaxShield(w, s));
         var shield = shieldMax > 0 ? ships.Sum(s => s.Shield) / shieldMax : -1;
         var heat = ships.Max(s => Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0);
@@ -842,7 +842,7 @@ public partial class MapView : Node2D
     private void DrawShipIcon(Vector2 at, Ship s, Color color, float heading)
     {
         // Damaged ships darken; a ship with a part knocked out gets a red mark.
-        var share = (float)(s.Armour / GameData.ShipClass(s.ClassId).Armour);
+        var share = (float)(s.Armour / Fitting.Spec(s).Armour);
         color = color.Lerp(new Color(0.35f, 0.35f, 0.4f), Math.Clamp(1 - share, 0, 1) * 0.7f);
         if (s.Disabled != null) DrawCircle(at + new Vector2(0, -10), 2.5f, Ui.Danger);
         var shape = ShipIcons.For(GameData.ShipClasses.TryGetValue(s.ClassId, out var cls) ? cls.Icon : "frigate");

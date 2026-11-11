@@ -342,7 +342,7 @@ public static class Combat
     public static double SupplyShare(World w, Fleet f)
     {
         double have = 0, full = 0;
-        foreach (var s in w.ShipsOf(f)) { have += s.Supplies; full += GameData.ShipClass(s.ClassId).Supplies; }
+        foreach (var s in w.ShipsOf(f)) { have += s.Supplies; full += Fitting.MaxSupplies(w, s); }
         return full > 0 ? have / full : 0;
     }
 
@@ -433,7 +433,7 @@ public static class Combat
         foreach (var ship in w.Ships.ToList())
         {
             if (w.FleetOf(ship) is not Fleet fleet) continue;
-            var cls = GameData.ShipClass(ship.ClassId);
+            var cls = Fitting.Spec(ship);
             if (cls.Railguns > 0 && ship.Disabled != Module.Railguns && !ship.Overheated && !fleet.Resupplying && t1 >= ship.RailsReadyHour)
                 FireRailguns(sim, battle, ship, fleet, cls, t1);
             if (ship.Missiles > 0 && ship.Disabled != Module.Missiles && t1 >= ship.SalvoReadyHour)
@@ -480,7 +480,7 @@ public static class Combat
             stats.RailShots++;
             var d = Vec2.Distance(ship.Position, target.Position);
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
-            var evasion = GameData.ShipClass(target.ClassId).Evasion;
+            var evasion = Fitting.Spec(target).Evasion;
             // Beyond normal reach a slug flies so long that only a ship holding its course gets hit.
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - rail.RangeMm) / Math.Max(1e-9, Heat.D.LongRangeMm - rail.RangeMm)) * (1 - evasion)
@@ -610,7 +610,7 @@ public static class Combat
 
         // Point defence: every working mount in the target's fleet gets shots while the missile crosses its range.
         var mounts = w.ShipsOf(targetFleet).Where(s => s.Disabled != Module.PointDefence)
-            .Sum(s => GameData.ShipClass(s.ClassId).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1));
+            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1));
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)
@@ -622,14 +622,14 @@ public static class Combat
         if (sim.Rng.NextDouble() >= survive)
         {
             stats.ShotDown++;
-            var gunner = w.ShipsOf(targetFleet).Where(s => GameData.ShipClass(s.ClassId).PointDefence > 0 && s.Disabled != Module.PointDefence)
+            var gunner = w.ShipsOf(targetFleet).Where(s => Fitting.Spec(s).PointDefence > 0 && s.Disabled != Module.PointDefence)
                 .OrderBy(s => Vec2.Distance(s.Position, missile.Position)).FirstOrDefault();
             sim.AddEffect(new CombatEffect(w.Hour, EffectKind.PointDefenceKill, gunner?.Position ?? target.Position, missile.Position, targetFleet.Side));
             return;
         }
         // A missile launched close still has most of its fuel at the end: it follows a dodge.
         var fuelShare = Heat.FuelShare(missile);
-        var dodge = GameData.ShipClass(target.ClassId).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
+        var dodge = Fitting.Spec(target).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
                     * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
         {
@@ -688,7 +688,7 @@ public static class Combat
         }
         if (target.Disabled == null && sim.Rng.NextDouble() < (engines ? Heat.D.EnginesModuleChance : C.ModuleHitChance))
         {
-            var cls = GameData.ShipClass(target.ClassId);
+            var cls = Fitting.Spec(target);
             var parts = new List<Module> { Module.Engines, Module.PointDefence };
             if (cls.Railguns > 0) parts.Add(Module.Railguns);
             if (cls.Missiles > 0) parts.Add(Module.Missiles);
@@ -887,9 +887,9 @@ public static class Combat
 
     public static bool HasWorking(World w, Fleet f, Module m) => w.ShipsOf(f).Any(s => s.Disabled != m && m switch
     {
-        Module.Railguns => GameData.ShipClass(s.ClassId).Railguns > 0,
+        Module.Railguns => Fitting.Spec(s).Railguns > 0,
         Module.Missiles => s.Missiles > 0,
-        Module.PointDefence => GameData.ShipClass(s.ClassId).PointDefence > 0,
+        Module.PointDefence => Fitting.Spec(s).PointDefence > 0,
         _ => true,
     });
 
@@ -910,7 +910,7 @@ public static class Combat
     {
         foreach (var s in w.ShipsOf(f))
         {
-            var cls = GameData.ShipClass(s.ClassId);
+            var cls = Fitting.Spec(s);
             var max = Tech.MaxArmour(w, s);
             s.Armour = Math.Min(max, s.Armour + max * C.RepairPerDay * hours / 24);
             if (s.Armour >= max * 0.5) s.Disabled = null;

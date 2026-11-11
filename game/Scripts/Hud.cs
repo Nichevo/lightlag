@@ -357,7 +357,7 @@ public partial class Hud : CanvasLayer
             foreach (var s in w.ShipsOf(f))
             {
                 var shipId = s.Id;
-                Item($"      {s.Name}  {GameData.ShipClass(s.ClassId).Name}", () => _screen.PickShip(shipId));
+                Item($"      {s.Name}  {Fitting.Spec(s).Name}", () => _screen.PickShip(shipId));
             }
         }
         var rivals = Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && w.FindFleet(s.FleetId) != null).OrderByDescending(s => s.Visible).ToList();

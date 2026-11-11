@@ -53,6 +53,9 @@ public sealed class SideState
     public List<string> Cuts { get; set; } = new();
     public List<SurveyFind> Finds { get; set; } = new();
 
+    /// <summary>Saved fits for new ships, per class (see Fitting).</summary>
+    public List<Design> Designs { get; set; } = new();
+
     /// <summary>The ship command sits on (see Light); null once none is left.</summary>
     public int? FlagshipId { get; set; }
 
@@ -153,10 +156,10 @@ public static class Tech
             w.MissileBrain[(int)side] = Math.Max(w.MissileBrain[(int)side], MissileBrain(w, side));
     }
 
-    public static double MaxArmour(World w, Ship s) => GameData.ShipClass(s.ClassId).Armour * Factor(w, s.Side, HeavyArmour) * Factor(w, s.Side, ArmourMk3);
+    public static double MaxArmour(World w, Ship s) => Fitting.Spec(s).Armour * Factor(w, s.Side, HeavyArmour) * Factor(w, s.Side, ArmourMk3);
 
     public static double SuppliesPerDeltaV(World w, Ship s) =>
-        GameData.ShipClass(s.ClassId).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives);
+        Fitting.Spec(s).SuppliesPerDeltaV * Factor(w, s.Side, EfficientDrives);
 }
 
 // ---- The loop -----------------------------------------------------------------------------
@@ -360,12 +363,18 @@ public static class Economy
     {
         var cls = GameData.ShipClass(classId);
         var key = $"{side}:{cls.Id}";
+        var fit = Fitting.AutoFit(w, side, cls);
         var number = w.ShipNumbers[key] = w.ShipNumbers.GetValueOrDefault(key) + 1;
         var ship = new Ship
         {
             Id = w.NextId++, Name = $"{cls.Short}-{(side == Side.Player ? "" : "R")}{number}", Side = side, ClassId = cls.Id,
-            MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies, Missiles = cls.Missiles,
+            MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies, Missiles = cls.Missiles, Fit = fit,
         };
+        var spec = Fitting.Spec(ship);
+        ship.MaxSpeed = spec.MaxSpeedMmPerHour;
+        ship.Accel = spec.AccelMmPerHour2;
+        ship.Supplies = Fitting.MaxSupplies(w, ship);
+        ship.Missiles = spec.Missiles;
         ship.Armour = Tech.MaxArmour(w, ship);
         Heat.Fit(w, ship);
         w.Ships.Add(ship);
@@ -441,7 +450,7 @@ public static class Economy
         double perDay = 0;
         foreach (var s in attackers.SelectMany(w.ShipsOf))
         {
-            var cls = GameData.ShipClass(s.ClassId);
+            var cls = Fitting.Spec(s);
             if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Supplies >= cls.Railguns * y.RailSuppliesPerHour) perDay += cls.Railguns * y.RailDamagePerHour * 24;
             if (s.Missiles > 0 && s.Disabled != Module.Missiles) perDay += y.MissileDamage * 24 / Math.Max(1, y.MissileEveryHours);
         }
@@ -452,7 +461,7 @@ public static class Economy
     /// <summary>An armed enemy fleet holds orbit over this shipyard: it can't launch ships.</summary>
     public static bool Blockaded(World w, Body yard) =>
         yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard)
-            && w.ShipsOf(f).Any(s => GameData.ShipClass(s.ClassId) is var c && (c.Railguns > 0 && s.Disabled != Module.Railguns || s.Missiles > 0)));
+            && w.ShipsOf(f).Any(s => Fitting.Spec(s) is var c && (c.Railguns > 0 && s.Disabled != Module.Railguns || s.Missiles > 0)));
 
     private static void Bombard(Simulation sim)
     {
@@ -468,7 +477,7 @@ public static class Economy
             {
                 foreach (var s in attackers.SelectMany(w.ShipsOf))
                 {
-                    var cls = GameData.ShipClass(s.ClassId);
+                    var cls = Fitting.Spec(s);
                     if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Supplies >= cls.Railguns * y.RailSuppliesPerHour)
                     {
                         s.Supplies -= cls.Railguns * y.RailSuppliesPerHour;
@@ -552,7 +561,8 @@ public static class Economy
         if (w.Winner != null) return "The game is over";
         if (kind == OrderKind.Ship)
         {
-            if (!GameData.ShipClasses.ContainsKey(key)) return $"Unknown ship class '{key}'";
+            if (!GameData.ShipClasses.TryGetValue(key, out var cls)) return $"Unknown ship class '{key}'";
+            if (cls.Needs.Length > 0 && !Tech.Has(w, side, cls.Needs)) return $"Needs {GameData.Research(cls.Needs).Name}";
             if (ShipyardOf(w, side) == null) return "No shipyard";
             return null;
         }

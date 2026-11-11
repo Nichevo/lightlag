@@ -280,11 +280,11 @@ public sealed class Simulation
         {
             if (f.ShipIds.Count < 2) continue;
             var ships = World.ShipsOf(f).ToList();
-            var capacity = ships.Sum(s => GameData.ShipClass(s.ClassId).Supplies);
+            var capacity = ships.Sum(s => Fitting.MaxSupplies(World, s));
             if (capacity <= 0) continue;
             var even = ships.Sum(s => s.Supplies) / capacity;
             foreach (var s in ships)
-                s.Supplies += (even * GameData.ShipClass(s.ClassId).Supplies - s.Supplies) * ShareSuppliesPerHour;
+                s.Supplies += (even * Fitting.MaxSupplies(World, s) - s.Supplies) * ShareSuppliesPerHour;
         }
     }
 
@@ -438,7 +438,7 @@ public sealed class Simulation
     {
         foreach (var s in World.ShipsOf(f))
         {
-            var max = GameData.ShipClass(s.ClassId).Supplies;
+            var max = Fitting.MaxSupplies(World, s);
             s.Supplies = Math.Min(max, s.Supplies + max * RefillPerDay * hours / 24);
         }
     }
