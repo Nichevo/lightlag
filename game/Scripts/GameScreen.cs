@@ -93,6 +93,9 @@ public partial class GameScreen : Node2D
     /// <summary>The research screen (T) covers the map while open.</summary>
     public bool ShowResearch { get; set; }
 
+    /// <summary>The fleets and planets list down the left (L folds it away).</summary>
+    public bool ShowSide { get; set; } = true;
+
     /// <summary>The win or lose panel is open (it opens once, when the game ends).</summary>
     public bool ShowEnd { get; private set; }
     private bool _endSeen;
@@ -588,6 +591,8 @@ public partial class GameScreen : Node2D
     }
 
     public Body? SelectedBody => _selected is int id ? Sim.World.FindBody(id) : null;
+    public int? SelectedId => _selected;
+
     public Fleet? SelectedFleet => _selected is int id ? Sim.World.FindFleet(id) : null;
     private Fleet? MyFleet => SelectedFleet is { Side: Side.Player } f ? f : null;
 
@@ -1256,6 +1261,7 @@ public partial class GameScreen : Node2D
             case Key.G: OrderHold(HoldStyle.Drift); break;
             case Key.X: OrderStop(); break;
             case Key.C when Planner == null: EditRoute(); break;
+            case Key.L: ShowSide = !ShowSide; break;
             case Key.M: OrderMerge(); break;
             case Key.V: ToggleEngagement(); break;
             case Key.Escape when Engagement != null: CloseEngagement(); break;

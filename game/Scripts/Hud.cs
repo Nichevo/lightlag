@@ -20,12 +20,10 @@ public partial class Hud : CanvasLayer
     private ReportPanel _reportPanel = null!;
     private ReplayPanel _replayPanel = null!;
     private Button _battle = null!;
-    private MenuButton _fleets = null!;
-    private readonly List<Action> _fleetMenuActions = new();
-    private MenuButton _bodies = null!;
+    private Button _sideButton = null!;
+    private SidePanel _side = null!;
     private MenuButton _news = null!;
     private readonly List<Action> _newsActions = new();
-    private readonly List<Action> _bodyMenuActions = new();
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
     private Button _silence = null!;
@@ -67,22 +65,8 @@ public partial class Hud : CanvasLayer
         bar.AddChild(new Control { CustomMinimumSize = new Vector2(12, 0), MouseFilter = Control.MouseFilterEnum.Ignore });
         bar.AddChild(SmallButton("System", () => _screen.ShowWholeSystem(), "Show the whole system (Home)"));
         bar.AddChild(SmallButton("Zoom in", () => _screen.ZoomToSelected(), "Zoom right in on what is selected and follow it (Z)"));
-        _fleets = new MenuButton { Text = "Fleets ▾", TooltipText = "Pick a fleet or a ship (Tab: next fleet)", FocusMode = Control.FocusModeEnum.None, Flat = false };
-        _fleets.CustomMinimumSize = new Vector2(80, 32);
-        _fleets.AddThemeFontSizeOverride("font_size", 15);
-        var popup = _fleets.GetPopup();
-        popup.AddThemeFontSizeOverride("font_size", 15);
-        _fleets.AboutToPopup += FillFleetMenu;
-        popup.IdPressed += id => { if (id >= 0 && id < _fleetMenuActions.Count) Main.Instance.RunGuarded("fleet list", _fleetMenuActions[(int)id]); };
-        bar.AddChild(_fleets);
-        _bodies = new MenuButton { Text = "Planets ▾", TooltipText = "Go to a planet or moon and follow it (pan the map to stop following)", FocusMode = Control.FocusModeEnum.None, Flat = false };
-        _bodies.CustomMinimumSize = new Vector2(90, 32);
-        _bodies.AddThemeFontSizeOverride("font_size", 15);
-        var bodyPopup = _bodies.GetPopup();
-        bodyPopup.AddThemeFontSizeOverride("font_size", 15);
-        _bodies.AboutToPopup += FillBodyMenu;
-        bodyPopup.IdPressed += id => { if (id >= 0 && id < _bodyMenuActions.Count) Main.Instance.RunGuarded("planet list", _bodyMenuActions[(int)id]); };
-        bar.AddChild(_bodies);
+        _sideButton = SmallButton("Fleets & planets", () => _screen.ShowSide = !_screen.ShowSide, "The list of your fleets, the rival fleets you know of and the planets (L). Tab: next fleet");
+        bar.AddChild(_sideButton);
         _news = new MenuButton { Text = "News ▾", TooltipText = "The latest messages; click one to go there", FocusMode = Control.FocusModeEnum.None, Flat = false };
         _news.CustomMinimumSize = new Vector2(80, 32);
         _news.AddThemeFontSizeOverride("font_size", 15);
@@ -102,6 +86,9 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_researchButton);
         AddChild(bar);
 
+        _side = new SidePanel(_screen) { Position = new Vector2(16, 56) };
+        AddChild(_side);
+
         _empire = new EmpirePanel(_screen);
         _empire.Position = new Vector2(16, 56);
         AddChild(_empire);
@@ -118,7 +105,7 @@ public partial class Hud : CanvasLayer
         AddChild(_scaleBar);
 
         var help = Ui.Label("Wheel zoom · WASD, arrows or right-drag pan · click select · drag a box or Shift+click to pick several · Tab next fleet · double-click follow\n"
-            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · R report · P pause on contact · B sight view · Z zoom in · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
+            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · T research · L list · R report · P pause on contact · B sight view · Z zoom in · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -290,6 +277,13 @@ public partial class Hud : CanvasLayer
         if (fittingFleet == null || fittingFleet.Side != Side.Player) _screen.FittingFleetId = null;
         _fitting.Visible = fittingFleet != null && fittingFleet.Side == Side.Player && !_research.Visible;
         if (_fitting.Visible) _fitting.Refresh(sim, fittingFleet!);
+        var screen = _side.GetViewportRect().Size;
+        _side.Visible = _screen.ShowSide && !_research.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
+        if (_side.Visible) _side.Refresh(sim, Mathf.Max(200, screen.Y - 56 - 110));
+        _sideButton.Modulate = _side.Visible ? Ui.Player : new Color(1, 1, 1, 0.75f);
+        var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : 16;
+        _contacts.Position = new Vector2(leftEdge, 84);
+        _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
         var covered = _research.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
@@ -345,81 +339,11 @@ public partial class Hud : CanvasLayer
         }
     }
 
-    private void FillFleetMenu()
-    {
-        var sim = Main.Instance.Sim;
-        var popup = _fleets.GetPopup();
-        popup.Clear();
-        _fleetMenuActions.Clear();
-        if (sim == null) return;
-        var w = sim.World;
-        void Item(string text, Action act)
-        {
-            popup.AddItem(text, _fleetMenuActions.Count);
-            _fleetMenuActions.Add(act);
-        }
-        var mine = w.Fleets.Where(f => f.Side == Side.Player).ToList();
-        if (mine.Count == 0) popup.AddSeparator("No fleets");
-        foreach (var f in mine)
-        {
-            var id = f.Id;
-            Item($"{f.Name} ({f.ShipIds.Count}) · {FleetPanel.Doing(w, f)}", () => _screen.PickFleet(id));
-            foreach (var s in w.ShipsOf(f))
-            {
-                var shipId = s.Id;
-                Item($"      {s.Name}  {Fitting.Spec(s).Name}", () => _screen.PickShip(shipId));
-            }
-        }
-        var rivals = Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && w.FindFleet(s.FleetId) != null).OrderByDescending(s => s.Visible).ToList();
-        if (rivals.Count > 0) popup.AddSeparator("Rival fleets you know of");
-        foreach (var s in rivals)
-        {
-            var id = s.FleetId;
-            var when = s.Visible ? "in sight" : $"last seen {Format.Hours(w.Hour - s.Hour)} ago";
-            Item($"{s.Name} ({s.Ships}) · {when}", () => _screen.Select(id));
-        }
-    }
-
-    /// <summary>Open the planet list (for screenshots); false closes it.</summary>
+    /// <summary>Open the planet list (for screenshots); false goes back to the fleets.</summary>
     public void ShowBodyMenu(bool open)
     {
-        if (!open) { _bodies.GetPopup().Hide(); return; }
-        FillBodyMenu();
-        var popup = _bodies.GetPopup();
-        popup.Position = (Vector2I)(_bodies.GlobalPosition + new Vector2(0, _bodies.Size.Y));
-        popup.Popup();
-    }
-
-    /// <summary>The planet list: the star, then each planet outward from it with its moons under it.</summary>
-    private void FillBodyMenu()
-    {
-        var sim = Main.Instance.Sim;
-        var popup = _bodies.GetPopup();
-        popup.Clear();
-        _bodyMenuActions.Clear();
-        if (sim == null) return;
-        var w = sim.World;
-        void Item(Body b, string indent)
-        {
-            var id = b.Id;
-            var tags = new List<string> { Format.Title(b.Kind.ToString()) };
-            if (b.Owner == Side.Player) tags.Add("yours");
-            else if (b.Owner == Side.Rival) tags.Add("rival");
-            if (b.Shipyard) tags.Add("shipyard");
-            if (b.ClaimSide == Side.Player) tags.Add("you are claiming it");
-            if (w.Loop && b.Industry <= 0 && b.Kind != BodyKind.Star) tags.Add("can't be claimed");
-            else if (w.Loop && b.Industry > 0) tags.Add($"industry {b.Industry:0}");
-            popup.AddItem($"{indent}{b.Name} · {string.Join(", ", tags)}", _bodyMenuActions.Count);
-            _bodyMenuActions.Add(() => _screen.PickBody(id));
-        }
-        void Tree(Body b, string indent)
-        {
-            Item(b, indent);
-            foreach (var child in w.Bodies.Where(c => c.ParentId == b.Id).OrderBy(c => c.OrbitRadius))
-                Tree(child, indent + "      ");
-        }
-        foreach (var root in w.Bodies.Where(b => b.ParentId == null || w.FindBody(b.ParentId.Value) == null))
-            Tree(root, "");
+        _screen.ShowSide = true;
+        _side.ShowPlanets = open;
     }
 
     private string? Describe(Simulation sim)
