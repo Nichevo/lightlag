@@ -38,7 +38,7 @@ public partial class MapView
 
     private void DrawShadows()
     {
-        if (Sight == SightView.Off) return;
+        if (Sight == SightView.Off || !PlayerInfo.Has(MapLayer.Shadows)) return;
         var now = Time.GetTicksMsec();
         var view = (Camera.Scale, Camera.Center.X, Camera.Center.Y, Camera.ScreenSize);
         if (view != _shadowView || now - _shadowAt >= ShadowRefreshMs)

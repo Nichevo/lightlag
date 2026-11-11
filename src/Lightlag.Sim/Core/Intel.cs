@@ -41,6 +41,9 @@ public sealed class TechFact
     public double Hour { get; set; }
 }
 
+/// <summary>The day's estimate of the rival, for the "How am I doing" chart's dashed lines.</summary>
+public sealed record IntelDay(int Day, int WarshipsLow, int WarshipsHigh, double Industry, int Planets);
+
 /// <summary>Something fed in from outside the sensors (prisoners, captures, salvage), for the screen's log.</summary>
 public sealed record IntelNote(double Hour, IntelSource Source, string Text);
 
@@ -69,6 +72,9 @@ public sealed class IntelFile
     /// <summary>"Their file on you", as you can guess it: your fleets the rival has probably seen, and when.</summary>
     public Dictionary<int, double> SeenUs { get; set; } = new();
     public double TheirPointsGuess { get; set; }
+
+    /// <summary>One estimate a day (see IntelDay).</summary>
+    public List<IntelDay> Days { get; set; } = new();
 }
 
 /// <summary>
@@ -303,10 +309,14 @@ public static class Intel
                 var fact = f.Fleets.Find(x => x.FleetId == s.FleetId);
                 if (fact == null)
                 {
-                    fact = new FleetFact { FleetId = s.FleetId, FirstHour = s.Hour };
+                    fact = new FleetFact { FleetId = s.FleetId, FirstHour = s.Hour, Hour = -1 };
                     f.Fleets.Add(fact);
-                    if (s.Ships <= 3) Habit(f, "small-groups");
-                    else if (s.Ships >= 5) Habit(f, "big-fleets");
+                    // Group size is a tell for warships only (cargo runs are small anyway).
+                    if (!IsCargo(s.Ships, s.Classes))
+                    {
+                        if (s.Ships <= 3) Habit(f, "small-groups");
+                        else if (s.Ships >= 5) Habit(f, "big-fleets");
+                    }
                 }
                 if (s.Hour < fact.Hour) continue;
                 fact.Name = s.Name;
@@ -405,11 +415,20 @@ public static class Intel
             foreach (var gone in f.SeenUs.Keys.Where(id => w.FindFleet(id) == null).ToList()) f.SeenUs.Remove(gone);
             f.TheirPointsGuess += Math.Min(SensorPointsMaxPerHour, near * SensorPointsPerFleetHour);
 
-            // Knowledge fades without contact, a little each day.
-            if (w.Tick % GameTime.TicksPerDay == 0 && w.Hour - f.LastContactHour > 24)
+            // Knowledge fades without contact, a little each day; the day's estimate is kept for the chart.
+            if (w.Tick % GameTime.TicksPerDay == 0)
             {
-                f.Points *= 1 - FadePerDay;
-                f.TheirPointsGuess *= 1 - FadePerDay;
+                if (w.Hour - f.LastContactHour > 24)
+                {
+                    f.Points *= 1 - FadePerDay;
+                    f.TheirPointsGuess *= 1 - FadePerDay;
+                }
+                if (w.Loop && (f.Days.Count == 0 || f.Days[^1].Day != w.Day))
+                {
+                    var (low, high) = EstimatedWarships(w, side);
+                    var (planets, industry) = EstimatedHoldings(w, side);
+                    f.Days.Add(new IntelDay(w.Day, low, high, Math.Round(industry, 1), planets));
+                }
             }
         }
     }

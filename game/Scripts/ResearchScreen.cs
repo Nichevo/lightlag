@@ -65,6 +65,7 @@ public partial class ResearchScreen : PanelContainer
         return string.Join(",", w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research).Select(o => $"{o.Id}:{o.TeamId}:{o.Paid}"))
                + "|" + string.Join(",", me.Researched) + "|" + string.Join(",", me.Cuts)
                + "|" + string.Join(",", me.Teams.Select(t => $"{t.Id}:{string.Join("+", t.Kept)}:{t.TrainingUntilHour != null}:{Research.Ready(w, t)}:{t.Scientists}:{string.Join("/", Research.KeptFields(t))}"))
+               + "|" + string.Join(",", Intel.Counters(w, Side.Player).Select(c => c.Idea))
                + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{GetViewportRect().Size}|{w.Winner}";
     }
 
@@ -339,6 +340,10 @@ public partial class ResearchScreen : PanelContainer
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         head.AddChild(Ui.Label($"{shown.Count} of {all.Count} shown · days are for the team that would finish first", 12, Ui.Dim));
         v.AddChild(head);
+        // Intelligence hints: what the rival has been seen to field, and the idea that answers it.
+        var counters = Intel.Counters(w, Side.Player).GroupBy(c => c.Idea).Select(g => g.First()).Take(3).ToList();
+        if (counters.Count > 0)
+            v.AddChild(Ui.Label("Intel: " + string.Join(" · ", counters.Select(c => $"{c.Why} → {GameData.Research(c.Idea).Name}")), 12, new Color("ffd27a")));
 
         // Filters: search, field, sort; then status and what an idea unlocks.
         var row1 = new HBoxContainer();
@@ -439,6 +444,14 @@ public partial class ResearchScreen : PanelContainer
             spark.TooltipText = Economy.Of(w, Side.Player).SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "Something in the game brought this idea on";
             spark.MouseFilter = MouseFilterEnum.Pass;
             pic.AddChild(spark);
+        }
+        if (Intel.Counters(w, Side.Player).FirstOrDefault(c => c.Idea == r.Id) is { Idea: not null } counter)
+        {
+            var hint = Ui.Label("⚔ counter", 11, new Color("ffd27a"));
+            hint.Position = new Vector2(8, width * 12 / 35 - 20);
+            hint.TooltipText = $"Intel: {counter.Why}. This idea answers it";
+            hint.MouseFilter = MouseFilterEnum.Pass;
+            pic.AddChild(hint);
         }
         v.AddChild(pic);
 
