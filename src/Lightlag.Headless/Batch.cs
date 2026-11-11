@@ -17,7 +17,7 @@ public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuil
     int LaggedBattles = 0, int FlagshipBattles = 0, int OwnDecisions = 0, int Overheats = 0,
     int ShipsCrippled = 0, int PartsKnocked = 0, int PullBacks = 0, int PulledBeforeShots = 0, int Wiped = 0, int OneWithdrew = 0, int BothWithdrew = 0,
     double MaterialStallHours = 0, double Salvaged = 0, int Warships = 0, int Contacts = 0,
-    int AmbushCatches = 0, double CargoCaptured = 0, int CargoLost = 0)
+    int AmbushCatches = 0, double CargoCaptured = 0, int CargoLost = 0, int RockHits = 0, double HazardHull = 0, double RadiationShipHours = 0, int Events = 0)
 {
     public static SideEnd Of(World w, Side side)
     {
@@ -27,7 +27,7 @@ public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuil
             Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0), t.LaggedBattles, t.FlagshipBattles, t.OwnDecisions, t.Overheats,
             t.ShipsCrippled, t.PartsKnocked, t.PullBacks, t.PulledBeforeShots, t.BattlesWiped, t.BattlesOneWithdrew, t.BattlesBothWithdrew,
             t.MaterialStallHours, t.Salvaged, w.Ships.Count(s => s.Side == side && Planner.Warship(s)), t.Contacts,
-            t.AmbushCatches, Math.Round(t.CargoCaptured), Economy.Of(w, side).CargoLost);
+            t.AmbushCatches, Math.Round(t.CargoCaptured), Economy.Of(w, side).CargoLost, t.RockHits, Math.Round(t.HazardHull), Math.Round(t.RadiationShipHours), t.Events);
     }
 }
 
@@ -53,6 +53,9 @@ public static class Batch
         _autonomy = opts.Get("autonomy") is string a ? Enum.Parse<AutonomyLevel>(a, ignoreCase: true) : null;
         // --random-starts, --spread (start with some people everywhere), --no-happiness, --no-supply-lines, --single-fuel: the optional systems.
         _rules = (opts.Has("random-starts"), opts.Has("spread"), opts.Has("no-happiness"), opts.Has("no-supply-lines"), opts.Has("single-fuel"));
+        // --no-hazards: no rocks, radiation or sun heat; --events off|rare|normal|lively (default normal).
+        _noHazards = opts.Has("no-hazards");
+        _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -116,14 +119,18 @@ public static class Batch
     public const double HeadlessSpread = 0.1;
 
     private static GameOptions? OptionsFor(string pilot) =>
-        _light == null && _autonomy == null && _rules == default ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
+        _light == null && _autonomy == null && _rules == default && !_noHazards && _events == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
                 ChoiceSpread = HeadlessSpread,
                 Light = _light, Autonomy = _autonomy,
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
+                Hazards = _noHazards ? false : null, Events = _events,
             };
+
+    private static bool _noHazards;
+    private static EventRate? _events;
 
     private static (bool Random, bool Spread, bool NoHappiness, bool NoSupply, bool SingleFuel) _rules;
 
@@ -222,6 +229,10 @@ public static class Batch
                           + $"fleets' own decisions: player {ended.Average(r => r.Player!.OwnDecisions):0.0}, rival {ended.Average(r => r.Rival!.OwnDecisions):0.0}");
         if (ended.Count > 0)
             md.AppendLine($"- Heat, per game: ships overheated: player {ended.Average(r => r.Player!.Overheats):0.0}, rival {ended.Average(r => r.Rival!.Overheats):0.0}");
+            md.AppendLine($"- Hazards, per game (player / rival): rock hits {ended.Average(r => r.Player!.RockHits):0.0} / {ended.Average(r => r.Rival!.RockHits):0.0}, "
+                + $"hull lost to rocks {ended.Average(r => r.Player!.HazardHull):0} / {ended.Average(r => r.Rival!.HazardHull):0}, "
+                + $"ship-hours in radiation {ended.Average(r => r.Player!.RadiationShipHours):0} / {ended.Average(r => r.Rival!.RadiationShipHours):0}, "
+                + $"events {ended.Average(r => r.Player!.Events):0.0} / {ended.Average(r => r.Rival!.Events):0.0}");
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
         if (results.Count > 0)
         {

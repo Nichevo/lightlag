@@ -25,7 +25,8 @@ public sealed class EmpireTabs
     // ---- Needs you ------------------------------------------------------------------------------
 
     public static string NeedsShape(World w) => string.Join(",", Economy.Of(w, Side.Player).Needs.Select(n => n.Key + n.Level))
-                                                + "|" + Economy.Of(w, Side.Player).AutoNotes.Count;
+                                                + "|" + Economy.Of(w, Side.Player).AutoNotes.Count
+                                                + "|" + string.Join(",", w.Events.Where(e => e.Side == Side.Player).Select(e => $"{e.Id}{e.Call.Picked}{e.Hit}{e.Done}"));
 
     private static Color LevelColor(NeedLevel level) => level switch
     {
@@ -38,11 +39,12 @@ public sealed class EmpireTabs
     public void Needs(World w)
     {
         var state = Economy.Of(w, Side.Player);
+        EventsSection(w);
         Heading("Needs you");
         if (state.Needs.Count == 0) Text("Nothing needs you just now. Automation handles the areas set to Auto (see the Automation tab).");
         foreach (var level in Enum.GetValues<NeedLevel>())
         {
-            var items = state.Needs.Where(n => n.Level == level).ToList();
+            var items = state.Needs.Where(n => n.Level == level && !n.Key.StartsWith("event:", StringComparison.Ordinal)).ToList();
             if (items.Count == 0) continue;
             var head = Ui.Label(level switch
             {
@@ -60,6 +62,67 @@ public sealed class EmpireTabs
             Heading("Auto handled");
             foreach (var note in notes) Text($"{GameTime.Format(note.Hour)} · {note.Area}: {note.Text}", 12);
         }
+    }
+
+    // ---- Events ---------------------------------------------------------------------------------
+
+    /// <summary>Events waiting for a call (every option, Auto's pick and the deadline), then what came of the last few.</summary>
+    private void EventsSection(World w)
+    {
+        var open = Events.Open(w, Side.Player).OrderBy(e => e.Call.DueHour).ToList();
+        var recent = w.Events.Where(e => e.Side == Side.Player && !e.Call.Open).OrderByDescending(e => e.Hour).Take(5).ToList();
+        if (open.Count == 0 && recent.Count == 0) return;
+        Heading("Events");
+        foreach (var e in open)
+        {
+            var title = Ui.Label($"⚑ {Events.KindName(e.Kind)}: {e.Title}", 14, Ui.Rival);
+            _box.AddChild(title);
+            Text(e.Call.Text, 13, Ui.Text);
+            var row = new HFlowContainer();
+            row.AddThemeConstantOverride("h_separation", 6);
+            _box.AddChild(row);
+            for (var i = 0; i < e.Call.Options.Count; i++)
+            {
+                var option = i;
+                var id = e.Id;
+                var tip = i < e.Call.Effects.Count ? e.Call.Effects[i] : e.Call.Options[i];
+                var b = Small(e.Call.Options[i] + (i == e.Call.AutoPick ? " (Auto)" : ""), () => _screen.IssueNow(new PickEventCommand(Side.Player, id, option), "event call"), tip);
+                row.AddChild(b);
+            }
+            if (e.BodyId is int bodyId) row.AddChild(Small("Go", () => _screen.PickBody(bodyId), "Go to the planet"));
+            else if (e.FleetId is int fleetId && w.FindFleet(fleetId) != null)
+                row.AddChild(Small("Go", () => { _screen.Select(fleetId); _screen.Follow(fleetId, zoom: true); }, "Select the fleet and go there"));
+            for (var i = 0; i < e.Call.Options.Count && i < e.Call.Effects.Count; i++) Text($"· {e.Call.Options[i]}: {e.Call.Effects[i]}", 12);
+            var due = e.Call.DueHour;
+            var auto = e.Call.Options[e.Call.AutoPick];
+            var l = Ui.Label("", 12, Ui.Dim);
+            _box.AddChild(l);
+            _live.Add((l, w2 => due > w2.Hour ? $"Auto picks {auto} in {Format.Hours(due - w2.Hour)} if you don't" : ""));
+        }
+        foreach (var e in recent)
+        {
+            var pick = e.Call.Picked is int p ? e.Call.Options[p] + (e.Call.ByAuto ? " (Auto)" : "") : "";
+            Text($"{GameTime.Format(e.Hour)} · {e.Title}: {pick}{(e.Outcome.Length > 0 ? " · " + e.Outcome : e.Hit ? "" : " · still to come")}", 12);
+        }
+    }
+
+    /// <summary>
+    /// New events for the player: a toast for each (click: the Needs you tab). Returns true to pause:
+    /// an event waiting for a call with the Events area on Manual ("ask me and stop").
+    /// </summary>
+    public static bool WatchEvents(World w, HashSet<int> seen, Action<string, bool> toast)
+    {
+        var pause = false;
+        foreach (var e in w.Events.Where(e => e.Side == Side.Player && !e.Done))
+        {
+            if (!seen.Add(e.Id)) continue;
+            var stop = e.Call.Open && Stewards.LevelFor(w, Side.Player, AutoArea.Events) == AutoLevel.Manual;
+            var text = e.Call.Open ? $"{Events.KindName(e.Kind)}: {e.Title}. Your call (Needs you); Auto picks {e.Call.Options[e.Call.AutoPick]} in {Format.Hours(e.Call.DueHour - w.Hour)}"
+                : $"{Events.KindName(e.Kind)}: {e.Title}. Auto picked {e.Call.Options[e.Call.Picked ?? e.Call.AutoPick]}";
+            toast(text, stop);
+            pause |= stop;
+        }
+        return pause;
     }
 
     private void NeedRow(World w, NeedItem n)

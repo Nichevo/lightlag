@@ -126,6 +126,11 @@ public sealed class SideState
 
     /// <summary>What this side has learned about its rival (see Intel).</summary>
     public IntelFile Intel { get; set; } = new();
+
+    /// <summary>Events (see Events): when the next one comes (0: not rolled yet); a flare sheltered from (sensors blind) or used to hide, until.</summary>
+    public double NextEventHour { get; set; }
+    public double BlindUntilHour { get; set; } = -1e9;
+    public double HiddenUntilHour { get; set; } = -1e9;
 }
 
 public enum OrderKind { Ship, Research }

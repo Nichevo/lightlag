@@ -140,6 +140,7 @@ public partial class GameScreen : Node2D
     public EmpirePanel.Tab? EmpireTabWanted { get; set; }
 
     private readonly HashSet<string> _warCallsSeen = new();
+    private readonly HashSet<int> _eventsSeen = new();
 
     /// <summary>The ship whose card is open (click ⓘ on a ship row; null: none).</summary>
     public int? ShipCardId { get; set; }
@@ -272,6 +273,9 @@ public partial class GameScreen : Node2D
             WatchChasers();
             WatchEconomy();
             if (WarTab.WatchCalls(Sim.World, _warCallsSeen, text => _main.Toast(text + ". Paused.", onClick: () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.War; })))
+                _paused = true;
+            if (EmpireTabs.WatchEvents(Sim.World, _eventsSeen, (text, stop) => _main.Toast(text + (stop ? ". Paused." : ""),
+                    onClick: () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.Needs; })))
                 _paused = true;
             // Pausing, or switching in or out of battle time: show where things really are now, so the
             // map neither stops part way back to the last step nor jumps when time runs again.

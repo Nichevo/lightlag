@@ -19,7 +19,7 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 /// </summary>
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
-    bool? FuelTypes = null)
+    bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -1548,7 +1548,29 @@ public static class Mind
                 return Do(new PlanFlightCommand(f.Id, request with { Route = RouteKind.Slingshot, FlybyBodyId = via.Id, DepartTick = _w.Tick })) || f.Flight != null;
             }
             if (!FlightPlanner.Plan(_w, f, request).Ok) return false;
+            request = SlowThroughRocks(f, request);
             return Do(new PlanFlightCommand(f.Id, request)) || f.Flight != null;
+        }
+
+        /// <summary>
+        /// Rocks on the way (belts, rings, battle debris): if the worst-hit ship would lose more than
+        /// SlowAbove of its hull, fly slower (hits hurt less at lower speed), down to a third of the asked speed.
+        /// The same estimate the player's route planner shows.
+        /// </summary>
+        private FlightRequest SlowThroughRocks(Fleet f, FlightRequest request)
+        {
+            if (!Hazards.On(_w)) return request;
+            var best = request;
+            for (var i = 0; i < 4; i++)
+            {
+                var plan = FlightPlanner.Plan(_w, f, best);
+                if (plan is not { Ok: true, Flight: Flight flight } || Hazards.Estimate(_w, f, flight).HullShare <= Hazards.D.SlowAbove) break;
+                var slower = best with { SpeedFraction = Math.Max(FlightPlanner.MinSpeedFraction, best.SpeedFraction * 0.7) };
+                if (slower.SpeedFraction < request.SpeedFraction / 3 - 1e-9 || slower.SpeedFraction >= best.SpeedFraction - 1e-9 || !FlightPlanner.Plan(_w, f, slower).Ok) break;
+                best = slower;
+            }
+            if (best.SpeedFraction < request.SpeedFraction - 1e-9) Note($"{f.Name} slows to {best.SpeedFraction:P0} through rocks");
+            return best;
         }
 
         private void Orders(Fleet f, Stance stance)

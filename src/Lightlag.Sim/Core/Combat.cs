@@ -862,6 +862,7 @@ public static class Combat
                     }
             if (fought) Choices.OnBattleOver(w, battle);
             BattleRules.OnBattleOver(sim, battle);
+            Hazards.OnBattleOver(sim, battle);
             sim.Log.Info("combat", "Battle over", new
             {
                 battleId = battle.Id, hours = t1 - battle.StartHour, ending = battle.Ending.ToString(),

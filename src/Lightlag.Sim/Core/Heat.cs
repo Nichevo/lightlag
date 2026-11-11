@@ -100,7 +100,7 @@ public static class Heat
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
-                var gain = D.IdlePerHour + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) : 0);
+                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) : 0);
                 var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 s.Heat = Math.Max(0, s.Heat + (gain - shed) * dt);
                 if (!s.Overheated && s.Heat > cap)

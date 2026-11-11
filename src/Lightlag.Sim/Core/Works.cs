@@ -20,6 +20,9 @@ public static class Works
         Mend(w);
         Wounds.UpdateWrecks(sim);
         War.Update(sim);
+        Hazards.Hourly(sim);
+        Events.Update(sim);
+        Events.Lasting(sim);
         Refits.Update(sim);
         BattleRules.Hourly(sim);
     }

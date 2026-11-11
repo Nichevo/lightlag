@@ -45,6 +45,12 @@ public sealed class SideTotals
 
     /// <summary>Damage and battle endings (see Wounds and BattleRules).</summary>
     public int Contacts { get; set; }
+
+    /// <summary>Hazards and events (see Hazards, Events): rock hits taken, hull they took, ship-hours in radiation, events had.</summary>
+    public int RockHits { get; set; }
+    public double HazardHull { get; set; }
+    public double RadiationShipHours { get; set; }
+    public int Events { get; set; }
     public int ShipsCrippled { get; set; }
     public int PartsKnocked { get; set; }
     public int PullBacks { get; set; }

@@ -41,7 +41,12 @@ public sealed record BodyData(
     public double Gm => (MassSun ?? 0) * Physics.GmSun + (MassEarth ?? 0) * Physics.GmEarth;
 }
 
-public sealed record BeltData(string Id, string Name, string Parent, double InnerAu, double OuterAu, string Color);
+/// <summary>
+/// A belt round a body: its radii in AU (round the star), or in the parent's radii (rings and radiation
+/// belts round a planet, so they grow with the map's size scale). Kind: belt, ring or radiation.
+/// </summary>
+public sealed record BeltData(string Id, string Name, string Parent, double InnerAu = 0, double OuterAu = 0, string Color = "888888",
+    BeltKind Kind = BeltKind.Belt, double Density = 1, double InnerRadii = 0, double OuterRadii = 0);
 
 public sealed record StartShipsData([property: JsonPropertyName("class")] string Class, Side Side, string Near, int Count);
 
@@ -166,6 +171,8 @@ public static class GameData
     public static FormationData Formations => _file.Value.Formations ?? new FormationData();
     public static EconomyData Economy => _economy.Value;
     public static AiData Ai => _ai.Value;
+    private static readonly Lazy<HazardsData> _hazards = new(LoadHazards);
+    public static HazardsData Hazards => _hazards.Value;
     public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;
 
     public static ResearchData Research(string id) =>
@@ -219,6 +226,18 @@ public static class GameData
         if (e.Teams is { } t && !(t.Slots >= 1 && t.StartScientists > 0 && t.BaseScientists > 0 && t.MaxSkill >= 1 && t.SurveyCut is >= 0 and < 1))
             throw new InvalidDataException("economy.json: teams needs slots of at least 1, scientists above 0, maxSkill of at least 1 and surveyCut in [0, 1)");
         return e;
+    }
+
+    private static HazardsData LoadHazards()
+    {
+        var h = Json.Deserialize<HazardsData>(ReadText("hazards.json"));
+        if (h.SizeCross.Length != h.SizeLengthM.Length + 1) throw new InvalidDataException("hazards.json: sizeCross needs one more entry than sizeLengthM");
+        if (!(h.RockSpeedMmPerHour > 0 && h.DebrisDays > 0 && h.HullFloor is >= 0 and < 1 && h.SunHotAu > 0))
+            throw new InvalidDataException("hazards.json: rockSpeedMmPerHour, debrisDays and sunHotAu must be above 0, hullFloor in [0, 1)");
+        if (h.Events.PerSideDays.Length != 4) throw new InvalidDataException("hazards.json: events.perSideDays needs four entries (off, rare, normal, lively)");
+        foreach (var k in h.Events.Weights.Keys)
+            if (Array.IndexOf(Core.Events.Kinds, k) < 0) throw new InvalidDataException($"hazards.json: unknown event kind '{k}'");
+        return h;
     }
 
     private static AiData LoadAi()
@@ -294,7 +313,7 @@ public static class GameData
             if (!(b.RadiusMm > 0)) throw new InvalidDataException($"{file}: '{b.Id}' needs radiusMm above 0");
         }
         foreach (var belt in data.Belts ?? new())
-            if (!seen.Contains(belt.Parent) || !(belt.OuterAu > belt.InnerAu))
+            if (!seen.Contains(belt.Parent) || !(belt.OuterAu > belt.InnerAu || belt.OuterRadii > belt.InnerRadii && belt.InnerRadii > 0) || !(belt.Density > 0))
                 throw new InvalidDataException($"{file}: belt '{belt.Id}' has a bad parent or radii");
         foreach (var s in data.Ships ?? new())
         {

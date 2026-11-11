@@ -85,6 +85,8 @@ public partial class Main : Node
     public bool SupplyLinesChoice { get; set; } = true;
     public bool SpreadPeopleChoice { get; set; }
     public bool FuelTypesChoice { get; set; } = true;
+    public bool HazardsChoice { get; set; } = true;
+    public EventRate EventsChoice { get; set; } = EventRate.Normal;
     public bool RandomStartsChoice { get; set; } = true;
 
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
@@ -96,6 +98,7 @@ public partial class Main : Node
             {
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
+                Hazards = HazardsChoice, Events = EventsChoice,
             });
             SetScreen(new GameScreen());
         });

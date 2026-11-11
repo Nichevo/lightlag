@@ -133,10 +133,13 @@ public static class Scenarios
 
         foreach (var belt in data.Belts ?? new())
         {
+            var parent = ids[belt.Parent];
+            var radii = belt.InnerRadii > 0;
             w.Belts.Add(new Belt
             {
-                Key = belt.Id, Name = belt.Name, ParentId = ids[belt.Parent].Id, Color = belt.Color,
-                InnerRadius = belt.InnerAu * Physics.MmPerAu, OuterRadius = belt.OuterAu * Physics.MmPerAu,
+                Key = belt.Id, Name = belt.Name, ParentId = parent.Id, Color = belt.Color, Kind = belt.Kind, Density = belt.Density,
+                InnerRadius = radii ? belt.InnerRadii * parent.Radius : belt.InnerAu * Physics.MmPerAu,
+                OuterRadius = radii ? belt.OuterRadii * parent.Radius : belt.OuterAu * Physics.MmPerAu,
             });
         }
 

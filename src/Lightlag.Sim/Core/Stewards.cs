@@ -3,7 +3,7 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>The areas of running an empire that can be handed to automation (see Stewards).</summary>
-public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle }
+public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle, Events }
 
 /// <summary>Auto: does it. Advise: suggests it in Needs you. Manual: leaves it alone.</summary>
 public enum AutoLevel { Auto, Advise, Manual }
@@ -333,7 +333,7 @@ public static class Stewards
 
     public static AutoLevel BuiltInDefault(AutoArea area) => area switch
     {
-        AutoArea.Building or AutoArea.Settling or AutoArea.Research => AutoLevel.Advise,
+        AutoArea.Building or AutoArea.Settling or AutoArea.Research or AutoArea.Events => AutoLevel.Advise,
         AutoArea.Shipyard => AutoLevel.Manual,
         _ => AutoLevel.Auto,
     };
@@ -353,6 +353,7 @@ public static class Stewards
         AutoArea.Boarding => "Boarding calls",
         AutoArea.Ground => "Ground war calls",
         AutoArea.AfterBattle => "After battle",
+        AutoArea.Events => "Events",
         _ => area.ToString(),
     };
 
@@ -371,6 +372,7 @@ public static class Stewards
         AutoArea.Boarding => "The calls during a boarding (Advise or Manual: ask me, Auto decides if I don't answer in time)",
         AutoArea.Ground => "The plan and the calls during an invasion (Advise or Manual: ask me)",
         AutoArea.AfterBattle => "Rescue, capture, salvage, then mend or go home (Advise or Manual: I pick how to get home)",
+        AutoArea.Events => "Calls on events: flares, finds, faults, rock strikes (Advise: wait in Needs you until the deadline; Manual: also pause the game)",
         _ => "",
     };
 
@@ -438,6 +440,7 @@ public static class Stewards
             Refits.Steward(_sim, _side, Offer);
             BattleRules.Steward(_sim, _side, Offer);
             Crews.Steward(_sim, _side, Offer);
+            Events.Needs(_w, _side, (key, text, bodyId, fleetId, act, label) => Need(NeedLevel.Urgent, key, text, bodyId, fleetId, act, label, AutoArea.Events));
             AfterBattle.Needs(_w, _side, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.AfterBattle));
             _state.Needs = _needs.Where(n => !_state.Dismissed.ContainsKey(n.Key))
                 .OrderBy(n => n.Level).ThenBy(n => n.Hour).ThenBy(n => n.Key, StringComparer.Ordinal).ToList();

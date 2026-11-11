@@ -589,7 +589,7 @@ public static class Colonies
 
         // Power.
         // Every settled world has a little power of its own (small generators), enough for a first building or two.
-        var made = (b.PopK > 0 ? C.BasePower : 0) + built.Where(x => x.Data!.Power < 0).Sum(x => PowerOf(w, b, x.Piece, x.Data!, consume: true));
+        var made = (b.PopK > 0 ? C.BasePower : 0) + built.Where(x => x.Data!.Power < 0).Sum(x => PowerOf(w, b, x.Piece, x.Data!, consume: true)) * (1 - Events.PowerCut(w, b));
         b.PowerMade = made;
         var used = 0.0;
         foreach (var (p, data) in built)
