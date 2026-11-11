@@ -439,7 +439,7 @@ public static class Mind
 
         private bool AtHome(Fleet f) => _home != null && Economy.InOrbitAt(f, _home) && f.Flight == null;
 
-        private bool Busy(Fleet f) => f.Maneuvering || f.Retreating || f.Resupplying || f.JoinFleetId != null || OrderOnItsWay(f);
+        private bool Busy(Fleet f) => f.Maneuvering || f.Retreating || f.Resupplying || f.JoinFleetId != null || f.Refit != null || OrderOnItsWay(f);
 
         /// <summary>Under light lag: an order to this fleet has been sent and not yet arrived.</summary>
         private bool OrderOnItsWay(Fleet f) => _w.Light.InTransit.Any(t => t.Command is IFleetCommand fc && fc.FleetId == f.Id);
@@ -876,8 +876,22 @@ public static class Mind
                 }
             }
             if (!Easy) Stations(orders);
+            if (!Easy) RefitAtHome(orders);
             if (!Easy) Teams(orders);
             Build(orders);
+        }
+
+        /// <summary>Fleets idle at home refit to the current designs when a bay is free and Industry spare after the next ship.</summary>
+        private void RefitAtHome(List<WorkOrder> orders)
+        {
+            var reserve = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
+            foreach (var f in Mine().Where(f => AtHome(f) && !Busy(f)).ToList())
+                if (Refits.WorthIt(_w, f, reserve))
+                {
+                    Do(new SendForRefitCommand(_side, f.Id));
+                    Note($"{f.Name} refits to the current designs at {_home!.Name}");
+                    return;
+                }
         }
 
         // ---- Planets and people -----------------------------------------------------------------

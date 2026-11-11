@@ -278,6 +278,9 @@ public sealed class Ship
     public bool Crippled { get; set; }
     public double CrippleLeft { get; set; }
 
+    /// <summary>Hours left of its refit in a yard bay (0: not in a bay).</summary>
+    public double RefitHoursLeft { get; set; }
+
     /// <summary>Parts knocked out in battle (any number), until repaired (damage control or a yard).</summary>
     public List<Module> Knocked { get; set; } = new();
 

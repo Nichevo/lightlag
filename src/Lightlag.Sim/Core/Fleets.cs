@@ -141,6 +141,9 @@ public sealed class Fleet
     /// <summary>Why it last pulled back (for the fleet panel and news).</summary>
     public string? PullReason { get; set; }
 
+    /// <summary>Sent for refit (see Refits); null when not.</summary>
+    public RefitPlan? Refit { get; set; }
+
     /// <summary>A ship (or group) that pulled out: rejoin this fleet once mended.</summary>
     public int? RejoinFleetId { get; set; }
     public bool Retreating { get; set; }

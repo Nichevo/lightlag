@@ -19,6 +19,7 @@ public static class Works
         Skimmers(w);
         Mend(w);
         Wounds.UpdateWrecks(sim);
+        Refits.Update(sim);
         BattleRules.Hourly(sim);
     }
 

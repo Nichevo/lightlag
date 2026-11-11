@@ -48,7 +48,7 @@ public sealed class AutoScore
 }
 
 /// <summary>A warship lost: never rebuilt by itself, but offered for rebuilding in Needs you.</summary>
-public sealed record LostShip(string ClassId, string Name, double Hour);
+public sealed record LostShip(string ClassId, string Name, double Hour, int? FleetId = null);
 
 /// <summary>
 /// Shared planning: what a planet should build next, which material is short. The rival's mind and the
@@ -272,7 +272,7 @@ public static class Stewards
     {
         if (!w.Loop || !Planner.Warship(s)) return;
         var lost = Economy.Of(w, s.Side).Lost;
-        lost.Add(new LostShip(s.ClassId, s.Name, w.Hour));
+        lost.Add(new LostShip(s.ClassId, s.Name, w.Hour, s.FleetId));
         if (lost.Count > 20) lost.RemoveAt(0);
     }
 
@@ -478,7 +478,8 @@ public static class Stewards
             foreach (var lost in _state.Lost.Where(l => _w.Hour - l.Hour < LostShipDays * 24))
                 if (Economy.CanQueue(_w, _side, OrderKind.Ship, lost.ClassId) == null)
                     Need(NeedLevel.Advice, $"lost:{lost.Name}", $"{lost.Name} ({GameData.ShipClass(lost.ClassId).Name}) was lost: build a new one?", _home.Id,
-                        act: new QueueOrderCommand(_side, OrderKind.Ship, lost.ClassId), label: "Build it", area: AutoArea.Shipyard);
+                        act: new QueueOrderCommand(_side, OrderKind.Ship, lost.ClassId,
+                            lost.FleetId is int fid && _w.FindFleet(fid) is { ShipIds.Count: > 0 } ? fid : null), label: "Build it", area: AutoArea.Shipyard);
         }
 
         private IEnumerable<ResearchTeam> IdleTeams() => _state.Teams.Where(t => Research.Ready(_w, t)
