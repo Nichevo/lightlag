@@ -330,4 +330,23 @@ public class PlanetTests
             sim.StepMany(3);
         }
     }
+
+    [Fact]
+    public void A_save_from_before_people_gets_its_homes_peopled_on_load()
+    {
+        var sim = NewGame();
+        // Strip the save back to how an older build wrote it: no people, no home marks, no start flag.
+        var json = sim.ToSave().ToJson();
+        var save = Lightlag.Sim.Save.SaveGame.FromJson(json);
+        save.World.PeopleStarted = false;
+        foreach (var b in save.World.Bodies) { b.PopK = 0; b.Home = false; b.Buildings.Clear(); }
+        var loaded = Simulation.FromSave(Lightlag.Sim.Save.SaveGame.FromJson(save.ToJson()), GameLog.Memory());
+        loaded.StrictRules = true;
+        loaded.RuleCheckEveryTicks = 1;
+        loaded.Step();
+        var verdant = loaded.World.Bodies.Single(b => b.Key == "verdant");
+        Assert.True(verdant.Home);
+        Assert.True(verdant.PopK > 0);
+        Assert.Contains(Planets.Farm, verdant.Buildings);
+    }
 }

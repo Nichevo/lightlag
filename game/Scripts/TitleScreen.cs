@@ -44,6 +44,28 @@ public partial class TitleScreen : Control
         return row;
     }
 
+    /// <summary>The optional systems for the next new game.</summary>
+    private static Control SystemsPicker(Main main)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 10);
+        row.AddChild(Ui.Label("Systems:", 15, Ui.Dim));
+        CheckBox Box(string text, bool on, Action<bool> set, string tip)
+        {
+            var box = new CheckBox { Text = text, ButtonPressed = on, FocusMode = FocusModeEnum.None, TooltipText = tip };
+            box.Toggled += v => set(v);
+            row.AddChild(box);
+            return box;
+        }
+        Box("Random homes", main.RandomStartsChoice, v => main.RandomStartsChoice = v, "You and the rival start on planets picked at random");
+        Box("Happiness", main.HappinessChoice, v => main.HappinessChoice = v,
+            "Happiness moves with food, blockades and bombing, and blockaded planets give up when unhappy. Off: only starving planets give up");
+        Box("Supply lines", main.SupplyLinesChoice, v => main.SupplyLinesChoice = v, "Ammunition and food run down away from home. Off: ships keep full stocks (fuel still counts)");
+        Box("People everywhere", main.SpreadPeopleChoice, v => main.SpreadPeopleChoice = v,
+            "Planets start with a few independent people instead of empty: hold orbit to win them over");
+        return row;
+    }
+
     public override void _Ready()
     {
         var main = Main.Instance;
@@ -63,6 +85,7 @@ public partial class TitleScreen : Control
         col.AddChild(Ui.Button("New game: Normal rival", () => main.StartNewGame()));
         col.AddChild(Ui.Button("New game: Easy rival", () => main.StartNewGame(difficulty: Lightlag.Sim.Core.Difficulty.Easy), 16));
         col.AddChild(LightPicker(main));
+        col.AddChild(SystemsPicker(main));
         col.AddChild(Ui.Button("Load game", () => ShowPage(_saves), 16));
         col.AddChild(Ui.Button("How to play", () => ShowPage(_help), 16));
         col.AddChild(Ui.Button("Battle sandbox", () => main.ShowSandboxSetup()));

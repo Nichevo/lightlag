@@ -114,11 +114,16 @@ public partial class HowToPlay : CenterContainer
 
     public const string Text =
         "THE GOAL\n" +
-        "Hold more than half of the planets and moons that have Industry for 30 days, or destroy the rival's shipyard by bombarding it from orbit. The Empire panel (E) shows the count.\n\n" +
+        "Control the system. Your control share (top bar) is the average of your share of people, Industry, planets and fleet power. At 80 % you have tipped the game: hold it for 30 days, or reach 95 %, to win. Destroying the rival's shipyard by bombarding it from orbit also wins.\n\n" +
+        "PLANETS AND PEOPLE\n" +
+        "• Only the two homes start with people. Colony ships carry settlers to empty worlds (landing them makes the world yours) and between your planets, taken ones too. Click a planet for its screen: people, happiness, food, buildings, Bring settlers and Auto top-up.\n" +
+        "• People eat food from farms, shared between your planets. A blockade (armed ships holding orbit) cuts a planet off: it lives off its own farms and store, makes no Industry, and grows unhappy.\n" +
+        "• An unhappy blockaded planet gives itself up to the blockader. Bombing its farms starves it sooner; bombing its people leaves a grudge, and it will never surrender to you. Troop ships land soldiers from low orbit to take a planet by force, or board the ship on a blockaded enemy slipway.\n" +
+        "• Planet guns shoot ships in low orbit; high orbit is out of their reach but can't bomb or land troops.\n\n" +
         "THE BASICS\n" +
         "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts.\n" +
         "• Click a fleet to select it. Right-click a planet or a point to plan a route, then Enter to go. Shift+right-click goes at once.\n" +
-        "• Planets with Industry can be claimed: park a fleet in orbit and keep the enemy away for 10 days (30 if the rival holds it).\n" +
+        "• Empty planets with Industry can be claimed: park a fleet in orbit and keep the enemy away for 10 days (30 if the rival holds it). A held planet makes half its Industry until settlers arrive.\n" +
         "• Industry pays for ships at your shipyard and for research (Empire panel, E).\n" +
         "• You only see what your ships and planets can see. Burning engines show from far away; coasting cold hides you. B cycles the sight view.\n" +
         "• Right-click an enemy fleet to attack it. V opens the engagement screen: approach, burn and dodge choices, rings and a timeline.\n" +

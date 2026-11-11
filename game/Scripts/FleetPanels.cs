@@ -242,6 +242,82 @@ public partial class FleetPanel : PanelContainer
         _droneButton = Ui.SmallButton("Send orders by drone", () => _screen.SendDrone(),
             $"A planet blocks the signal to this fleet. A messenger drone flies the orders there instead: slower than light, {Drones.D.Cost:0} Industry, and easy to shoot down");
         box.AddChild(_droneButton);
+
+        // Planets and people: orbit height, bombing, landings, boarding, and colony ships' people runs.
+        _planetRow = new HBoxContainer();
+        _planetRow.AddThemeConstantOverride("separation", 4);
+        _height = Ui.SmallButton("Low orbit", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf)
+                _screen.IssueNow(new SetOrbitHeightCommand(sf.Id, sf.OrbitHeight == OrbitHeight.Low ? OrbitHeight.High : OrbitHeight.Low), "orbit height");
+        }, "Low orbit: can bomb and land troops, but planet guns reach it. High orbit: out of their reach, still blockades and claims");
+        _planetRow.AddChild(_height);
+        _bomb = new MenuButton { Text = "Bomb ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "From low orbit over an enemy planet with no defenders near. Farms starve it towards surrender; bombing its people leaves a grudge: it will never surrender to you" };
+        _bomb.AddThemeFontSizeOverride("font_size", 13);
+        foreach (var (bombLabel, target) in new[] { ("Only blockade", BombTarget.None), ("Bomb farms", BombTarget.Farms), ("Bomb mines", BombTarget.Mines),
+                     ("Bomb planet guns", BombTarget.Guns), ("Bomb the people (they will never surrender to you)", BombTarget.People) })
+            _bomb.GetPopup().AddItem(bombLabel, (int)target);
+        _bomb.GetPopup().IdPressed += id => Main.Instance.RunGuarded("bombing", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetBombingCommand(sf.Id, (BombTarget)(int)id), "bombing");
+        });
+        _planetRow.AddChild(_bomb);
+        _land = Ui.SmallButton("Land troops", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf && sf.OrbitBodyId is int b) _screen.IssueNow(new LandTroopsCommand(sf.Id, b), "landing");
+        }, "Land the troops aboard on the planet below");
+        _planetRow.AddChild(_land);
+        _board = Ui.SmallButton("Board slipway", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new BoardSlipwayCommand(sf.Id), "boarding");
+        }, $"Send {Planets.D.BoardTroopsK:0.#}k troops to take the ship being built on the blockaded enemy slipway");
+        _planetRow.AddChild(_board);
+        _people = new MenuButton { Text = "Carry people ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "The colony ships load people at your planet with the most to spare and land them where you pick: an empty world (it becomes yours) or one of your planets, taken ones too" };
+        _people.AddThemeFontSizeOverride("font_size", 13);
+        _people.AboutToPopup += FillPeopleMenu;
+        _people.GetPopup().IdPressed += id => Main.Instance.RunGuarded("people run", () =>
+        {
+            if (_screen.SelectedFleet is not Fleet sf) return;
+            if (id < 0) { _screen.IssueNow(new SendPeopleCommand(Side.Player, sf.Id, 0, null), "people run"); return; }
+            var repeat = id >= RepeatOffset;
+            var to = (int)id % RepeatOffset;
+            if (PeopleSource(Main.Instance.Sim!.World, to) is Body from)
+                _screen.IssueNow(new SendPeopleCommand(Side.Player, sf.Id, from.Id, to, repeat), "people run");
+        });
+        _planetRow.AddChild(_people);
+        box.AddChild(_planetRow);
+    }
+
+    private const int RepeatOffset = 100000;
+    private HBoxContainer _planetRow = null!;
+    private Button _height = null!, _land = null!, _board = null!;
+    private MenuButton _bomb = null!, _people = null!;
+
+    /// <summary>Where settlers for this planet come from: your planet with the most people to spare (not the planet itself).</summary>
+    public static Body? PeopleSource(World w, int toId) =>
+        w.Bodies.Where(b => b.Owner == Side.Player && b.Id != toId && b.PopK - Math.Max(Planets.D.KeepAtSourceK, Planets.StaffNeeded(b)) > 1)
+            .OrderByDescending(b => b.PopK - Planets.StaffNeeded(b)).ThenBy(b => b.Id).FirstOrDefault();
+
+    private void FillPeopleMenu()
+    {
+        var popup = _people.GetPopup();
+        popup.Clear();
+        var w = Main.Instance.Sim!.World;
+        if (_screen.SelectedFleet is not Fleet f) return;
+        if (f.PeopleRun != null) popup.AddItem("End the people run", -1);
+        var targets = w.Bodies.Where(b => Planets.Settleable(b) && (b.Owner == Side.Player || b.Owner == null && b.PopK <= 0))
+            .OrderBy(b => b.Owner == Side.Player ? 1 : 0).ThenBy(b => Vec2.Distance(b.Position, f.Position)).ToList();
+        foreach (var b in targets)
+        {
+            var from = PeopleSource(w, b.Id);
+            if (from == null) continue;
+            var what = b.Owner == null ? $"Settle {b.Name} (empty, room for {Planets.Cap(b):0}k)" : $"Bring people to {b.Name} ({b.PopK:0.#}k of {Planets.Cap(b):0}k)";
+            popup.AddItem($"{what} from {from.Name}", b.Id);
+            if (b.Owner == Side.Player) popup.AddItem($"   ...and keep going back and forth", b.Id + RepeatOffset);
+        }
+        if (popup.ItemCount == 0) popup.AddItem("No planet of yours has people to spare", -2);
     }
 
     private Button _engagementButton = null!;
@@ -292,6 +368,37 @@ public partial class FleetPanel : PanelContainer
         _tickOnly = null;
     }
 
+    private void RefreshPlanetRow(World w, Fleet f, bool mine, List<Ship> ships)
+    {
+        var orbiting = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int ob ? w.FindBody(ob) : null;
+        var enemyPlanet = orbiting != null && orbiting.Owner is Side o && o != f.Side;
+        var colony = ships.Any(Planets.IsColonyShip);
+        var troops = ships.Any(Planets.IsTroopShip);
+        _planetRow.Visible = mine && w.Loop && (orbiting != null || colony || troops);
+        if (!_planetRow.Visible) return;
+        _height.Text = f.OrbitHeight == OrbitHeight.Low ? "Low orbit" : "High orbit";
+        _height.Visible = orbiting != null || troops;
+        _bomb.Visible = Combat.Armed(w, f) && (enemyPlanet || f.Bombing != BombTarget.None);
+        _bomb.Text = f.Bombing == BombTarget.None ? "Bomb ▾" : $"Bombing {f.Bombing.ToString().ToLowerInvariant()} ▾";
+        _bomb.Modulate = f.Bombing == BombTarget.People ? Ui.Danger : Colors.White;
+        _land.Visible = troops && orbiting != null && orbiting.Owner != f.Side;
+        if (_land.Visible)
+        {
+            var why = Planets.CanLand(w, f, orbiting!);
+            _land.Disabled = why != null;
+            _land.TooltipText = why ?? $"Land {Planets.TroopsAboard(w, f):0.#}k troops against a garrison of about {Planets.GarrisonOf(orbiting!):0.#}k";
+        }
+        _board.Visible = troops && orbiting is { Shipyard: true } && enemyPlanet;
+        if (_board.Visible)
+        {
+            var why = Planets.CanBoard(w, f, orbiting!);
+            _board.Disabled = why != null;
+            _board.TooltipText = why ?? "Take the ship on the slipway: it joins this fleet";
+        }
+        _people.Visible = colony;
+        _people.Text = f.PeopleRun is { } run && w.FindBody(run.ToBodyId) is Body to ? $"People to {to.Name}{(run.Repeat ? " (repeat)" : "")} ▾" : "Carry people ▾";
+    }
+
     private List<int> Checked() => _rows.Where(r => r.Value.Box.ButtonPressed).Select(r => r.Key).ToList();
 
     public void Refresh(Simulation sim, Fleet f)
@@ -302,6 +409,7 @@ public partial class FleetPanel : PanelContainer
         var ships = w.ShipsOf(f).ToList();
         var perf = FleetPerformance.Of(w, f);
         _supplyRun.Visible = mine && ships.Any(SupplyLines.IsSupplyShip);
+        RefreshPlanetRow(w, f, mine, ships);
         if (_supplyRun.Visible)
             _supplyRun.Text = f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t ? $"Supply run: {t.Name} ▾" : "Supply run ▾";
         _title.Text = f.Name + (mine ? "" : "  (rival)");
@@ -325,6 +433,17 @@ public partial class FleetPanel : PanelContainer
                 lines.Add($"LEFT ORBIT at {leftBody.Name} to fight: claiming and bombarding there stop until it orbits again (O)");
             if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int orbitId && w.FindBody(orbitId) is Body orbiting && Economy.BombardStatus(w, orbiting, Side.Player) is string attack)
                 lines.Add($"{orbiting.Name}: {attack}");
+            if (ships.Any(Planets.IsColonyShip))
+                lines.Add($"Settlers aboard: {Planets.PeopleAboard(w, f):0.#}k of {ships.Sum(Planets.PeopleHold):0}k"
+                          + (f.PeopleRun is { } pr && w.FindBody(pr.FromBodyId) is Body pf && w.FindBody(pr.ToBodyId) is Body pt
+                              ? $" · carrying people from {pf.Name} to {pt.Name}{(pr.Repeat ? ", back and forth" : "")}{(pr.Auto ? " (Auto top-up)" : "")}" : ""));
+            if (ships.Any(Planets.IsTroopShip))
+                lines.Add($"Troops aboard: {Planets.TroopsAboard(w, f):0.##}k (they load at your planets with people to spare)");
+            if (Planets.BombStatus(w, f) is string bombing) lines.Add(bombing);
+            if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int oid && w.FindBody(oid) is Body ob && ob.Owner is Side owner && owner != Side.Player && ob.PopK > 0)
+                lines.Add(Planets.Blockader(w, ob) == Side.Player
+                    ? $"Blockading {ob.Name}: happiness {ob.Happiness:0}, it gives up below {Planets.SurrenderLine(w, Side.Player):0}" + (ob.Grudge == Side.Player ? " (it never will: you bombed its people)" : "")
+                    : $"{ob.Name} has {ob.PopK:0.#}k people: hold orbit with armed ships to blockade it");
             lines.Add(SignatureLine(w, f));
         }
         else if (Sensors.Find(w, Side.Player, f.Id, seat: true) is Sighting sighting || _screen.RevealAll)
