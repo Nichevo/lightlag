@@ -44,6 +44,8 @@ public static class Batch
             ? new LightSetup(true, double.Parse(lag, System.Globalization.CultureInfo.InvariantCulture)) : null;
         // --autonomy strict|sensible|free: what fleets decide for themselves when cut off (default sensible).
         _autonomy = opts.Get("autonomy") is string a ? Enum.Parse<AutonomyLevel>(a, ignoreCase: true) : null;
+        // --random-starts, --spread (start with some people everywhere), --no-happiness, --no-supply-lines: the optional systems.
+        _rules = (opts.Has("random-starts"), opts.Has("spread"), opts.Has("no-happiness"), opts.Has("no-supply-lines"));
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -95,7 +97,15 @@ public static class Batch
     private static LightSetup? _light;
 
     private static GameOptions? OptionsFor(string pilot) =>
-        _light == null && _autonomy == null ? BaseOptions(pilot) : (BaseOptions(pilot) ?? new GameOptions()) with { Light = _light, Autonomy = _autonomy };
+        _light == null && _autonomy == null && _rules == default ? BaseOptions(pilot)
+            : (BaseOptions(pilot) ?? new GameOptions()) with
+            {
+                Light = _light, Autonomy = _autonomy,
+                RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
+                Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null,
+            };
+
+    private static (bool Random, bool Spread, bool NoHappiness, bool NoSupply) _rules;
 
     private static AutonomyLevel? _autonomy;
 
@@ -232,7 +242,7 @@ public static class Batch
         md.AppendLine();
         md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "
                       + $"{ai.Average(r => r.Player!.ShipsLost + r.Rival!.ShipsLost):0.0} ships lost, "
-                      + $"{ai.Average(r => r.Player!.Planets + r.Rival!.Planets):0.0} of 12 planets held at the end. "
+                      + $"{ai.Average(r => r.Player!.Planets + r.Rival!.Planets):0.0} planets held by the two sides at the end. "
                       + "Day-by-day numbers for each game are in the `stats` folder (CSV).");
     }
 }

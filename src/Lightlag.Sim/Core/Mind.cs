@@ -253,6 +253,8 @@ public static class Mind
                 }
             }
             SupplyRuns();
+            Settle();
+            Siege();
             Spend();
             FireControlAll();
         }
@@ -328,6 +330,9 @@ public static class Mind
         /// <summary>The enemy holds most planets and is counting down to a win: time to take risks.</summary>
         private bool Desperate() => Economy.Of(_w, _enemy).MajoritySinceHour != null;
 
+        /// <summary>Ahead on control by a clear margin: time to take the enemy's planets, not just empty ones.</summary>
+        private bool Leading() => Planets.Control(_w, _side).Share >= 0.6;
+
         /// <summary>The attack ratio it uses now: lower when desperate.</summary>
         private double Want => Desperate() ? Math.Min(_m.Ratio, 1.0) : _m.Ratio;
 
@@ -364,8 +369,8 @@ public static class Mind
 
         private IEnumerable<Fleet> Mine() => _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && !SupplyOnly(f));
 
-        /// <summary>A fleet of only tankers and freighters: it runs supplies and is left out of the fighting.</summary>
-        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip);
+        /// <summary>A fleet of only tankers, freighters and colony ships: it runs supplies or people and is left out of the fighting.</summary>
+        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && _w.ShipsOf(f).All(s => SupplyLines.IsSupplyShip(s) || Planets.IsColonyShip(s));
 
         /// <summary>
         /// Tankers launched into the home fleet split off and run supplies (Auto) to the largest fleet out on a
@@ -383,7 +388,7 @@ public static class Mind
             var served = Mine().Where(f => _m.JobOf(f.Id) is { Kind: not JobKind.Refit } && !AtHome(f))
                 .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
                 ?? Mine().Where(AtHome).OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault();
-            foreach (var run in _w.Fleets.Where(f => f.Side == _side && SupplyOnly(f)).ToList())
+            foreach (var run in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip)).ToList())
             {
                 var current = run.SupplyRunFor is int id ? _w.FindFleet(id) : null;
                 if (current is { ShipIds.Count: > 0 } && current.Side == _side && !SupplyOnly(current)
@@ -729,7 +734,8 @@ public static class Mind
             if (danger * Math.Max(Want, A.DangerRatio * 1.05) > free) return 0;
             var days = TravelDays(from, b, ClaimSpeed);
             if (double.IsInfinity(days)) return 0;
-            var held = b.Owner == _enemy ? _p.TakeHeldWeight * (Desperate() ? 3 : 0.7) : 1;
+            // Enemy planets are worth more once the game is close (it is near winning, or we are ahead and can press on).
+            var held = b.Owner == _enemy ? _p.TakeHeldWeight * (Desperate() || Leading() ? 3 : 0.7) * (b.PopK > 0 ? 1.5 : 1) : 1;
             return b.Industry * _p.ClaimWeight * held / (1 + days / 10) * _rng.Range(0.85, 1.15);
         }
 
@@ -822,6 +828,138 @@ public static class Mind
             }
             if (!Easy) Stations(orders);
             if (!Easy) Teams(orders);
+            Build(orders);
+        }
+
+        // ---- Planets and people -----------------------------------------------------------------
+
+        /// <summary>Industry left after the next ship waiting to start.</summary>
+        private double Spare(List<WorkOrder> orders) =>
+            Economy.Of(_w, _side).Industry - (orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0);
+
+        /// <summary>
+        /// Planet buildings: a farm when food runs short, otherwise a mine where there are people to staff it,
+        /// with Industry to spare after the next ship. Planet guns on the home once it has a few mines.
+        /// </summary>
+        private void Build(List<WorkOrder> orders)
+        {
+            var spare = Spare(orders);
+            var mine = _w.Bodies.Where(b => b.Owner == _side && b.PopK > 0 && b.Building == null && b.Buildings.Count < Planets.Plots(b)).ToList();
+            if (mine.Count == 0) return;
+            var linked = _w.Bodies.Where(b => b.Owner == _side && !Economy.Blockaded(_w, b)).ToList();
+            var made = linked.Sum(Planets.FoodMadePerDay);
+            var need = linked.Sum(Planets.FoodNeedPerDay);
+            string? kind = null;
+            Body? where = null;
+            if (made < need * 1.15 + 0.1)
+            {
+                kind = Planets.Farm;
+                where = mine.Where(b => Planets.FarmFactor(b) > 0).OrderByDescending(Planets.FarmFactor).ThenBy(b => b.Id).FirstOrDefault();
+            }
+            else if (spare >= (Planets.BuildingKind(Planets.Mine)?.Cost ?? 1e9) + (Easy ? 120 : 60))
+            {
+                kind = Planets.Mine;
+                where = mine.Where(b => b.PopK >= Planets.StaffNeeded(b) + Planets.BuildingKind(Planets.Mine)!.StaffK)
+                    .OrderByDescending(b => b.Home).ThenByDescending(b => b.PopK).ThenBy(b => b.Id).FirstOrDefault();
+                if (where == null && _home != null && _home.Building == null && Planets.Count(_home, Planets.Mine) >= 3 && Planets.Count(_home, Planets.Guns) == 0
+                    && _home.Buildings.Count < Planets.Plots(_home))
+                    (kind, where) = (Planets.Guns, _home);
+            }
+            if (kind == null || where == null || Planets.CanBuild(_w, _side, where.Id, kind) != null) return;
+            Do(new BuildOnPlanetCommand(_side, where.Id, kind));
+            Note($"Builds a {Planets.BuildingKind(kind)!.Name.ToLowerInvariant()} at {where.Name}");
+        }
+
+        /// <summary>
+        /// Fleets holding orbit over an enemy planet with people knock out its farms (that starves it into
+        /// surrender sooner, without the grudge that bombing its people would leave).
+        /// </summary>
+        private void Siege()
+        {
+            foreach (var f in Mine().Where(f => _m.JobOf(f.Id) is { Kind: JobKind.Claim or JobKind.Strike }).ToList())
+            {
+                if (f.OrbitBodyId is not int id || _w.FindBody(id) is not Body b || b.Owner != _enemy || !Economy.InOrbitAt(f, b)) continue;
+                var want = b.PopK > 0 && Planets.Count(b, Planets.Farm) > 0 ? BombTarget.Farms
+                    : Planets.Count(b, Planets.Guns) > 0 ? BombTarget.Guns : BombTarget.None;
+                if (f.Bombing != want && !OrderOnItsWay(f)) Do(new SetBombingCommand(f.Id, want));
+            }
+        }
+
+        /// <summary>Empty worlds worth settling, safe from known enemies and not already being settled.</summary>
+        private List<Body> SettleTargets() => _w.Bodies
+            .Where(b => b.Owner == null && b.PopK <= 0 && Planets.Settleable(b) && b.Industry > 0
+                        && !_w.Fleets.Any(f => f.Side == _side && f.PeopleRun?.ToBodyId == b.Id)
+                        && EnemyNear(b.Position, 0.1 * _au, 10 * 24) <= 0)
+            .ToList();
+
+        /// <summary>
+        /// Colony ships: one or two are built while there are empty worlds to settle; idle ones carry people
+        /// from home to the nearest of them, or top up a thin colony of its own.
+        /// </summary>
+        private void Settle()
+        {
+            if (_home == null) return;
+            var targets = SettleTargets();
+            var thin = _w.Bodies.Where(b => b.Owner == _side && !b.Home && Planets.Settleable(b) && b.PopK < Planets.Cap(b) * 0.5
+                                            && !_w.Fleets.Any(f => f.Side == _side && f.PeopleRun?.ToBodyId == b.Id)).ToList();
+            var colonyFleets = _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(Planets.IsColonyShip)).ToList();
+            foreach (var f in colonyFleets.Where(f => f.PeopleRun == null && f.Flight == null && !OrderOnItsWay(f)))
+            {
+                var to = targets.OrderBy(b => Vec2.Distance(b.Position, _home.Position) / (1 + b.Industry)).ThenBy(b => b.Id).FirstOrDefault()
+                         ?? thin.OrderBy(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault();
+                if (to == null || Planets.CanSendPeople(_w, _side, f, _home.Id, to.Id) != null) continue;
+                targets.Remove(to);
+                thin.Remove(to);
+                Do(new SendPeopleCommand(_side, f.Id, _home.Id, to.Id));
+                Note($"{f.Name} carries settlers to {to.Name}");
+            }
+            // Colony ships launched into the home fleet split off to do their own work.
+            foreach (var f in Mine().Where(f => AtHome(f) && !Busy(f)).ToList())
+            {
+                var colony = _w.ShipsOf(f).Where(Planets.IsColonyShip).ToList();
+                if (colony.Count > 0 && colony.Count < f.ShipIds.Count) SplitOff(f, colony);
+            }
+            var orders = _w.Orders.Where(o => o.Side == _side && o.Kind == OrderKind.Ship).ToList();
+            var ships = _w.Ships.Count(s => s.Side == _side && Planets.IsColonyShip(s)) + orders.Count(o => o.Key == "colony-ship");
+            var want = targets.Count + thin.Count == 0 ? 0 : Easy ? 1 : Math.Min(2, targets.Count + thin.Count);
+            if (ships < want && orders.Count < 2 && Economy.CanQueue(_w, _side, OrderKind.Ship, "colony-ship") == null)
+            {
+                Do(new QueueOrderCommand(_side, OrderKind.Ship, "colony-ship"));
+                Note("Builds a colony ship");
+            }
+            Troops(orders);
+        }
+
+        /// <summary>
+        /// A claim group blockading an enemy planet that won't give up soon (it is content, or bears a grudge)
+        /// gets a troop ship sent out to it; once enough troops are aboard they land.
+        /// </summary>
+        private void Troops(List<WorkOrder> orders)
+        {
+            if (Easy) return;
+            foreach (var f in Mine().Where(f => !Busy(f) && _m.JobOf(f.Id) is { Kind: JobKind.Claim }).ToList())
+            {
+                if (f.OrbitBodyId is not int id || _w.FindBody(id) is not Body b || b.Owner != _enemy || b.PopK <= 0 || !Economy.InOrbitAt(f, b)) continue;
+                var stubborn = b.Grudge == _side || b.Happiness > Planets.SurrenderLine(_w, _side) + 15 && !b.Hungry;
+                if (!stubborn) continue;
+                var troops = Planets.TroopsAboard(_w, f);
+                if (troops >= Planets.GarrisonOf(b) * 1.5 && Planets.CanLand(_w, f, b) == null)
+                {
+                    Do(new LandTroopsCommand(f.Id, b.Id));
+                    Note($"{f.Name} lands troops on {b.Name}");
+                    continue;
+                }
+                if (f.OrbitHeight != OrbitHeight.Low && troops > 0) Do(new SetOrbitHeightCommand(f.Id, OrbitHeight.Low));
+                var coming = orders.Count(o => o.Key == "troop-ship" && o.JoinFleetId == f.Id)
+                             + _w.Fleets.Count(o => o.Side == _side && o.JoinFleetId == f.Id);
+                var aboardSoon = troops + coming * GameData.ShipClass("troop-ship").Cargo;
+                if (aboardSoon < Planets.GarrisonOf(b) * 1.5 && orders.Count < 2 && Economy.CanQueue(_w, _side, OrderKind.Ship, "troop-ship") == null)
+                {
+                    Do(new QueueOrderCommand(_side, OrderKind.Ship, "troop-ship", f.Id));
+                    Note($"Builds a troop ship for {f.Name} at {b.Name}");
+                    return;
+                }
+            }
         }
 
         /// <summary>

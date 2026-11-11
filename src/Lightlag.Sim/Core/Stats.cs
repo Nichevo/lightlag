@@ -32,7 +32,7 @@ public sealed class SideTotals
 public sealed record DayRecord(
     int Day, Side Side, double Industry, double Income, int Planets, int Ships, int Frigates, int Destroyers, int Fleets,
     double Power, int Researched, int ShipsBuilt, int ShipsLost, int ShipsKilled, int Battles, double IndustryEarned,
-    double IndustrySpent, int PlanetsClaimed, int PlanetsLost, double ShipyardArmour);
+    double IndustrySpent, int PlanetsClaimed, int PlanetsLost, double ShipyardArmour, double People = 0, double Control = 0);
 
 /// <summary>
 /// Game statistics for reviewing playtests and headless runs: a record per side per day, plus the running
@@ -78,13 +78,15 @@ public static class Stats
                 Economy.Of(w, side).Researched.Count,
                 t.ShipsBuilt, t.ShipsLost, t.ShipsKilled, t.Battles,
                 Math.Round(t.IndustryEarned, 1), Math.Round(t.IndustrySpent, 1), t.PlanetsClaimed, t.PlanetsLost,
-                Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0, 1)));
+                Math.Round(Economy.ShipyardOf(w, side)?.ShipyardArmour ?? 0, 1),
+                Math.Round(Planets.PopulationOf(w, side), 1),
+                Math.Round(Planets.Control(w, side).Share, 3)));
         }
     }
 
     public const string CsvHeader =
         "day,side,industry,income,planets,ships,frigates,destroyers,fleets,power,researched,ships_built,ships_lost,ships_killed,"
-        + "battles,industry_earned,industry_spent,planets_claimed,planets_lost,shipyard_armour";
+        + "battles,industry_earned,industry_spent,planets_claimed,planets_lost,shipyard_armour,people,control";
 
     public static string ToCsv(World w)
     {
@@ -98,7 +100,7 @@ public static class Stats
         string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
         return string.Join(",", r.Day, r.Side, N(r.Industry), N(r.Income), r.Planets, r.Ships, r.Frigates, r.Destroyers, r.Fleets,
             N(r.Power), r.Researched, r.ShipsBuilt, r.ShipsLost, r.ShipsKilled, r.Battles, N(r.IndustryEarned), N(r.IndustrySpent),
-            r.PlanetsClaimed, r.PlanetsLost, N(r.ShipyardArmour));
+            r.PlanetsClaimed, r.PlanetsLost, N(r.ShipyardArmour), N(r.People), N(r.Control));
     }
 
     /// <summary>A few lines on how the game went, for the end screen and reports.</summary>
@@ -110,7 +112,7 @@ public static class Stats
             var t = Of(w, side);
             var who = side == Side.Player ? "You" : "Rival";
             sb.AppendLine($"{who}: built {t.ShipsBuilt} ships, lost {t.ShipsLost}, destroyed {t.ShipsKilled}; "
-                          + $"{t.Battles} battles; claimed {t.PlanetsClaimed} planets, lost {t.PlanetsLost}; "
+                          + $"{t.Battles} battles; took {t.PlanetsClaimed} planets, lost {t.PlanetsLost}; "
                           + $"earned {t.IndustryEarned:0} Industry, spent {t.IndustrySpent:0}.");
         }
         return sb.ToString().TrimEnd();

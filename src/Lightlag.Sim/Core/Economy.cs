@@ -323,6 +323,13 @@ public static class Economy
         Of(w, side).Totals.ShipsBuilt++;
         // The crew comes from the shipyard planet's people.
         if (yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost);
+        // Troop ships leave with their soldiers aboard, raised from the same people.
+        if (Planets.IsTroopShip(ship))
+        {
+            var troops = Math.Min(Planets.TroopHold(ship), Math.Max(0, yard.PopK - Planets.D.KeepAtSourceK));
+            ship.CargoTroops = troops;
+            yard.PopK -= troops;
+        }
         var target = joinFleetId is int j && w.FindFleet(j) is Fleet t && t.Side == side ? t : null;
         Fleet? waiting;
         if (target != null)
