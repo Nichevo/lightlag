@@ -3,7 +3,7 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>The areas of running an empire that can be handed to automation (see Stewards).</summary>
-public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle }
+public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle }
 
 /// <summary>Auto: does it. Advise: suggests it in Needs you. Manual: leaves it alone.</summary>
 public enum AutoLevel { Auto, Advise, Manual }
@@ -231,6 +231,10 @@ public static class Stewards
         AutoArea.Supply => "Fleet supply",
         AutoArea.Refits => "Refits",
         AutoArea.Battle => "Battle rules",
+        AutoArea.Crews => "Crews",
+        AutoArea.Boarding => "Boarding calls",
+        AutoArea.Ground => "Ground war calls",
+        AutoArea.AfterBattle => "After battle",
         _ => area.ToString(),
     };
 
@@ -245,6 +249,10 @@ public static class Stewards
         AutoArea.Supply => "Tankers sent to fleets low on fuel, food or ammunition",
         AutoArea.Refits => "Idle fleets sent to refit to the current designs when a bay is free",
         AutoArea.Battle => "Pull-back rules chosen by each fleet's job, place and odds",
+        AutoArea.Crews => "Veteran crews spread over new ships in port; the best crew on the flagship",
+        AutoArea.Boarding => "The calls during a boarding (Advise or Manual: ask me, Auto decides if I don't answer in time)",
+        AutoArea.Ground => "The plan and the calls during an invasion (Advise or Manual: ask me)",
+        AutoArea.AfterBattle => "Rescue, capture, salvage, then mend or go home (Advise or Manual: I pick how to get home)",
         _ => "",
     };
 
@@ -310,6 +318,8 @@ public static class Stewards
             Shipyard();
             Refits.Steward(_sim, _side, Offer);
             BattleRules.Steward(_sim, _side, Offer);
+            Crews.Steward(_sim, _side, Offer);
+            AfterBattle.Needs(_w, _side, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.AfterBattle));
             _state.Needs = _needs.Where(n => !_state.Dismissed.ContainsKey(n.Key))
                 .OrderBy(n => n.Level).ThenBy(n => n.Hour).ThenBy(n => n.Key, StringComparer.Ordinal).ToList();
         }

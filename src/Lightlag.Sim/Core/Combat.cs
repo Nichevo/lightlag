@@ -126,7 +126,7 @@ public static class Combat
             if (a.Side != Side.Player) continue;
             foreach (var b in w.Fleets)
             {
-                if (b.Side == a.Side) continue;
+                if (b.Side == a.Side || Boarders.Grappled(w, a) || Boarders.Grappled(w, b)) continue;
                 var (a0, a1, ma) = ends[a.Id];
                 var (b0, b1, mb) = ends[b.Id];
                 // Closest approach if both moved in straight lines over the hour (orbits curve, hence the margin).
@@ -511,7 +511,7 @@ public static class Combat
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - railRange) / Math.Max(1e-9, Heat.D.LongRangeMm - railRange)) * (1 - evasion)
                 : rail.Accuracy * (1 - d / railRange) * (1 - evasion) / (1 + relSpeed / 1000);
-            chance *= FireControl.AimFactor(fleet);
+            chance *= FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
             chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryAccuracy : 1);
             if (Dodging(w, targetFleet))
@@ -724,10 +724,10 @@ public static class Combat
         w.Light.On && C.FlagBridge != null && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id ? C.FlagBridge : null;
 
     /// <summary>A ship is gone: off its fleet, and if it was the flagship, command passes on (or the side loses).</summary>
-    public static void Destroy(Simulation sim, Ship ship)
+    public static void Destroy(Simulation sim, Ship ship, bool wreck = true)
     {
         Stewards.OnLost(sim.World, ship);
-        Wounds.LeaveWreck(sim.World, ship);
+        if (wreck) Wounds.LeaveWreck(sim.World, ship);
         if (sim.World.FleetOf(ship) is Fleet hauler && hauler.ShipIds.Count == 1 && sim.World.Shipments.Find(s => s.FleetId == hauler.Id) is Shipment load)
             Lanes.OnCargoLost(sim, hauler, load);
         RemoveShip(sim.World, ship);
@@ -761,7 +761,7 @@ public static class Combat
         // Contact needs someone to see someone: a fleet that slips in cold is not in the battle until spotted.
         foreach (var a in w.Fleets.Where(f => f.Side == Side.Player))
             foreach (var b in w.Fleets.Where(f => f.Side != Side.Player))
-                if (Vec2.Distance(a.Position, b.Position) <= C.ContactRangeMm
+                if (Vec2.Distance(a.Position, b.Position) <= C.ContactRangeMm && !Boarders.Grappled(w, a) && !Boarders.Grappled(w, b)
                     && (Sensors.Sees(w, a.Side, b) || Sensors.Sees(w, b.Side, a)))
                     inContact.Add((a, b));
 

@@ -19,6 +19,7 @@ public static class Works
         Skimmers(w);
         Mend(w);
         Wounds.UpdateWrecks(sim);
+        War.Update(sim);
         Refits.Update(sim);
         BattleRules.Hourly(sim);
     }
@@ -110,7 +111,7 @@ public static class Works
             {
                 var max = Tech.MaxArmour(w, s);
                 if (rate > 0 && s.Armour > 0 && s.Armour < max && !s.Crippled) s.Armour = Math.Min(max, s.Armour + max * rate / 24);
-                if (bars > 0) Wounds.FieldMend(w, s, bars);
+                if (bars > 0) Wounds.FieldMend(w, s, bars * Crews.MendFactor(w, s));
             }
         }
     }

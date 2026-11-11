@@ -152,7 +152,7 @@ public static class BattleRules
 
     /// <summary>A ship that should leave on its own: crippled, engines out, or under the hull line.</summary>
     public static bool ShipShouldLeave(World w, Ship s, PullRule rule) =>
-        s.Crippled || s.Out(Module.Engines) || Wounds.Share(w, s, Wounds.Bar.Hull) < rule.ShipHullBelow;
+        s.Crippled || s.Out(Module.Engines) || Wounds.Share(w, s, Wounds.Bar.Hull) < Crews.HullLine(w, s, rule.ShipHullBelow);
 
     private static void ShipRule(Simulation sim, Fleet f, PullRule rule)
     {
@@ -237,7 +237,12 @@ public static class BattleRules
         return BattleEnding.BrokeOff;
     }
 
-    public static void OnBattleOver(Simulation sim, Battle b) { }
+    /// <summary>A battle is over: crews gain experience, and the fleets that held the field clear up (see AfterBattle).</summary>
+    public static void OnBattleOver(Simulation sim, Battle b)
+    {
+        Crews.OnBattleOver(sim, b);
+        AfterBattle.OnBattleOver(sim, b);
+    }
 
     /// <summary>
     /// Hourly (full games): ships that pulled out rejoin their fleet once mended at a yard; crippled ships
@@ -246,7 +251,7 @@ public static class BattleRules
     public static void Hourly(Simulation sim)
     {
         var w = sim.World;
-        foreach (var g in w.Fleets.Where(g => g.ShipIds.Count > 0).OrderBy(g => g.Id).ToList())
+        foreach (var g in w.Fleets.Where(g => g.ShipIds.Count > 0 && !AfterBattle.Busy(w, g) && !Boarders.Grappled(w, g)).OrderBy(g => g.Id).ToList())
         {
             if (g.RejoinFleetId is int id && g.Flight == null && !g.Retreating && !Heat.InBattle(w, g)
                 && w.ShipsOf(g).All(s => Wounds.Worst(w, s) >= 0.95 && !s.Crippled))

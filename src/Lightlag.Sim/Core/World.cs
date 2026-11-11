@@ -28,6 +28,10 @@ public sealed class World
     public List<Choice> Choices { get; set; } = new();
     public List<Battle> Battles { get; set; } = new();
 
+    /// <summary>Boarding actions under way (see Boarding) and after-battle plans (see AfterBattle).</summary>
+    public List<Boarding> Boardings { get; set; } = new();
+    public List<Aftermath> Aftermaths { get; set; } = new();
+
     /// <summary>What each side knows about the other's fleets (see Sensors).</summary>
     public List<Sighting> Sightings { get; set; } = new();
 
@@ -239,6 +243,13 @@ public sealed class Body
     public Side? LandingSide { get; set; }
     public double LandingTroops { get; set; }
     public double Garrison { get; set; }
+
+    /// <summary>The invasion drawn on the board: who holds which tiles, the plan, the calls (see Ground). Null without a landing.</summary>
+    public GroundFront? Front { get; set; }
+
+    /// <summary>After an invasion: partisans sabotage buildings until this hour (unless troops stay as a garrison).</summary>
+    public double PartisansUntilHour { get; set; }
+    public Side? PartisansAgainst { get; set; }
 }
 
 /// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>
@@ -343,6 +354,9 @@ public sealed class Ship
     /// <summary>The module in each slot of its class (see Fitting). Empty: the standard fit.</summary>
     public List<string> Fit { get; set; } = new();
 
+    /// <summary>Crew experience (see Crews): Green under 1, Trained, Seasoned from 3, Veteran from 6, Elite from 10.</summary>
+    public double Xp { get; set; } = 1;
+
     /// <summary>Working numbers for the fit, worked out once per fit (not saved).</summary>
     [System.Text.Json.Serialization.JsonIgnore] public ShipClass? SpecCache { get; set; }
     [System.Text.Json.Serialization.JsonIgnore] public string SpecKey { get; set; } = "";
@@ -365,4 +379,9 @@ public sealed class Wreck
     public Vec2 Offset { get; set; }
     public double Hour { get; set; }
     public Dictionary<string, double> Salvage { get; set; } = new();
+
+    /// <summary>Crew who got off in pods (k), their experience, and the hour their air runs out (see AfterBattle).</summary>
+    public double CrewK { get; set; }
+    public double CrewXp { get; set; }
+    public double PodsUntilHour { get; set; }
 }

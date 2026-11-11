@@ -22,7 +22,7 @@ public sealed record ResearchData(string Id, string Name, string Effect, double 
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
-    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null);
+    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days, string? Needs = null,
@@ -117,6 +117,12 @@ public sealed class SideState
 
     /// <summary>Pull-back presets the player made Auto's default for a situation (see BattleRules.AutoPick).</summary>
     public Dictionary<string, PullPreset> PullDefaults { get; set; } = new();
+
+    /// <summary>Crews rescued from pods, waiting at home to man new ships (their experience; see Crews).</summary>
+    public List<double> ReserveCrews { get; set; } = new();
+
+    /// <summary>What this side has learned of the other from prisoners, captures and wrecks (see Spoils).</summary>
+    public SpoilsState Spoils { get; set; } = new();
 }
 
 public enum OrderKind { Ship, Research }
@@ -496,6 +502,7 @@ public static class Economy
         var w = sim.World;
         var yard = from ?? ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
+        Crews.Man(w, ship, yard);
         Of(w, side).Totals.ShipsBuilt++;
         Choices.Note(w, side, "ship", classId, yard.Name, string.Join(" ", ship.Fit));
         // The crew comes from the shipyard planet's people.

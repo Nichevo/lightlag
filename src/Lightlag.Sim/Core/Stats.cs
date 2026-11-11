@@ -48,6 +48,25 @@ public sealed class SideTotals
     public double Salvaged { get; set; }
     public int AmbushCatches { get; set; }
     public double CargoCaptured { get; set; }
+
+    /// <summary>Boarding, rescue and captures (see Boarding and AfterBattle).</summary>
+    public int Boardings { get; set; }
+    public int ShipsCaptured { get; set; }
+    public int BoardingsFailed { get; set; }
+    public double PrisonersTaken { get; set; }
+    public double CrewsRescued { get; set; }
+    public int Scuttled { get; set; }
+
+    /// <summary>Blockade against invasion (see Ground): planets taken each way, days it took, troops lost, buildings lost and happiness after.</summary>
+    public int Invasions { get; set; }
+    public int InvasionWins { get; set; }
+    public double InvasionDays { get; set; }
+    public double TroopsLostK { get; set; }
+    public int InvasionBuildingsLost { get; set; }
+    public double InvasionHappiness { get; set; }
+    public int BlockadeWins { get; set; }
+    public double BlockadeDays { get; set; }
+    public double BlockadeHappiness { get; set; }
 }
 
 /// <summary>One side at the end of one game day.</summary>

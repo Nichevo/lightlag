@@ -245,7 +245,7 @@ public class PlanetTests
         sim.Issue(new LandTroopsCommand(troops.Id, vela.Id));
         sim.StepMany(2);
         Assert.Equal(Side.Player, vela.LandingSide);
-        Days(sim, 3);
+        Days(sim, 8);
         Assert.Equal(Side.Player, vela.Owner);
         Assert.Null(vela.LandingSide);
     }

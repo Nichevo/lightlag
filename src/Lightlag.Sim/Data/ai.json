@@ -24,7 +24,7 @@
   "homeShareUnseen": 0.85,
   "_automationComment": "The player's automation areas (see Stewards): starting level of each (auto, advise, manual) and how the defaults learn from the player's changes and from how auto actions turn out.",
   "automation": {
-    "defaults": { "building": "advise", "workers": "auto", "transport": "auto", "settling": "advise", "research": "advise", "shipyard": "manual", "supply": "auto", "refits": "auto", "battle": "auto" },
+    "defaults": { "building": "advise", "workers": "auto", "transport": "auto", "settling": "advise", "research": "advise", "shipyard": "manual", "supply": "auto", "refits": "auto", "battle": "auto", "crews": "auto", "boarding": "auto", "ground": "auto", "afterBattle": "auto" },
     "habitChanges": 3, "acceptsToAuto": 5, "dismissesToManual": 5, "judgeDays": 5, "badShare": 0.5, "minJudged": 4
   },
   "personalities": {
