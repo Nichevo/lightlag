@@ -43,7 +43,27 @@ public static class Ui
         box.SetBorderWidthAll(1);
         box.SetCornerRadiusAll(6);
         box.SetContentMarginAll(padding);
+        if (Graphics.Fancy)
+        {
+            // Medium and High: a faint glass edge (a lighter rim and a soft shadow) and a short fade when it opens.
+            box.BgColor = new Color(PanelBg, 0.9f);
+            box.BorderColor = new Color(Player.Lightened(0.35f), 0.45f);
+            box.ShadowColor = new Color(0, 0, 0, 0.35f);
+            box.ShadowSize = 8;
+            FadeIn(p);
+        }
         p.AddThemeStyleboxOverride("panel", box);
+    }
+
+    /// <summary>Fade a control in over a moment each time it is shown.</summary>
+    public static void FadeIn(CanvasItem c)
+    {
+        c.VisibilityChanged += () =>
+        {
+            if (!c.Visible || !c.IsInsideTree()) return;
+            c.Modulate = new Color(c.Modulate, 0);
+            c.CreateTween().TweenProperty(c, "modulate:a", 1f, 0.14);
+        };
     }
 
     /// <summary>A compact button for HUD bars and panels. Keyboard focus is off so keys keep driving the map.</summary>

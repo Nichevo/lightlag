@@ -5,7 +5,7 @@ using Lightlag.Sim.Save;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The game menu (Esc): resume, save, load, how to play, and back to the title screen. The game is
+/// The game menu (Esc): resume, save, load, how to play, graphics, and back to the title screen. The game is
 /// paused while it is open.
 /// </summary>
 public partial class GameMenu : Control
@@ -32,6 +32,7 @@ public partial class GameMenu : Control
         col.AddChild(Ui.Button("Load game", () => Show(_saves)));
         col.AddChild(Ui.Button("How to play", () => Show(_help)));
         col.AddChild(Ui.Button("Quit to title screen", () => _screen.QuitToTitle()));
+        col.AddChild(Graphics.Picker(this));
         col.AddChild(Ui.Label("Quitting saves an autosave first. F5 quick save, F9 quick load.", 13, Ui.Dim));
         _main = Ui.Centered(Ui.Panel(col, 24));
         AddChild(_main);

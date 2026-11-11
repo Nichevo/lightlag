@@ -70,6 +70,8 @@ public partial class TitleScreen : Control
     {
         var main = Main.Instance;
         SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(new TitleBackdrop { Name = "Backdrop" });
+        Graphics.Changed += Rebuild;
 
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 14);
@@ -86,6 +88,7 @@ public partial class TitleScreen : Control
         col.AddChild(Ui.Button("New game: Easy rival", () => main.StartNewGame(difficulty: Lightlag.Sim.Core.Difficulty.Easy), 16));
         col.AddChild(LightPicker(main));
         col.AddChild(SystemsPicker(main));
+        col.AddChild(Graphics.Picker(main));
         col.AddChild(Ui.Button("Load game", () => ShowPage(_saves), 16));
         col.AddChild(Ui.Button("How to play", () => ShowPage(_help), 16));
         col.AddChild(Ui.Button("Battle sandbox", () => main.ShowSandboxSetup()));
@@ -108,6 +111,11 @@ public partial class TitleScreen : Control
         version.GrowVertical = GrowDirection.Begin;
         AddChild(version);
     }
+
+    public override void _ExitTree() => Graphics.Changed -= Rebuild;
+
+    /// <summary>A new graphics setting: rebuild the title so the backdrop follows it.</summary>
+    private void Rebuild() => Callable.From(() => { if (IsInsideTree()) Main.Instance.ShowTitle(); }).CallDeferred();
 
     /// <summary>One line about the last overnight run, from nightly/latest-summary.json.</summary>
     private static string NightlyLine(Main main)
