@@ -202,6 +202,7 @@ public partial class GameScreen : Node2D
         _main = Main.Instance;
         _camera.ScreenSize = GetViewportRect().Size;
 
+        AddChild(Backdrop.For(Sim.World.Seed, _camera));
         _map = new MapView { Sim = Sim, Camera = _camera };
         AddChild(_map);
 

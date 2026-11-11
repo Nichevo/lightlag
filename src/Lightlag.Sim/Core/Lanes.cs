@@ -27,7 +27,13 @@ public sealed class Lane
     public double FirstHour { get; set; }
     public double LastHour { get; set; }
     public double Speed { get; set; }
+
+    /// <summary>The last few sightings that went into it (newest last), for the map's hover.</summary>
+    public List<LaneSighting> Recent { get; set; } = new();
 }
+
+/// <summary>One cargo ship seen on a lane: when, and where it was then.</summary>
+public sealed record LaneSighting(double Hour, Vec2 Position);
 
 public enum ZoneKind { Raid, Guard, Picket }
 
@@ -145,6 +151,8 @@ public static class Lanes
             }
             lane.Seen++;
             lane.LastHour = Math.Max(lane.LastHour, o.Hour);
+            lane.Recent.Add(new LaneSighting(o.Hour, o.Position));
+            if (lane.Recent.Count > 5) lane.Recent.RemoveAt(0);
             lane.Speed = o.Velocity.Length;
         }
         w.Lanes.RemoveAll(l => w.Hour - l.LastHour > ForgetDays * 24 || w.FindBody(l.FromBodyId) == null || w.FindBody(l.ToBodyId) == null);

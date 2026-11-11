@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48"><defs>
+<linearGradient id="bt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d4dbe6"/><stop offset="1" stop-color="#8a96a8"/></linearGradient>
+<linearGradient id="bs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a6474"/><stop offset="1" stop-color="#2a313d"/></linearGradient>
+<linearGradient id="bd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa6b8"/><stop offset="1" stop-color="#4a5462"/></linearGradient>
+<radialGradient id="dome" cx=".35" cy=".3"><stop offset="0" stop-color="#eaf6ff" stop-opacity=".95"/><stop offset=".5" stop-color="#8fb6d6" stop-opacity=".75"/><stop offset="1" stop-color="#2f4a63" stop-opacity=".9"/></radialGradient>
+<radialGradient id="gdome" cx=".35" cy=".3"><stop offset="0" stop-color="#eaffea" stop-opacity=".9"/><stop offset=".5" stop-color="#7fc98a" stop-opacity=".7"/><stop offset="1" stop-color="#25502d" stop-opacity=".9"/></radialGradient>
+<radialGradient id="tank" cx=".35" cy=".3"><stop offset="0" stop-color="#e6ecf5"/><stop offset=".6" stop-color="#8a96a8"/><stop offset="1" stop-color="#3a4452"/></radialGradient>
+<radialGradient id="glowY"><stop offset="0" stop-color="#ffe9a0"/><stop offset="1" stop-color="#ffb84d" stop-opacity="0"/></radialGradient>
+<radialGradient id="glowB"><stop offset="0" stop-color="#bff0ff"/><stop offset="1" stop-color="#3fd0ff" stop-opacity="0"/></radialGradient>
+<radialGradient id="glowO"><stop offset="0" stop-color="#ffd0a0"/><stop offset="1" stop-color="#ff7a3c" stop-opacity="0"/></radialGradient>
+<linearGradient id="solar" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a5a9a"/><stop offset=".5" stop-color="#1c2f5a"/><stop offset="1" stop-color="#2a4a8a"/></linearGradient>
+<linearGradient id="green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fe08a"/><stop offset="1" stop-color="#3f7a3a"/></linearGradient>
+<linearGradient id="water" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a7aa6"/><stop offset="1" stop-color="#16324a"/></linearGradient>
+<pattern id="grate" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 4 L4 0" stroke="#3a4250" stroke-width=".6"/></pattern>
+</defs><defs><filter id="gray"><feColorMatrix type="saturate" values="0.1"/></filter></defs><rect x="3" y="3" width="42" height="42" rx="3" fill="#3b4048" stroke="#22262c"/><rect x="3" y="3" width="42" height="42" rx="3" fill="url(#grate)" opacity=".5"/><circle cx="24" cy="26" r="15" fill="url(#bd)" stroke="#2a313d"/><circle cx="24" cy="26" r="8" fill="url(#bt)"/><path d="M26 20 L42 6 M22 20 L38 4" stroke="#cfd8e6" stroke-width="2.4"/><circle cx="24" cy="26" r="3.5999999999999996" fill="#ff7b6b" opacity=".18"/><circle cx="24" cy="26" r="1.2" fill="#ff7b6b"/><rect x="3" y="42" width="42" height="2.5" fill="#ff7b6b" opacity=".8"/></svg>

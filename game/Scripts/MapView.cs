@@ -27,6 +27,9 @@ public partial class MapView : Node2D
     /// <summary>Debug (F7): draw every fleet, seen or not, and enemy routes.</summary>
     public bool RevealAll;
 
+    /// <summary>Just the scenery (the title screen's backdrop): no labels, routes, bars, marks or panels.</summary>
+    public bool Quiet;
+
     /// <summary>The box being dragged out to pick fleets, in screen pixels.</summary>
     public Rect2? SelectionBox;
 
@@ -148,7 +151,10 @@ public partial class MapView : Node2D
             _planets[gone].QueueFree();
             _planets.Remove(gone);
         }
+        SyncSun(star);
+        SyncBelts();
         var spin = (float)(Math.Tau * DrawHour / (24 * 30));
+        var cloudTime = (float)(DrawHour % 100000);
         foreach (var b in w.Bodies)
         {
             if (b.Kind == BodyKind.Star) continue;
@@ -163,7 +169,8 @@ public partial class MapView : Node2D
             sprite.Visible = IsVisible(b) && Camera.OnScreen(at, r * 1.2f + 4);
             if (!sprite.Visible) continue;
             var toStar = starAt - _drawn[b.Id];
-            sprite.Set(at, r, new Vector2((float)toStar.X, (float)toStar.Y), spin + (float)(b.Id * 1.3));
+            sprite.Set(at, r, new Vector2((float)toStar.X, (float)toStar.Y), spin + (float)(b.Id * 1.3), cloudTime);
+            if (Graphics.Fancy) sprite.SetLights((float)EclipseOf(b, starAt), CityOf(b));
         }
     }
 
@@ -173,15 +180,20 @@ public partial class MapView : Node2D
         var w = Sim.World;
         var star = w.Bodies.FirstOrDefault(b => b.ParentId == null);
 
-        foreach (var belt in w.Belts) DrawBelt(belt);
+        var fancy = Graphics.Fancy;
+        BeginFx();
+        if (!fancy) foreach (var belt in w.Belts) DrawBelt(belt);
+        if (fancy) DrawWells();
 
         foreach (var b in w.Bodies)
         {
-            if (b.ParentId is int pid && IsVisible(b))
-                DrawOrbit(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
+            if (b.ParentId is not int pid || !IsVisible(b)) continue;
+            if (fancy) DrawOrbitFading(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
+            else DrawOrbit(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
         }
 
-        DrawShadows();
+        if (!Quiet) DrawShadows();
+        if (fancy && star != null) DrawComet(star);
 
         foreach (var b in w.Bodies)
         {
@@ -189,12 +201,12 @@ public partial class MapView : Node2D
             var at = Camera.ToScreen(_drawn[b.Id]);
             var r = (float)ScreenRadius(b);
             if (!Camera.OnScreen(at, r + 200)) continue;
-            if (b.Kind == BodyKind.Star) DrawStar(b, at, r); // planets and moons are PlanetSprite children
+            if (b.Kind == BodyKind.Star && !fancy) DrawStar(b, at, r); // planets and moons are PlanetSprite children; on Medium and High so is the star
         }
 
         foreach (var b in w.Bodies)
         {
-            if (!IsVisible(b) || !ShowLabel(b)) continue;
+            if (Quiet || !IsVisible(b) || !ShowLabel(b)) continue;
             var at = Camera.ToScreen(_drawn[b.Id]);
             if (!Camera.OnScreen(at, 100)) continue;
             var r = (float)ScreenRadius(b);
@@ -216,22 +228,29 @@ public partial class MapView : Node2D
             if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
         }
 
-        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player || RevealAll)) DrawRoute(f, f.Flight, false);
-        foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
-        if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
-            DrawRoute(pf, preview, true, Preview.Ok);
-        DrawLanesAndZones();
-        DrawPlannerWaypoints();
-        if (Engagement == null && SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
-        RecordTracks();
-        DrawTracks();
-        DrawEngagement();
-        DrawLastSeen();
-        if (RevealAll) DrawMindJobs();
+        if (!Quiet)
+        {
+            foreach (var f in w.Fleets.Where(f => f.Side == Side.Player || RevealAll)) DrawRoute(f, f.Flight, false);
+            foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
+            if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
+                DrawRoute(pf, preview, true, Preview.Ok);
+            DrawLanesAndZones();
+            DrawPlannerWaypoints();
+            if (Engagement == null && SelectedId is int selected && w.FindFleet(selected) is Fleet sf && Shown(sf)) DrawRanges(sf);
+            RecordTracks();
+            DrawTracks();
+            DrawEngagement();
+            DrawLastSeen();
+            if (RevealAll) DrawMindJobs();
+        }
+        DrawWrecks();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
-        DrawLag();
+        if (!Quiet) DrawLag();
+        if (fancy) DrawMissileSmoke();
         DrawMissiles();
-        DrawEffects();
+        if (fancy) DrawEffectsFancy();
+        else DrawEffects();
+        EndFx();
         if (SelectionBox is Rect2 box)
         {
             DrawRect(box, new Color(Ui.Player, 0.08f));
@@ -473,6 +492,8 @@ public partial class MapView : Node2D
             {
                 var p = Camera.ToScreen(_drawn.TryGetValue(s.Id, out var sp) ? sp : world);
                 DrawShipOrBlip(p, s, color, heading, known);
+                if (Quiet) continue;
+                if (known && !CloseUp) DrawDamageStrip(p + new Vector2(-8, -16), new[] { s });
                 if (Camera.Scale > 0.05 || f.Id == SelectedId)
                     DrawString(_font, p + new Vector2(12, -8), known ? s.Name : "unknown ship", HorizontalAlignment.Left, -1, 12, color);
             }
@@ -483,9 +504,13 @@ public partial class MapView : Node2D
             var count = Math.Min(ships.Count, 8);
             for (var i = count - 1; i >= 0; i--)
                 DrawShipOrBlip(at + ClusterOffset(i, heading), ships[i], color, heading, known);
+            if (Quiet) return;
+            // One strip for the fleet: the worst of each bar.
+            if (known && ships.Count > 0) DrawDamageStrip(at + new Vector2(-8, -18), ships);
             if (ships.Count > count)
                 DrawString(_font, at + new Vector2(-4, 26), $"+{ships.Count - count}", HorizontalAlignment.Left, -1, 11, color);
         }
+        if (Quiet) return;
         if (apart && SpeedTag(f) is { Length: > 0 } tag)
             DrawString(_font, at + new Vector2(12, 22), $"{f.Name}{tag}", HorizontalAlignment.Left, -1, 12, color);
         if (!apart)
@@ -766,7 +791,15 @@ public partial class MapView : Node2D
                 var ahead = Camera.ToScreen(world + f.Velocity * 24);
                 DrawDashedLine(at, ahead, new Color(Ui.Rival, 0.4f), 1, 6);
             }
-            if (Sensors.StateOf(f) == SignatureState.Burn)
+            if (Sensors.StateOf(f) == SignatureState.Burn && Graphics.Fancy)
+            {
+                // A plume out of the engines, and the ring that says it can be seen from far off.
+                var facing = (float)(_shownFacing.TryGetValue(f.Id, out var sh) ? sh : f.Facing);
+                AddPlume(at - new Vector2(Mathf.Cos(facing), Mathf.Sin(facing)) * 6, facing, 34, 10, 1f, f.Id);
+                var pulse = 0.75f + 0.25f * Mathf.Sin((float)Time.GetTicksMsec() / 90f);
+                DrawArc(at, 20 + 4 * pulse, 0, Mathf.Tau, 32, new Color(1f, 0.6f, 0.2f, 0.5f), 1.5f, true);
+            }
+            else if (Sensors.StateOf(f) == SignatureState.Burn)
             {
                 // A flame out of the engines, opposite the way the thrust pushes.
                 var facing = (float)(_shownFacing.TryGetValue(f.Id, out var sh) ? sh : f.Facing);
@@ -838,8 +871,16 @@ public partial class MapView : Node2D
 
     private void DrawShipOrBlip(Vector2 at, Ship s, Color color, float heading, bool known)
     {
-        if (CloseUp && DrawShipDrawing(at, s, heading, known)) return;
-        if (known) { DrawShipIcon(at, s, color, heading); return; }
+        // A crippled ship tumbles slowly.
+        var shown = s.Crippled ? heading + Tumble(s.Id) : heading;
+        if (CloseUp && DrawShipDrawing(at, s, shown, known)) return;
+        if (known)
+        {
+            if (Sim.World.FleetOf(s) is { Thrusting: true } fleet && EnginesLit(s)) IconPlume(at, s, heading, fleet);
+            DrawHeatGlow(at, s, 9f);
+            DrawShipIcon(at, s, color, shown);
+            return;
+        }
         DrawCircle(at, 4, color);
         DrawArc(at, 4, 0, Mathf.Tau, 12, color.Darkened(0.5f), 1, true);
     }
@@ -862,24 +903,35 @@ public partial class MapView : Node2D
         var height = width * tex.GetHeight() / tex.GetWidth();
         var share = (float)Math.Clamp(s.Armour / Tech.MaxArmour(Sim.World, s), 0, 1);
         var tint = !known ? new Color(0.18f, 0.21f, 0.27f, 0.9f)
+            : s.Crippled ? new Color(0.3f, 0.29f, 0.3f)
             : s.Side == Side.Player ? Colors.White.Lerp(new Color(0.45f, 0.45f, 0.5f), (1 - share) * 0.6f)
             : new Color(1f, 0.88f, 0.75f).Lerp(new Color(0.45f, 0.4f, 0.35f), (1 - share) * 0.6f);
         var fleet = Sim.World.FleetOf(s);
+        var fancy = Graphics.Fancy;
+        if (known && fancy)
+        {
+            if (fleet is { Thrusting: true } && EnginesLit(s))
+            {
+                var burn = BurnLevel(fleet);
+                var stern = at - new Vector2(Mathf.Cos(heading), Mathf.Sin(heading)) * (hullPx * 0.5f);
+                AddPlume(stern, heading, hullPx * (0.45f + 1.3f * burn), Mathf.Max(6f, hullPx * (0.16f + 0.08f * burn)), burn, s.Id);
+            }
+            DrawHeatGlow(at, s, hullPx * 0.45f);
+        }
         DrawSetTransform(at, heading, Vector2.One);
-        if (known && fleet is { Thrusting: true })
+        if (known && !fancy && fleet is { Thrusting: true } && EnginesLit(s))
         {
             // A burn: a bright plume behind the engine bell.
             var stern = -hullPx / 2;
             for (var i = 3; i >= 1; i--)
                 DrawCircle(new Vector2(stern - hullPx * 0.12f * i, 0), hullPx * 0.05f * (4 - i), new Color(0.75f, 0.92f, 1f, 0.12f * i));
         }
-        if (known && s.Overheated) DrawCircle(Vector2.Zero, hullPx * 0.45f, new Color(1f, 0.5f, 0.2f, 0.18f));
+        if (known && !fancy && s.Overheated) DrawCircle(Vector2.Zero, hullPx * 0.45f, new Color(1f, 0.5f, 0.2f, 0.18f));
         DrawTextureRect(tex, new Rect2(-(width - hullPx) - hullPx / 2, -height / 2, width, height), false, tint);
-        if (known && s.Disabled != null)
+        if (known)
         {
-            var mark = new Vector2(hullPx * 0.15f, -height * 0.3f);
-            DrawCircle(mark, Math.Max(3, hullPx * 0.04f), new Color(Ui.Danger, 0.35f));
-            DrawArc(mark, Math.Max(3, hullPx * 0.04f), 0, Mathf.Tau, 16, Ui.Danger, 1.5f, true);
+            DrawShipDamage(s, hullPx, height);
+            if (!s.Crippled) DrawRunningLights(hullPx, height, s.Id);
         }
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         return true;
@@ -892,6 +944,8 @@ public partial class MapView : Node2D
         color = color.Lerp(new Color(0.35f, 0.35f, 0.4f), Math.Clamp(1 - share, 0, 1) * 0.7f);
         if (s.Disabled != null) DrawCircle(at + new Vector2(0, -10), 2.5f, Ui.Danger);
         var shape = ShipIcons.For(GameData.ShipClasses.TryGetValue(s.ClassId, out var cls) ? cls.Icon : "frigate");
+        // A crippled ship fades and gets a cross.
+        if (s.Crippled) color = new Color(color.Darkened(0.3f), 0.45f);
         var pts = new Vector2[shape.Length];
         for (var i = 0; i < shape.Length; i++) pts[i] = at + shape[i].Rotated(heading);
         DrawColoredPolygon(pts, color);
@@ -899,6 +953,7 @@ public partial class MapView : Node2D
         pts.CopyTo(outline, 0);
         outline[^1] = pts[0];
         DrawPolyline(outline, color.Darkened(0.5f), 1, true);
+        if (s.Crippled) DrawCross(at, 7, Ui.Danger, 1.6f);
     }
 
     /// <summary>
