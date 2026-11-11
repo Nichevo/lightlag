@@ -832,11 +832,56 @@ public partial class MapView : Node2D
         return new Vector2(-9 * row, side * 7 * row).Rotated(heading);
     }
 
+    /// <summary>Zoomed in close: ships are drawn from the approved drawings instead of icons.</summary>
+    private bool CloseUp => Fleets.FormationSpacing * Camera.Scale >= 90;
+
     private void DrawShipOrBlip(Vector2 at, Ship s, Color color, float heading, bool known)
     {
+        if (CloseUp && DrawShipDrawing(at, s, heading, known)) return;
         if (known) { DrawShipIcon(at, s, color, heading); return; }
         DrawCircle(at, 4, color);
         DrawArc(at, 4, 0, Mathf.Tau, 12, color.Darkened(0.5f), 1, true);
+    }
+
+    /// <summary>
+    /// A ship from its approved drawing, nose along its heading. Sizes keep the real lengths in step
+    /// (a cruiser is about 2.4 frigates long), scaled up with the zoom so the formation stays readable.
+    /// Rival ships are only drawn in full once a close look tells their fittings; until then, a dark
+    /// outline. Damage shows on the drawing: darker when hurt, a red mark for a part knocked out, a glow
+    /// when overheated, a brighter plume while burning.
+    /// </summary>
+    private bool DrawShipDrawing(Vector2 at, Ship s, float heading, bool known)
+    {
+        if (!GameData.ShipClasses.TryGetValue(s.ClassId, out var cls)) return false;
+        var art = ShipArt.For(cls);
+        if (Art.Texture("Ships", art) is not Texture2D tex) return false;
+        var spacingPx = (float)(Fleets.FormationSpacing * Camera.Scale);
+        var hullPx = Mathf.Clamp(spacingPx * 0.75f * (float)(cls.LengthM / 260.0), 10f, 900f);
+        var width = hullPx / ShipArt.HullShare(art);
+        var height = width * tex.GetHeight() / tex.GetWidth();
+        var share = (float)Math.Clamp(s.Armour / Tech.MaxArmour(Sim.World, s), 0, 1);
+        var tint = !known ? new Color(0.18f, 0.21f, 0.27f, 0.9f)
+            : s.Side == Side.Player ? Colors.White.Lerp(new Color(0.45f, 0.45f, 0.5f), (1 - share) * 0.6f)
+            : new Color(1f, 0.88f, 0.75f).Lerp(new Color(0.45f, 0.4f, 0.35f), (1 - share) * 0.6f);
+        var fleet = Sim.World.FleetOf(s);
+        DrawSetTransform(at, heading, Vector2.One);
+        if (known && fleet is { Thrusting: true })
+        {
+            // A burn: a bright plume behind the engine bell.
+            var stern = -hullPx / 2;
+            for (var i = 3; i >= 1; i--)
+                DrawCircle(new Vector2(stern - hullPx * 0.12f * i, 0), hullPx * 0.05f * (4 - i), new Color(0.75f, 0.92f, 1f, 0.12f * i));
+        }
+        if (known && s.Overheated) DrawCircle(Vector2.Zero, hullPx * 0.45f, new Color(1f, 0.5f, 0.2f, 0.18f));
+        DrawTextureRect(tex, new Rect2(-(width - hullPx) - hullPx / 2, -height / 2, width, height), false, tint);
+        if (known && s.Disabled != null)
+        {
+            var mark = new Vector2(hullPx * 0.15f, -height * 0.3f);
+            DrawCircle(mark, Math.Max(3, hullPx * 0.04f), new Color(Ui.Danger, 0.35f));
+            DrawArc(mark, Math.Max(3, hullPx * 0.04f), 0, Mathf.Tau, 16, Ui.Danger, 1.5f, true);
+        }
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        return true;
     }
 
     private void DrawShipIcon(Vector2 at, Ship s, Color color, float heading)

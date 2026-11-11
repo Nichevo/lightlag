@@ -146,9 +146,19 @@ public partial class FittingPanel : PanelContainer
     }
 }
 
-/// <summary>Which approved drawing a class uses (Art/Ships).</summary>
+/// <summary>Which approved drawing a class uses (Art/Ships), and how much of the drawing's width is hull (the rest is engine plume).</summary>
 public static class ShipArt
 {
+    public static float HullShare(string art) => art switch
+    {
+        "escort" => 0.645f,
+        "destroyer" => 0.819f,
+        "cruiser" => 0.79f,
+        "tanker" => 0.774f,
+        "freighter" => 0.76f,
+        _ => 0.745f,
+    };
+
     public static string For(ShipClass cls) => cls.Icon switch
     {
         "escort" => "escort",
