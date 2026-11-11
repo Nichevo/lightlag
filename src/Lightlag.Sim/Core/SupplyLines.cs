@@ -248,6 +248,7 @@ public sealed record SetSupplyRunCommand(Side Side, int FleetId, int? TargetFlee
             return;
         }
         f.SupplyRunFor = TargetFleetId;
+        f.AutoRun = TargetFleetId != null && Source == "auto";
         sim.Log.Info("supply", TargetFleetId == null ? $"{f.Name} ends its supply run" : $"{f.Name} starts a supply run", new { FleetId, TargetFleetId, Source });
     }
 }

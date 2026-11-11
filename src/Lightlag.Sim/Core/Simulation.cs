@@ -173,6 +173,7 @@ public sealed class Simulation
         Chases.Update(this);
         Economy.Update(this);
         Mind.Update(this);
+        Stewards.Update(this);
         Autonomy.Update(this);
         Supply.Update(this);
         SupplyLines.Update(this);

@@ -725,6 +725,7 @@ public static class Combat
     /// <summary>A ship is gone: off its fleet, and if it was the flagship, command passes on (or the side loses).</summary>
     public static void Destroy(Simulation sim, Ship ship)
     {
+        Stewards.OnLost(sim.World, ship);
         RemoveShip(sim.World, ship);
         if (Economy.Of(sim.World, ship.Side).FlagshipId == ship.Id) Light.Succeed(sim, ship.Side, ship.Position);
     }

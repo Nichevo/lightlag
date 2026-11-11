@@ -157,6 +157,9 @@ public sealed class Fleet
     public bool Resupplying { get; set; }
 
     /// <summary>Supply fleets on an Auto supply run: the fleet they keep topped up (see SupplyLines).</summary>
+    /// <summary>The supply run was given by automation (so automation may change it; a hand-given one is left alone).</summary>
+    public bool AutoRun { get; set; }
+
     public int? SupplyRunFor { get; set; }
 
     /// <summary>Colony ships: carrying people from one planet to another (see Planets).</summary>

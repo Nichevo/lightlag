@@ -903,6 +903,48 @@ public static class Colonies
         }
     }
 
+    /// <summary>
+    /// The shipments Auto transport would send now if it had freighters: (from, to, good, amount), for
+    /// planets under their ask line or waiting for materials, from the planet with most to spare.
+    /// </summary>
+    public static IEnumerable<(Body From, Body To, string Good, double Amount)> TransportWanted(World w, Side side)
+    {
+        var sources = w.Bodies.Where(b => b.Owner == side && (b.Board != null || b.Stock.Count > 0)).OrderBy(b => b.Id).ToList();
+        foreach (var to in w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id))
+            foreach (var good in Goods.Select(g => g.Id))
+            {
+                var target = Target(to, good);
+                var waiting = Held(to, good) < Want(to, good) - 1e-6;
+                if (target <= 0.5 || (Held(to, good) >= target * C.AskBelow && !waiting) || ShipmentTo(w, side, to.Id, good) != null) continue;
+                var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
+                    .OrderByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
+                if (from == null) continue;
+                var amount = Math.Min(Math.Max(target * 1.5, 20) - Held(to, good), SpareOf(from, good));
+                if (amount >= 0.5) yield return (from, to, good, amount);
+            }
+    }
+
+    /// <summary>Sends the nearest free freighter with one load (false: none free, or nothing to send).</summary>
+    public static bool ShipOnce(Simulation sim, Side side, Body from, Body to, string good, double amount)
+    {
+        var w = sim.World;
+        var fleet = FreeHaulers(w, side).OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).FirstOrDefault();
+        if (fleet == null) return false;
+        amount = Math.Min(Math.Min(amount, Hold(w, fleet)), SpareOf(from, good));
+        if (amount < 0.5) return false;
+        Start(sim, side, fleet, from, to, new Dictionary<string, double> { [good] = amount }, null);
+        return true;
+    }
+
+    /// <summary>What a piece under construction still waits for (null: nothing it can't have).</summary>
+    public static string? MaterialShort(Body b, Piece p)
+    {
+        if (p.MaterialsLeft is not { Count: > 0 } left) return null;
+        foreach (var (good, amount) in left.OrderBy(m => m.Key, StringComparer.Ordinal))
+            if (Held(b, good) < amount - 1e-9) return $"needs {amount - Held(b, good):0} more {GoodName(good).ToLowerInvariant()}";
+        return null;
+    }
+
     private static void FixedRuns(Simulation sim, Side side)
     {
         var w = sim.World;
@@ -1058,11 +1100,29 @@ public sealed record SetSiegeStockCommand(Side Side, int BodyId, int Days) : Gam
 }
 
 /// <summary>Turn Auto transport on or off for a side.</summary>
+/// <summary>Send one load of a good from one planet to another with the nearest free freighter.</summary>
+public sealed record ShipGoodsCommand(Side Side, int FromBodyId, int ToBodyId, string Good, double Amount) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (world.FindBody(FromBodyId) is not Body from || world.FindBody(ToBodyId) is not Body to || from.Owner != Side || to.Owner != Side
+            || !Colonies.ShipOnce(sim, Side, from, to, Good, Amount))
+            sim.Log.Warn("transport", "Can't send that load", new { side = Side.ToString(), FromBodyId, ToBodyId, Good, Amount, Source });
+    }
+}
+
 public sealed record SetAutoTransportCommand(Side Side, bool On) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
-    public override void Apply(World world, Simulation sim) => Economy.Of(world, Side).AutoTransport = On;
+    public override void Apply(World world, Simulation sim)
+    {
+        var state = Economy.Of(world, Side);
+        state.AutoTransport = On;
+        state.Auto[AutoArea.Transport] = On ? AutoLevel.Auto : AutoLevel.Manual;
+    }
 }
 
 /// <summary>Add a fixed run (or, with RunId, remove one).</summary>

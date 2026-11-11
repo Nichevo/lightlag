@@ -21,6 +21,11 @@
   "strikeSuppliesLeft": 0.6,
   "homeShareSeen": 0.5,
   "homeShareUnseen": 0.85,
+  "_automationComment": "The player's automation areas (see Stewards): starting level of each (auto, advise, manual) and how the defaults learn from the player's changes and from how auto actions turn out.",
+  "automation": {
+    "defaults": { "building": "advise", "workers": "auto", "transport": "auto", "settling": "advise", "research": "advise", "shipyard": "manual", "supply": "auto", "refits": "auto", "battle": "auto" },
+    "habitChanges": 3, "acceptsToAuto": 5, "dismissesToManual": 5, "judgeDays": 5, "badShare": 0.5, "minJudged": 4
+  },
   "personalities": {
     "raider": {
       "name": "Raider", "frigateShare": 0.75, "ratio": 0.9, "claimWeight": 0.9, "huntWeight": 1.6, "guardShare": 0.25,

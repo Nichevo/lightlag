@@ -86,6 +86,31 @@ public sealed class SideState
 
     /// <summary>Running totals for the game statistics (see Stats).</summary>
     public SideTotals Totals { get; set; } = new();
+
+    // ---- Automation (see Stewards) ----
+
+    /// <summary>Each area's level (missing: the area's default), and levels for single planets or fleets.</summary>
+    public Dictionary<AutoArea, AutoLevel> Auto { get; set; } = new();
+    public List<AutoOverride> AutoOverrides { get; set; } = new();
+
+    /// <summary>The Needs you list, and items dismissed until an hour.</summary>
+    public List<NeedItem> Needs { get; set; } = new();
+    public Dictionary<string, double> Dismissed { get; set; } = new();
+
+    /// <summary>What automation did lately, and how much (all game, and today).</summary>
+    public List<AutoNote> AutoNotes { get; set; } = new();
+    public int AutoHandled { get; set; }
+    public int AutoHandledToday { get; set; }
+    public int AutoDay { get; set; }
+    public double NextAutoBuildHour { get; set; }
+
+    /// <summary>Warships lost lately (offered for rebuilding; never rebuilt by themselves).</summary>
+    public List<LostShip> Lost { get; set; } = new();
+
+    /// <summary>Learning (see Stewards.Learn): auto actions waiting to be judged, how each area's turned out, and the player's habits.</summary>
+    public List<AutoCheck> AutoChecks { get; set; } = new();
+    public Dictionary<AutoArea, AutoScore> AutoScores { get; set; } = new();
+    public Dictionary<string, int> Habits { get; set; } = new();
 }
 
 public enum OrderKind { Ship, Research }
