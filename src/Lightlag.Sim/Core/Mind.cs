@@ -888,44 +888,30 @@ public static class Mind
         /// <summary>Empty worlds worth settling, safe from known enemies and not already being settled.</summary>
         private List<Body> SettleTargets() => _w.Bodies
             .Where(b => b.Owner == null && b.PopK <= 0 && Planets.Settleable(b) && b.Industry > 0
-                        && !_w.Fleets.Any(f => f.Side == _side && f.PeopleRun?.ToBodyId == b.Id)
+                        && !Planets.SettlersBound(_w, _side, b.Id)
                         && EnemyNear(b.Position, 0.1 * _au, 10 * 24) <= 0)
             .ToList();
 
         /// <summary>
-        /// Colony ships: one or two are built while there are empty worlds to settle; idle ones carry people
-        /// from home to the nearest of them, or top up a thin colony of its own.
+        /// Settling: one or two settle orders at a time while there are empty worlds to settle, nearest
+        /// and richest first, or a thin colony of its own to top up.
         /// </summary>
         private void Settle()
         {
-            if (_home == null) return;
-            var targets = SettleTargets();
-            var thin = _w.Bodies.Where(b => b.Owner == _side && !b.Home && Planets.Settleable(b) && b.PopK < Planets.Cap(b) * 0.5
-                                            && !_w.Fleets.Any(f => f.Side == _side && f.PeopleRun?.ToBodyId == b.Id)).ToList();
-            var colonyFleets = _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(Planets.IsColonyShip)).ToList();
-            foreach (var f in colonyFleets.Where(f => f.PeopleRun == null && f.Flight == null && !OrderOnItsWay(f)))
+            var orders = _w.Orders.Where(o => o.Side == _side && o.Kind == OrderKind.Ship).ToList();
+            if (_home != null)
             {
+                var targets = SettleTargets();
+                var thin = _w.Bodies.Where(b => b.Owner == _side && !b.Home && Planets.Settleable(b) && b.PopK < Planets.Cap(b) * 0.5
+                                                && !Planets.SettlersBound(_w, _side, b.Id)).ToList();
+                var bound = orders.Count(o => o.SettleBodyId != null) + _w.Fleets.Count(f => f.Side == _side && f.PeopleRun != null);
                 var to = targets.OrderBy(b => Vec2.Distance(b.Position, _home.Position) / (1 + b.Industry)).ThenBy(b => b.Id).FirstOrDefault()
                          ?? thin.OrderBy(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault();
-                if (to == null || Planets.CanSendPeople(_w, _side, f, _home.Id, to.Id) != null) continue;
-                targets.Remove(to);
-                thin.Remove(to);
-                Do(new SendPeopleCommand(_side, f.Id, _home.Id, to.Id));
-                Note($"{f.Name} carries settlers to {to.Name}");
-            }
-            // Colony ships launched into the home fleet split off to do their own work.
-            foreach (var f in Mine().Where(f => AtHome(f) && !Busy(f)).ToList())
-            {
-                var colony = _w.ShipsOf(f).Where(Planets.IsColonyShip).ToList();
-                if (colony.Count > 0 && colony.Count < f.ShipIds.Count) SplitOff(f, colony);
-            }
-            var orders = _w.Orders.Where(o => o.Side == _side && o.Kind == OrderKind.Ship).ToList();
-            var ships = _w.Ships.Count(s => s.Side == _side && Planets.IsColonyShip(s)) + orders.Count(o => o.Key == "colony-ship");
-            var want = targets.Count + thin.Count == 0 ? 0 : Easy ? 1 : Math.Min(2, targets.Count + thin.Count);
-            if (ships < want && orders.Count < 2 && Economy.CanQueue(_w, _side, OrderKind.Ship, "colony-ship") == null)
-            {
-                Do(new QueueOrderCommand(_side, OrderKind.Ship, "colony-ship"));
-                Note("Builds a colony ship");
+                if (to != null && bound < (Easy ? 1 : 2) && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
+                {
+                    Do(new SettleCommand(_side, to.Id));
+                    Note($"Sends settlers to {to.Name}");
+                }
             }
             Troops(orders);
         }

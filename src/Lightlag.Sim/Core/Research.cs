@@ -330,7 +330,7 @@ public sealed record SurveyFind(int BodyId, string Idea, double Hour);
 /// <summary>Found a new research team in an empty slot, with a speciality that starts high.</summary>
 public sealed record FoundTeamCommand(Side Side, string Field) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
@@ -346,7 +346,7 @@ public sealed record FoundTeamCommand(Side Side, string Field) : GameCommand
 /// <summary>Train more scientists for a team: paid now, they join after the training time.</summary>
 public sealed record TrainTeamCommand(Side Side, int TeamId) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
@@ -362,7 +362,7 @@ public sealed record TrainTeamCommand(Side Side, int TeamId) : GameCommand
 /// <summary>Split half a team off into an empty slot; the new team keeps the field named.</summary>
 public sealed record SplitTeamCommand(Side Side, int TeamId, string Field) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
@@ -378,7 +378,7 @@ public sealed record SplitTeamCommand(Side Side, int TeamId, string Field) : Gam
 /// <summary>Choose the 1-2 fields a team keeps (the others fade). An empty list keeps its best field.</summary>
 public sealed record SetTeamKeptCommand(Side Side, int TeamId, List<string> Fields) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
@@ -397,7 +397,7 @@ public sealed record SetTeamKeptCommand(Side Side, int TeamId, List<string> Fiel
 /// <summary>Move a research order to another team's queue (at the end). Progress made so far is kept.</summary>
 public sealed record SetOrderTeamCommand(Side Side, int OrderId, int TeamId) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {

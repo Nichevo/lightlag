@@ -116,7 +116,7 @@ public partial class HowToPlay : CenterContainer
         "THE GOAL\n" +
         "Control the system. Your control share (top bar) is the average of your share of people, Industry, planets and fleet power. At 80 % you have tipped the game: hold it for 30 days, or reach 95 %, to win. Destroying the rival's shipyard by bombarding it from orbit also wins.\n\n" +
         "PLANETS AND PEOPLE\n" +
-        "• Only the two homes start with people. Colony ships carry settlers to empty worlds (landing them makes the world yours) and between your planets, taken ones too. Click a planet for its screen: people, happiness, food, buildings, Bring settlers and Auto top-up.\n" +
+        "• Only the two homes start with people. Click a planet for its screen: people, happiness, food, buildings, Settle and Auto top-up. Settle builds a one-trip settler ship at your shipyard that flies the people over and lands (landing makes an empty world yours); it can be blockaded or shot down, so you can pick a fleet to escort it.\n" +
         "• People eat food from farms, shared between your planets. A blockade (armed ships holding orbit) cuts a planet off: it lives off its own farms and store, makes no Industry, and grows unhappy.\n" +
         "• An unhappy blockaded planet gives itself up to the blockader. Bombing its farms starves it sooner; bombing its people leaves a grudge, and it will never surrender to you. Troop ships land soldiers from low orbit to take a planet by force, or board the ship on a blockaded enemy slipway.\n" +
         "• Planet guns shoot ships in low orbit; high orbit is out of their reach but can't bomb or land troops.\n\n" +

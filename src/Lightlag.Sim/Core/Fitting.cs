@@ -158,7 +158,7 @@ public sealed class Design
 /// <summary>Swap the module in one slot of a ship (at the shipyard). The new module's cost is paid in Industry.</summary>
 public sealed record SetFitCommand(Side Side, int ShipId, int Slot, string Module) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
@@ -194,7 +194,7 @@ public sealed record SetFitCommand(Side Side, int ShipId, int Slot, string Modul
 /// <summary>Save the fit new ships of a class get (engines are always the best researched).</summary>
 public sealed record SetDesignCommand(Side Side, string ClassId, List<string> Fit) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {

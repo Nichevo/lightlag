@@ -86,20 +86,27 @@ public partial class EmpirePanel : PanelContainer
             : "Destroyed");
         if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null)
         {
-            var row = Row();
+            // Two compact columns, so the list stays inside the panel's width.
+            var grid = new GridContainer { Columns = 2 };
+            grid.AddThemeConstantOverride("h_separation", 4);
+            grid.AddThemeConstantOverride("v_separation", 4);
+            _box.AddChild(grid);
             foreach (var cls in GameData.ShipClasses.Values)
             {
+                if (cls.Id == Planets.SettlerClass) continue; // built by a settle order on a planet
                 var id = cls.Id;
                 var days = cls.Cost / GameData.Economy.BuildIndustryPerDay;
                 var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.Queue(OrderKind.Ship, id),
                     $"Build a {cls.Name}: {cls.Cost:0} Industry, {days:0.#} days. {cls.Role}");
-                b.CustomMinimumSize = new Vector2(180, 30);
+                b.CustomMinimumSize = new Vector2(186, 26);
+                b.AddThemeFontSizeOverride("font_size", 13);
+                b.ClipText = true;
                 if (cls.Needs.Length > 0 && !Tech.Has(w, Side.Player, cls.Needs))
                 {
                     b.Disabled = true;
                     b.TooltipText = $"{cls.Name}: needs {GameData.Research(cls.Needs).Name} (research screen, T). {cls.Role}";
                 }
-                row.AddChild(b);
+                grid.AddChild(b);
             }
         }
         var ships = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship).ToList();
@@ -107,7 +114,7 @@ public partial class EmpirePanel : PanelContainer
         for (var i = 0; i < ships.Count; i++)
         {
             OrderRow(ships[i], i == 0);
-            JoinRow(w, ships[i]);
+            if (ships[i].SettleBodyId == null) JoinRow(w, ships[i]);
         }
 
         // Research: a summary here; teams, ideas and the discovery web are on the research screen (T).
@@ -208,7 +215,7 @@ public partial class EmpirePanel : PanelContainer
 
     private static string OrderText(World w, WorkOrder o, bool first)
     {
-        var name = Economy.NameOf(o);
+        var name = Economy.NameOf(o) + (o.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" (escort {escort.Name})" : o.Auto ? " (Auto top-up)" : "");
         if (o.Blockaded) return $"{name}: BLOCKADED, an enemy fleet in orbit stops the shipyard";
         if (o.Paid) return $"{name}: {Format.Hours(o.HoursLeft)} left ({(1 - o.HoursLeft / o.TotalHours) * 100:0} %)";
         if (!first) return $"{name}: queued";

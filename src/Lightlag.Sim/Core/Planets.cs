@@ -30,7 +30,7 @@ public sealed record PlanetsData(
 /// (shared between your planets unless a blockade cuts one off), grow while fed, staff the planet's
 /// industry and buildings, and have a happiness that moves with food, blockades and bombing. A blockaded
 /// planet that grows unhappy enough gives itself up to the blockader, unless the blockader bombed its
-/// people. Colony ships carry people to empty worlds and between your planets (taken ones too); troop
+/// people. Settle orders send a one-trip settler ship with people to an empty world or one of yours; troop
 /// ships land soldiers to take a planet by force. Runs once per game hour in full games.
 /// </summary>
 public static class Planets
@@ -449,7 +449,95 @@ public static class Planets
         sim.Log.Info("planets", $"{side} takes {b.Name}: {how}", new { bodyId = b.Id, side = side.ToString(), from = before?.ToString(), people = Math.Round(b.PopK, 1) });
     }
 
-    // ---- Colony ships -----------------------------------------------------------------------
+    // ---- Settling ---------------------------------------------------------------------------
+
+    /// <summary>The ship class built for a settle order: it makes one trip and lands with its people.</summary>
+    public const string SettlerClass = "colony-ship";
+
+    /// <summary>Is a settle order queued, or are settlers on their way, to this body?</summary>
+    public static bool SettlersBound(World w, Side side, int bodyId) =>
+        w.Orders.Any(o => o.Side == side && o.SettleBodyId == bodyId) || w.Fleets.Any(f => f.Side == side && f.PeopleRun?.ToBodyId == bodyId);
+
+    /// <summary>Why this side can't order settlers to this body (escorted by that fleet), or null if it can.</summary>
+    public static string? CanSettle(World w, Side side, int bodyId, int? escortFleetId = null)
+    {
+        if (w.FindBody(bodyId) is not Body to) return "Unknown planet";
+        if (!Settleable(to)) return $"Nobody can live on {to.Name}";
+        if (to.Owner is Side o && o != side) return $"{to.Name} is held by the rival";
+        if (to.Owner == null && to.PopK > 0) return $"{to.Name} has its own people: hold orbit to win it over";
+        if (to.PopK >= Cap(to) - 0.1) return $"{to.Name} is full";
+        if (SettlersBound(w, side, to.Id)) return $"Settlers are already bound for {to.Name}";
+        if (Economy.ShipyardOf(w, side) is not Body yard) return "No shipyard to build the settler ship";
+        if (yard.Id == to.Id) return "The settlers would leave from here";
+        if (yard.PopK - Math.Max(D.KeepAtSourceK, StaffNeeded(yard)) < 1) return $"{yard.Name} has no people to spare";
+        if (escortFleetId is int e && (w.FindFleet(e) is not Fleet f || f.Side != side || f.ShipIds.Count == 0)) return "That fleet can't escort them";
+        return Economy.CanQueue(w, side, OrderKind.Ship, SettlerClass);
+    }
+
+    /// <summary>Puts a settle order on the shipyard queue (checked first with CanSettle).</summary>
+    public static WorkOrder QueueSettlers(Simulation sim, Side side, Body to, int? escortFleetId, bool auto)
+    {
+        var w = sim.World;
+        var order = new WorkOrder
+        {
+            Id = w.NextId++, Side = side, Kind = OrderKind.Ship, Key = SettlerClass, TotalHours = Economy.HoursFor(w, side, OrderKind.Ship, SettlerClass),
+            SettleBodyId = to.Id, SettleName = to.Name, EscortFleetId = escortFleetId, Auto = auto,
+        };
+        order.HoursLeft = order.TotalHours;
+        w.Orders.Add(order);
+        sim.Log.Info("planets", $"{side} orders settlers for {to.Name}", new { side = side.ToString(), order.Id, bodyId = to.Id, escortFleetId, auto });
+        return order;
+    }
+
+    /// <summary>
+    /// A settler ship just built: it takes on people at the shipyard planet and sets out for the planet to
+    /// settle, or first waits there for its escort to come and take it along.
+    /// </summary>
+    public static void SendSettlers(Simulation sim, Fleet f, Body yard, int toId, int? escortFleetId, bool auto)
+    {
+        var w = sim.World;
+        var room = w.FindBody(toId) is Body dest ? Math.Max(0, Cap(dest) - dest.PopK) : 0;
+        foreach (var s in w.ShipsOf(f).Where(IsColonyShip))
+        {
+            var take = Math.Min(Math.Min(PeopleHold(s) - s.CargoPeople, room), Math.Max(0, yard.PopK - Math.Max(D.KeepAtSourceK, StaffNeeded(yard))));
+            room -= take;
+            s.CargoPeople += take;
+            yard.PopK -= take;
+        }
+        f.PeopleRun = new PeopleRun { FromBodyId = yard.Id, ToBodyId = toId, OneTrip = true, EscortFleetId = escortFleetId, Auto = auto };
+        var to = w.FindBody(toId);
+        var escort = escortFleetId is int e ? w.FindFleet(e) : null;
+        Autonomy.Report(sim, f, escort != null ? $"{f.Name} waits at {yard.Name} for {escort.Name} to escort it to {to?.Name}" : $"{f.Name} sets out with settlers for {to?.Name}", NoteKind.Supply);
+    }
+
+    /// <summary>
+    /// A settler waiting for its escort: once the escort holds orbit beside it, the settler joins it and the
+    /// escort carries the run on; meanwhile the escort is sent to fetch it. False while it still waits.
+    /// </summary>
+    private static bool Escorted(Simulation sim, Fleet f, PeopleRun run, Body from, Body to)
+    {
+        var w = sim.World;
+        var escort = run.EscortFleetId is int e ? w.FindFleet(e) : null;
+        if (escort == null || escort.Side != f.Side || escort.ShipIds.Count == 0 || escort.Id == f.Id)
+        {
+            run.EscortFleetId = null;
+            Autonomy.Report(sim, f, $"{f.Name} sets out alone for {to.Name}: its escort is gone", NoteKind.Supply);
+            return true;
+        }
+        if (Economy.InOrbitAt(escort, from) && Economy.InOrbitAt(f, from))
+        {
+            Fleets.Absorb(w, escort, f);
+            run.EscortFleetId = null;
+            escort.PeopleRun = run;
+            escort.Chase = null;
+            Autonomy.Report(sim, escort, $"{escort.Name} takes the settler ship along to {to.Name}", NoteKind.Supply);
+            return false;
+        }
+        if (escort.Flight == null && escort.Chase == null && !escort.Retreating) Fly(sim, escort, from);
+        return false;
+    }
+
+    // ---- People runs (settler ships under way) -------------------------------------------
 
     /// <summary>Why a colony fleet can't carry people between these two bodies, or null if it can.</summary>
     public static string? CanSendPeople(World w, Side side, Fleet f, int fromId, int toId)
@@ -475,6 +563,7 @@ public static class Planets
             var from = w.FindBody(run.FromBodyId);
             var to = w.FindBody(run.ToBodyId);
             if (ships.Count == 0 || from == null || to == null) { f.PeopleRun = null; continue; }
+            if (run.EscortFleetId != null && !Escorted(sim, f, run, from, to)) continue;
             if (to.Owner is Side o && o != f.Side)
             {
                 f.PeopleRun = null;
@@ -494,7 +583,24 @@ public static class Planets
                 }
                 var amount = Math.Min(Math.Min(aboard, hold * SupplyLines.TransferPerHour), room);
                 Unload(sim, f, to, ships, amount);
-                if (ships.Sum(s => s.CargoPeople) > 1e-6) continue;
+                if (ships.Sum(s => s.CargoPeople) > 1e-6 && (!run.OneTrip || room - amount > 0.01)) continue;
+                if (run.OneTrip)
+                {
+                    // The settler ship lands for good; an escort stays in orbit, guarding the new colony.
+                    // Anyone left aboard (the planet filled up on the way) goes back to where they came from.
+                    f.PeopleRun = null;
+                    foreach (var s in ships)
+                    {
+                        if (from.Owner == f.Side) from.PopK += s.CargoPeople;
+                        s.CargoPeople = 0;
+                        w.Ships.Remove(s);
+                        f.ShipIds.Remove(s.Id);
+                    }
+                    if (f.ShipIds.Count == 0) w.Fleets.Remove(f);
+                    else Fleets.Arrange(w, f);
+                    Autonomy.Report(sim, f, $"Settlers land on {to.Name}: the settler ship is taken apart for the colony", NoteKind.Supply);
+                    continue;
+                }
                 if (run.Repeat && from.Owner == f.Side) { Fly(sim, f, from); continue; }
                 f.PeopleRun = null;
                 Autonomy.Report(sim, f, $"{f.Name} has landed its settlers on {to.Name}", NoteKind.Supply);
@@ -565,29 +671,18 @@ public static class Planets
             sim.Log.Info("planets", $"{f.Name} can't reach {body.Name}", new { fleetId = f.Id, bodyId = body.Id, plan.Problem });
     }
 
-    /// <summary>Idle colony fleets fill up planets marked for Auto top-up from the planet with the most people to spare.</summary>
+    /// <summary>Planets marked for Auto top-up get settlers ordered for them, one order at a time per side.</summary>
     private static void TopUps(Simulation sim)
     {
         var w = sim.World;
         if (w.Tick % 6 != 0) return;
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
-            var wanting = w.Bodies.Where(b => b.Owner == side && b.AutoTopUp && b.PopK < Cap(b) * 0.9
-                                              && !w.Fleets.Any(f => f.PeopleRun?.ToBodyId == b.Id)).OrderBy(b => b.PopK / Math.Max(1e-9, Cap(b))).ThenBy(b => b.Id).ToList();
-            if (wanting.Count == 0) continue;
-            var idle = w.Fleets.Where(f => f.Side == side && f.PeopleRun == null && f.Flight == null && f.ShipIds.Count > 0
-                                           && w.ShipsOf(f).All(IsColonyShip)).OrderBy(f => f.Id).ToList();
-            foreach (var to in wanting)
-            {
-                if (idle.Count == 0) break;
-                var source = w.Bodies.Where(b => b.Owner == side && b.Id != to.Id && b.PopK - Math.Max(D.KeepAtSourceK, StaffNeeded(b)) > 2 && !b.AutoTopUp)
-                    .OrderByDescending(b => b.PopK - StaffNeeded(b)).ThenBy(b => b.Id).FirstOrDefault();
-                if (source == null) break;
-                var f = idle.OrderBy(x => Vec2.Distance(x.Position, source.Position)).ThenBy(x => x.Id).First();
-                idle.Remove(f);
-                f.PeopleRun = new PeopleRun { FromBodyId = source.Id, ToBodyId = to.Id, Auto = true };
-                Autonomy.Report(sim, f, $"{f.Name} sets out to top up {to.Name} with people from {source.Name} (Auto top-up)", NoteKind.Supply);
-            }
+            if (w.Orders.Any(o => o.Side == side && o.Auto) || w.Fleets.Any(f => f.Side == side && f.PeopleRun?.Auto == true)) continue;
+            var to = w.Bodies.Where(b => b.Owner == side && b.AutoTopUp && b.PopK < Cap(b) * 0.9 && CanSettle(w, side, b.Id) == null)
+                .OrderBy(b => b.PopK / Math.Max(1e-9, Cap(b))).ThenBy(b => b.Id).FirstOrDefault();
+            if (to == null) continue;
+            QueueSettlers(sim, side, to, null, auto: true);
         }
     }
 
@@ -725,10 +820,26 @@ public sealed record SendPeopleCommand(Side Side, int FleetId, int FromBodyId, i
     }
 }
 
-/// <summary>Mark a planet for Auto top-up: idle colony ships keep bringing it people.</summary>
+/// <summary>Order settlers for a planet: a settler ship is built at the shipyard and carries people there (escorted by a fleet, if named).</summary>
+public sealed record SettleCommand(Side Side, int BodyId, int? EscortFleetId = null) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (Planets.CanSettle(world, Side, BodyId, EscortFleetId) is string problem)
+        {
+            sim.Log.Warn("planets", $"Can't send settlers: {problem}", new { side = Side.ToString(), BodyId, EscortFleetId, Source });
+            return;
+        }
+        Planets.QueueSettlers(sim, Side, world.FindBody(BodyId)!, EscortFleetId, auto: false);
+    }
+}
+
+/// <summary>Mark a planet for Auto top-up: settlers are ordered for it, one ship at a time, until it is nearly full.</summary>
 public sealed record SetAutoTopUpCommand(Side Side, int BodyId, bool On) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {

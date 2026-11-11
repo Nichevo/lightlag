@@ -569,4 +569,10 @@ public sealed class PeopleRun
 
     /// <summary>Set by Auto top-up rather than by a direct order.</summary>
     public bool Auto { get; set; }
+
+    /// <summary>A settler ship's single trip: it lands with its people and is gone.</summary>
+    public bool OneTrip { get; set; }
+
+    /// <summary>The fleet the settler ship waits for at its start, to fly with it (null: none, or already together).</summary>
+    public int? EscortFleetId { get; set; }
 }

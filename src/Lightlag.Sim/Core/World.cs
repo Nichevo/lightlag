@@ -184,7 +184,7 @@ public sealed class Body
     /// <summary>Hours this planet has been blockaded without a break (buildings start to fail after a while).</summary>
     public double BlockadeHours { get; set; }
 
-    /// <summary>Colony ships fill this planet up from other planets you hold.</summary>
+    /// <summary>Auto top-up: settle orders fill this planet up, one at a time.</summary>
     public bool AutoTopUp { get; set; }
 
     /// <summary>Troops fighting on the ground: whose, how many (k) and the garrison left.</summary>
