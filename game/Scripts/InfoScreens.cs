@@ -61,7 +61,11 @@ public partial class ShipCard : PanelContainer
     private Label _title = null!, _text = null!;
     private WoundBars _bars = null!;
     private Button _design = null!;
-    private int? _fleetId;
+    private HBoxContainer _renameRow = null!;
+    private LineEdit _rename = null!;
+    private Label _renameProblem = null!;
+    private int? _fleetId, _shipId;
+    private Simulation? _sim;
 
     public ShipCard() : this(null!) { }
     public ShipCard(GameScreen screen) => _screen = screen;
@@ -86,7 +90,27 @@ public partial class ShipCard : PanelContainer
         _design = Ui.SmallButton("Fit and design ▸", () => { if (_fleetId != null) _screen.FittingFleetId = _fleetId; _screen.ShipCardId = null; },
             "Open the fleet's ships and fittings: swap modules at your shipyard, or save the fit as the class design");
         v.AddChild(_design);
+        _renameRow = new HBoxContainer();
+        _rename = new LineEdit { PlaceholderText = "New name (Enter)", MaxLength = ShipNames.MaxLength, CustomMinimumSize = new Vector2(200, 28) };
+        _rename.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _rename.TextSubmitted += _ => Rename();
+        _renameRow.AddChild(_rename);
+        _renameRow.AddChild(Ui.SmallButton("Rename", Rename, "Give the ship a new name (works while paused)"));
+        v.AddChild(_renameRow);
+        _renameProblem = Ui.Label("", 12, Ui.Rival);
+        v.AddChild(_renameProblem);
         AddChild(v);
+    }
+
+    private void Rename()
+    {
+        if (_sim == null || _shipId is not int id || _sim.World.FindShip(id) is not Ship s) return;
+        var name = _rename.Text.Trim();
+        if (ShipNames.Problem(_sim.World, s, name) is string problem) { _renameProblem.Text = problem; return; }
+        _screen.IssueNow(new RenameShipCommand(Side.Player, id, name), $"Rename {s.Name} to {name}");
+        _rename.Text = "";
+        _renameProblem.Text = "";
+        _rename.ReleaseFocus();
     }
 
     public void Refresh(Simulation sim, Ship s)
@@ -96,7 +120,10 @@ public partial class ShipCard : PanelContainer
         var cls = Fitting.Spec(s);
         var fleet = w.FleetOf(s);
         _fleetId = fleet?.Id;
-        _title.Text = $"{s.Name} · {cls.Name}" + (mine ? "" : "  (rival)");
+        if (_shipId != s.Id) { _rename.Text = ""; _renameProblem.Text = ""; }
+        _shipId = s.Id;
+        _sim = sim;
+        _title.Text = $"{s.Name} · {s.Code} · {cls.Name}" + (mine ? "" : "  (rival)");
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
         _bars.Set(w, new[] { s });
         var bars = WoundBars.Of(w, s);
@@ -123,6 +150,8 @@ public partial class ShipCard : PanelContainer
         if (fleet != null) lines.Add($"In {fleet.Name}" + (Light.Flagship(w, s.Side)?.Id == s.Id ? " · FLAGSHIP" : ""));
         _text.Text = string.Join("\n", lines);
         _design.Visible = mine && fleet != null;
+        _renameRow.Visible = mine;
+        _renameProblem.Visible = mine && _renameProblem.Text.Length > 0;
     }
 }
 

@@ -379,7 +379,7 @@ public partial class EngagementPanel : Control
         {
             var cls = Fitting.Spec(s);
             var hurt = s.Disabled is Module m ? $", {Combat.ModuleName(m)} out" : "";
-            shipLines.Add($"  {s.Name} ({cls.Short}): armour {s.Armour / cls.Armour:P0}, supplies {s.Supplies / cls.Supplies:P0}" + (cls.Missiles > 0 ? $", {s.Missiles} missiles" : "") + hurt);
+            shipLines.Add($"  {s.Name} ({s.Code}): armour {s.Armour / cls.Armour:P0}, supplies {s.Supplies / cls.Supplies:P0}" + (cls.Missiles > 0 ? $", {s.Missiles} missiles" : "") + hurt);
         }
         shipLines.Add("");
         shipLines.Add($"{e.EnemyName}: {e.EnemyShips} ships");

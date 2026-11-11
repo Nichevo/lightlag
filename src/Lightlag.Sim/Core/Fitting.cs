@@ -125,6 +125,7 @@ public static class Fitting
     public static void Apply(World w, Ship s, List<string> fit)
     {
         s.Fit = fit;
+        ShipNames.Recode(w, s);
         Fuels.AfterRefit(w, s, w.FleetOf(s) is Fleet f && f.OrbitBodyId is int at ? w.FindBody(at) : null);
         var spec = Spec(s);
         s.MaxSpeed = spec.MaxSpeedMmPerHour;

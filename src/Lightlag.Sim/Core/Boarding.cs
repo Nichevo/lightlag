@@ -304,13 +304,14 @@ public static class Boarders
             else Fleets.Arrange(w, old);
         }
         target.Side = captor.Side;
+        if (!target.Name.StartsWith("Prize ", StringComparison.Ordinal)) target.Name = $"Prize {target.Name}";
         target.Crew = D.PrizeCrew;
         target.Xp = Math.Max(0, crewXp);
         target.Protect = null;
         target.CargoTroops = 0;
         target.CargoPeople = 0;
         var prize = Fleets.Create(w, captor.Side, new[] { target }, captor.Position + new Vec2(2, 2));
-        prize.Name = $"Prize {target.Name}";
+        prize.Name = target.Name;
         prize.Velocity = captor.Velocity;
         prize.Hold = captor.Hold;
         prize.OrbitBodyId = captor.OrbitBodyId;

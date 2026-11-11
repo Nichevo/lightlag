@@ -306,7 +306,11 @@ public enum Side { Player, Rival }
 public sealed class Ship
 {
     public int Id { get; set; }
+
+    /// <summary>The ship's name (see ShipNames), its designation code ("DD3B-07": type, hull mark, variant, hull number) and hull number.</summary>
     public string Name { get; set; } = "";
+    public string Code { get; set; } = "";
+    public int HullNumber { get; set; }
     public Side Side { get; set; }
     public string ClassId { get; set; } = "";
     public int FleetId { get; set; }

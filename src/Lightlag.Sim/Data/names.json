@@ -1,0 +1,19 @@
+{
+  "_comment": "Ship names, by race and by the kind of world that built the ship. Edit freely: a name is picked at random (from the game's seed) among those no living ship has, and comes free again when its ship is lost. Themes: home (the home shipyard: old ships and virtues), water (wet worlds: fish and the sea), rocky (dry rock: birds), ice (ice worlds: winter and mountains), storm (cloudy worlds and gas giant moons: storms and winds), any (used when a theme runs out). The Hive and Lattice lists are placeholders until those races are built.",
+  "races": {
+    "human": {
+      "home": ["Endeavour", "Resolute", "Constant", "Valiant", "Steadfast", "Fortitude", "Temperance", "Prudence", "Justice", "Mercy", "Hope", "Faith", "Charity", "Diligence", "Patience", "Honour", "Liberty", "Unity", "Vigilant", "Intrepid", "Indomitable", "Dauntless", "Victory", "Defiance", "Perseverance", "Tenacity", "Loyalty", "Candour", "Clemency", "Providence"],
+      "water": ["Marlin", "Barracuda", "Swordfish", "Tarpon", "Grouper", "Wahoo", "Bonito", "Albacore", "Halibut", "Sturgeon", "Pike", "Perch", "Mackerel", "Herring", "Sailfish", "Dorado", "Snapper", "Garfish", "Remora", "Skate", "Manta", "Narwhal", "Orca", "Dolphin", "Tide", "Riptide", "Undertow", "Breaker", "Kelp", "Coral"],
+      "rocky": ["Kestrel", "Merlin", "Harrier", "Falcon", "Osprey", "Peregrine", "Goshawk", "Buzzard", "Kite", "Hobby", "Swift", "Swallow", "Martin", "Shrike", "Raven", "Rook", "Jackdaw", "Magpie", "Heron", "Egret", "Curlew", "Plover", "Lapwing", "Petrel", "Albatross", "Condor", "Kingfisher", "Wren", "Starling", "Nightjar"],
+      "ice": ["Frost", "Rime", "Glacier", "Avalanche", "Snowdrift", "Hoarfrost", "Icefall", "Blizzard", "Whiteout", "Moraine", "Crevasse", "Cornice", "Summit", "Ridge", "Col", "Arete", "Cairn", "Tundra", "Permafrost", "Sleet", "Hailstone", "Icicle", "Floe", "Berg", "Polar", "Midwinter", "Solstice", "Aurora", "Matterhorn", "Eiger"],
+      "storm": ["Tempest", "Cyclone", "Typhoon", "Hurricane", "Squall", "Gale", "Monsoon", "Sirocco", "Mistral", "Zephyr", "Chinook", "Bora", "Haboob", "Thunder", "Lightning", "Downburst", "Tornado", "Maelstrom", "Thunderhead", "Stormfront", "Whirlwind", "Williwaw", "Harmattan", "Khamsin", "Levanter", "Simoom", "Pampero", "Tramontane", "Foehn", "Derecho"],
+      "any": ["Arrow", "Lance", "Javelin", "Sabre", "Rapier", "Cutlass", "Halberd", "Trident", "Buckler", "Bastion", "Rampart", "Sentinel", "Warden", "Ranger", "Pathfinder", "Wayfarer", "Pilgrim", "Voyager", "Seeker", "Herald", "Courier", "Envoy", "Corsair", "Privateer", "Outrider", "Vanguard", "Lodestar", "Meridian", "Zenith", "Horizon"]
+    },
+    "hive": {
+      "any": ["Brood One", "Brood Two", "Brood Three", "Swarm-Mother", "Chitter", "Carapace", "Mandible", "Thorax", "Ovipositor", "Drone-Queen"]
+    },
+    "lattice": {
+      "any": ["Node 1", "Node 2", "Node 3", "Vertex", "Edge", "Lattice Prime", "Array", "Kernel", "Register", "Bus"]
+    }
+  }
+}

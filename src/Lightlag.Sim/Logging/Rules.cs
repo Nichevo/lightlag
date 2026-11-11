@@ -139,7 +139,17 @@ public sealed class RuleBook
             .Select(s => $"{s.Name} sits {s.FormationOffset.Length:0.0} Mm from the centre of {f.Name}")))
         .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>())
         .Add("hazards-sane", HazardsSane)
-        .Add("events-sane", EventsSane);
+        .Add("events-sane", EventsSane)
+        .Add("ship-names-sane", ShipNamesSane);
+
+    /// <summary>Every ship has a name no other living ship has, and a numbered ship has a designation code.</summary>
+    private static IEnumerable<string> ShipNamesSane(World w)
+    {
+        foreach (var s in w.Ships.Where(s => string.IsNullOrWhiteSpace(s.Name) || s.HullNumber > 0 && string.IsNullOrEmpty(s.Code)))
+            yield return $"ship {s.Id} has name '{s.Name}', code '{s.Code}', hull number {s.HullNumber}";
+        foreach (var g in w.Ships.GroupBy(s => ShipNames.Bare(s.Name), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+            yield return $"ships {string.Join(", ", g.Select(s => s.Id))} share the name {g.Key}";
+    }
 
     /// <summary>Belts with sensible radii round a body that exists; debris clouds thick and placed; bars from hazards never past their floors.</summary>
     private static IEnumerable<string> HazardsSane(World w)

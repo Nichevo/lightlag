@@ -82,6 +82,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetAfterStepCommand), "setAfterStep")]
 [JsonDerivedType(typeof(SetHomeChoiceCommand), "setHomeChoice")]
 [JsonDerivedType(typeof(PickEventCommand), "pickEvent")]
+[JsonDerivedType(typeof(RenameShipCommand), "renameShip")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

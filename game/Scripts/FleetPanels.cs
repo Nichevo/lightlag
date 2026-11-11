@@ -807,7 +807,7 @@ public partial class FleetPanel : PanelContainer
                     row.AddChild(protect);
                     _protect[s.Id] = protect;
                 }
-                var check = new CheckBox { Text = $"{s.Name}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
+                var check = new CheckBox { Text = $"{s.Name}  {s.Code}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 row.AddChild(check);
