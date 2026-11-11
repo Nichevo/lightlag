@@ -64,7 +64,15 @@ public sealed class Simulation
     {
         build ??= log.Build;
         var rng = new SimRandom(seed);
-        var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng);
+        var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng, options?.RandomStarts == true);
+        if (sandbox == null)
+        {
+            world.Rules.Happiness = options?.Happiness ?? true;
+            world.Rules.SupplyLines = options?.SupplyLines ?? true;
+            world.Rules.StartPopulation = options?.StartPopulation ?? false;
+            world.Rules.RandomStarts = options?.RandomStarts ?? false;
+            Planets.EnsureStarted(world);
+        }
         if (sandbox == null) Mind.Setup(world, options, seed);
         if (sandbox == null && options?.Light is LightSetup light)
         {

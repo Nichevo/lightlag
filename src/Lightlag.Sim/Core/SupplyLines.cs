@@ -38,7 +38,7 @@ public static class SupplyLines
     public static double MaxAmmo(Ship s) => Fitting.Spec(s).Railguns * AmmoPerRailgun;
     public static double MaxFood(Ship s) => Fitting.Spec(s).FoodDays;
 
-    public static bool IsSupplyShip(Ship s) => Fitting.Spec(s).Cargo > 0;
+    public static bool IsSupplyShip(Ship s) => Fitting.Spec(s) is { Cargo: > 0, CargoKind: "fuel" or "food" };
 
     /// <summary>The ship's hold for each kind of cargo: tankers carry fuel (80 %) and ammunition (20 %), freighters food.</summary>
     public static (double Fuel, double Ammo, double Food) Hold(Ship s)
@@ -91,12 +91,17 @@ public static class SupplyLines
     public static void Update(Simulation sim)
     {
         var w = sim.World;
+        if (!w.Rules.SupplyLines)
+        {
+            // Supply lines switched off: ships keep full ammunition and food wherever they are.
+            foreach (var s in w.Ships) { s.Ammo = MaxAmmo(s); s.Food = MaxFood(s); }
+        }
         foreach (var f in w.Fleets.ToList())
         {
             var home = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side;
             foreach (var s in w.ShipsOf(f))
             {
-                if (home || MaxFood(s) <= 0) continue;
+                if (home || MaxFood(s) <= 0 || !w.Rules.SupplyLines) continue;
                 var before = s.Food;
                 s.Food = Math.Max(0, s.Food - GameTime.HoursPerTick / 24 * Tech.Factor(w, f.Side, Tech.FoodRecyclers));
                 if (before > 0 && s.Food <= 0)

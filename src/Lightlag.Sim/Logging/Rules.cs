@@ -54,8 +54,10 @@ public sealed class RuleBook
         .Add("stocks-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
                 && !(s.Ammo >= -1e-9 && s.Ammo <= SupplyLines.MaxAmmo(s) + 1e-6 && s.Food >= -1e-9 && s.Food <= SupplyLines.MaxFood(s) + 1e-6
                      && s.CargoFuel >= -1e-9 && s.CargoAmmo >= -1e-9 && s.CargoFood >= -1e-9
-                     && s.CargoFuel <= SupplyLines.Hold(s).Fuel + 1e-6 && s.CargoAmmo <= SupplyLines.Hold(s).Ammo + 1e-6 && s.CargoFood <= SupplyLines.Hold(s).Food + 1e-6))
-            .Select(s => $"ship {s.Id} {s.Name} has ammo {s.Ammo}, food {s.Food}, cargo {s.CargoFuel}/{s.CargoAmmo}/{s.CargoFood}"))
+                     && s.CargoFuel <= SupplyLines.Hold(s).Fuel + 1e-6 && s.CargoAmmo <= SupplyLines.Hold(s).Ammo + 1e-6 && s.CargoFood <= SupplyLines.Hold(s).Food + 1e-6
+                     && s.CargoPeople >= -1e-9 && s.CargoPeople <= Planets.PeopleHold(s) + 1e-6 && s.CargoTroops >= -1e-9 && s.CargoTroops <= Planets.TroopHold(s) + 1e-6))
+            .Select(s => $"ship {s.Id} {s.Name} has ammo {s.Ammo}, food {s.Food}, cargo {s.CargoFuel}/{s.CargoAmmo}/{s.CargoFood}, people {s.CargoPeople}, troops {s.CargoTroops}"))
+        .Add("planets-sane", PlanetsSane)
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)
@@ -112,6 +114,25 @@ public sealed class RuleBook
                 .Select(r => $"report on fleet {r.Snapshot.FleetId} arrives at {r.ArriveHour}, before it was made"))
             .Concat(!w.Light.On && (w.Light.InTransit.Count > 0 || w.Picture.Count > 0) ? new[] { "light lag is off but orders or reports are in transit" } : Array.Empty<string>()))
         .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>());
+
+    private static IEnumerable<string> PlanetsSane(World w)
+    {
+        foreach (var b in w.Bodies)
+        {
+            if (!(double.IsFinite(b.PopK) && b.PopK >= 0 && b.PopK <= Planets.Cap(b) + 1e-6))
+                yield return $"{b.Name} has {b.PopK}k people (cap {Planets.Cap(b)})";
+            if (!(b.Happiness >= -1e-9 && b.Happiness <= 100 + 1e-9) || !(b.OwnShare >= -1e-9 && b.OwnShare <= 1 + 1e-9))
+                yield return $"{b.Name} has happiness {b.Happiness} and own share {b.OwnShare}";
+            if (!(b.FoodStock >= -1e-9 && double.IsFinite(b.FoodStock))) yield return $"{b.Name} has food stock {b.FoodStock}";
+            if (b.Buildings.Count > Planets.Plots(b) || b.Buildings.Any(x => Planets.BuildingKind(x) == null))
+                yield return $"{b.Name} has buildings {string.Join(",", b.Buildings)} on {Planets.Plots(b)} plots";
+            if (b.LandingSide != null && (b.LandingSide == b.Owner || b.LandingTroops < -1e-9 || b.Garrison < -1e-9))
+                yield return $"{b.Name} has a broken landing by {b.LandingSide}";
+            if (b.PopK > 0 && b.Owner == null && !w.Rules.StartPopulation) yield return $"{b.Name} has people but no holder";
+        }
+        foreach (var f in w.Fleets.Where(f => f.PeopleRun != null && !w.ShipsOf(f).Any(Planets.IsColonyShip)))
+            yield return $"fleet {f.Id} {f.Name} is on a people run with no colony ship";
+    }
 
     private static IEnumerable<string> PositionsFinite(World w)
     {

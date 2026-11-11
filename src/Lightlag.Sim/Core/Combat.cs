@@ -803,6 +803,10 @@ public static class Combat
 
     public static Side Other(Side s) => s == Side.Player ? Side.Rival : Side.Player;
 
+    /// <summary>Has the fleet a working weapon (railguns or loaded missile racks)?</summary>
+    public static bool Armed(World w, Fleet f) =>
+        w.ShipsOf(f).Any(s => Fitting.Spec(s) is var c && (c.Railguns > 0 && s.Disabled != Module.Railguns || s.Missiles > 0));
+
     /// <summary>The nearest enemy fleet this fleet's side can see, within range.</summary>
     public static Fleet? NearestEnemyFleet(World w, Fleet f, double range)
     {

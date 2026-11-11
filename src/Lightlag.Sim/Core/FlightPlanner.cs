@@ -58,7 +58,25 @@ public static partial class FlightPlanner
         if (req.Route == RouteKind.Slingshot && req.TargetFleetId == null)
             return req.FlybyBodyId != null ? Straight(req) : BestSlingshot(w, fleet, req).Plan;
         var plan = Straight(req);
-        return Avoidance.Steer(w, fleet, req, plan, Straight);
+        var steered = Avoidance.Steer(w, fleet, req, plan, Straight);
+        // Leaving a planet for its own moon on the far side, the detour round the planet can turn into a
+        // trip of months (the planet runs off along its orbit while the fleet goes round). Leaving a few
+        // hours later, when the moon has swung clear, is far quicker: look for that.
+        if (from != null && req.TargetFleetId == null && req.Chase == ChaseMode.None && req.Waypoints is not { Count: > 0 }
+            && plan.Flight != null && steered.Flight != null && steered.Flight.ArriveHour - plan.Flight.ArriveHour > 48)
+        {
+            for (var h = 2; h <= 36; h += 2)
+            {
+                var later = req with { DepartTick = req.DepartTick + h };
+                var first = Straight(later);
+                if (first.Flight == null) continue;
+                var tried = Avoidance.Steer(w, fleet, later, first, Straight);
+                if (tried.Flight != null && tried.Flight.ArriveHour < steered.Flight!.ArriveHour - 1 && Avoidance.FirstHit(w, tried.Flight) == null)
+                    steered = tried;
+                if (steered.Flight!.ArriveHour - plan.Flight.ArriveHour <= 48) break;
+            }
+        }
+        return steered;
     }
 
     /// <summary>Plans the flight in straight stretches, without looking for planets in the way.</summary>

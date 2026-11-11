@@ -221,13 +221,17 @@ public partial class EmpirePanel : PanelContainer
 
     private static string PlanetsLine(World w)
     {
-        var total = Economy.Claimable(w).Count();
+        var d = Planets.D;
+        var c = Planets.Control(w, Side.Player);
         var mine = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
         var theirs = Economy.Claimable(w).Count(b => b.Owner == Side.Rival);
-        var line = $"Planets held: you {mine}, rival {theirs}, of {total}. Hold more than {total / 2} for {GameData.Economy.HoldToWinDays:0} days to win.";
+        var line = $"Control: you {c.Share:P0} (people {c.People:P0}, Industry {c.Industry:P0}, planets {c.Bodies:P0}, fleets {c.Fleets:P0}). "
+                   + $"Planets held: you {mine}, rival {theirs}, of {Economy.Claimable(w).Count()}. People: you {Planets.PopulationOf(w, Side.Player):0}k, rival {Planets.PopulationOf(w, Side.Rival):0}k.\n"
+                   + $"At {d.TipShare:P0} control a side has tipped the game: planets it blockades give up sooner (below happiness {d.SurrenderBelowTipped:0}, not {d.SurrenderBelow:0}). "
+                   + $"Hold {d.TipShare:P0} for {d.WinAfterDays:0} days, or reach {d.WinShare:P0}, to win. Destroying the rival shipyard also wins.";
         foreach (var side in new[] { Side.Player, Side.Rival })
             if (Economy.Of(w, side).MajoritySinceHour is double since)
-                line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + GameData.Economy.HoldToWinDays * 24)} if nothing changes.";
+                line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + d.WinAfterDays * 24)} if nothing changes.";
         return line;
     }
 

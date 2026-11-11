@@ -16,6 +16,7 @@ public partial class Hud : CanvasLayer
     private PanelContainer _infoPanel = null!;
     private Label _info = null!;
     private FleetPanel _fleetPanel = null!;
+    private PlanetPanel _planetPanel = null!;
     private PlannerPanel _plannerPanel = null!;
     private ReportPanel _reportPanel = null!;
     private ReplayPanel _replayPanel = null!;
@@ -117,6 +118,12 @@ public partial class Hud : CanvasLayer
         _infoPanel.GrowHorizontal = Control.GrowDirection.Begin;
         _infoPanel.GrowVertical = Control.GrowDirection.Begin;
         AddChild(_infoPanel);
+
+        _planetPanel = new PlanetPanel(_screen);
+        _planetPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomRight, Control.LayoutPresetMode.KeepSize, 16);
+        _planetPanel.GrowHorizontal = Control.GrowDirection.Begin;
+        _planetPanel.GrowVertical = Control.GrowDirection.Begin;
+        AddChild(_planetPanel);
 
         _fleetPanel = new FleetPanel(_screen);
         _fleetPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomRight, Control.LayoutPresetMode.KeepSize, 16);
@@ -239,7 +246,10 @@ public partial class Hud : CanvasLayer
             var me = Economy.Of(w, Side.Player);
             var held = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
             var attacked = Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double h } && w.Hour - h <= 24;
+            var control = Planets.Control(w, Side.Player).Share;
+            var tipped = Planets.Tipped(w, Side.Player) ? " TIPPED" : Planets.Tipped(w, Side.Rival) ? " (rival tipped)" : "";
             _empireButton.Text = $"Industry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/day) · planets {held}/{Economy.Claimable(w).Count()}"
+                                 + $" · people {Planets.PopulationOf(w, Side.Player):0}k · control {control:P0}{tipped}"
                                  + (attacked ? " · SHIPYARD UNDER ATTACK" : "") + " · Empire ▾";
             _empireButton.Modulate = attacked ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
         }
@@ -298,7 +308,11 @@ public partial class Hud : CanvasLayer
         }
         else _battle.Visible = true;
 
-        var text = fleet == null && group.Count < 2 && engagement == null ? Describe(sim) : null;
+        // In a full game a selected planet gets the planet screen; the sandbox keeps the short description.
+        var planet = fleet == null && group.Count < 2 && engagement == null && w.Loop ? _screen.SelectedBody : null;
+        _planetPanel.Visible = planet != null && planet.Kind != BodyKind.Star;
+        if (_planetPanel.Visible) _planetPanel.Refresh(sim, planet!);
+        var text = fleet == null && group.Count < 2 && engagement == null && !_planetPanel.Visible ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
     }

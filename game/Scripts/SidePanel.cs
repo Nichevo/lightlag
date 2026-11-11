@@ -190,8 +190,14 @@ public partial class SidePanel : PanelContainer
             var tags = new List<string> { Format.Title(b.Kind.ToString()) };
             if (b.Shipyard) tags.Add("shipyard");
             if (b.ClaimSide == Side.Player) tags.Add("you are claiming it");
-            if (w.Loop && b.Industry > 0) tags.Add($"industry {b.Industry:0}");
+            if (w.Loop && b.PopK > 0)
+                tags.Add($"{b.PopK:0.#}k people" + (b.Owner != null && w.Rules.Happiness ? $", happy {b.Happiness:0}" : "") + (b.Hungry ? ", HUNGRY" : ""));
+            else if (w.Loop && Planets.Settleable(b)) tags.Add($"empty, room for {Planets.Cap(b):0}k");
+            if (w.Loop && b.Owner != null && b.Industry > 0) tags.Add($"industry {Planets.IndustryPerDay(w, b):0.#}");
+            else if (w.Loop && b.Industry > 0) tags.Add($"industry {b.Industry:0}");
             else if (w.Loop && b.Kind != BodyKind.Star) tags.Add("can't be claimed");
+            if (w.Loop && b.Owner != null && Economy.Blockaded(w, b)) tags.Add("BLOCKADED");
+            if (w.Loop && b.LandingSide != null) tags.Add("ground fight");
             var (badge, color) = b.Owner switch
             {
                 Side.Player => ("yours", Ui.Player),

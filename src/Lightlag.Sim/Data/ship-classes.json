@@ -39,7 +39,19 @@
       "armour": 80, "evasion": 0.05, "railguns": 0, "pointDefence": 1, "missiles": 0, "cost": 90,
       "sensorMm": 25, "signatureSize": 2.0, "heatCapacity": 120, "heatSinks": 2, "shield": 0, "power": 8, "heatBudget": 6, "cargo": 200, "cargoKind": "food",
       "slots": [ { "type": "D", "fit": "point-defence" }, { "type": "U", "fit": "" }, { "type": "U", "fit": "" }, { "type": "E", "fit": "engine-mk1" } ],
-      "role": "Supply ship: carries food out to fleets." }
+      "role": "Supply ship: carries food out to fleets." },
+    { "id": "colony-ship", "name": "Colony ship", "short": "CS", "icon": "freighter", "lengthM": 200,
+      "maxSpeedMmPerHour": 420, "accelMmPerHour2": 8, "supplies": 120, "suppliesPerDeltaV": 0.02,
+      "armour": 70, "evasion": 0.05, "railguns": 0, "pointDefence": 1, "missiles": 0, "cost": 100,
+      "sensorMm": 25, "signatureSize": 2.2, "heatCapacity": 120, "heatSinks": 2, "shield": 0, "power": 8, "heatBudget": 6, "cargo": 10, "cargoKind": "people",
+      "slots": [ { "type": "D", "fit": "point-defence" }, { "type": "U", "fit": "" }, { "type": "E", "fit": "engine-mk1" } ],
+      "role": "Carries 10k settlers: settles empty worlds and moves people between your planets, taken ones too." },
+    { "id": "troop-ship", "name": "Troop ship", "short": "TS", "icon": "freighter", "lengthM": 160,
+      "maxSpeedMmPerHour": 450, "accelMmPerHour2": 9, "supplies": 100, "suppliesPerDeltaV": 0.02,
+      "armour": 90, "evasion": 0.1, "railguns": 0, "pointDefence": 1, "missiles": 0, "cost": 90,
+      "sensorMm": 25, "signatureSize": 1.8, "heatCapacity": 120, "heatSinks": 2, "shield": 0, "power": 8, "heatBudget": 6, "cargo": 2, "cargoKind": "troops",
+      "slots": [ { "type": "D", "fit": "point-defence" }, { "type": "U", "fit": "" }, { "type": "E", "fit": "engine-mk1" } ],
+      "role": "Carries 2k troops raised from a planet you hold: lands them from low orbit to take a planet, or boards a ship on an enemy slipway." }
   ],
   "_modulesComment": "Modules for the slots. Each adds its numbers to the ship (pairs twice) and uses power and heat from the hull's budgets. accelFactor multiplies thrust; burnHeatFactor multiplies the heat a burn makes. cost is Industry, paid at a refit.",
   "modules": [

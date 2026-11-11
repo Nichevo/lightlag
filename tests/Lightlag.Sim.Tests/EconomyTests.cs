@@ -38,7 +38,7 @@ public class EconomyTests
         Assert.Equal("verdant", Economy.ShipyardOf(sim.World, Side.Player)?.Key);
         Assert.Equal("rust", Economy.ShipyardOf(sim.World, Side.Rival)?.Key);
         Assert.Equal(GameData.Economy.StartIndustry, Player(sim).Industry);
-        Assert.Equal(12, Economy.Claimable(sim.World).Count());
+        Assert.Equal(15, Economy.Claimable(sim.World).Count());
     }
 
     [Fact]
@@ -46,8 +46,15 @@ public class EconomyTests
     {
         var sim = NewGame();
         var start = Player(sim).Industry;
-        Days(sim, 10);
-        Assert.Equal(start + 10 * (BodyNamed(sim, "verdant").Industry - SupplyLines.UpkeepPerDay(sim.World, Side.Player)), Player(sim).Industry, 6);
+        double expected = start;
+        for (var h = 0; h < 10 * GameTime.TicksPerDay; h++)
+        {
+            sim.Step();
+            expected += (Economy.IncomePerDay(sim.World, Side.Player) - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24;
+        }
+        Assert.Equal(expected, Player(sim).Industry, 6);
+        // The home's base industry plus its mine, with full staff.
+        Assert.True(Economy.IncomePerDay(sim.World, Side.Player) >= BodyNamed(sim, "verdant").Industry + 3);
     }
 
     [Fact]
@@ -59,7 +66,7 @@ public class EconomyTests
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
         sim.Step();
         var frigate = GameData.ShipClass("gun-frigate");
-        Assert.Equal(GameData.Economy.StartIndustry - frigate.Cost + (BodyNamed(sim, "verdant").Industry - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
+        Assert.Equal(GameData.Economy.StartIndustry - frigate.Cost + (Economy.IncomePerDay(sim.World, Side.Player) - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
         Days(sim, frigate.Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
         Assert.Equal(ships + 1, home.ShipIds.Count);
         Assert.Empty(sim.World.Orders);
@@ -130,7 +137,7 @@ public class EconomyTests
         sim.Issue(new CancelOrderCommand(Side.Player, sim.World.Orders.Single().Id));
         sim.Step();
         Assert.Empty(sim.World.Orders);
-        Assert.Equal(before + GameData.ShipClass("gun-frigate").Cost + (BodyNamed(sim, "verdant").Industry - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
+        Assert.Equal(before + GameData.ShipClass("gun-frigate").Cost + (Economy.IncomePerDay(sim.World, Side.Player) - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
     }
 
     [Fact]
@@ -171,7 +178,8 @@ public class EconomyTests
         Days(sim, 1.1);
         Assert.Equal(Side.Player, vela.Owner);
         var income = Economy.IncomePerDay(sim.World, Side.Player);
-        Assert.Equal(BodyNamed(sim, "verdant").Industry + vela.Industry, income, 9);
+        // An empty planet you hold makes part of its industry until settlers arrive.
+        Assert.Equal(Planets.IndustryPerDay(sim.World, BodyNamed(sim, "verdant")) + vela.Industry * Planets.D.UnsettledShare, income, 9);
     }
 
     [Fact]
@@ -229,15 +237,22 @@ public class EconomyTests
     }
 
     [Fact]
-    public void Holding_most_planets_for_thirty_days_wins()
+    public void Holding_most_of_the_system_for_thirty_days_wins()
     {
         var sim = NewGame();
-        foreach (var key in new[] { "cinder", "vela", "pale", "tamber", "brim", "glass" })
-            BodyNamed(sim, key).Owner = Side.Player;
-        Days(sim, GameData.Economy.HoldToWinDays - 1);
-        Assert.Null(sim.World.Winner);
+        var w = sim.World;
+        foreach (var b in Economy.Claimable(w).Where(b => b.Owner == null)) b.Owner = Side.Player;
+        BodyNamed(sim, "rust").PopK = 10;
+        foreach (var ship in w.Ships.Where(s => s.Side == Side.Rival).ToList()) Combat.Destroy(sim, ship);
+        Economy.Of(w, Side.Rival).FlagshipId = null;
+        var share = Planets.Control(w, Side.Player).Share;
+        Assert.InRange(share, GameData.Economy.Planets!.TipShare, GameData.Economy.Planets.WinShare);
+        sim.Step();
+        Assert.True(Planets.Tipped(w, Side.Player));
+        Days(sim, Planets.D.WinAfterDays - 1);
+        Assert.Null(w.Winner);
         Days(sim, 1.1);
-        Assert.Equal(Side.Player, sim.World.Winner);
+        Assert.Equal(Side.Player, w.Winner);
     }
 
     [Fact]

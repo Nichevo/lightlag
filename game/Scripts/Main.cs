@@ -78,12 +78,22 @@ public partial class Main : Node
     /// <summary>Decapitation for the next new game: losing the flagship with no destroyer left loses the game.</summary>
     public bool DecapitationChoice { get; set; } = true;
 
+    /// <summary>The optional systems for the next new game (see GameRules). Random starts are on by default in the game.</summary>
+    public bool HappinessChoice { get; set; } = true;
+    public bool SupplyLinesChoice { get; set; } = true;
+    public bool SpreadPeopleChoice { get; set; }
+    public bool RandomStartsChoice { get; set; } = true;
+
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
         RunGuarded("starting a new game", () =>
         {
-            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with { Light = LightChoice, Decapitation = DecapitationChoice });
+            Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with
+            {
+                Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
+                StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice,
+            });
             SetScreen(new GameScreen());
         });
     }
@@ -304,6 +314,7 @@ public partial class Main : Node
         try
         {
             Directory.CreateDirectory(dir);
+            RandomStartsChoice = false; // the shots below expect the usual homes
             StartNewGame(7);
             var game = (GameScreen)_screen!;
             Sim!.StepMany(3 * GameTime.TicksPerDay);
@@ -452,6 +463,11 @@ public partial class Main : Node
             empire.ShowBodyMenu(true);
             await Shoot("19-planet-list");
             empire.ShowBodyMenu(false);
+
+            // The planet screen: the home world's people, happiness, food and buildings.
+            empire.PickBody(Sim.World.Bodies.Single(b => b.Key == "verdant").Id);
+            empire.Camera.SetScale(empire.Camera.TargetScale, instant: true);
+            await Shoot("19b-planet-screen");
 
             // The end of a game: the rival shipyard is gone.
             var rust = Sim.World.Bodies.Single(b => b.Key == "rust");

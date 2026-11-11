@@ -1,5 +1,5 @@
 {
-  "_comment": "The hand-made test system. Distances: orbitAu (astronomical units) or orbitMm (megametres, 1000 km). Sizes: radiusMm. Masses: massSun or massEarth. Orbit periods are worked out from the parent's mass. Bodies must list parents before their moons. Colours are hex. industry is what holding the body makes per day (0 or missing: not worth claiming). Names are placeholders.",
+  "_comment": "The hand-made test system. Distances: orbitAu (astronomical units) or orbitMm (megametres, 1000 km). Sizes: radiusMm. Masses: massSun or massEarth. Orbit periods are worked out from the parent's mass. Bodies must list parents before their moons. Colours are hex. industry is what holding the body makes per day (0 or missing: not worth claiming). Names are placeholders. Asteroids (kind asteroid) in the Scatter are big enough to settle.",
   "name": "test-system",
   "_sizeComment": "sizeScale multiplies every radius below (which are true sizes). 5 makes planets and moons big enough to hide fleets and shape routes at battle ranges; moons too close to their enlarged planet are moved out.",
   "sizeScale": 5,
@@ -15,6 +15,10 @@
     { "id": "rust", "name": "Rust", "kind": "planet", "type": "desert", "parent": "hesper", "orbitAu": 1.52, "massEarth": 0.107, "radiusMm": 3.39, "industry": 6, "color": "c1663b", "atmosphere": "e8a07c" },
     { "id": "flint", "name": "Flint", "kind": "moon", "type": "rocky", "parent": "rust", "orbitMm": 9.38, "massEarth": 0.0000018, "radiusMm": 0.011, "industry": 1, "color": "8a7f76" },
     { "id": "grit", "name": "Grit", "kind": "moon", "type": "rocky", "parent": "rust", "orbitMm": 23.46, "massEarth": 0.00000025, "radiusMm": 0.006, "industry": 1, "color": "8f8780" },
+
+    { "id": "kesh", "name": "Kesh", "kind": "asteroid", "type": "asteroid", "parent": "hesper", "orbitAu": 2.45, "massEarth": 0.00016, "radiusMm": 0.47, "industry": 1, "color": "8c8478" },
+    { "id": "orrin", "name": "Orrin", "kind": "asteroid", "type": "asteroid", "parent": "hesper", "orbitAu": 2.77, "massEarth": 0.00004, "radiusMm": 0.27, "industry": 1, "color": "9a8f7f" },
+    { "id": "pell", "name": "Pell", "kind": "asteroid", "type": "asteroid", "parent": "hesper", "orbitAu": 3.05, "massEarth": 0.00002, "radiusMm": 0.25, "industry": 1, "color": "7d776f" },
 
     { "id": "tamber", "name": "Tamber", "kind": "planet", "type": "gas", "parent": "hesper", "orbitAu": 5.2, "massEarth": 317.8, "radiusMm": 69.9, "industry": 3, "color": "c9a27a", "atmosphere": "f2d6b3" },
     { "id": "brim", "name": "Brim", "kind": "moon", "type": "volcanic", "parent": "tamber", "orbitMm": 421.7, "massEarth": 0.015, "radiusMm": 1.82, "industry": 1, "color": "d8c25a" },

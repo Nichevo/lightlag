@@ -18,7 +18,7 @@ public sealed record ResearchData(string Id, string Name, string Effect, double 
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
-    TeamsData? Teams = null);
+    TeamsData? Teams = null, PlanetsData? Planets = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days);
@@ -68,7 +68,7 @@ public sealed class SideState
     /// <summary>After the flagship is lost far from its successor: no orders go out until this hour (fleets act on their own).</summary>
     public double CommandGapUntil { get; set; } = -1e9;
 
-    /// <summary>When this side started holding more than half the planets (null while it doesn't).</summary>
+    /// <summary>When this side reached the tip share of control (null while it hasn't; see Planets.Control).</summary>
     public double? MajoritySinceHour { get; set; }
 
     /// <summary>Running totals for the game statistics (see Stats).</summary>
@@ -185,7 +185,7 @@ public static class Economy
     public static IEnumerable<Body> Claimable(World w) => w.Bodies.Where(b => b.Industry > 0);
 
     public static double IncomePerDay(World w, Side side) =>
-        w.Bodies.Where(b => b.Owner == side).Sum(b => b.Industry) * Tech.Factor(w, side, Tech.Automation);
+        w.Bodies.Where(b => b.Owner == side).Sum(b => Planets.IndustryPerDay(w, b)) * Tech.Factor(w, side, Tech.Automation);
 
     public static double CostOf(WorkOrder o) => o.Kind == OrderKind.Ship
         ? GameData.ShipClass(o.Key).Cost
@@ -260,6 +260,8 @@ public static class Economy
         var w = sim.World;
         if (!w.Loop || w.Winner != null) return;
         Research.EnsureTeams(w);
+        Planets.Update(sim);
+        if (w.Winner != null) return;
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
             var earned = IncomePerDay(w, side) / 24;
@@ -319,13 +321,26 @@ public static class Economy
         var yard = ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
         Of(w, side).Totals.ShipsBuilt++;
+        // The crew comes from the shipyard planet's people.
+        if (yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost);
+        // Troop ships leave with their soldiers aboard, raised from the same people.
+        if (Planets.IsTroopShip(ship))
+        {
+            var troops = Math.Min(Planets.TroopHold(ship), Math.Max(0, yard.PopK - Planets.D.KeepAtSourceK));
+            ship.CargoTroops = troops;
+            yard.PopK -= troops;
+        }
         var target = joinFleetId is int j && w.FindFleet(j) is Fleet t && t.Side == side ? t : null;
         Fleet? waiting;
         if (target != null)
             waiting = InOrbitAt(target, yard) && target.Flight == null && !target.Retreating ? target : null;
         else
+        {
+            // Colony ships keep to themselves (they have their own errands); warships don't wait on them.
+            var colony = Planets.IsColonyShip(ship);
             waiting = w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
-                                                   && InOrbitAt(f, yard));
+                                                   && f.PeopleRun == null && InOrbitAt(f, yard) && w.ShipsOf(f).All(Planets.IsColonyShip) == colony);
+        }
         if (waiting != null)
         {
             waiting.ShipIds.Add(ship.Id);
@@ -400,7 +415,8 @@ public static class Economy
         foreach (var b in Claimable(w))
         {
             var need = ClaimHoursFor(b);
-            if (b.Shipyard) { b.ClaimSide = null; b.ClaimHours = 0; continue; }
+            // Shipyards can't be claimed, only destroyed; a peopled planet held by a side must surrender or be taken by troops.
+            if (b.Shipyard || b.Owner != null && b.PopK > 0) { b.ClaimSide = null; b.ClaimHours = 0; continue; }
             var sides = w.Fleets.Where(f => InOrbitAt(f, b)).Select(f => f.Side).Distinct().ToList();
             if (sides.Count != 1 || b.Owner == sides[0])
             {
@@ -419,6 +435,8 @@ public static class Economy
             if (b.ClaimHours < need) continue;
             var before = b.Owner;
             b.Owner = side;
+            b.AutoTopUp = false;
+            b.Building = null;
             Of(w, side).Totals.PlanetsClaimed++;
             if (before is Side loser) Of(w, loser).Totals.PlanetsLost++;
             b.ClaimSide = null;
@@ -462,10 +480,31 @@ public static class Economy
         return $"Under attack and blockaded (it can't build): about {perDay / y.Armour:P0} of its armour a day, {b.ShipyardArmour / perDay:0.#} days to go";
     }
 
-    /// <summary>An armed enemy fleet holds orbit over this shipyard: it can't launch ships.</summary>
+    /// <summary>An armed enemy fleet holds orbit over this body: a shipyard can't launch ships, and a planet is cut off (see Planets).</summary>
     public static bool Blockaded(World w, Body yard) =>
-        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard)
-            && w.ShipsOf(f).Any(s => Fitting.Spec(s) is var c && (c.Railguns > 0 && s.Disabled != Module.Railguns || s.Missiles > 0)));
+        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard) && Combat.Armed(w, f));
+
+    /// <summary>
+    /// Damage a ship does in an hour of bombardment from orbit: its railguns (using ammunition) every hour,
+    /// a missile every few hours. With consume, the ammunition and missiles are used up.
+    /// </summary>
+    public static double HourlyDamage(World w, Ship s, bool consume)
+    {
+        var y = E.Shipyard;
+        var cls = Fitting.Spec(s);
+        double damage = 0;
+        if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour)
+        {
+            if (consume) s.Ammo -= cls.Railguns * y.RailSuppliesPerHour;
+            damage += cls.Railguns * y.RailDamagePerHour;
+        }
+        if (s.Missiles > 0 && s.Disabled != Module.Missiles && w.Tick % (long)Math.Max(1, y.MissileEveryHours) == 0)
+        {
+            if (consume) s.Missiles--;
+            damage += y.MissileDamage;
+        }
+        return damage;
+    }
 
     private static void Bombard(Simulation sim)
     {
@@ -479,20 +518,7 @@ public static class Economy
             double damage = 0;
             if (attackers.Count > 0 && !defended)
             {
-                foreach (var s in attackers.SelectMany(w.ShipsOf))
-                {
-                    var cls = Fitting.Spec(s);
-                    if (cls.Railguns > 0 && s.Disabled != Module.Railguns && s.Ammo >= cls.Railguns * y.RailSuppliesPerHour)
-                    {
-                        s.Ammo -= cls.Railguns * y.RailSuppliesPerHour;
-                        damage += cls.Railguns * y.RailDamagePerHour;
-                    }
-                    if (s.Missiles > 0 && s.Disabled != Module.Missiles && w.Tick % (long)Math.Max(1, y.MissileEveryHours) == 0)
-                    {
-                        s.Missiles--;
-                        damage += y.MissileDamage;
-                    }
-                }
+                foreach (var s in attackers.SelectMany(w.ShipsOf)) damage += HourlyDamage(w, s, consume: true);
             }
             if (damage > 0)
             {
@@ -526,24 +552,32 @@ public static class Economy
             Win(sim, other, other == Side.Player ? "destroyed the rival shipyard" : "destroyed your shipyard");
             return;
         }
-        var total = Claimable(w).Count();
+        // Control: a side with tipShare of control has tipped the game (planets it blockades give up sooner);
+        // it wins at winShare, or after holding tipShare for winAfterDays.
+        var d = Planets.D;
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
             var state = Of(w, side);
-            var held = Claimable(w).Count(b => b.Owner == side);
-            if (held * 2 <= total)
+            var share = Planets.Control(w, side).Share;
+            if (share >= d.WinShare)
             {
+                Win(sim, side, $"holds {share:P0} of the system");
+                return;
+            }
+            if (share < d.TipShare)
+            {
+                if (state.MajoritySinceHour != null) sim.Log.Info("economy", $"{side} no longer leads", new { side = side.ToString(), share });
                 state.MajoritySinceHour = null;
                 continue;
             }
             if (state.MajoritySinceHour == null)
             {
                 state.MajoritySinceHour = w.Hour;
-                sim.Log.Info("economy", $"{side} holds most planets", new { side = side.ToString(), held, total });
+                sim.Log.Info("economy", $"{side} has tipped the game", new { side = side.ToString(), share });
             }
-            if (w.Hour - state.MajoritySinceHour >= E.HoldToWinDays * 24)
+            if (w.Hour - state.MajoritySinceHour >= d.WinAfterDays * 24)
             {
-                Win(sim, side, $"held most planets for {E.HoldToWinDays:0} days");
+                Win(sim, side, $"held {d.TipShare:P0} of the system for {d.WinAfterDays:0} days");
                 return;
             }
         }
