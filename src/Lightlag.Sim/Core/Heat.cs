@@ -36,9 +36,10 @@ public static class Heat
 {
     public static HeatData D => GameData.Heat;
 
-    public static double Capacity(Ship s) => Fitting.Spec(s).HeatCapacity;
+    public static double Capacity(Ship s) => Fitting.Spec(s).HeatCapacity * s.TechHeat;
 
-    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3);
+    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Wounds.DefenceFactor(s) * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3)
+                                                       * Tech.Factor(w, s.Side, "adaptive-shields");
 
     /// <summary>Is this fleet in the battle being fought (so Auto radiators are in)?</summary>
     public static bool InBattle(World w, Fleet f) => w.ActiveBattle is Battle b && b.For(f.Side).Fleets.Contains(f.Name);
@@ -100,7 +101,7 @@ public static class Heat
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
                 var gain = D.IdlePerHour + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) : 0);
-                var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour : D.RadiateInPerHour;
+                var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 s.Heat = Math.Max(0, s.Heat + (gain - shed) * dt);
                 if (!s.Overheated && s.Heat > cap)
                 {
@@ -176,12 +177,12 @@ public static class Heat
     {
         var cls = Fitting.Spec(s);
         s.Shield = MaxShield(w, s);
-        s.HeatSinks = cls.HeatSinks;
+        s.HeatSinks = cls.HeatSinks + s.TechSinks;
         s.Heat = 0;
     }
 
     /// <summary>At home: heat sinks are refilled.</summary>
-    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, Fitting.Spec(s).HeatSinks);
+    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, Fitting.Spec(s).HeatSinks + s.TechSinks);
 
     /// <summary>A missile's fuel left as a share of a full load (held missiles arrive with more).</summary>
     public static double FuelShare(Missile m) => GameData.Combat.Missile.DeltaV > 0 ? Math.Clamp(m.DeltaVLeft / GameData.Combat.Missile.DeltaV, 0, 1) : 0;
@@ -295,7 +296,7 @@ public sealed record DropMissilesCommand(int FleetId, double WaitHours) : GameCo
         var count = 0;
         foreach (var ship in world.ShipsOf(fleet).ToList())
         {
-            if (ship.Missiles <= 0 || ship.Disabled == Module.Missiles) continue;
+            if (ship.Missiles <= 0 || ship.Out(Module.Missiles)) continue;
             var n = Math.Min(m.Salvo, ship.Missiles);
             ship.Missiles -= n;
             for (var i = 0; i < n; i++)

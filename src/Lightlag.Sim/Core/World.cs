@@ -20,6 +20,12 @@ public sealed class World
     public List<Ship> Ships { get; set; } = new();
     public List<Fleet> Fleets { get; set; } = new();
     public List<Missile> Missiles { get; set; } = new();
+    public List<Wreck> Wrecks { get; set; } = new();
+    public List<Lane> Lanes { get; set; } = new();
+    public List<Zone> Zones { get; set; } = new();
+    public List<LaneObs> LaneObs { get; set; } = new();
+    public List<LossSpot> LossSpots { get; set; } = new();
+    public List<Choice> Choices { get; set; } = new();
     public List<Battle> Battles { get; set; } = new();
 
     /// <summary>What each side knows about the other's fleets (see Sensors).</summary>
@@ -198,6 +204,19 @@ public sealed class Body
     public double BaseStaff { get; set; } = 1;
     public bool Thirsty { get; set; }
 
+    /// <summary>Worked out each hour: spare parts upkeep factor (Recycling) and uranium a fission plant burns a day (Breeder reactors).</summary>
+    public double UpkeepFactor { get; set; } = 1;
+    public double FissionFuel { get; set; } = 0.2;
+
+    /// <summary>Garrison factor for bunkers (Hardened bunkers: 1.5), worked out each hour.</summary>
+    public double BunkerFactor { get; set; } = 1;
+
+    /// <summary>People cap factor from research (Low-gravity medicine on small bodies), worked out each hour.</summary>
+    public double CapFactor { get; set; } = 1;
+
+    /// <summary>Goods waited for here (building materials, ships at the yard, research at home), worked out each hour: freighters bring them.</summary>
+    public Dictionary<string, double> Wants { get; set; } = new();
+
     /// <summary>A side whose bombing of the people here they won't forgive: the planet never surrenders to it.</summary>
     public Side? Grudge { get; set; }
     public double? LastBombedHour { get; set; }
@@ -250,11 +269,36 @@ public sealed class Ship
     /// <summary>The ship's one stock of fuel and railgun ammunition.</summary>
     public double Supplies { get; set; }
 
+    /// <summary>The hull bar (armour points; full is Tech.MaxArmour). At zero the ship is crippled (see Wounds).</summary>
     public double Armour { get; set; }
     public int Missiles { get; set; }
 
-    /// <summary>A part knocked out in battle, until repaired at home.</summary>
-    public Module? Disabled { get; set; }
+    /// <summary>The other four damage bars, each a share of full (0..1): weapons, engines, defence (point defence and shields), crew.</summary>
+    public double Weapons { get; set; } = 1;
+    public double Engines { get; set; } = 1;
+    public double Defence { get; set; } = 1;
+    public double Crew { get; set; } = 1;
+
+    /// <summary>Hull gone: can't fire, limps at a quarter speed, leaves the fight. CrippleLeft more damage destroys it.</summary>
+    public bool Crippled { get; set; }
+    public double CrippleLeft { get; set; }
+
+    /// <summary>Hours left of its refit in a yard bay (0: not in a bay).</summary>
+    public double RefitHoursLeft { get; set; }
+
+    /// <summary>Parts knocked out in battle (any number), until repaired (damage control or a yard).</summary>
+    public List<Module> Knocked { get; set; } = new();
+
+    /// <summary>The first part knocked out (older code and tests set one part this way).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Module? Disabled
+    {
+        get => Knocked.Count > 0 ? Knocked[0] : null;
+        set { Knocked.Clear(); if (value is Module m) Knocked.Add(m); }
+    }
+
+    /// <summary>Is this part out of action (knocked out, or every weapon and defence on a crippled ship)?</summary>
+    public bool Out(Module m) => Knocked.Contains(m) || Crippled && m != Module.Engines;
 
     /// <summary>Game hours when the railguns and missile racks can fire again.</summary>
     public double RailsReadyHour { get; set; }
@@ -271,6 +315,13 @@ public sealed class Ship
     public bool Overheated { get; set; }
     public int HeatSinks { get; set; }
     public double Shield { get; set; }
+
+    /// <summary>Research on heat (see Tech.Refresh): heat capacity factor and extra heat sinks.</summary>
+    public double TechHeat { get; set; } = 1;
+
+    /// <summary>Settler ships: people carried as a share of the hold (Cryo-sleep doubles it).</summary>
+    public double TechPeople { get; set; } = 1;
+    public int TechSinks { get; set; }
 
     /// <summary>Railgun ammunition (supply units; see SupplyLines) and food (days for the crew).</summary>
     public double Ammo { get; set; }
@@ -294,3 +345,20 @@ public sealed class Ship
 }
 
 public enum Module { Engines, Railguns, Missiles, PointDefence }
+
+/// <summary>A destroyed ship's drifting hull: salvage for materials until it drifts off (see Wounds).</summary>
+public sealed class Wreck
+{
+    public int Id { get; set; }
+    public Side Side { get; set; }
+    public string ClassId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public Vec2 Position { get; set; }
+    public Vec2 Velocity { get; set; }
+
+    /// <summary>Lost in orbit: it stays in orbit of this body, at this offset.</summary>
+    public int? BodyId { get; set; }
+    public Vec2 Offset { get; set; }
+    public double Hour { get; set; }
+    public Dictionary<string, double> Salvage { get; set; } = new();
+}

@@ -86,6 +86,7 @@ public static class Supply
     public static void GoRefill(Simulation sim, Fleet f)
     {
         var w = sim.World;
+        Sparks.Fire(sim, f.Side, "fleet-dry");
         f.Resupplying = true;
         f.Maneuvering = false;
         f.Chase = null;

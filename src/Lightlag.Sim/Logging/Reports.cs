@@ -11,6 +11,7 @@ namespace Lightlag.Sim.Logging;
 ///   replay.json    the whole game so far, to watch it happen again exactly
 ///   log-tail.jsonl the last few hundred log lines
 ///   stats.csv      each side at the end of each game day (full games only)
+///   choices.csv    what each side chose (buildings, research, ships, leanings, battles), for the "what matters" table
 ///   rival-mind.md  what the computer rival is doing and why (full games only)
 ///   error.txt      the full exception (crash reports only)
 ///   screenshot.png (F8 reports from the game; the game adds it)
@@ -75,6 +76,7 @@ public static class Reports
         Try(problems, "replay.json", () => sim.Replay.WriteTo(Path.Combine(dir, "replay.json")));
         if (!sim.World.Loop) return;
         Try(problems, "stats.csv", () => File.WriteAllText(Path.Combine(dir, "stats.csv"), Stats.ToCsv(sim.World)));
+        Try(problems, "choices.csv", () => File.WriteAllText(Path.Combine(dir, "choices.csv"), Choices.ToCsv(sim.World)));
         if (sim.World.Minds.Count > 0)
             Try(problems, "rival-mind.md", () => File.WriteAllText(Path.Combine(dir, "rival-mind.md"), Mind.Describe(sim.World)));
     }

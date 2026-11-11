@@ -5,9 +5,11 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The empire panel (E): Industry, the shipyard and its build queue, the research list and planet
-/// claims. Buttons issue commands; the panel rebuilds its buttons only when the queues change, and
-/// updates the numbers every frame.
+/// The empire screen (E), in tabs: Overview (Industry, the shipyard and its build queue, research,
+/// stations and claims), Needs you (what wants a look, with act, jump and dismiss), Automation (the nine
+/// areas, each Auto, Advise or Manual, with overrides and the pull-back defaults), Resources (goods made,
+/// used and held) and Buildings (the catalogue). Buttons issue commands; the panel rebuilds its buttons
+/// only when what it shows changes shape, and updates the numbers every frame.
 /// </summary>
 public partial class EmpirePanel : PanelContainer
 {
@@ -15,6 +17,12 @@ public partial class EmpirePanel : PanelContainer
     private VBoxContainer _box = null!;
     private string _shape = "";
     private readonly List<(Label Label, Func<World, string> Text)> _live = new();
+    private Tab _tab = Tab.Overview;
+
+    public enum Tab { Overview, Needs, Automation, Resources, Buildings }
+
+    /// <summary>Open on a tab (from the HUD's Needs you count, for example).</summary>
+    public void Show(Tab tab) { _tab = tab; _shape = ""; }
 
     public EmpirePanel() : this(null!) { }
     public EmpirePanel(GameScreen screen) => _screen = screen;
@@ -22,7 +30,7 @@ public partial class EmpirePanel : PanelContainer
     public override void _Ready()
     {
         Ui.StylePanel(this, 14);
-        _box = new VBoxContainer { CustomMinimumSize = new Vector2(380, 0) };
+        _box = new VBoxContainer { CustomMinimumSize = new Vector2(Width, 0) };
         _box.AddThemeConstantOverride("separation", 4);
         // Scrolls when the panel would run off the bottom of the screen.
         _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
@@ -55,8 +63,19 @@ public partial class EmpirePanel : PanelContainer
         FitHeight();
     }
 
+    private const float Width = 520;
+
     /// <summary>Everything that changes which buttons and rows exist.</summary>
-    private static string Shape(World w) =>
+    private string Shape(World w) => _tab + "|" + Economy.Of(w, Side.Player).Needs.Count + Economy.Of(w, Side.Player).Needs.Any(n => n.Level == NeedLevel.Urgent) + "|" + _tab switch
+    {
+        Tab.Needs => EmpireTabs.NeedsShape(w),
+        Tab.Automation => EmpireTabs.AutomationShape(w),
+        Tab.Resources => string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id)),
+        Tab.Buildings => string.Join(",", Economy.Of(w, Side.Player).Researched),
+        _ => OverviewShape(w),
+    };
+
+    private static string OverviewShape(World w) =>
         string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}"))
         + "|" + string.Join(",", Economy.Of(w, Side.Player).Researched)
         + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner
@@ -69,6 +88,15 @@ public partial class EmpirePanel : PanelContainer
     {
         foreach (var c in _box.GetChildren()) c.QueueFree();
         _live.Clear();
+        Tabs(w);
+        var tabs = new EmpireTabs(_screen, _box, _live);
+        switch (_tab)
+        {
+            case Tab.Needs: tabs.Needs(w); return;
+            case Tab.Automation: tabs.Automation(w); return;
+            case Tab.Resources: tabs.Resources(w); return;
+            case Tab.Buildings: tabs.Buildings(w); return;
+        }
 
         Heading("Empire");
         Live(14, Ui.Text, w2 =>
@@ -175,6 +203,42 @@ public partial class EmpirePanel : PanelContainer
         Live(13, Ui.Dim, ClaimsText);
     }
 
+    /// <summary>The tab row along the top; the Needs you tab shows how many items wait (red with urgent ones).</summary>
+    private void Tabs(World w)
+    {
+        var row = Row();
+        row.AddThemeConstantOverride("separation", 3);
+        foreach (var tab in Enum.GetValues<Tab>())
+        {
+            var t = tab;
+            var needs = Economy.Of(w, Side.Player).Needs;
+            var name = tab switch
+            {
+                Tab.Needs => $"Needs you ({needs.Count})",
+                _ => tab.ToString(),
+            };
+            var b = Ui.SmallButton(name, () => Show(t), TabTip(tab));
+            b.CustomMinimumSize = new Vector2(0, 28);
+            b.AddThemeFontSizeOverride("font_size", 13);
+            if (tab == _tab) b.Modulate = Ui.Player;
+            else if (tab == Tab.Needs && needs.Any(n => n.Level == NeedLevel.Urgent)) b.Modulate = Ui.Danger;
+            row.AddChild(b);
+        }
+        var research = Ui.SmallButton("Research ↗", () => _screen.ShowResearch = true, "Teams, ideas and the discovery web (T)");
+        research.CustomMinimumSize = new Vector2(0, 28);
+        research.AddThemeFontSizeOverride("font_size", 13);
+        row.AddChild(research);
+    }
+
+    private static string TabTip(Tab tab) => tab switch
+    {
+        Tab.Needs => "What wants your look: troubles, things due soon, advice and news, with a button to act on each",
+        Tab.Automation => "Hand each area to automation (Auto), have it suggest (Advise) or keep it yourself (Manual)",
+        Tab.Resources => "Goods made, used and held across your planets",
+        Tab.Buildings => "Every building: what it costs, needs and does",
+        _ => "Industry, the shipyard, research, stations and claims",
+    };
+
     private void OrderRow(WorkOrder order, bool first)
     {
         var row = Row();
@@ -261,7 +325,7 @@ public partial class EmpirePanel : PanelContainer
     {
         var l = Ui.Label("", size, color);
         l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        l.CustomMinimumSize = new Vector2(380, 0);
+        l.CustomMinimumSize = new Vector2(Width, 0);
         _box.AddChild(l);
         _live.Add((l, text));
     }

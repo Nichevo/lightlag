@@ -131,7 +131,7 @@ public static class Autonomy
     private static void Work(Simulation sim, Fleet f)
     {
         var w = sim.World;
-        if (f.Mission == Mission.None) return;
+        if (f.Mission is Mission.None or Mission.Ambush or Mission.Hunt) return; // zones are held by Lanes
         if (f.Mission == Mission.Escort) { Escort(sim, f); return; }
         if (!Idle(f)) return;
 

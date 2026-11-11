@@ -55,7 +55,7 @@ public sealed record ShipClass(
     int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
     double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
     string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null,
-    double FoodDays = 60, string CargoKind = "")
+    double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null)
 {
     /// <summary>The class's slots (none for old data).</summary>
     public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();
@@ -75,7 +75,13 @@ public sealed record PointDefenceData(double RangeMm, double ShotSeconds, double
 public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
     double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay,
-    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null, FlagBridgeData? FlagBridge = null);
+    double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null, FlagBridgeData? FlagBridge = null,
+    WoundsData? Wounds = null);
+
+/// <summary>Damage bars, crippled ships, wrecks and repairs. See ship-classes.json ("wounds").</summary>
+public sealed record WoundsData(double BarShare = 1.5, double CrippleHold = 0.4, double CrippledSpeed = 0.25, double KnockedSpeed = 0.5,
+    double MendBarsTo = 0.6, double BarRepairPerDay = 0.5, double RepairAlloys = 0.4, double RepairElectronics = 0.3, double NoMaterialsPace = 0.25,
+    double WreckShare = 0.4, double WreckDays = 90, double SalvageRangeMm = 100, double CrewMendPerDay = 0.1);
 
 /// <summary>The flagship's fleet fights better (light lag only): faster reloads, linked point defence, better aimed railguns.</summary>
 public sealed record FlagBridgeData(double ReloadFactor = 1, double PointDefenceFactor = 1, double AccuracyFactor = 1);

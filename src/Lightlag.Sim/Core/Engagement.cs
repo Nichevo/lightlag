@@ -151,8 +151,8 @@ public static class Engagement
         double GapAt(double t) => Vec2.Distance(Us(t), Them(t));
 
         var ships = w.ShipsOf(mine).ToList();
-        var weMissiles = ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
-        var weRails = ships.Any(x => Fitting.Spec(x).Railguns > 0 && x.Disabled != Module.Railguns);
+        var weMissiles = ships.Any(x => x.Missiles > 0 && !x.Out(Module.Missiles));
+        var weRails = ships.Any(x => Fitting.Spec(x).Railguns > 0 && !x.Out(Module.Railguns));
 
         // Closest approach in the next two days, then a look-ahead that shows it with room either side.
         var gap0 = GapAt(0);
@@ -317,8 +317,8 @@ public static class Engagement
 
         double Peak(Flight f) => f.Legs.Count == 0 ? 0 : f.Legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
         var ships = w.ShipsOf(mine).ToList();
-        var hasRails = ships.Any(x => Fitting.Spec(x).Railguns > 0 && x.Disabled != Module.Railguns);
-        var hasMissiles = ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
+        var hasRails = ships.Any(x => Fitting.Spec(x).Railguns > 0 && !x.Out(Module.Railguns));
+        var hasMissiles = ships.Any(x => x.Missiles > 0 && !x.Out(Module.Missiles));
 
         Chase("engage", "Burn and engage", ChaseMode.GunRange, burn,
             p => $"Burn at {burn:P0} thrust, peaking at {FlightPlanner.Kms(Peak(p.Flight!))}, then brake to {C.EngageRangeMm * 0.75 * 1000:#,0} km and keep pace: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.",

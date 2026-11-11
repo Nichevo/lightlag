@@ -102,7 +102,8 @@ public static class Sensors
     {
         var state = StateOf(f);
         var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) : 1;
-        return SizeOf(w, f) * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f));
+        return SizeOf(w, f) * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f))
+               * Tech.SignatureFactor(w, f.Side, state == SignatureState.Burn);
     }
 
     /// <summary>The fleet's best sensor range (for a signature of 1).</summary>
@@ -194,8 +195,12 @@ public static class Sensors
     /// <summary>How far a body the side holds sees: full range at the shipyard or with a sensor station, else like a ship.</summary>
     public static double PlanetSensorOf(World w, Side side, Body b)
     {
-        var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || Economy.Stations(w, side, Economy.SensorStation).Any(x => x.Body.Id == b.Id);
-        return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.Factor(w, side, Tech.LongSensors);
+        var station = Economy.Stations(w, side, Economy.SensorStation).Any(x => x.Body.Id == b.Id)
+                      || Colonies.Built(b).Any(p => Planets.BuildingKind(p.Kind)?.Sees == true && p.Powered);
+        var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || station;
+        // Deep-space telescopes: stations and arrays see half again as far.
+        return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.Factor(w, side, Tech.LongSensors)
+               * (station ? Tech.Factor(w, side, "deep-space-telescopes") : 1);
     }
 
     /// <summary>How a fleet is really moving now: a fleet in orbit moves with its body (its Velocity is zero).</summary>

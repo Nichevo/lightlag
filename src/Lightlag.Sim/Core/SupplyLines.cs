@@ -76,14 +76,31 @@ public static class SupplyLines
 
     public static bool Hungry(Ship s) => s.Food <= 0 && MaxFood(s) > 0;
 
-    /// <summary>A held planet restocks food and ammunition (fuel is refilled by Simulation.Refill), and loads supply ships.</summary>
-    public static void Restock(Ship s, double hours)
+    /// <summary>Railgun ammunition (supply units) one unit of the ammunition good restocks.</summary>
+    public const double AmmoPerGood = 4;
+
+    /// <summary>
+    /// A held planet restocks food and ammunition (fuel is refilled by Simulation.Refill), and loads supply
+    /// ships. Ammunition comes out of the planet's store of the ammunition good; with none it comes slowly
+    /// (a third of the pace) from local stores. A planet with no store at all (an outpost) restocks freely.
+    /// </summary>
+    public static void Restock(Ship s, double hours, Body? at = null)
     {
-        s.Ammo = Math.Min(MaxAmmo(s), s.Ammo + MaxAmmo(s) * RestockPerHour * hours);
-        s.Food = Math.Min(MaxFood(s), s.Food + MaxFood(s) * RestockPerHour * hours);
         var (fuel, ammo, food) = Hold(s);
+        var ammoWant = Math.Min(MaxAmmo(s) - s.Ammo, MaxAmmo(s) * RestockPerHour * hours)
+                       + Math.Min(ammo - s.CargoAmmo, ammo * LoadPerHour * hours);
+        var ammoRate = 1.0;
+        if (at != null && ammoWant > 1e-9 && (at.Board != null || at.Stock.Count > 0))
+        {
+            var goods = ammoWant / AmmoPerGood;
+            var have = Colonies.Held(at, "ammunition");
+            ammoRate = have >= goods ? 1 : Math.Max(1.0 / 3, have / goods);
+            at.Stock["ammunition"] = Math.Max(0, have - goods * ammoRate);
+        }
+        s.Ammo = Math.Min(MaxAmmo(s), s.Ammo + MaxAmmo(s) * RestockPerHour * hours * ammoRate);
+        s.Food = Math.Min(MaxFood(s), s.Food + MaxFood(s) * RestockPerHour * hours);
         s.CargoFuel = Math.Min(fuel, s.CargoFuel + fuel * LoadPerHour * hours);
-        s.CargoAmmo = Math.Min(ammo, s.CargoAmmo + ammo * LoadPerHour * hours);
+        s.CargoAmmo = Math.Min(ammo, s.CargoAmmo + ammo * LoadPerHour * hours * ammoRate);
         s.CargoFood = Math.Min(food, s.CargoFood + food * LoadPerHour * hours);
     }
 
@@ -103,7 +120,7 @@ public static class SupplyLines
             {
                 if (home || MaxFood(s) <= 0 || !w.Rules.SupplyLines) continue;
                 var before = s.Food;
-                s.Food = Math.Max(0, s.Food - GameTime.HoursPerTick / 24 * Tech.Factor(w, f.Side, Tech.FoodRecyclers));
+                s.Food = Math.Max(0, s.Food - GameTime.HoursPerTick / 24 * Tech.Factor(w, f.Side, Tech.FoodRecyclers) * Tech.Factor(w, f.Side, "closed-loop"));
                 if (before > 0 && s.Food <= 0)
                     Autonomy.Report(sim, f, $"{s.Name} has run out of food: the crew is hungry (worse aim, slower reloads)", NoteKind.Supply);
             }
@@ -119,9 +136,11 @@ public static class SupplyLines
         foreach (var src in from)
         {
             var (hf, ha, hfood) = Hold(src);
-            var fuel = Math.Min(src.CargoFuel, hf * TransferPerHour);
-            var ammo = Math.Min(src.CargoAmmo, ha * TransferPerHour);
-            var food = Math.Min(src.CargoFood, hfood * TransferPerHour);
+            // Underway replenishment: hoses rigged for transfer on the move pass cargo twice as fast.
+            var rate = TransferPerHour * (w.Loop ? Tech.Factor(w, src.Side, "underway-replenishment") : 1);
+            var fuel = Math.Min(src.CargoFuel, hf * rate);
+            var ammo = Math.Min(src.CargoAmmo, ha * rate);
+            var food = Math.Min(src.CargoFood, hfood * rate);
             foreach (var s in to.OrderBy(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s))))
             {
                 var take = Math.Min(fuel, Fitting.MaxSupplies(w, s) - s.Supplies);
@@ -138,9 +157,9 @@ public static class SupplyLines
     private static bool Needs(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)
         && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.95 || s.Ammo < MaxAmmo(s) * 0.95 || s.Food < MaxFood(s) * 0.95));
 
-    private static bool Together(Fleet a, Fleet b) =>
+    private static bool Together(World w, Fleet a, Fleet b) =>
         a.Hold == HoldStyle.Orbit && b.Hold == HoldStyle.Orbit && a.OrbitBodyId != null && a.OrbitBodyId == b.OrbitBodyId
-        || Vec2.Distance(a.Position, b.Position) <= TogetherMm && a.Flight is not { Started: true };
+        || Vec2.Distance(a.Position, b.Position) <= TogetherMm && (a.Flight is not { Started: true } || Tech.Has(w, a.Side, "underway-replenishment"));
 
     /// <summary>Supply ships hand cargo over to a fleet within this distance (or in orbit at the same body).</summary>
     public const double TogetherMm = 50;
@@ -160,7 +179,7 @@ public static class SupplyLines
             }
             var cargo = CargoShare(w, f);
             var home = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side;
-            if (Together(f, target))
+            if (Together(w, f, target))
             {
                 Deliver(w, w.ShipsOf(f).Where(IsSupplyShip).ToList(), w.ShipsOf(target).Where(s => !IsSupplyShip(s)).ToList());
                 if (CargoShare(w, f) < ReloadBelow) GoLoad(sim, f, target);
@@ -229,6 +248,7 @@ public sealed record SetSupplyRunCommand(Side Side, int FleetId, int? TargetFlee
             return;
         }
         f.SupplyRunFor = TargetFleetId;
+        f.AutoRun = TargetFleetId != null && Source == "auto";
         sim.Log.Info("supply", TargetFleetId == null ? $"{f.Name} ends its supply run" : $"{f.Name} starts a supply run", new { FleetId, TargetFleetId, Source });
     }
 }

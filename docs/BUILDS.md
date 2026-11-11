@@ -59,3 +59,23 @@ guesses, fleet jobs and recent thoughts). In the game, F7 shows every fleet plus
 on the map and a "rival mind" panel.
 
 Target: under a minute per headless game, so a night covers hundreds of games.
+
+## Choice log and the "what matters" table
+
+Every full game keeps a choice log: for each side, every building laid down, research idea picked, ship
+built (with its fittings), the rival's leanings for the game, zones drawn, freighters caught, and each
+battle (odds going in, ships and losses on each side, the fleets' makeup and pull-back presets, and how it
+ended). F8 reports hold it as `choices.csv`; batch and nightly runs write one per game next to the stats
+CSV (`stats/game-NNN-seed-S-choices.csv`).
+
+Computer sides roll leanings at the start of each game (missiles or railguns, a favoured research field,
+more or fewer escorts and big ships, bold or careful odds, a pull-back preset) that drift a little each
+day, and pick research from the options within a small band of the best (10 % in headless runs, 4 % in
+normal games, none on Easy). All of it uses the game's seeded random numbers, so replays still match.
+
+The batch summary gains a "Fights" section (battles, endings, crippled and lost ships, pull-backs,
+warships at the end, raiding) and a "What matters" table: for each choice, how often it was picked, the
+win rate with and without it, and battle win rate and ships lost per battle with and without it. Gaps of
+15 points or more are flagged, choices nobody picked are listed as dead, and rows from fewer than 30 games
+either way are marked thin. Personality and its research list go together, so read research rows next to
+the personality rows.
