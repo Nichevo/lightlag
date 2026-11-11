@@ -25,7 +25,9 @@ public class MindTests
         var mind = Assert.Single(sim.World.Minds);
         Assert.Equal(Side.Rival, mind.Side);
         var a = GameData.Ai;
-        Assert.InRange(mind.FirstProbeDay, a.FirstProbeDay.Min, a.FirstProbeDay.Max);
+        // Each personality scales the rolled day by its probeEarly.
+        var early = a.Personalities.Values.Select(p => p.ProbeEarly).ToList();
+        Assert.InRange(mind.FirstProbeDay, a.FirstProbeDay.Min * early.Min() - 0.1, a.FirstProbeDay.Max * early.Max() + 0.1);
         Assert.True(mind.BaseRatio >= 1.0);
         Assert.Null(Mind.Of(sim.World, Side.Player));
     }

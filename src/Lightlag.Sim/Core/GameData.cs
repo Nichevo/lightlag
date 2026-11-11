@@ -94,7 +94,7 @@ public sealed record SpreadData(int SlugsPerGun, double Accuracy, double Cooldow
 /// <summary>Detection numbers (passive sensors). See ship-classes.json for what each means.</summary>
 public sealed record SensorData(double Cold, double Orbit, double Burn, double ExtraShip, double PlanetSensorMm, double ForgetAfterHours,
     double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
-    double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0);
+    double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0, double SoloCold = 1);
 
 /// <summary>A hull slot: W weapon, D defence, U utility, E engine. A pair is two mirrored mounts with one module type. Fit is the standard module ("" empty).</summary>
 public sealed record SlotData(string Type, bool Pair = false, string Fit = "")
@@ -128,7 +128,7 @@ public sealed record SlingshotData(double AssistStrength = 40, double MinTimeGai
     public IReadOnlyList<double> Departs => DepartShares is { Count: > 0 } d ? d : new[] { 1.0, 0.75, 0.55 };
 }
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null);
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null, FormationData? Formations = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -156,6 +156,7 @@ public static class GameData
     public static SlingshotData Slingshots => _file.Value.Slingshots ?? new SlingshotData();
     public static HeatData Heat => _file.Value.Heat ?? new HeatData();
     public static BattleRecordData Recording => _file.Value.Recording ?? new BattleRecordData();
+    public static FormationData Formations => _file.Value.Formations ?? new FormationData();
     public static EconomyData Economy => _economy.Value;
     public static AiData Ai => _ai.Value;
     public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;

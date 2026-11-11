@@ -32,6 +32,9 @@ public static class Chases
     /// <summary>Where the current chase flight expects the enemy to be now.</summary>
     public static Vec2 Expected(ChaseOrder c, double hour) => c.TargetAt + c.TargetVelocity * (hour - c.PlannedHour);
 
+    /// <summary>How long a chase goes on without catching its quarry before the fleet gives up.</summary>
+    public const double GiveUpHours = 10 * 24;
+
     /// <summary>Once an hour: end finished chases and re-aim those whose target has changed course.</summary>
     public static void Update(Simulation sim)
     {
@@ -52,6 +55,14 @@ public static class Chases
                 f.Chase = null;
                 if (!f.Retreating)
                     sim.Log.Info("fleet", $"{f.Name} loses track of its quarry and stops chasing", new { fleetId = f.Id, targetFleetId = c.TargetFleetId });
+                continue;
+            }
+            if (c.StartHour <= 0) c.StartHour = now;
+            // A quarry that keeps ahead for days is let go: endless chases kept battles from ever ending.
+            if (now - c.StartHour > GiveUpHours && !f.Maneuvering)
+            {
+                f.Chase = null;
+                sim.Log.Info("fleet", $"{f.Name} gives up the chase", new { fleetId = f.Id, targetFleetId = c.TargetFleetId, hours = Math.Round(now - c.StartHour) });
                 continue;
             }
             if (f.Maneuvering) continue; // in a fight: combat steers

@@ -364,6 +364,7 @@ public sealed class Simulation
                 f.Position += f.Velocity * dt;
             }
             if (f.Hold != HoldStyle.Orbit || f.Flight != null) KeepOutOfBodies(f, t1);
+            Formations.Keep(World, f);
             foreach (var s in World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
         }
     }

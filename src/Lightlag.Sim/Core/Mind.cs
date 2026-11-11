@@ -7,7 +7,7 @@ namespace Lightlag.Sim.Core;
 public enum Difficulty { Easy, Normal }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum Personality { Raider, Expander, Turtle }
+public enum Personality { Raider, Expander, Turtle, Trader, Hunter, Opportunist }
 
 /// <summary>A side run by the computer: how hard, and (for tests) which personality instead of a random one.</summary>
 public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Normal, Personality? Personality = null);
@@ -32,14 +32,34 @@ public sealed record AiEasy(double ExtraRatio, double SlipChance);
 
 public sealed record PersonalityData(
     string Name, double FrigateShare, double Ratio, double ClaimWeight, double HuntWeight, double GuardShare,
-    double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research, double FlagshipBoldness = 0.3);
+    double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research, double FlagshipBoldness = 0.3,
+    PersonalityProfile? Profile = null, string PullBack = "standard", string FireAt = "split", string Missiles = "mid",
+    double Weight = 1, int ExtraFreighters = 0, double BuildEveryDays = 12);
+
+/// <summary>
+/// A personality on six axes, 0 to 1: aggression (how readily the main fleet takes the fight to the enemy),
+/// expansion (settling), defence (guns on colonies), risk (how close to even odds it still goes in, and how
+/// late it turns back), raiding lanes (lying in wait for supply ships) and research (Industry it puts into ideas
+/// before the next ship).
+/// </summary>
+public sealed record PersonalityProfile(double Aggression = 0.5, double Expansion = 0.5, double Defence = 0.5, double Risk = 0.5,
+    double Raiding = 0.3, double Research = 0.5)
+{
+    public IEnumerable<(string Axis, double Value)> Axes() => new[]
+    {
+        ("aggression", Aggression), ("expansion", Expansion), ("defence", Defence), ("risk", Risk), ("raiding lanes", Raiding), ("research", Research),
+    };
+}
 
 public sealed record AiData(
     AiThinkHours ThinkHours, AiEasy Easy, AiRange AttackRatio, double NerveDrift, double NerveRange, AiRange FirstProbeDay,
     double ThreatRadiusAu, double DangerRadiusAu, double DangerRatio, double RefitSupplies, double RefitArmour,
     double EnemyShipValue, double EnemyBuildShare, int ClaimGroupShips, double ProbeDays, double ProbeDistanceAu,
     double ChainClaimAu, double GatherDays, double StrikeSuppliesLeft, double HomeShareSeen, double HomeShareUnseen,
-    Dictionary<string, PersonalityData> Personalities, AutomationData? Automation = null, double FightRatio = 0.9);
+    Dictionary<string, PersonalityData> Personalities, AutomationData? Automation = null, double FightRatio = 0.9,
+    double DefendOwnRatio = 0.8, double HuntOdds = 1.2, double CampaignAfterDays = 20, int CampaignMinShips = 3,
+    double CampaignRelief = 0.5, double CampaignMaxDays = 60, double GunValue = 60, double MirrorShare = 1.15, double FocusDays = 20,
+    double RestlessAfterDays = 45, double RestlessDays = 120, double RestlessMax = 0.35);
 
 /// <summary>
 /// The player's automation (see Stewards): each area's starting level, and how it learns: after
@@ -64,6 +84,12 @@ public sealed class FleetJob
     public Vec2 Point { get; set; }
     public string Why { get; set; } = "";
     public double Since { get; set; }
+
+    /// <summary>A claim job that is the main fleet's campaign against an enemy planet (not a small claim group).</summary>
+    public bool Campaign { get; set; }
+
+    /// <summary>The supply lane an ambush party lies on.</summary>
+    public int? LaneId { get; set; }
 }
 
 public sealed record Thought(double Hour, string Text);
@@ -148,6 +174,14 @@ public sealed class MindState
     /// <summary>When the planets may next have a building ahead of the next ship (see Mind.Build).</summary>
     public double NextBuildHour { get; set; }
 
+    /// <summary>An opportunist's current focus (take, raid, hunt or expand) and when it looks again.</summary>
+    public string Focus { get; set; } = "";
+    public double FocusUntilHour { get; set; }
+
+    /// <summary>Battles fought so far, and the day of the last one (a long quiet makes the side restless).</summary>
+    public int BattlesSeen { get; set; }
+    public double LastBattleDay { get; set; }
+
     /// <summary>What it is mostly trying to do now, and why.</summary>
     public string Goal { get; set; } = "Getting started";
     public List<FleetJob> Jobs { get; set; } = new();
@@ -191,7 +225,7 @@ public static class Mind
         foreach (var setup in options.Ai.GroupBy(a => a.Side).Select(g => g.First()))
         {
             var rng = new SimRandom(Mix(seed) ^ Mix((ulong)setup.Side + 0xC0FFEEUL), stream: 11 + (ulong)setup.Side);
-            var personality = setup.Personality ?? (Personality)rng.Range(0, 3);
+            var personality = setup.Personality ?? Roll(rng);
             var pd = DataFor(personality);
             var ratio = rng.Range(A.AttackRatio.Min, A.AttackRatio.Max) * pd.Ratio
                         + (setup.Difficulty == Difficulty.Easy ? A.Easy.ExtraRatio : 0);
@@ -208,9 +242,11 @@ public static class Mind
                 EnemyStartPower = Stats.Power(w, setup.Side),
             };
             mind.EnemyPowerGuess = mind.EnemyStartPower;
-            // Pull-back leaning for this game (a choice the overnight runs compare): mostly Standard.
+            // Pull-back leaning for this game (a choice the overnight runs compare): mostly Standard. Only home
+            // guards fight to the last; fleets out on a job always keep a way out.
+            // Usually the personality's own preset; now and then another, so the overnight runs can compare them.
             var lean = rng.NextDouble();
-            mind.PullLeaning = lean < 0.2 ? PullPreset.Cautious : lean < 0.7 ? PullPreset.Standard : lean < 0.95 ? PullPreset.FightOn : PullPreset.ToTheLast;
+            mind.PullLeaning = lean < 0.7 ? PresetOf(pd.PullBack) : lean < 0.8 ? PullPreset.Cautious : lean < 0.9 ? PullPreset.Standard : PullPreset.FightOn;
             mind.Lean = Leanings.Roll(rng);
             mind.Spread = setup.Difficulty == Difficulty.Easy ? 0 : options.ChoiceSpread ?? NormalSpread;
             Choices.Note(w, setup.Side, "lean", $"personality {personality}");
@@ -219,6 +255,30 @@ public static class Mind
             w.Minds.Add(mind);
         }
     }
+
+    /// <summary>Rolls a personality, each as likely as its weight in ai.json.</summary>
+    private static Personality Roll(SimRandom rng)
+    {
+        var all = Enum.GetValues<Personality>();
+        var total = all.Sum(p => DataFor(p).Weight);
+        var roll = rng.NextDouble() * total;
+        foreach (var p in all)
+        {
+            roll -= DataFor(p).Weight;
+            if (roll < 0) return p;
+        }
+        return all[^1];
+    }
+
+    public static PullPreset PresetOf(string name) => name.ToLowerInvariant() switch
+    {
+        "cautious" => PullPreset.Cautious,
+        "fighton" or "fight on" or "fight-on" => PullPreset.FightOn,
+        _ => PullPreset.Standard,
+    };
+
+    /// <summary>The personality's profile (defaults when ai.json gives none).</summary>
+    public static PersonalityProfile ProfileOf(Personality p) => DataFor(p).Profile ?? new PersonalityProfile();
 
     /// <summary>Scrambles a seed (SplitMix64), so neighbouring seeds roll unrelated personalities.</summary>
     private static ulong Mix(ulong z)
@@ -237,6 +297,8 @@ public static class Mind
         {
             sb.AppendLine($"# {m.Side}: {m.Personality}, {m.Difficulty}");
             sb.AppendLine();
+            sb.AppendLine($"- Profile: {string.Join(", ", ProfileOf(m.Personality).Axes().Select(a => $"{a.Axis} {a.Value:0.00}"))}");
+            if (m.Focus != "") sb.AppendLine($"- Focus now: {m.Focus}");
             sb.AppendLine($"- Attack ratio now {m.Ratio:0.00} (rolled {m.BaseRatio:0.00}); first probe from day {m.FirstProbeDay:0}");
             sb.AppendLine($"- Own power {m.OwnPower:0}; guesses the enemy at {m.EnemyPowerGuess:0}");
             sb.AppendLine($"- Goal: {m.Goal}");
@@ -282,6 +344,7 @@ public static class Mind
         private readonly SimRandom _rng;
         private readonly Side _side, _enemy;
         private readonly PersonalityData _p;
+        private PersonalityProfile _profile;
         private readonly Body? _home, _enemyYard;
         private readonly double _au = Physics.MmPerAu;
         private List<Sighting> _known = new();
@@ -295,6 +358,7 @@ public static class Mind
             _side = mind.Side;
             _enemy = Combat.Other(mind.Side);
             _p = DataFor(mind.Personality);
+            _profile = ProfileOf(mind.Personality);
             _home = Economy.ShipyardOf(_w, _side);
             _enemyYard = Economy.ShipyardOf(_w, _enemy);
         }
@@ -309,6 +373,8 @@ public static class Mind
             if (_home == null) return; // no shipyard: nothing to plan from (the game is about to end)
             Nerve();
             Believe();
+            Quiet();
+            Focus();
             CleanJobs();
             foreach (var f in Mine().ToList()) CheckFleet(f);
             MergeAtHome();
@@ -325,6 +391,7 @@ public static class Mind
                 DefendClaims();
                 if (!Strike())
                 {
+                    Campaign();
                     Hunt();
                     Ambush();
                     Probe();
@@ -343,8 +410,8 @@ public static class Mind
         /// turtles go for the largest and launch far, expanders split fire); fleets running from a chaser drop missiles behind them.</summary>
         private void FireControlAll()
         {
-            var rule = _m.Personality switch { Personality.Raider => FireAt.Weakest, Personality.Turtle => FireAt.Largest, _ => FireAt.Split };
-            var launch = _m.Personality switch { Personality.Raider => MissileLaunch.Close, Personality.Turtle => MissileLaunch.Far, _ => MissileLaunch.Mid };
+            var rule = FireRule(_p.FireAt, null);
+            var launch = _p.Missiles.ToLowerInvariant() switch { "close" => MissileLaunch.Close, "far" => MissileLaunch.Far, _ => MissileLaunch.Mid };
             foreach (var f in Mine().ToList())
             {
                 if (f.MissileLaunch != launch) Do(new SetFireControlCommand(f.Id, f.LongShots, launch));
@@ -359,8 +426,27 @@ public static class Mind
             if (_w.Light.On) FlagshipWar(rule);
             else
                 foreach (var f in Mine().ToList())
-                    if (f.FireAt != rule) Do(new SetCoverCommand(f.Id, f.Cover, rule));
+                {
+                    var own = FireRule(_p.FireAt, f);
+                    if (f.FireAt != own) Do(new SetCoverCommand(f.Id, f.Cover, own));
+                }
         }
+
+        /// <summary>
+        /// A firing rule from ai.json (weakest, largest, split, engines, flagship, or roll: one of the others
+        /// for each battle, worked out from the battle and fleet so it needs no saved state).
+        /// </summary>
+        private FireAt FireRule(string name, Fleet? f) => name.ToLowerInvariant() switch
+        {
+            "weakest" => FireAt.Weakest,
+            "largest" => FireAt.Largest,
+            "engines" => FireAt.Engines,
+            "flagship" => FireAt.Flagship,
+            "roll" => f != null && _w.ActiveBattle is Battle b && f.FightPower > 0
+                ? new[] { FireAt.Nearest, FireAt.Largest, FireAt.Weakest, FireAt.Split, FireAt.Engines }[(int)((ulong)(b.Id * 7 + f.Id) % 5)]
+                : f?.FireAt ?? FireAt.Nearest,
+            _ => FireAt.Split,
+        };
 
         /// <summary>
         /// Under light lag: the fleet with its flagship screens it (Turtles keep close), and fleets near a
@@ -384,7 +470,7 @@ public static class Mind
                 var near = _known.Where(s => s.Flag is FlagKnown.Suspected or FlagKnown.Confirmed
                         && Vec2.Distance(s.Guess(_w.Hour), f.Position) <= GameData.Combat.ContactRangeMm * 2)
                     .OrderByDescending(s => s.FlagScore).FirstOrDefault();
-                if (near != null && Stats.Power(_w, f) >= SightingPower(near) * (_m.Personality == Personality.Raider ? 1.0 : 1.3))
+                if (near != null && War(f) >= SightingPower(near) * (_m.Personality == Personality.Raider ? 1.0 : 1.3))
                     fireAt = FireAt.Flagship;
                 if (f.Cover != cover || f.FireAt != fireAt)
                 {
@@ -393,6 +479,62 @@ public static class Mind
                 }
             }
         }
+
+        // ---- Personality ------------------------------------------------------------------------
+
+        /// <summary>The profile in force: the personality's, with an opportunist's current focus raised.</summary>
+        private PersonalityProfile P => _profile;
+
+        /// <summary>
+        /// An opportunist looks at the enemy every few weeks and goes for what it neglects: colonies with
+        /// nothing guarding them (take), supply ships out on the lanes (raid), small groups out on their own
+        /// (hunt), or else empty worlds (expand).
+        /// </summary>
+        private void Focus()
+        {
+            if (_m.Personality != Personality.Opportunist) return;
+            if (_w.Hour >= _m.FocusUntilHour || _m.Focus == "")
+            {
+                var colonies = Economy.Claimable(_w).Where(b => b.Owner == _enemy && !b.Shipyard).ToList();
+                var bare = colonies.Count(b => EnemyNear(b.Position, A.DangerRadiusAu * _au, 10 * 24) <= 0);
+                var convoys = _known.Count(SupplyConvoy);
+                var loners = _known.Count(s => !SupplyConvoy(s) && s.Ships <= 2);
+                var options = new List<(string Focus, double Score)>
+                {
+                    ("take", bare * 1.0), ("raid", convoys * 1.5), ("hunt", loners * 1.0), ("expand", SettleTargets().Count * 0.5),
+                };
+                var pick = Choices.Band(options, _rng, 0.15);
+                if (pick != _m.Focus) Note($"Focus now {pick}: the enemy looks weakest there");
+                _m.Focus = pick;
+                _m.FocusUntilHour = _w.Hour + A.FocusDays * 24;
+            }
+            var b0 = ProfileOf(_m.Personality);
+            _profile = _m.Focus switch
+            {
+                "take" => b0 with { Aggression = 0.9, Risk = 0.7 },
+                "raid" => b0 with { Raiding = 0.9 },
+                "hunt" => b0 with { Aggression = 0.8, Risk = 0.8 },
+                _ => b0 with { Expansion = 0.9 },
+            };
+        }
+
+        /// <summary>The odds the main fleet wants before a campaign: bolder with aggression.</summary>
+        private double CampaignOdds => (1.25 - 0.5 * P.Aggression) * (1 - Restless);
+
+        /// <summary>
+        /// After a long quiet (no battle for RestlessAfterDays) a side settles for worse odds, up to
+        /// RestlessMax less, over the next RestlessDays: sitting on a growing fleet wins nothing.
+        /// </summary>
+        private double Restless => Math.Clamp((_w.Day - _m.LastBattleDay - A.RestlessAfterDays) / A.RestlessDays, 0, 1) * A.RestlessMax * (0.5 + P.Aggression);
+
+        private void Quiet()
+        {
+            var battles = Stats.Of(_w, _side).Battles;
+            if (battles != _m.BattlesSeen || _m.LastBattleDay <= 0) { _m.BattlesSeen = battles; _m.LastBattleDay = Math.Max(_w.Day, _m.FirstProbeDay); }
+        }
+
+        /// <summary>How much stronger nearby enemies must be before a fleet out on a job turns back: later with risk.</summary>
+        private double TurnBackRatio => A.DangerRatio * (0.8 + 0.4 * P.Risk);
 
         // ---- What it believes ---------------------------------------------------------------
 
@@ -431,10 +573,21 @@ public static class Mind
             var killed = Economy.Of(_w, _side).Totals.ShipsKilled;
             var fromEconomy = _m.EnemyStartPower + (_m.EnemyEarnedGuess + GameData.Economy.StartIndustry) * A.EnemyBuildShare
                               - killed * A.EnemyShipValue;
+            // Ships are limited by alloys and electronics more than by Industry, so it also reasons that the
+            // enemy has built about what it has itself, scaled by how their holdings compare.
+            var ownIncome = Math.Max(1, Economy.Claimable(_w).Where(b => b.Owner == _side).Sum(b => b.Industry));
+            var mirror = War(_side) * Math.Clamp(enemyIncome / ownIncome, 0.6, 1.6) * A.MirrorShare;
             var seen = _known.Sum(SightingPower);
-            _m.EnemyPowerGuess = Math.Round(Math.Max(seen, fromEconomy), 1);
-            _m.OwnPower = Math.Round(Stats.Power(_w, _side), 1);
+            _m.EnemyPowerGuess = Math.Round(Math.Max(seen, Math.Min(fromEconomy, mirror)), 1);
+            _m.OwnPower = Math.Round(War(_side), 1);
         }
+
+        /// <summary>Fighting power: armed ships only (freighters, tankers, settlers and troop ships add nothing).</summary>
+        private double WarShip(Ship s) => Planner.Warship(s) ? Stats.ShipPower(_w, s) : 0;
+
+        private double War(Fleet f) => _w.ShipsOf(f).Sum(WarShip);
+
+        private double War(Side side) => _w.Ships.Where(s => s.Side == side).Sum(WarShip);
 
         private double SightingPower(Sighting s) => (s.Ships - UnarmedSeen(s) * 0.8) * A.EnemyShipValue;
 
@@ -570,7 +723,7 @@ public static class Mind
                 return;
             }
             if (job == null || job.Kind == JobKind.Guard || Slip()) return;
-            var mine = Stats.Power(_w, f);
+            var mine = War(f);
             // Being chased: run hard from a stronger chaser, turn and fight a weaker one (scouts always run).
             if (ChaserOf(f) is Sighting chaser && f.Chase?.TargetFleetId != chaser.FleetId)
             {
@@ -609,7 +762,7 @@ public static class Mind
             var near = job.Kind == JobKind.Probe
                 ? EnemyNear(f.Position, 0.5 * A.DangerRadiusAu * _au, 12)
                 : Math.Max(EnemyNear(f.Position, A.DangerRadiusAu * _au), EnemyNear(job.Point, A.DangerRadiusAu * _au, 24));
-            var limit = job.Kind == JobKind.Strike ? A.DangerRatio * 1.3 : A.DangerRatio;
+            var limit = job.Kind == JobKind.Strike ? TurnBackRatio * 1.3 : TurnBackRatio;
             if (job.Kind == JobKind.Strike && Desperate()) limit *= 1.5;
             if (near > mine * limit)
             {
@@ -649,7 +802,7 @@ public static class Mind
             if (Slip()) return false;
             var threat = EnemyNear(_home!.Position, A.ThreatRadiusAu * _au, ThreatAgeHours);
             if (threat <= 0) return false;
-            var guard = Mine().Where(f => AtHome(f)).Sum(f => Stats.Power(_w, f));
+            var guard = Mine().Where(f => AtHome(f)).Sum(f => War(f));
             SetGoal("Defend home", $"enemy power about {threat:0} within {A.ThreatRadiusAu} AU of {_home.Name}; {guard:0} at home");
             if (guard >= threat * 1.1) { covered = true; return true; }
             // Call back fleets that are not far away.
@@ -660,7 +813,7 @@ public static class Mind
                 if (Vec2.Distance(f.Position, _home.Position) > 1.5 * A.ThreatRadiusAu * _au) continue;
                 if (job != null) _m.Jobs.Remove(job);
                 GoHome(f, $"called home to defend {_home.Name}");
-                guard += Stats.Power(_w, f);
+                guard += War(f);
                 if (guard >= threat * 1.1) break;
             }
             return true;
@@ -676,7 +829,8 @@ public static class Mind
                 if (!ours && (Easy || _rng.NextDouble() > _p.HuntWeight * 0.5)) continue; // a neutral planet: only some care
                 if (Slip()) continue;
                 var there = Math.Max(EnemyNear(b.Position, 0.05 * _au, 10 * 24), 2 * A.EnemyShipValue);
-                var need = there * (ours ? Fight * 1.1 : Math.Max(Want, 1.3)); // its own planets: about even odds will do
+                // Its own planets are always worth a fight, even at somewhat worse odds; a neutral one needs better.
+                var need = there * (ours ? A.DefendOwnRatio * _m.Lean.Odds : Math.Max(Want, 1.3));
                 var group = TakeFromPool(need, $"break the enemy claim on {b.Name}");
                 if (group == null)
                 {
@@ -701,7 +855,7 @@ public static class Mind
             }
             if (Slip()) return false;
             var pool = Pool().Where(Ready).ToList();
-            var poolPower = pool.Sum(f => Stats.Power(_w, f));
+            var poolPower = pool.Sum(f => War(f));
             var seenNearYard = EnemyNear(_enemyYard.Position, A.ThreatRadiusAu * _au, 10 * 24);
             var seenElsewhere = _known.Where(s => _w.Hour - s.Hour <= 5 * 24
                                                   && Vec2.Distance(s.Guess(_w.Hour), _enemyYard.Position) > A.ThreatRadiusAu * _au)
@@ -722,7 +876,7 @@ public static class Mind
                     Note($"Not ready to strike {_enemyYard.Name}: {strikePower:0} power free, wants {want:0} ({Want:0.00} x guessed {guess:0})");
                 return false;
             }
-            var speed = SpeedLeaving(pool.OrderByDescending(f => Stats.Power(_w, f)).First(), _enemyYard, A.StrikeSuppliesLeft);
+            var speed = SpeedLeaving(pool.OrderByDescending(f => War(f)).First(), _enemyYard, A.StrikeSuppliesLeft);
             if (speed == null)
             {
                 Note($"Can't reach {_enemyYard.Name} with enough supplies left to fight");
@@ -737,6 +891,57 @@ public static class Mind
         }
 
         /// <summary>
+        /// Takes the fight to the enemy: when the home fleet could take on what guards an enemy planet plus
+        /// what might come to its rescue, at about even odds, most of it goes to blockade and take that planet.
+        /// The enemy has to come and fight for it, or lose it (one campaign at a time).
+        /// </summary>
+        private bool Campaign()
+        {
+            if (_w.Day < _m.FirstProbeDay + A.CampaignAfterDays * (1.5 - P.Aggression) || Slip()) return false;
+            if (_m.Jobs.Any(j => j.Campaign))
+            {
+                if (_m.Jobs.Find(j => j.Campaign) is { BodyId: int id } && _w.FindBody(id) is Body at)
+                    SetGoal("Campaign", $"the main fleet is taking {at.Name}");
+                return false;
+            }
+            var pool = Pool().Where(Ready).ToList();
+            if (pool.Count == 0) return false;
+            var poolPower = pool.Sum(f => War(f));
+            var free = poolPower * (1 - _p.GuardShare);
+            if (free < A.CampaignMinShips * A.EnemyShipValue || pool.Sum(f => f.ShipIds.Count) < A.CampaignMinShips) return false;
+            var seenAnywhere = _known.Where(s => _w.Hour - s.Hour <= 5 * 24).Sum(SightingPower);
+            var unseen = Math.Max(0, _m.EnemyPowerGuess - seenAnywhere);
+            var from = pool.OrderByDescending(f => War(f)).First();
+            Body? best = null;
+            double bestScore = 0, bestGuess = 0;
+            foreach (var b in Economy.Claimable(_w))
+            {
+                if (b.Owner != _enemy || b.Shipyard || _m.Jobs.Any(j => j.BodyId == b.Id)) continue;
+                var local = EnemyNear(b.Position, A.DangerRadiusAu * _au, 10 * 24);
+                var guess = local + Planets.Count(b, Planets.Guns) * A.GunValue + unseen * A.CampaignRelief;
+                if (free < guess * Fight * CampaignOdds) continue;
+                var days = TravelDays(from, b, ClaimSpeed);
+                if (double.IsInfinity(days) || days > A.CampaignMaxDays) continue;
+                var score = (b.Industry + 0.05 * b.PopK + 1) * _p.TakeHeldWeight / (1 + days / 10) * _rng.Range(0.85, 1.15);
+                if (score > bestScore) { best = b; bestScore = score; bestGuess = guess; }
+            }
+            if (best == null)
+            {
+                if (_w.Day % 10 == 0 && _w.Hour % 24 < ThinkHours(_m.Difficulty))
+                    Note($"No campaign yet: {free:0} power free at home, about {unseen * A.CampaignRelief:0} enemy power could come to help any of its planets");
+                return false;
+            }
+            var group = TakeFromPool(free, $"campaign against {best.Name}", A.CampaignMinShips);
+            if (group == null) return false;
+            var power = War(group);
+            SetGoal("Campaign", $"{power:0} power to take {best.Name}, against about {bestGuess:0} there or able to come");
+            Send(group, best, JobKind.Claim, ClaimSpeed, Core.Stance.Engage,
+                $"campaign: take enemy-held {best.Name} ({best.Industry:0} Industry a day); about {bestGuess:0} enemy power there or able to come");
+            if (_m.JobOf(group.Id) is FleetJob job) job.Campaign = true;
+            return group.Flight != null;
+        }
+
+        /// <summary>
         /// Not enough at home to strike, but enough if the claim groups came back: call home the ones that have
         /// not started claiming yet, and start no new claims for a while.
         /// </summary>
@@ -746,16 +951,16 @@ public static class Mind
             if (Easy) return false; // Easy does not plan that far ahead
             bool Enough(List<Fleet> fleets)
             {
-                var total = (poolPower + fleets.Sum(f => Stats.Power(_w, f))) * (1 - keep);
+                var total = (poolPower + fleets.Sum(f => War(f))) * (1 - keep);
                 return fleets.Count > 0 && total >= want && total >= 3 * A.EnemyShipValue;
             }
-            var claiming = Mine().Where(f => !AtHome(f) && !Busy(f) && _m.JobOf(f.Id) is { Kind: JobKind.Claim } j
+            var claiming = Mine().Where(f => !AtHome(f) && !Busy(f) && _m.JobOf(f.Id) is { Kind: JobKind.Claim, Campaign: false } j
                                              && _w.FindBody(j.BodyId ?? -1) is Body b && b.ClaimSide != _side && !NeedsRefit(f)).ToList();
             // Planning the flights home is costly, so first check that even all of them would be enough.
             if (!Enough(claiming)) return false;
             var away = claiming.Where(f => TravelDays(f, _home!, 0.6) <= A.GatherDays).ToList();
             if (!Enough(away)) return false;
-            var awayPower = away.Sum(f => Stats.Power(_w, f));
+            var awayPower = away.Sum(f => War(f));
             _m.GatherUntilHour = _w.Hour + A.GatherDays * 24;
             SetGoal("Gather", $"{poolPower:0} at home and {awayPower:0} out claiming could strike about {guess:0} at {_enemyYard!.Name}");
             foreach (var f in away) GoHome(f, "called home to gather for a strike");
@@ -773,19 +978,21 @@ public static class Mind
                 if (_m.Jobs.Any(j => j.EnemyFleetId == s.FleetId)) continue;
                 var at = s.Guess(_w.Hour);
                 // Raiders go further out for an identified supply convoy: cutting supply lines starves a fleet.
-                var reach = SupplyConvoy(s) && _m.Personality == Personality.Raider ? 1.5 : SupplyConvoy(s) ? 0.8 : 0.5;
+                var reach = SupplyConvoy(s) ? 0.5 + P.Raiding : 0.5;
                 if (!mineBodies.Append(_home!.Position).Any(p => Vec2.Distance(p, at) <= reach * _au)) continue;
-                var need = SightingPower(s) * Math.Max(Want / _p.HuntWeight, A.DangerRatio * 1.05);
-                if (Pool().Where(Ready).Sum(f => Stats.Power(_w, f)) * (1 - _p.GuardShare) < need) continue;
-                var group = TakeFromPool(need, $"hunt {s.Name}");
+                // About even odds or a little better (raiders hunt keener); a supply convoy needs only an escort's worth.
+                var there = Math.Max(SightingPower(s), EnemyNear(at, A.DangerRadiusAu * _au, 24));
+                var need = there * Math.Max(Want / _p.HuntWeight, Fight * A.HuntOdds);
+                if (Pool().Where(Ready).Sum(f => War(f)) * (1 - _p.GuardShare) < need) continue;
+                var group = TakeFromPool(need, $"hunt {s.Name}", small: SupplyConvoy(s) || P.Raiding >= 0.7);
                 if (group == null) continue;
                 // Burn hard and brake to gun range when there is fuel to spare (chasing it if it moves); else a plain attack run.
                 var request = new FlightRequest(null, at, Burn(group), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick, TargetFleetId: s.FleetId,
                     Chase: ChaseMode.GunRange);
                 if (!Fly(group, request) && !Fly(group, request with { Chase = ChaseMode.None, SpeedFraction = 0.8 }))
                 { GoHome(group, "could not reach the enemy fleet"); continue; }
-                Orders(group, Core.Stance.Engage);
                 Assign(group, JobKind.Hunt, null, at, $"{s.Name} ({s.Ships} ships) seen near our planets", s.FleetId);
+                Orders(group, Core.Stance.Engage);
             }
         }
 
@@ -793,25 +1000,30 @@ public static class Mind
         private const double AmbushDays = 20;
 
         /// <summary>
-        /// Raiders lie in wait on the enemy's best-known supply lane: a small group drifts in a raiding zone
-        /// on it and goes after the cargo that comes by (one party at a time).
+        /// Raiders lie in wait on the enemy's best-known supply lanes: small groups (a ship or two, the fastest
+        /// first) drift cold in a raiding zone on each and go after the cargo that comes by. Three lone raiders
+        /// cover three lanes where one big group covers one. The keener the raider, the more parties at once.
         /// </summary>
         private void Ambush()
         {
-            if (_m.Personality != Personality.Raider || Easy || _m.Jobs.Any(j => j.Kind == JobKind.Ambush) || Slip()) return;
-            var lane = _w.Lanes.Where(l => l.SeenBy == _side && Lanes.Confidence(_w, l) >= 0.5)
+            if (P.Raiding < 0.5 || Easy || Slip()) return;
+            var parties = P.Raiding >= 0.9 ? 3 : P.Raiding >= 0.7 ? 2 : 1;
+            if (_m.Jobs.Count(j => j.Kind == JobKind.Ambush) >= parties) return;
+            var taken = _m.Jobs.Where(j => j.Kind == JobKind.Ambush).Select(j => j.LaneId).ToHashSet();
+            var lane = _w.Lanes.Where(l => l.SeenBy == _side && !taken.Contains(l.Id) && Lanes.Confidence(_w, l) >= 0.5)
                 .OrderByDescending(l => Lanes.Confidence(_w, l)).ThenBy(l => l.Id).FirstOrDefault();
             if (lane == null || _w.FindBody(lane.FromBodyId) is not Body a || _w.FindBody(lane.ToBodyId) is not Body b) return;
             var mid = (a.Position + b.Position) * 0.5;
             var guard = EnemyNear(mid, A.DangerRadiusAu * _au, 48);
             var need = Math.Max(guard * A.DangerRatio, A.EnemyShipValue);
-            if (Pool().Where(Ready).Sum(f => Stats.Power(_w, f)) * (1 - _p.GuardShare) < need) return;
-            var group = TakeFromPool(need, $"ambush on the {a.Name}–{b.Name} lane");
+            if (Pool().Where(Ready).Sum(f => War(f)) * (1 - _p.GuardShare) < need) return;
+            var group = TakeFromPool(need, $"ambush on the {a.Name}–{b.Name} lane", small: true);
             if (group == null) return;
             Do(new HuntCommand(group.Id, a.Id, b.Id));
-            Orders(group, Core.Stance.Engage);
             Assign(group, JobKind.Ambush, null, mid, $"lie in wait on the {a.Name}–{b.Name} supply lane");
-            Note($"{group.Name} lies in wait on the {a.Name}–{b.Name} supply lane");
+            if (_m.JobOf(group.Id) is FleetJob job) job.LaneId = lane.Id;
+            Orders(group, Core.Stance.Engage);
+            Note($"{group.Name} ({group.ShipIds.Count} ships) lies in wait on the {a.Name}–{b.Name} supply lane");
         }
 
         /// <summary>Send a small, quiet scout towards the enemy home to see what it has.</summary>
@@ -828,22 +1040,22 @@ public static class Mind
             var point = _enemyYard.Position + toHome * (A.ProbeDistanceAu * _au / Math.Max(toHome.Length, 1e-9));
             var request = new FlightRequest(null, point, 0.5, ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick);
             if (!Fly(scout, request)) { Do(new MergeFleetsCommand(from.Id, scout.Id)); return; }
-            Orders(scout, Core.Stance.Hold);
             Assign(scout, JobKind.Probe, null, point, $"scout {A.ProbeDistanceAu} AU short of {_enemyYard.Name} and watch for {A.ProbeDays:0} days");
+            Orders(scout, Core.Stance.Hold);
             Note($"Sends {scout.Name} to look at {_enemyYard.Name}");
         }
 
         /// <summary>Claim planets: the best open ones first, and enemy-held ones when they look lightly held.</summary>
         private void Expand()
         {
-            var totalPower = Mine().Sum(f => Stats.Power(_w, f));
+            var totalPower = Mine().Sum(f => War(f));
             for (var tries = 0; tries < 3; tries++)
             {
                 if (Slip()) return;
                 var pool = Pool().Where(Ready).ToList();
-                var free = pool.Sum(f => Stats.Power(_w, f)) - totalPower * _p.GuardShare;
+                var free = pool.Sum(f => War(f)) - totalPower * _p.GuardShare;
                 if (free < A.EnemyShipValue * 0.6 || pool.Sum(f => f.ShipIds.Count) < 2) return;
-                if (_m.Jobs.Count(j => j.Kind == JobKind.Claim) >= _p.ClaimGroups) return;
+                if (_m.Jobs.Count(j => j.Kind == JobKind.Claim && !j.Campaign) >= _p.ClaimGroups) return;
                 Body? best = null;
                 double bestScore = 0, bestDanger = 0;
                 foreach (var b in Economy.Claimable(_w))
@@ -903,7 +1115,7 @@ public static class Mind
         private bool ChainClaim(Fleet f, Body from)
         {
             if (Easy || Busy(f) || NeedsRefit(f) || Supplies(f) < 0.5 || _w.Hour < _m.GatherUntilHour) return false;
-            var power = Stats.Power(_w, f);
+            var power = War(f);
             Body? best = null;
             double bestScore = 0;
             foreach (var b in Economy.Claimable(_w))
@@ -931,7 +1143,7 @@ public static class Mind
             if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
             var freighters = mine.Count(s => s.ClassId == "freighter") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "freighter");
             var colonies = _w.Bodies.Count(b => b.Owner == _side && b.Board != null && !b.Home);
-            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
+            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 + _p.ExtraFreighters && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
             if (!Easy && _rng.Chance(0.25 * _m.Lean.BigShips) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
             if (!Easy && _rng.Chance(0.15 * _m.Lean.Escorts) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
             var frigateShare = Easy ? 0.6 : Math.Clamp(_p.FrigateShare - _m.Lean.Missiles, 0.1, 0.9);
@@ -965,7 +1177,9 @@ public static class Mind
                     // Research waits behind ships when Industry is short, so not to stall the shipyard: a ship
                     // waiting to start is paid for first.
                     var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
-                    if (Economy.Of(_w, _side).Industry >= shipWaiting + GameData.Research(pick).Cost * 0.5 || orders.Count(o => o.Kind == OrderKind.Ship) == 0)
+                    // The way to a material plant the yard is short of goes ahead of the ship, though.
+                    if (Economy.Of(_w, _side).Industry >= shipWaiting * (1.4 - P.Research) + GameData.Research(pick).Cost * 0.5 || orders.Count(o => o.Kind == OrderKind.Ship) == 0
+                        || Planner.HelpsMaterials(_w, _side, pick))
                         Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
                 }
             }
@@ -1015,14 +1229,26 @@ public static class Mind
             var turn = _w.Hour >= _m.NextBuildHour;
             foreach (var b in mine)
             {
-                if (Planner.PlanetWant(_w, _side, b, hungry, sparesShort, Easy) is not var (kind, x, y, urgent) || Planets.BuildingKind(kind) is not BuildingData data) continue;
+                var want = Planner.PlanetWant(_w, _side, b, hungry, sparesShort, Easy) ?? Fortify(b);
+                if (want is not var (kind, x, y, urgent) || Planets.BuildingKind(kind) is not BuildingData data) continue;
                 var budget = urgent || turn ? industry : Spare(orders) - (Easy ? 120 : 60);
                 if (budget < data.Cost || Planets.CanBuild(_w, _side, b.Id, kind, x, y) != null) continue;
                 Do(new BuildOnPlanetCommand(_side, b.Id, kind, x, y));
                 Note($"Builds a {data.Name.ToLowerInvariant()} at {b.Name}");
-                if (!urgent) _m.NextBuildHour = _w.Hour + (Easy ? 30 : 12) * 24;
+                if (!urgent) _m.NextBuildHour = _w.Hour + (Easy ? 30 : _p.BuildEveryDays) * 24;
                 return;
             }
+        }
+
+        /// <summary>A defensive personality (defence 0.7 or more) puts a rail battery on each colony with people, then a point defence grid.</summary>
+        private (string, int?, int?, bool)? Fortify(Body b)
+        {
+            if (P.Defence < 0.7 || b.Home || b.PopK < 10) return null;
+            foreach (var kind in new[] { Planets.Guns, "pd-grid" })
+                if (Planets.Count(b, kind) == 0 && Planets.BuildingKind(kind) is BuildingData d && Colonies.BestSpot(b, d) != null
+                    && b.PowerMade - b.PowerWanted >= d.Power)
+                    return (kind, null, null, false);
+            return null;
         }
 
         /// <summary>
@@ -1062,7 +1288,7 @@ public static class Mind
                 var bound = orders.Count(o => o.SettleBodyId != null) + _w.Fleets.Count(f => f.Side == _side && f.PeopleRun != null);
                 var to = targets.OrderBy(b => Vec2.Distance(b.Position, _home.Position) / (1 + b.Industry)).ThenBy(b => b.Id).FirstOrDefault()
                          ?? thin.OrderBy(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault();
-                if (to != null && bound < (Easy ? 1 : 2) && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
+                if (to != null && bound < (Easy ? 1 : 1 + (int)Math.Round(P.Expansion * 2)) && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
                 {
                     Do(new SettleCommand(_side, to.Id));
                     Note($"Sends settlers to {to.Name}");
@@ -1151,9 +1377,10 @@ public static class Mind
         // ---- Orders -----------------------------------------------------------------------------
 
         /// <summary>Takes ships from the home fleet(s) worth at least this much power (or this many ships) as a new fleet.</summary>
-        private Fleet? TakeFromPool(double power, string what, int minShips = 1)
+        /// <param name="small">Raiding parties: the smallest, fastest warships first, so the group stays small and quiet.</param>
+        private Fleet? TakeFromPool(double power, string what, int minShips = 1, bool small = false)
         {
-            var pool = Pool().Where(Ready).OrderByDescending(f => Stats.Power(_w, f)).ToList();
+            var pool = Pool().Where(Ready).OrderByDescending(f => War(f)).ToList();
             var from = pool.FirstOrDefault();
             if (from == null) return null;
             // Under light lag the flagship stays at home unless every ship is needed, or the personality
@@ -1164,14 +1391,15 @@ public static class Mind
                              && _w.ShipsOf(from).Count(Light.CommandCapable) >= 2;
             var ships = _w.ShipsOf(from).OrderBy(s => s.Id == flag ? 1 : 0)
                 .ThenBy(s => spareFirst && Light.CommandCapable(s) && s.Id != Economy.Of(_w, _side).FlagshipId ? 0 : 1)
-                .ThenByDescending(s => Stats.ShipPower(_w, s)).ToList();
+                .ThenBy(s => small ? (Planner.Warship(s) ? 0 : 1) : 0)
+                .ThenBy(s => small ? WarShip(s) : -WarShip(s)).ThenByDescending(s => small ? s.MaxSpeed : 0).ToList();
             var picked = new List<Ship>();
             double sum = 0;
             foreach (var s in ships)
             {
                 if (sum >= power && picked.Count >= minShips) break;
                 picked.Add(s);
-                sum += Stats.ShipPower(_w, s);
+                sum += WarShip(s);
             }
             if (sum < power * 0.999 || picked.Count < minShips) return null;
             if (picked.Count == ships.Count)
@@ -1203,8 +1431,8 @@ public static class Mind
                 Note($"{f.Name} cannot fly to {target.Name}; stays home");
                 return;
             }
-            Orders(f, stance);
             Assign(f, kind, target.Id, target.Position, why);
+            Orders(f, stance);
             Note($"{f.Name} ({f.ShipIds.Count} ships): {kind} {target.Name}: {why}");
         }
 
@@ -1256,7 +1484,12 @@ public static class Mind
         private void Orders(Fleet f, Stance stance)
         {
             if (f.Stance != stance || !f.RetreatWhenDamaged) Do(new SetStanceCommand(f.Id, stance, true));
-            var preset = _m.JobOf(f.Id) is { Kind: JobKind.Guard } || BattleRules.Situation(_w, f) == "home" ? PullPreset.ToTheLast : _m.PullLeaning;
+            // By job, not by where the fleet is now (a group just sent out is still in orbit at home):
+            // home guards fight to the last, a group breaking a claim on its own planet fights on, the rest by leaning.
+            var job = _m.JobOf(f.Id);
+            var preset = job is null or { Kind: JobKind.Guard } && AtHome(f) ? PullPreset.ToTheLast
+                : job is { Kind: JobKind.Break } && job.BodyId is int b && _w.FindBody(b)?.Owner == _side && _m.PullLeaning != PullPreset.FightOn ? PullPreset.FightOn
+                : _m.PullLeaning;
             if (f.Rule.Preset != preset) Do(new SetPullRuleCommand(f.Id, preset));
         }
 

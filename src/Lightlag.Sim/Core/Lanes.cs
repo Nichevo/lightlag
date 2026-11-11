@@ -240,7 +240,8 @@ public static class Lanes
         if (raider == null) return;
         var t = Economy.Of(w, raider.Side).Totals;
         t.AmbushCatches++;
-        Choices.Note(w, raider.Side, "raid", "caught a freighter");
+        Choices.Note(w, raider.Side, "raid", "caught a freighter", "", $"ships {raider.ShipIds.Count}");
+        if (w.ActiveBattle is Battle fight && fight.For(raider.Side).Fleets.Contains(raider.Name)) fight.For(raider.Side).CargoCaught++;
         if (raider.ZoneId is int zid && w.Zones.Find(z => z.Id == zid) is Zone zone) zone.Catches++;
         if (s.Loaded && w.Bodies.Where(b => b.Owner == raider.Side && b.Board != null).OrderBy(b => Vec2.Distance(b.Position, at)).ThenBy(b => b.Id).FirstOrDefault() is Body store)
         {

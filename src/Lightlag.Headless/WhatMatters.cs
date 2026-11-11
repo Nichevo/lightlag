@@ -30,25 +30,36 @@ public static class WhatMatters
 
     public static readonly List<Row> Rows = new();
 
-    private sealed record Line(string Key, int With, int Without, double WinWith, double WinWithout,
+    public sealed record Line(string Key, int With, int Without, double WinWith, double WinWithout,
         double? BattleWith, double? BattleWithout, double? LossWith, double? LossWithout)
     {
         public double Gap => Math.Max(Math.Abs(WinWith - WinWithout), BattleWith is double a && BattleWithout is double b ? Math.Abs(a - b) : 0);
         public bool Thin => With < ThinGames || Without < ThinGames;
+        public string Kind => Key.Contains(": ") ? Key[..Key.IndexOf(": ", StringComparison.Ordinal)] : "";
+        public string Choice => Key.Contains(": ") ? Key[(Key.IndexOf(": ", StringComparison.Ordinal) + 2)..] : Key;
     }
 
-    public static void Append(StringBuilder md)
+    /// <summary>High (15 points or more), Medium (8 or more), Low; thin rows are marked as such.</summary>
+    public static string GapSize(Line l) => l.Thin ? "Thin" : l.Gap >= BigGap ? "High" : l.Gap >= 0.08 ? "Medium" : "Low";
+
+    public static List<Line> Lines()
     {
-        if (Rows.Count == 0) return;
         var keys = Rows.SelectMany(r => r.Keys).Distinct().OrderBy(k => k, StringComparer.Ordinal).ToList();
-        var lines = keys.Select(k =>
+        return keys.Select(k =>
         {
             var with = Rows.Where(r => r.Keys.Contains(k)).ToList();
             var without = Rows.Where(r => !r.Keys.Contains(k)).ToList();
             return new Line(k, with.Count, without.Count, WinRate(with), WinRate(without),
                 BattleRate(with), BattleRate(without), LossRate(with), LossRate(without));
         }).ToList();
+    }
 
+    public static List<string> DeadChoices() => Dead(Rows.SelectMany(r => r.Keys).Distinct().ToList()).ToList();
+
+    public static void Append(StringBuilder md)
+    {
+        if (Rows.Count == 0) return;
+        var lines = Lines();
         md.AppendLine();
         md.AppendLine("## What matters");
         md.AppendLine();
@@ -60,15 +71,24 @@ public static class WhatMatters
         md.AppendLine(matter.Count == 0
             ? "- Choices that matter: none yet with enough games behind them."
             : "- **Choices that matter:** " + string.Join("; ", matter.Take(10).Select(l => $"{l.Key} (wins {l.WinWith:P0} with, {l.WinWithout:P0} without)")));
-        var dead = Dead(keys).ToList();
+        var dead = DeadChoices();
         md.AppendLine(dead.Count == 0 ? "- Dead choices (never picked): none." : $"- Dead choices (never picked): {string.Join(", ", dead)}.");
         md.AppendLine();
-        md.AppendLine("| Choice | Picked (games) | Wins with | Wins without | Battles won with | without | Ships lost per battle with | without | Note |");
+        md.AppendLine("| Kind | Choice | Games | Win rate with | Win rate without | Gap size | Flags | Battles won with / without | Ships lost per battle with / without |");
         md.AppendLine("|---|---|---|---|---|---|---|---|---|");
         foreach (var l in lines.OrderBy(l => l.Thin).ThenByDescending(l => l.Gap).ThenBy(l => l.Key, StringComparer.Ordinal).Take(MaxRows))
-            md.AppendLine($"| {l.Key} | {l.With} of {l.With + l.Without} | {l.WinWith:P0} | {l.WinWithout:P0} | {P(l.BattleWith)} | {P(l.BattleWithout)} | "
-                          + $"{N(l.LossWith)} | {N(l.LossWithout)} | {(l.Thin ? "thin" : l.Gap >= BigGap ? "**matters**" : "")} |");
+            md.AppendLine($"| {l.Kind} | {l.Choice} | {l.With} of {l.With + l.Without} | {Bar(l.WinWith)} | {Bar(l.WinWithout)} | {GapSize(l)} | "
+                          + $"{(l.Thin ? "Thin: under 30 games" : l.Gap >= BigGap ? "**Choice that matters**" : "")} | {P(l.BattleWith)} / {P(l.BattleWithout)} | {N(l.LossWith)} / {N(l.LossWithout)} |");
+        foreach (var d in dead.Take(20))
+            md.AppendLine($"| {d.Split(' ')[0]} | {d[(d.IndexOf(' ') + 1)..]} | 0 | - | - | - | Dead: never picked | - | - |");
         if (lines.Count > MaxRows) md.AppendLine($"\n({lines.Count - MaxRows} more rows with smaller gaps are left out.)");
+    }
+
+    /// <summary>A ten-step text bar and the share, for markdown.</summary>
+    private static string Bar(double v)
+    {
+        var n = (int)Math.Round(Math.Clamp(v, 0, 1) * 10);
+        return $"`{new string('█', n)}{new string('░', 10 - n)}` {v:P0}";
     }
 
     private static double WinRate(List<Row> rows) => rows.Count == 0 ? 0 : rows.Count(r => r.Won) / (double)rows.Count;

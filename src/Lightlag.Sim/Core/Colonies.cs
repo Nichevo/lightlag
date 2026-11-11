@@ -610,22 +610,36 @@ public static class Colonies
         }
     }
 
+    public const string ElectronicsPlant = "electronics-plant";
+
+    /// <summary>Share of an electronics plant's output without rare earths (copper only).</summary>
+    public const double LeanElectronics = 1.0 / 3;
+
     /// <summary>Share of the piece's inputs on hand this hour (taking them if asked): 1 with no inputs.</summary>
     private static double InputShare(World w, Body b, Piece p, BuildingData data, bool consume)
     {
         var share = 1.0;
+        var copper = 1.0;
         var any = false;
         foreach (var (good, perDay) in Inputs(b, p, data))
         {
             any = true;
             var want = perDay * Math.Max(0.01, p.Staff) / 24;
             var have = Held(b, good);
-            share = Math.Min(share, want <= 0 ? 1 : Math.Min(1, have / want));
+            var got = want <= 0 ? 1 : Math.Min(1, have / want);
+            share = Math.Min(share, got);
+            if (good == "copper") copper = got;
         }
         if (!any) return 1;
+        // Without rare earths an electronics plant still makes a third, from copper alone.
+        var lean = data.Id == ElectronicsPlant && share < LeanElectronics * copper;
         if (consume)
             foreach (var (good, perDay) in Inputs(b, p, data))
-                b.Stock[good] = Math.Max(0, Held(b, good) - perDay * Math.Max(0.01, p.Staff) / 24 * share);
+            {
+                var used = lean ? (good == "copper" ? LeanElectronics * copper : 0) : share;
+                b.Stock[good] = Math.Max(0, Held(b, good) - perDay * Math.Max(0.01, p.Staff) / 24 * used);
+            }
+        if (lean) return LeanElectronics * copper;
         // Without iron a workshop still makes half; labs and academies still work without electronics (no boost).
         return data.Id == "workshop" ? 0.5 + 0.5 * share : data.Research > 0 || data.TrainScientists > 0 ? 1 + 0.5 * share - 0.5 : share;
     }

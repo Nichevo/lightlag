@@ -494,6 +494,8 @@ public static class Planets
         b.LandingTroops = 0;
         b.Garrison = 0;
         b.Pieces.RemoveAll(p => !p.Built);
+        // Housing that was going up is gone with the old owner: people it would have held leave.
+        b.PopK = Math.Min(b.PopK, Cap(b));
         b.Priority = null;
         b.Preset = "balanced";
         b.AutoTopUp = false;
