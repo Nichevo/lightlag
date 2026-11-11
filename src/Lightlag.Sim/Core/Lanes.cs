@@ -100,7 +100,7 @@ public static class Lanes
     public static Vec2? PointOn(World w, int? from, int? to, double t) =>
         from is int a && to is int b && w.FindBody(a) is Body fa && w.FindBody(b) is Body fb ? fa.Position + (fb.Position - fa.Position) * t : null;
 
-    private static double DistToSegment(Vec2 p, Vec2 a, Vec2 b)
+    public static double DistToSegment(Vec2 p, Vec2 a, Vec2 b)
     {
         var ab = b - a;
         var len = ab.X * ab.X + ab.Y * ab.Y;

@@ -19,7 +19,10 @@ public partial class EmpirePanel : PanelContainer
     private readonly List<(Label Label, Func<World, string> Text)> _live = new();
     private Tab _tab = Tab.Overview;
 
-    public enum Tab { Overview, Needs, Automation, Resources, Buildings }
+    public enum Tab { Overview, Needs, Automation, Resources, Supply, Buildings }
+
+    private SupplyTab? _supply;
+    private SupplyTab SupplyView => _supply ??= new SupplyTab(_screen);
 
     /// <summary>Open on a tab (from the HUD's Needs you count, for example).</summary>
     public void Show(Tab tab) { _tab = tab; _shape = ""; }
@@ -53,12 +56,14 @@ public partial class EmpirePanel : PanelContainer
     public void Refresh(Simulation sim)
     {
         var w = sim.World;
-        var shape = Shape(w);
+        var shape = Shape(w) + (_tab == Tab.Supply ? SupplyView.Shape(sim) : "");
         if (shape != _shape)
         {
             _shape = shape;
-            Rebuild(w);
+            if (_tab == Tab.Supply) RebuildSupply(sim);
+            else Rebuild(w);
         }
+        if (_tab == Tab.Supply) SupplyView.Refresh(sim);
         foreach (var (label, text) in _live) label.Text = text(w);
         FitHeight();
     }
@@ -72,6 +77,7 @@ public partial class EmpirePanel : PanelContainer
         Tab.Automation => EmpireTabs.AutomationShape(w),
         Tab.Resources => string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id)),
         Tab.Buildings => string.Join(",", Economy.Of(w, Side.Player).Researched),
+        Tab.Supply => "",
         _ => OverviewShape(w),
     };
 
@@ -84,8 +90,19 @@ public partial class EmpirePanel : PanelContainer
         + "|" + string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id))
         + "|" + string.Join(",", w.Stations.Where(st => st.Side == Side.Player).Select(st => $"{st.Id}{(w.Hour >= st.ReadyHour ? "r" : "")}"));
 
+    /// <summary>The Supply tab is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
+    private void RebuildSupply(Simulation sim)
+    {
+        foreach (var c in _box.GetChildren()) c.QueueFree();
+        _live.Clear();
+        _box.CustomMinimumSize = new Vector2(SupplyTab.Width, 0);
+        Tabs(sim.World);
+        SupplyView.Build(sim, _box, _live);
+    }
+
     private void Rebuild(World w)
     {
+        _box.CustomMinimumSize = new Vector2(Width, 0);
         foreach (var c in _box.GetChildren()) c.QueueFree();
         _live.Clear();
         Tabs(w);
@@ -235,6 +252,7 @@ public partial class EmpirePanel : PanelContainer
         Tab.Needs => "What wants your look: troubles, things due soon, advice and news, with a button to act on each",
         Tab.Automation => "Hand each area to automation (Auto), have it suggest (Advise) or keep it yourself (Manual)",
         Tab.Resources => "Goods made, used and held across your planets",
+        Tab.Supply => "The supply chain: where goods come from and go, routes and their risk, problems with fixes, stock targets and siege mode",
         Tab.Buildings => "Every building: what it costs, needs and does",
         _ => "Industry, the shipyard, research, stations and claims",
     };

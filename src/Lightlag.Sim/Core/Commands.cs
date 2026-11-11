@@ -68,6 +68,10 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(DeleteZoneCommand), "deleteZone")]
 [JsonDerivedType(typeof(SetZoneFleetCommand), "setZoneFleet")]
 [JsonDerivedType(typeof(HuntCommand), "hunt")]
+[JsonDerivedType(typeof(SetStockRuleCommand), "setStockRule")]
+[JsonDerivedType(typeof(SetSiegeModeCommand), "setSiegeMode")]
+[JsonDerivedType(typeof(SetRouteCommand), "setRoute")]
+[JsonDerivedType(typeof(SetFixedRunEveryCommand), "setFixedRunEvery")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

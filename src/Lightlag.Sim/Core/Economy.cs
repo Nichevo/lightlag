@@ -52,6 +52,9 @@ public sealed class SideState
     /// <summary>Free freighters carry goods where planets ask for them (see Colonies), and freighters lost with cargo.</summary>
     public bool AutoTransport { get; set; } = true;
     public int CargoLost { get; set; }
+
+    /// <summary>Route settings, recent deliveries and losses for the supply chain screen (see SupplyChain).</summary>
+    public SupplyBook Supply { get; set; } = new();
     public List<string> Researched { get; set; } = new();
 
     /// <summary>Research teams (see Research). The first is made when the game starts.</summary>

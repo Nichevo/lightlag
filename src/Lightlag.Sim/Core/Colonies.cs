@@ -78,6 +78,10 @@ public sealed class Shipment
     public bool Loaded { get; set; }
     public int? RunId { get; set; }
     public double StartHour { get; set; }
+
+    /// <summary>A planet to go by on the way (the run's route setting, see SupplyChain), and whether it has been passed.</summary>
+    public int? ViaBodyId { get; set; }
+    public bool ViaDone { get; set; }
 }
 
 /// <summary>A run the player set: carry a good (or all spare) from one planet to another every so many days, perhaps escorted.</summary>
@@ -743,12 +747,29 @@ public static class Colonies
     /// <summary>
     /// The stock the planet aims to keep of a good: its siege days of what it uses, plus what is waited
     /// for here (materials for buildings under way, ships at the yard, research at home).
+    /// A planet's own keep rule replaces the siege days part; siege mode raises both (see SupplyChain).
     /// </summary>
-    public static double Target(Body b, string good) =>
-        Math.Min(StoreCap(b, good), b.SiegeDays * UsePerDay(b, good)) + (b.Wants.TryGetValue(good, out var want) ? want : 0);
+    public static double Target(Body b, string good)
+    {
+        var want = b.Wants.TryGetValue(good, out var w) ? w : 0;
+        if (b.StockRules.Count > 0 && b.StockRules.TryGetValue(good, out var rule) && rule.Keep is double keep)
+            return keep * (b.SiegeMode ? SupplyChain.SiegeKeepFactor : 1) + want;
+        var days = b.SiegeMode ? Math.Max(b.SiegeDays, SupplyChain.SiegeModeDays) : b.SiegeDays;
+        return Math.Min(StoreCap(b, good), days * UsePerDay(b, good)) + want;
+    }
 
-    /// <summary>What can be sent away: stock beyond the planet's own siege target.</summary>
-    public static double SpareOf(Body b, string good) => Math.Max(0, Held(b, good) - Target(b, good));
+    /// <summary>What can be sent away: stock beyond the planet's own target (or its export-above rule); nothing in siege mode.</summary>
+    public static double SpareOf(Body b, string good) => b.SiegeMode ? 0 : Math.Max(0, Held(b, good) - SupplyChain.ExportLine(b, good));
+
+    /// <summary>Does the planet ask for more of a good (under its ask line, or waiting for it)?</summary>
+    public static bool Asks(Body b, string good, out double upTo)
+    {
+        var target = Target(b, good);
+        var rule = b.StockRules.Count > 0 && b.StockRules.TryGetValue(good, out var r) ? r : null;
+        upTo = Math.Max(Math.Max(target * 1.5, 20), rule?.ImportBelow * 1.5 ?? 0);
+        if (target <= 0.5 && rule?.ImportBelow == null) return false;
+        return Held(b, good) < SupplyChain.AskLine(b, good) || Held(b, good) < Want(b, good) - 1e-6;
+    }
 
     /// <summary>
     /// Days the planet holds out if cut off: food (its own farms against what its people eat) and spare
@@ -886,16 +907,14 @@ public static class Colonies
             if (free.Count == 0) return;
             foreach (var good in Goods.Select(g => g.Id))
             {
-                var target = Target(to, good);
-                var waiting = Held(to, good) < Want(to, good) - 1e-6;
-                if (target <= 0.5 || (Held(to, good) >= target * C.AskBelow && !waiting) || ShipmentTo(w, side, to.Id, good) != null) continue;
+                if (!Asks(to, good, out var upTo) || ShipmentTo(w, side, to.Id, good) != null) continue;
                 // Runs where cargo was lost lately go last (and get an escort if one is free).
                 var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
                     .OrderBy(b => Lanes.RiskyRun(w, side, b, to) ? 1 : 0).ThenByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
                 if (from == null) continue;
                 var fleet = free.OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).First();
                 // Bring it up to half again its target (at least 20), so a freighter isn't sent for a handful.
-                var amount = Math.Min(Math.Min(Hold(w, fleet), Math.Max(target * 1.5, 20) - Held(to, good)), SpareOf(from, good));
+                var amount = Math.Min(Math.Min(Hold(w, fleet), upTo - Held(to, good)), SpareOf(from, good));
                 if (amount < 0.5) continue;
                 free.Remove(fleet);
                 Start(sim, side, fleet, from, to, new Dictionary<string, double> { [good] = amount }, null);
@@ -929,13 +948,11 @@ public static class Colonies
         foreach (var to in w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id))
             foreach (var good in Goods.Select(g => g.Id))
             {
-                var target = Target(to, good);
-                var waiting = Held(to, good) < Want(to, good) - 1e-6;
-                if (target <= 0.5 || (Held(to, good) >= target * C.AskBelow && !waiting) || ShipmentTo(w, side, to.Id, good) != null) continue;
+                if (!Asks(to, good, out var upTo) || ShipmentTo(w, side, to.Id, good) != null) continue;
                 var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
                     .OrderByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
                 if (from == null) continue;
-                var amount = Math.Min(Math.Max(target * 1.5, 20) - Held(to, good), SpareOf(from, good));
+                var amount = Math.Min(upTo - Held(to, good), SpareOf(from, good));
                 if (amount >= 0.5) yield return (from, to, good, amount);
             }
     }
@@ -998,7 +1015,9 @@ public static class Colonies
     private static void Start(Simulation sim, Side side, Fleet fleet, Body from, Body to, Dictionary<string, double> cargo, int? runId)
     {
         var w = sim.World;
-        w.Shipments.Add(new Shipment { Id = w.NextId++, Side = side, FleetId = fleet.Id, FromBodyId = from.Id, ToBodyId = to.Id, Cargo = cargo, RunId = runId, StartHour = w.Hour });
+        var shipment = new Shipment { Id = w.NextId++, Side = side, FleetId = fleet.Id, FromBodyId = from.Id, ToBodyId = to.Id, Cargo = cargo, RunId = runId, StartHour = w.Hour };
+        w.Shipments.Add(shipment);
+        SupplyChain.OnStart(sim, shipment, fleet);
         Autonomy.Report(sim, fleet, $"{fleet.Name} carries {string.Join(", ", cargo.Select(c => $"{c.Value:0} {GoodName(c.Key).ToLowerInvariant()}"))} from {from.Name} to {to.Name}", NoteKind.Supply);
     }
 
@@ -1015,6 +1034,7 @@ public static class Colonies
             {
                 w.Shipments.Remove(s);
                 Economy.Of(w, s.Side).CargoLost++;
+                SupplyChain.NoteLoss(w, s, 1);
                 sim.Log.Info("planets", $"{s.Side} freighter lost with its cargo", new { side = s.Side.ToString(), shipment = s.Id, cargo = s.Cargo });
                 // The news comes home at light speed from where the freighter was heading.
                 var delay = to != null ? Light.DelayHours(w, s.Side, to.Position) : 0;
@@ -1034,10 +1054,16 @@ public static class Colonies
                 }
                 s.Loaded = true;
             }
+            if (s.ViaBodyId is int via && !s.ViaDone)
+            {
+                if (w.FindBody(via) is not Body by || by.Owner != s.Side || Economy.InOrbitAt(fleet, by)) s.ViaDone = true;
+                else { Fly(sim, fleet, by); continue; }
+            }
             if (!Economy.InOrbitAt(fleet, to)) { Fly(sim, fleet, to); continue; }
             foreach (var (good, amount) in s.Cargo) to.Stock[good] = Held(to, good) + amount;
             w.Shipments.Remove(s);
             Economy.Of(w, s.Side).Totals.Deliveries++;
+            SupplyChain.NoteDelivery(w, s);
             sim.Log.Info("planets", $"{fleet.Name} delivers to {to.Name}", new { side = s.Side.ToString(), cargo = s.Cargo });
         }
     }

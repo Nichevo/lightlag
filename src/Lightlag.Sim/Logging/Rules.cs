@@ -58,6 +58,7 @@ public sealed class RuleBook
                      && s.CargoPeople >= -1e-9 && s.CargoPeople <= Planets.PeopleHold(s) + 1e-6 && s.CargoTroops >= -1e-9 && s.CargoTroops <= Planets.TroopHold(s) + 1e-6))
             .Select(s => $"ship {s.Id} {s.Name} has ammo {s.Ammo}, food {s.Food}, cargo {s.CargoFuel}/{s.CargoAmmo}/{s.CargoFood}, people {s.CargoPeople}, troops {s.CargoTroops}"))
         .Add("planets-sane", PlanetsSane)
+        .Add("supply-rules-sane", SupplyRulesSane)
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)
@@ -125,6 +126,26 @@ public sealed class RuleBook
                 .Select(r => $"report on fleet {r.Snapshot.FleetId} arrives at {r.ArriveHour}, before it was made"))
             .Concat(!w.Light.On && (w.Light.InTransit.Count > 0 || w.Picture.Count > 0) ? new[] { "light lag is off but orders or reports are in transit" } : Array.Empty<string>()))
         .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>());
+
+    /// <summary>Stock rules are known goods with numbers that make sense; route settings and loads going by a planet name real planets.</summary>
+    private static IEnumerable<string> SupplyRulesSane(World w)
+    {
+        static bool Ok(double? v) => v is not double x || (!double.IsNaN(x) && x >= 0 && x <= 100_000);
+        foreach (var b in w.Bodies)
+            foreach (var (good, r) in b.StockRules)
+            {
+                if (Colonies.Goods.All(g => g.Id != good)) yield return $"{b.Name} has a stock rule for unknown good '{good}'";
+                if (!Ok(r.Keep) || !Ok(r.ExportAbove) || !Ok(r.ImportBelow) || r.Empty)
+                    yield return $"{b.Name} {good} stock rule is keep {r.Keep}, export above {r.ExportAbove}, import below {r.ImportBelow}";
+            }
+        foreach (var side in w.Sides)
+            foreach (var r in side.Supply.Routes)
+                if (r.FromBodyId == r.ToBodyId || r.ViaBodyId is int v && (v == r.FromBodyId || v == r.ToBodyId) || r.EscortFleetId == null && r.ViaBodyId == null)
+                    yield return $"{side.Side} route {r.FromBodyId}->{r.ToBodyId} via {r.ViaBodyId} escort {r.EscortFleetId} makes no sense";
+        foreach (var s in w.Shipments)
+            if (s.ViaBodyId is int v && (v == s.FromBodyId || v == s.ToBodyId))
+                yield return $"shipment {s.Id} goes by its own end {v}";
+    }
 
     private static IEnumerable<string> PlanetsSane(World w)
     {

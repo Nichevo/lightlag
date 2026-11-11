@@ -193,6 +193,10 @@ public sealed class Body
     public Dictionary<string, double> Stock { get; set; } = new();
     public int SiegeDays { get; set; } = 30;
 
+    /// <summary>The planet's own stock rules per good (keep, export above, import below), and siege mode (see SupplyChain).</summary>
+    public Dictionary<string, StockRule> StockRules { get; set; } = new();
+    public bool SiegeMode { get; set; }
+
     /// <summary>Priority order of the areas (null: the preset's), for staff, power and spare parts.</summary>
     public string Preset { get; set; } = "balanced";
     public List<string>? Priority { get; set; }
