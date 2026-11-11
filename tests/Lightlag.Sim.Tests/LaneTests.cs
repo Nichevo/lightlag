@@ -175,6 +175,29 @@ public class LaneTests
     }
 
     [Fact]
+    public void A_tanker_on_a_supply_run_is_raided_like_a_freighter_and_sparks_escorts()
+    {
+        var sim = NewGame();
+        sim.Step();
+        var at = OpenSpace(sim);
+        var raider = NewFleet(sim, Side.Rival, at, "gun-frigate");
+        var warfleet = NewFleet(sim, Side.Player, at * 0.8, "gun-frigate");
+        var run = NewFleet(sim, Side.Player, at + new Vec2(20, 0), "tanker");
+        run.SupplyRunFor = warfleet.Id;
+        var tanker = sim.World.ShipsOf(run).Single();
+        tanker.CargoFuel = 100;
+        tanker.CargoAmmo = 10;
+        Combat.Destroy(sim, tanker);
+        var totals = Economy.Of(sim.World, Side.Rival).Totals;
+        Assert.Equal(1, totals.AmbushCatches);
+        Assert.Equal(55, totals.CargoCaptured, 6);
+        Assert.Single(sim.World.LossSpots);
+        Assert.Contains(sim.World.Choices, c => c.Side == Side.Rival && c.Kind == "raid" && c.What == "caught a supply ship");
+        Assert.Contains("escort-hull", Economy.Of(sim.World, Side.Player).Sparked);
+        Assert.NotNull(raider);
+    }
+
+    [Fact]
     public void Old_lanes_are_forgotten()
     {
         var sim = NewGame();

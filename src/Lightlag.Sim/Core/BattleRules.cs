@@ -361,6 +361,7 @@ public sealed record SetPullRuleCommand(int FleetId, PullPreset? Preset, PullRul
             var state = Economy.Of(world, f.Side);
             state.Habits[key] = state.Habits.GetValueOrDefault(key) + 1;
         }
+        if (f.Rule.Preset != rule.Preset) Choices.Note(world, f.Side, "pullback", PullRule.Name(rule.Preset), "", Source);
         f.Rule = rule;
         f.RetreatWhenDamaged = true;
         if (byHand) f.RuleByHand = true;

@@ -490,7 +490,31 @@ public static class Colonies
                 if (mats == null) continue;
                 foreach (var (good, amount) in mats) b.Wants[good] = b.Wants.GetValueOrDefault(good) + amount;
             }
+            // A yard or dry dock also wants what mending the damaged ships there (or on their way) and refitting
+            // the fleets sent to it will take, so Auto transport ships those materials in.
+            if (!RepairsHere(w, b, side)) continue;
+            foreach (var (good, amount) in YardBills(w, b, side)) b.Wants[good] = b.Wants.GetValueOrDefault(good) + amount;
         }
+    }
+
+    /// <summary>Materials a yard needs for the repairs and refits it has coming: damaged ships in orbit or flying there, and fleets sent to it for refit.</summary>
+    public static Dictionary<string, double> YardBills(World w, Body yard, Side side)
+    {
+        var bills = new Dictionary<string, double>();
+        void Add(Dictionary<string, double> mats) { foreach (var (g, a) in mats) if (a > 0) bills[g] = bills.GetValueOrDefault(g) + a; }
+        foreach (var f in w.Fleets)
+        {
+            if (f.Side != side || f.ShipIds.Count == 0) continue;
+            var refit = f.Refit?.YardBodyId == yard.Id;
+            var here = f.OrbitBodyId == yard.Id && f.Flight == null || f.Flight?.TargetBodyId == yard.Id;
+            if (!refit && !here) continue;
+            foreach (var s in w.ShipsOf(f))
+            {
+                Add(Wounds.RepairBill(w, s));
+                if (refit && s.RefitHoursLeft <= 0 && Refits.Outdated(w, s)) Add(Refits.MaterialsOf(s));
+            }
+        }
+        return bills;
     }
 
     public static double Want(Body b, string good) => b.Wants.TryGetValue(good, out var v) ? v : 0;
@@ -907,34 +931,41 @@ public static class Colonies
         }
     }
 
-    /// <summary>Planets ask for goods they are short of (under AskBelow of their siege target); a free freighter brings them from the planet with the most to spare.</summary>
+    /// <summary>
+    /// Planets ask for goods they are short of (under their ask line, or waiting for materials); a free
+    /// freighter brings them. The asks go in the supply chain's order (worst shortage first, see
+    /// SupplyChain.ShortSeverity), and the source is the safest run with the most to spare, judged with
+    /// the same route risk the Supply tab shows; a run at high risk gets an escort if one is free.
+    /// </summary>
     private static void AutoTransport(Simulation sim, Side side)
     {
         var w = sim.World;
         var free = FreeHaulers(w, side).ToList();
         if (free.Count == 0) return;
-        var mine = w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id).ToList();
         // Sources also take in stations' stores (a skimmer's helium-3 over a gas giant).
         var sources = w.Bodies.Where(b => b.Owner == side && (b.Board != null || b.Stock.Count > 0)).OrderBy(b => b.Id).ToList();
-        foreach (var to in mine)
+        var asks = new List<(Body To, string Good, double UpTo, double Severity)>();
+        foreach (var to in w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id))
+            foreach (var good in Goods.Select(g => g.Id))
+                if (Asks(to, good, out var upTo) && ShipmentTo(w, side, to.Id, good) == null)
+                    asks.Add((to, good, upTo, SupplyChain.ShortSeverity(to, good)));
+        var served = new HashSet<int>();
+        foreach (var (to, good, upTo, _) in asks.OrderByDescending(a => a.Severity).ThenBy(a => a.To.Id).ThenBy(a => a.Good, StringComparer.Ordinal))
         {
             if (free.Count == 0) return;
-            foreach (var good in Goods.Select(g => g.Id))
-            {
-                if (!Asks(to, good, out var upTo) || ShipmentTo(w, side, to.Id, good) != null) continue;
-                // Runs where cargo was lost lately go last (and get an escort if one is free).
-                var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
-                    .OrderBy(b => Lanes.RiskyRun(w, side, b, to) ? 1 : 0).ThenByDescending(b => SpareOf(b, good)).ThenBy(b => b.Id).FirstOrDefault();
-                if (from == null) continue;
-                var fleet = free.OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).First();
-                // Bring it up to half again its target (at least 20), so a freighter isn't sent for a handful.
-                var amount = Math.Min(Math.Min(Hold(w, fleet), upTo - Held(to, good)), SpareOf(from, good));
-                if (amount < 0.5) continue;
-                free.Remove(fleet);
-                Start(sim, side, fleet, from, to, new Dictionary<string, double> { [good] = amount }, null);
-                if (Lanes.RiskyRun(w, side, from, to)) EscortRisky(sim, fleet);
-                break;
-            }
+            if (served.Contains(to.Id)) continue; // one load a planet a round
+            var from = sources.Where(b => b.Id != to.Id && !Economy.Blockaded(w, b) && SpareOf(b, good) >= 1)
+                .Select(b => (Body: b, Risk: SupplyChain.RiskOf(w, side, b.Position, to.Position, null, false).Risk))
+                .OrderBy(x => x.Risk).ThenByDescending(x => SpareOf(x.Body, good)).ThenBy(x => x.Body.Id).FirstOrDefault();
+            if (from.Body == null) continue;
+            var fleet = free.OrderBy(f => Vec2.Distance(f.Position, from.Body.Position)).ThenBy(f => f.Id).First();
+            // Bring it up to half again its target (at least 20), so a freighter isn't sent for a handful.
+            var amount = Math.Min(Math.Min(Hold(w, fleet), upTo - Held(to, good)), SpareOf(from.Body, good));
+            if (amount < 0.5) continue;
+            free.Remove(fleet);
+            served.Add(to.Id);
+            Start(sim, side, fleet, from.Body, to, new Dictionary<string, double> { [good] = amount }, null);
+            if (from.Risk == RouteRisk.High || Lanes.RiskyRun(w, side, from.Body, to)) EscortRisky(sim, fleet);
         }
     }
 

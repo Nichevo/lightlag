@@ -334,6 +334,7 @@ public static class Stewards
             foreach (var key in _state.Dismissed.Where(d => d.Value <= _w.Hour).Select(d => d.Key).ToList()) _state.Dismissed.Remove(key);
             _state.AutoTransport = LevelFor(_w, _side, AutoArea.Transport) == AutoLevel.Auto;
             Alerts();
+            SupplyProblems();
             Learn();
             Building();
             Workers();
@@ -518,6 +519,29 @@ public static class Stewards
                             lost.FleetId is int fid && _w.FindFleet(fid) is { ShipIds.Count: > 0 } ? fid : null), label: "Build it", area: AutoArea.Shipyard);
         }
 
+        /// <summary>How many of the supply chain's ranked problems Needs you shows.</summary>
+        private const int SupplyProblemsShown = 5;
+
+        /// <summary>
+        /// One problem list: the supply chain's ranked problems (Short, Risk, Soon, Stock) are the Needs you
+        /// entries for supply, each with its first one-click fix as the act button.
+        /// </summary>
+        private void SupplyProblems()
+        {
+            foreach (var p in SupplyChain.Problems(_w, _side, SupplyProblemsShown))
+            {
+                var fix = p.Fixes.FirstOrDefault(f => f.Command != null && f.Command is not DismissNeedCommand);
+                var level = p.Kind switch
+                {
+                    ProblemKind.Risk => p.Severity >= (int)RouteRisk.High ? NeedLevel.Urgent : NeedLevel.Soon,
+                    ProblemKind.Short or ProblemKind.Soon => NeedLevel.Soon,
+                    _ => NeedLevel.Advice,
+                };
+                var area = p.Kind switch { ProblemKind.Short or ProblemKind.Stock => AutoArea.Transport, _ => AutoArea.Supply };
+                Need(level, p.Key, $"{p.Title}. {p.Cause}", p.BodyId, p.FleetId, fix?.Command, fix?.Label, area);
+            }
+        }
+
         private IEnumerable<ResearchTeam> IdleTeams() => _state.Teams.Where(t => Research.Ready(_w, t)
             && !_w.Orders.Any(o => o.Side == _side && o.Kind == OrderKind.Research && o.TeamId == t.Id)).OrderBy(t => t.Id);
 
@@ -562,6 +586,7 @@ public static class Stewards
         {
             if (LevelFor(_w, _side, AutoArea.Transport) != AutoLevel.Advise) return;
             foreach (var (from, to, good, amount) in Colonies.TransportWanted(_w, _side).Take(6))
+                if (!_needs.Any(n => n.Key == $"chain:short:{to.Id}:{good}"))
                 Need(NeedLevel.Advice, $"ship:{to.Id}:{good}", $"Send {amount:0} {Colonies.GoodName(good).ToLowerInvariant()} from {from.Name} to {to.Name}",
                     to.Id, act: new ShipGoodsCommand(_side, from.Id, to.Id, good, amount), label: "Send", area: AutoArea.Transport);
         }

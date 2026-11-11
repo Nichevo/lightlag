@@ -72,7 +72,7 @@ public sealed record AutomationData(Dictionary<string, string> Defaults, int Hab
 
 // ---- State (saved with the world) ----------------------------------------------------------------
 
-public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush }
+public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush, Escort }
 
 /// <summary>What the computer has told one of its fleets to do, and why (shown in the debug view).</summary>
 public sealed class FleetJob
@@ -88,8 +88,9 @@ public sealed class FleetJob
     /// <summary>A claim job that is the main fleet's campaign against an enemy planet (not a small claim group).</summary>
     public bool Campaign { get; set; }
 
-    /// <summary>The supply lane an ambush party lies on.</summary>
+    /// <summary>The supply lane an ambush party lies on; the run an escort guards starts here (BodyId is where it goes).</summary>
     public int? LaneId { get; set; }
+    public int? FromBodyId { get; set; }
 }
 
 public sealed record Thought(double Hour, string Text);
@@ -394,6 +395,7 @@ public static class Mind
                     Campaign();
                     Hunt();
                     Ambush();
+                    SupplyCare();
                     Probe();
                     if (_w.Hour >= _m.GatherUntilHour) Expand();
                 }
@@ -697,6 +699,7 @@ public static class Mind
                     JobKind.Probe => f.Flight == null && _w.Hour - job.Since > A.ProbeDays * 24,
                     JobKind.Refit => AtHome(f) && Ready(f),
                     JobKind.Ambush => f.ZoneId == null || _w.Hour - job.Since > AmbushDays * 24 || Supplies(f) < 0.4,
+                    JobKind.Escort => body == null || body.Owner != _side || _w.Hour - job.Since > EscortDays * 24 || Supplies(f) < 0.4,
                     _ => false,
                 };
                 // A flight that ended somewhere else (an order it could not finish): think again.
@@ -706,6 +709,11 @@ public static class Mind
                 if (!done) continue;
                 _m.Jobs.Remove(job);
                 if (job.Kind == JobKind.Probe) _m.LastProbeEndHour = _w.Hour;
+                if (job.Kind == JobKind.Escort)
+                {
+                    if (job.FromBodyId is int from && job.BodyId is int to) Do(new SetRouteCommand(_side, from, to, null, null));
+                    Do(new SetMissionCommand(f.Id, Mission.None));
+                }
                 // A claim group that took its planet moves on to the next one nearby, if it is fit for it.
                 if (job.Kind == JobKind.Claim && body?.Owner == _side && ChainClaim(f, body)) continue;
                 if (job.Kind != JobKind.Refit && !AtHome(f)) GoHome(f, $"{Describe(job)} is over");
@@ -1024,6 +1032,51 @@ public static class Mind
             if (_m.JobOf(group.Id) is FleetJob job) job.LaneId = lane.Id;
             Orders(group, Core.Stance.Engage);
             Note($"{group.Name} ({group.ShipIds.Count} ships) lies in wait on the {a.Name}–{b.Name} supply lane");
+        }
+
+        /// <summary>How long an escort stays on a risky run before it comes home.</summary>
+        private const double EscortDays = 40;
+
+        /// <summary>
+        /// The supply chain, judged as the player's Supply tab judges it (SupplyChain.Problems and RiskOf):
+        /// a run at high risk gets a small escort from the home pool (one, or two for a defensive side), and a
+        /// planet off home that is blockaded or has enemies near goes into siege mode until they have been
+        /// gone for a while.
+        /// </summary>
+        private void SupplyCare()
+        {
+            if (Easy || _w.Hour % 24 >= ThinkHours(_m.Difficulty) || Slip()) return;
+            var escorts = _m.Jobs.Count(j => j.Kind == JobKind.Escort);
+            var most = P.Defence >= 0.5 ? 2 : 1;
+            foreach (var p in SupplyChain.Problems(_w, _side, 12).Where(p => p.Kind == ProblemKind.Risk && p.Severity >= (int)RouteRisk.High))
+            {
+                if (escorts >= most) break;
+                if (p.Fixes.Select(f => f.Command).OfType<SetRouteCommand>().FirstOrDefault() is not SetRouteCommand route
+                    || _m.Jobs.Any(j => j.Kind == JobKind.Escort && j.FromBodyId == route.FromBodyId && j.BodyId == route.ToBodyId)
+                    || _w.FindBody(route.FromBodyId) is not Body a || _w.FindBody(route.ToBodyId) is not Body b) continue;
+                var need = Math.Max(A.EnemyShipValue, EnemyNear((a.Position + b.Position) * 0.5, A.DangerRadiusAu * _au, 10 * 24) * Fight);
+                if (Pool().Where(Ready).Sum(f => War(f)) * (1 - _p.GuardShare) < need) continue;
+                var group = TakeFromPool(need, $"escort on the {a.Name}–{b.Name} run", small: true);
+                if (group == null) continue;
+                Do(new SetRouteCommand(_side, a.Id, b.Id, group.Id, route.ViaBodyId));
+                Assign(group, JobKind.Escort, b.Id, b.Position, $"escort loads on the {a.Name}–{b.Name} run ({p.Cause.TrimEnd('.')})");
+                if (_m.JobOf(group.Id) is FleetJob job) job.FromBodyId = a.Id;
+                Orders(group, Core.Stance.Engage);
+                Note($"{group.Name} escorts the {a.Name}–{b.Name} run: {p.Cause}");
+                escorts++;
+            }
+            foreach (var b in _w.Bodies.Where(b => b.Owner == _side && b.Board != null && !b.Home && !b.Shipyard).OrderBy(b => b.Id))
+            {
+                var radius = A.DangerRadiusAu * _au;
+                var threatened = Economy.Blockaded(_w, b) || EnemyNear(b.Position, radius, 48) > 0;
+                if (threatened && !b.SiegeMode)
+                {
+                    Do(new SetSiegeModeCommand(_side, b.Id, true));
+                    Note($"{b.Name} goes into siege mode: enemies near");
+                }
+                else if (!threatened && b.SiegeMode && EnemyNear(b.Position, radius, 20 * 24) <= 0)
+                    Do(new SetSiegeModeCommand(_side, b.Id, false));
+            }
         }
 
         /// <summary>Send a small, quiet scout towards the enemy home to see what it has.</summary>

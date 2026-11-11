@@ -230,27 +230,45 @@ public static class Lanes
     }
 
     /// <summary>A cargo ship's fleet is gone with its load: the raider nearby takes half, the rest is lost; zones count the catch.</summary>
-    public static void OnCargoLost(Simulation sim, Fleet hauler, Shipment s)
+    public static void OnCargoLost(Simulation sim, Fleet hauler, Shipment s) =>
+        Caught(sim, hauler, s.Side, s.Loaded ? s.Cargo : null, "freighter");
+
+    /// <summary>
+    /// A tanker or supply freighter on a run to a fleet is gone with what it carried: raided the same way as
+    /// a freighter with a shipment (the raider takes half of its fuel, ammunition and food). Cutting a
+    /// fleet's supply line is a real way to starve it.
+    /// </summary>
+    public static void OnSupplyLost(Simulation sim, Fleet hauler, Ship s)
+    {
+        var cargo = new Dictionary<string, double>();
+        if (s.CargoFuel > 0) cargo[Colonies.Fuel] = s.CargoFuel;
+        if (s.CargoAmmo > 0) cargo["ammunition"] = s.CargoAmmo;
+        if (s.CargoFood > 0) cargo["food"] = s.CargoFood;
+        Caught(sim, hauler, s.Side, cargo.Count > 0 ? cargo : null, "supply ship");
+    }
+
+    private static void Caught(Simulation sim, Fleet hauler, Side side, Dictionary<string, double>? cargo, string what)
     {
         var w = sim.World;
         var at = hauler.Position;
-        w.LossSpots.Add(new LossSpot(s.Side, at, w.Hour));
-        var raider = w.Fleets.Where(f => f.Side != s.Side && f.ShipIds.Count > 0 && Combat.Armed(w, f) && Vec2.Distance(f.Position, at) <= GameData.Combat.ContactRangeMm * 2)
+        w.LossSpots.Add(new LossSpot(side, at, w.Hour));
+        var raider = w.Fleets.Where(f => f.Side != side && f.ShipIds.Count > 0 && Combat.Armed(w, f) && Vec2.Distance(f.Position, at) <= GameData.Combat.ContactRangeMm * 2)
             .OrderBy(f => Vec2.Distance(f.Position, at)).ThenBy(f => f.Id).FirstOrDefault();
+        Sparks.Fire(sim, side, "freighter-raided");
         if (raider == null) return;
         var t = Economy.Of(w, raider.Side).Totals;
         t.AmbushCatches++;
-        Choices.Note(w, raider.Side, "raid", "caught a freighter", "", $"ships {raider.ShipIds.Count}");
+        Choices.Note(w, raider.Side, "raid", $"caught a {what}", "", $"ships {raider.ShipIds.Count}");
         if (w.ActiveBattle is Battle fight && fight.For(raider.Side).Fleets.Contains(raider.Name)) fight.For(raider.Side).CargoCaught++;
         if (raider.ZoneId is int zid && w.Zones.Find(z => z.Id == zid) is Zone zone) zone.Catches++;
-        if (s.Loaded && w.Bodies.Where(b => b.Owner == raider.Side && b.Board != null).OrderBy(b => Vec2.Distance(b.Position, at)).ThenBy(b => b.Id).FirstOrDefault() is Body store)
+        if (cargo != null && w.Bodies.Where(b => b.Owner == raider.Side && b.Board != null).OrderBy(b => Vec2.Distance(b.Position, at)).ThenBy(b => b.Id).FirstOrDefault() is Body store)
         {
-            foreach (var (good, amount) in s.Cargo.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            foreach (var (good, amount) in cargo.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             {
                 store.Stock[good] = Colonies.Held(store, good) + amount / 2;
                 t.CargoCaptured += amount / 2;
             }
-            sim.Log.Info("lanes", $"{raider.Name} takes cargo from a {s.Side} freighter", new { fleetId = raider.Id, store = store.Name, cargo = s.Cargo });
+            sim.Log.Info("lanes", $"{raider.Name} takes cargo from a {side} {what}", new { fleetId = raider.Id, store = store.Name, cargo });
         }
     }
 

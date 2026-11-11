@@ -199,6 +199,7 @@ public sealed record SetFormationCommand(int FleetId, Formation Formation) : Gam
     {
         if (GetFleet(world, sim, FleetId, "Formation") is not Fleet fleet) return;
         fleet.Formation = Formation;
+        Choices.Note(world, fleet.Side, "formation", Formations.Name(Formation), "", Source);
         Formations.Keep(world, fleet);
         sim.Log.Info("fleet", $"{fleet.Name} formation {Formations.Name(Formation)}", new { FleetId, formation = Formation.ToString(), Source });
     }

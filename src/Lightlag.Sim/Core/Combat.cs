@@ -758,6 +758,8 @@ public static class Combat
         Wounds.LeaveWreck(sim.World, ship);
         if (sim.World.FleetOf(ship) is Fleet hauler && hauler.ShipIds.Count == 1 && sim.World.Shipments.Find(s => s.FleetId == hauler.Id) is Shipment load)
             Lanes.OnCargoLost(sim, hauler, load);
+        else if (sim.World.FleetOf(ship) is Fleet run && run.ShipIds.Count == 1 && run.SupplyRunFor != null && SupplyLines.IsSupplyShip(ship))
+            Lanes.OnSupplyLost(sim, run, ship); // a tanker or freighter out on a supply run is raided the same way
         RemoveShip(sim.World, ship);
         if (Economy.Of(sim.World, ship.Side).FlagshipId == ship.Id) Light.Succeed(sim, ship.Side, ship.Position);
     }
