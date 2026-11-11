@@ -176,6 +176,7 @@ public sealed class Simulation
         Stewards.Update(this);
         Autonomy.Update(this);
         Lanes.Observe(this);
+        Intel.Update(this);
         Lanes.UpdateZones(this);
         Supply.Update(this);
         SupplyLines.Update(this);

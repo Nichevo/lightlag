@@ -117,6 +117,9 @@ public sealed class SideState
 
     /// <summary>Pull-back presets the player made Auto's default for a situation (see BattleRules.AutoPick).</summary>
     public Dictionary<string, PullPreset> PullDefaults { get; set; } = new();
+
+    /// <summary>What this side has learned about its rival (see Intel).</summary>
+    public IntelFile Intel { get; set; } = new();
 }
 
 public enum OrderKind { Ship, Research }
@@ -497,6 +500,8 @@ public static class Economy
         var w = sim.World;
         var yard = from ?? ShipyardOf(w, side)!;
         var ship = NewShip(w, side, classId);
+        ship.BuiltHour = w.Hour;
+        ship.BuiltAtBodyId = yard.Id;
         Of(w, side).Totals.ShipsBuilt++;
         Choices.Note(w, side, "ship", classId, yard.Name, string.Join(" ", ship.Fit));
         // The crew comes from the shipyard planet's people.

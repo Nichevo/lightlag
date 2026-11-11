@@ -146,8 +146,7 @@ public static class SupplyChain
         var why = new List<string>();
         var losses = w.LossSpots.Count(l => l.Side == side && w.Hour - l.Hour < Lanes.LossDays * 24 && legs.Any(g => Lanes.DistToSegment(l.At, g.A, g.B) < Lanes.LossRadiusMm));
         if (losses > 0) { score += 2; why.Add(losses == 1 ? "cargo lost near it lately" : $"cargo lost near it {losses} times lately"); }
-        var seen = w.Sightings.Count(e => e.SeenBy == side && !e.Own && w.Hour - e.Hour < SightingDays * 24 && !Lanes.CargoSighting(e)
-                                          && legs.Any(g => Lanes.DistToSegment(e.Position, g.A, g.B) < Lanes.LossRadiusMm));
+        var seen = Intel.FleetsNear(w, side, legs, SightingDays, Lanes.LossRadiusMm);
         if (seen > 0) { score += Math.Min(2, seen); why.Add(seen == 1 ? "a rival fleet seen near it in 10 days" : $"{seen} rival fleets seen near it in 10 days"); }
         if (score > 0 && escorted) { score--; why.Add("escorted"); }
         if (score > 0 && w.Zones.Any(z => z.Side == side && z.Kind == ZoneKind.Guard && w.Fleets.Any(f => f.ZoneId == z.Id && f.ShipIds.Count > 0)

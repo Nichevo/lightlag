@@ -491,7 +491,7 @@ public static class Stewards
                 if (b.Hungry && b.PopK > 0) Need(NeedLevel.Urgent, $"hungry:{b.Id}", $"{b.Name} is going hungry", b.Id);
                 if (Economy.Blockaded(_w, b)) Need(NeedLevel.Urgent, $"blockaded:{b.Id}", $"{b.Name} is blockaded", b.Id);
             }
-            foreach (var s in _w.Sightings.Where(s => s.SeenBy == _side && !s.Own && _w.Hour - s.Hour < 6).OrderBy(s => s.FleetId))
+            foreach (var s in Intel.Recent(_w, _side, 6))
             {
                 var near = mine.Where(b => b.PopK > 0 && Vec2.Distance(s.Position, b.Position) < 0.15 * Physics.MmPerAu)
                     .OrderBy(b => Vec2.Distance(s.Position, b.Position)).ThenBy(b => b.Id).FirstOrDefault();

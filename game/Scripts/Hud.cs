@@ -41,6 +41,16 @@ public partial class Hud : CanvasLayer
     private GameMenu _menu = null!;
     private PanelContainer _mindPanel = null!;
     private Label _mind = null!;
+    private Button _intelButton = null!, _needsBadge = null!, _progressButton = null!;
+    private ControlBar _control = null!;
+    private MenuButton _layers = null!;
+    private HBoxContainer _row2 = null!;
+    private readonly HashSet<string> _toasted = new();
+    private bool _needsPrimed;
+    private ShipCard _shipCard = null!;
+    private KeyHelp _keyHelp = null!;
+    private ProgressScreen _progress = null!;
+    private IntelScreen _intel = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -91,15 +101,40 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_planetsButton);
         AddChild(bar);
 
-        _side = new SidePanel(_screen) { Position = new Vector2(16, 56) };
+        // Second row: Needs you, the control bar, Map layers, How am I doing and key help.
+        var row2 = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        row2.AddThemeConstantOverride("separation", 8);
+        row2.Position = new Vector2(16, 48);
+        _needsBadge = SmallButton("", () => { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Needs); }, "What wants your look: click for the Needs you list (Empire)");
+        row2.AddChild(_needsBadge);
+        _control = new ControlBar();
+        row2.AddChild(_control);
+        _layers = new MenuButton { Text = "Map layers ▾", Flat = false, FocusMode = Control.FocusModeEnum.None, TooltipText = "What the map shows, with Calm, War and Trade presets" };
+        _layers.CustomMinimumSize = new Vector2(0, 32);
+        _layers.AddThemeFontSizeOverride("font_size", 15);
+        _layers.GetPopup().AddThemeFontSizeOverride("font_size", 14);
+        _layers.GetPopup().HideOnCheckableItemSelection = false;
+        _layers.AboutToPopup += FillLayersMenu;
+        _layers.GetPopup().IdPressed += id => Main.Instance.RunGuarded("map layers", () => PickLayer((int)id));
+        row2.AddChild(_layers);
+        _intelButton = SmallButton("Intel", () => _screen.ShowIntel = !_screen.ShowIntel, "What you know about the rival, and how sure you are (I)");
+        row2.AddChild(_intelButton);
+        _progressButton = SmallButton("How am I doing?", () => _screen.ShowProgress = !_screen.ShowProgress, "Control share over time, Industry, fleet strength, research and losses (N)");
+        row2.AddChild(_progressButton);
+        row2.AddChild(SmallButton("Keys (F1)", () => _screen.ShowHelp = !_screen.ShowHelp, "Every key, grouped (F1)"));
+        AddChild(row2);
+        _row2 = row2;
+
+        _side = new SidePanel(_screen) { Position = new Vector2(16, 96) };
         AddChild(_side);
 
         _empire = new EmpirePanel(_screen);
-        _empire.Position = new Vector2(16, 56);
+        _empire.Position = new Vector2(16, 96);
         AddChild(_empire);
 
         _status = Ui.Label("", 13, Ui.Dim);
         _status.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.KeepSize, 16);
+        _status.Position += new Vector2(0, 40); // under the top bar, which can reach the right edge
         _status.GrowHorizontal = Control.GrowDirection.Begin;
         _status.HorizontalAlignment = HorizontalAlignment.Right;
         AddChild(_status);
@@ -109,8 +144,7 @@ public partial class Hud : CanvasLayer
         _scaleBar.Position += new Vector2(0, -60);
         AddChild(_scaleBar);
 
-        var help = Ui.Label("Wheel zoom · WASD, arrows or right-drag pan · click select · drag a box or Shift+click to pick several · Tab next fleet · double-click follow\n"
-            + "Right-click route or attack (Shift: go now) · Enter go · O orbit · G drift · C change route · X stop · M merge or gather · E empire · T research · Y planets · L list · R report · P pause on contact · B sight view · Z zoom in · Space pause · 1-4 speed · Home · F8", 12, Ui.Dim);
+        var help = Ui.Label("Wheel zoom · WASD pan · click select · right-click route or attack · Space pause · F1 every key", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -179,7 +213,7 @@ public partial class Hud : CanvasLayer
         AddChild(_mindPanel);
 
         // Coming contacts: top left, under the menu bar and the sight-view line.
-        _contacts = new ContactsPanel(_screen) { Position = new Vector2(16, 84) };
+        _contacts = new ContactsPanel(_screen) { Position = new Vector2(16, 124) };
         AddChild(_contacts);
 
         _engagement = new EngagementPanel(_screen);
@@ -194,6 +228,15 @@ public partial class Hud : CanvasLayer
         AddChild(_research);
         _colonies = new ColonyScreen(_screen) { Visible = false };
         AddChild(_colonies);
+
+        _shipCard = new ShipCard(_screen) { Visible = false };
+        AddChild(_shipCard);
+        _progress = new ProgressScreen(_screen) { Visible = false };
+        AddChild(_progress);
+        _intel = new IntelScreen(_screen) { Visible = false };
+        AddChild(_intel);
+        _keyHelp = new KeyHelp(_screen) { Visible = false };
+        AddChild(_keyHelp);
 
         _menu = new GameMenu(_screen) { Visible = false };
         _end = new EndPanel(_screen);
@@ -252,15 +295,19 @@ public partial class Hud : CanvasLayer
             var me = Economy.Of(w, Side.Player);
             var held = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
             var attacked = Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double h } && w.Hour - h <= 24;
-            var control = Planets.Control(w, Side.Player).Share;
             var tipped = Planets.Tipped(w, Side.Player) ? " TIPPED" : Planets.Tipped(w, Side.Rival) ? " (rival tipped)" : "";
-            _empireButton.Text = $"Industry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/day) · planets {held}/{Economy.Claimable(w).Count()}"
-                                 + $" · people {Planets.PopulationOf(w, Side.Player):0}k · control {control:P0}{tipped}"
-                                 + (attacked ? " · SHIPYARD UNDER ATTACK" : "")
-                                 + (me.Needs.Count > 0 ? $" · {me.Needs.Count} need you" : "") + " · Empire ▾";
+            _empireButton.Text = $"Industry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/d) · planets {held}/{Economy.Claimable(w).Count()}"
+                                 + $" · {Planets.PopulationOf(w, Side.Player):0}k people{tipped}"
+                                 + (attacked ? " · SHIPYARD UNDER ATTACK" : "") + " · Empire ▾";
+            RefreshNeeds(w, me);
+            _control.Set(w);
             var urgent = me.Needs.Any(n => n.Level == NeedLevel.Urgent);
             _empireButton.Modulate = attacked || urgent ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
         }
+        _row2.Visible = w.Loop;
+        _intelButton.Visible = w.Loop;
+        _intelButton.Modulate = _screen.ShowIntel ? Ui.Player : Colors.White;
+        _progressButton.Modulate = _screen.ShowProgress ? Ui.Player : Colors.White;
         _researchButton.Visible = w.Loop;
         if (w.Loop) _researchButton.Text = ResearchLine(w);
         _planetsButton.Visible = w.Loop;
@@ -300,10 +347,10 @@ public partial class Hud : CanvasLayer
         if (_fitting.Visible) _fitting.Refresh(sim, fittingFleet!);
         var screen = _side.GetViewportRect().Size;
         _side.Visible = _screen.ShowSide && !_research.Visible && !_colonies.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
-        if (_side.Visible) _side.Refresh(sim, Mathf.Max(200, screen.Y - 56 - 110));
+        if (_side.Visible) _side.Refresh(sim, Mathf.Max(200, screen.Y - 96 - 110));
         _sideButton.Modulate = _side.Visible ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : 16;
-        _contacts.Position = new Vector2(leftEdge, 84);
+        _contacts.Position = new Vector2(leftEdge, 124);
         _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
         var covered = _research.Visible || _colonies.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
@@ -318,6 +365,25 @@ public partial class Hud : CanvasLayer
             _battle.Visible = false;
         }
         else _battle.Visible = true;
+
+        // Ship card, How am I doing, intelligence and key help: opened on demand, over the map.
+        var card = _screen.ShipCardId is int cid ? w.Ships.Find(x => x.Id == cid) : null;
+        if (card == null || (card.Side != Side.Player && !_screen.RevealAll && !Sensors.Sees(w, Side.Player, w.FleetOf(card)!, seat: true))) _screen.ShipCardId = null;
+        _shipCard.Visible = _screen.ShipCardId != null && !_menu.Visible;
+        if (_shipCard.Visible)
+        {
+            _shipCard.Refresh(sim, card!);
+            // Beside the fleet panel (to its left), level with the bottom of the screen.
+            var view = _shipCard.GetViewportRect().Size;
+            var right = _fleetPanel.Visible ? _fleetPanel.GetGlobalRect().Position.X - 12 : view.X - 16;
+            var size = _shipCard.GetCombinedMinimumSize();
+            _shipCard.Position = new Vector2(right - size.X, view.Y - size.Y - 16);
+        }
+        _progress.Visible = w.Loop && _screen.ShowProgress && !_menu.Visible;
+        if (_progress.Visible) _progress.Refresh(sim);
+        _intel.Visible = w.Loop && _screen.ShowIntel && !_menu.Visible && !_progress.Visible;
+        if (_intel.Visible) _intel.Refresh(sim);
+        _keyHelp.Visible = _screen.ShowHelp && !_menu.Visible;
 
         // In a full game a selected planet gets the planet screen; the sandbox keeps the short description.
         var planet = fleet == null && group.Count < 2 && engagement == null && w.Loop ? _screen.SelectedBody : null;
@@ -341,12 +407,78 @@ public partial class Hud : CanvasLayer
         var jobs = m.Jobs.GroupBy(j => j.Kind).Select(g => $"{g.Key} {g.Count()}");
         lines.Add("Jobs: " + (m.Jobs.Count > 0 ? string.Join(", ", jobs) : "none"));
         lines.Add("");
+        lines.Add("INTEL (belief vs truth)");
+        lines.AddRange(Intel.BeliefVsTruth(w, Side.Player));
+        lines.AddRange(Intel.BeliefVsTruth(w, Side.Rival).Take(3));
+        lines.Add("");
         foreach (var t in m.Thoughts.TakeLast(8).Reverse())
             lines.Add($"{GameTime.Format(t.Hour)}: {t.Text}");
         return string.Join("\n", lines);
     }
 
     public void TickShip(int shipId) => _fleetPanel.TickOnly(shipId);
+
+    /// <summary>The Needs you badge, and a toast once for each new Urgent item.</summary>
+    private void RefreshNeeds(World w, SideState me)
+    {
+        var urgent = me.Needs.Where(n => n.Level == NeedLevel.Urgent).ToList();
+        _needsBadge.Text = me.Needs.Count == 0 ? "✓ Nothing needs you" : $"⚠ {me.Needs.Count} need{(me.Needs.Count == 1 ? "s" : "")} you" + (urgent.Count > 0 ? $" ({urgent.Count} urgent)" : "");
+        _needsBadge.Modulate = urgent.Count > 0 ? Ui.Danger : me.Needs.Count > 0 ? new Color("ffd34d") : new Color(1, 1, 1, 0.6f);
+        _needsBadge.TooltipText = me.Needs.Count == 0 ? "Nothing waits for you" : string.Join("\n", me.Needs.OrderBy(n => n.Level).Take(6).Select(n => $"{n.Level}: {n.Text}"))
+                                                                               + "\nClick for the Needs you list";
+        foreach (var n in urgent)
+        {
+            if (!_toasted.Add(n.Key) || !_needsPrimed) continue;
+            var need = n;
+            Main.Instance.Toast(n.Text, onClick: () => JumpTo(need));
+        }
+        _needsPrimed = true; // items already there when the game opens don't pop up
+        _toasted.IntersectWith(me.Needs.Select(n => n.Key)); // an item that clears and comes back pops up again
+    }
+
+    private void JumpTo(NeedItem n)
+    {
+        if (n.FleetId is int f && Main.Instance.Sim?.World.FindFleet(f) != null) _screen.PickFleet(f);
+        else if (n.BodyId is int b) _screen.PickBody(b);
+        else { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Needs); }
+    }
+
+    private const int PresetCalm = 1000, PresetWar = 1001, PresetTrade = 1002, PresetDefault = 1003;
+
+    private void FillLayersMenu()
+    {
+        var popup = _layers.GetPopup();
+        popup.Clear();
+        foreach (var (layer, name, tip) in PlayerInfo.LayerList)
+        {
+            popup.AddCheckItem(name, (int)layer);
+            var i = popup.ItemCount - 1;
+            popup.SetItemChecked(i, PlayerInfo.Has(layer));
+            popup.SetItemTooltip(i, tip);
+        }
+        popup.AddSeparator("Presets");
+        popup.AddItem("Calm: orbits and labels", PresetCalm);
+        popup.AddItem("War: sight, lag, old sightings, lanes", PresetWar);
+        popup.AddItem("Trade: lanes and supply runs", PresetTrade);
+        popup.AddItem("Everything as it was", PresetDefault);
+    }
+
+    private void PickLayer(int id)
+    {
+        var layers = id switch
+        {
+            PresetCalm => PlayerInfo.Calm,
+            PresetWar => PlayerInfo.War,
+            PresetTrade => PlayerInfo.Trade,
+            PresetDefault => PlayerInfo.Default,
+            _ => PlayerInfo.Layers ^ (MapLayer)id,
+        };
+        PlayerInfo.SetLayers(layers);
+        // The sight view follows the Sight shadows layer.
+        if (PlayerInfo.Has(MapLayer.Shadows) && _screen.Sight == MapView.SightView.Off) _screen.Sight = MapView.SightView.Shadows;
+        if (!PlayerInfo.Has(MapLayer.Shadows)) _screen.Sight = MapView.SightView.Off;
+        if (id < PresetCalm) FillLayersMenu();
+    }
 
     /// <summary>The fleet list: your fleets with their ships, then the rival fleets.</summary>
     private void FillNewsMenu()

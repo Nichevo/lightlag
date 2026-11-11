@@ -346,6 +346,12 @@ public sealed class Ship
     /// <summary>The module in each slot of its class (see Fitting). Empty: the standard fit.</summary>
     public List<string> Fit { get; set; } = new();
 
+    /// <summary>History for the ship card: when and where it was built (null: at the start), battles fought, enemy ships lost in them.</summary>
+    public double? BuiltHour { get; set; }
+    public int? BuiltAtBodyId { get; set; }
+    public int Battles { get; set; }
+    public int EnemyLostInBattles { get; set; }
+
     /// <summary>Working numbers for the fit, worked out once per fit (not saved).</summary>
     [System.Text.Json.Serialization.JsonIgnore] public ShipClass? SpecCache { get; set; }
     [System.Text.Json.Serialization.JsonIgnore] public string SpecKey { get; set; } = "";

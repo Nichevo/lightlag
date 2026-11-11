@@ -85,7 +85,7 @@ public partial class MapView
         {
             var at = Camera.ToScreen(fp);
             var r = (float)(Light.CommandRangeMm(w, Side.Player) * Camera.Scale);
-            if (r > 12 && r < 20000) DrawDashedCircle(at, r, CommandRing, "Command range");
+            if (r > 12 && r < 20000 && PlayerInfo.Has(MapLayer.LagRing)) DrawDashedCircle(at, r, CommandRing, "Command range");
             DrawFlagMark(at + new Vector2(-14, -18), Ui.Player);
         }
         // Our messenger drones (and enemy ones we would see only if close: not drawn).

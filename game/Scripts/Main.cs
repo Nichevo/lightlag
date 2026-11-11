@@ -52,6 +52,7 @@ public partial class Main : Node
         _overlay = new CanvasLayer { Layer = 100 };
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
+        PlayerInfo.Load(Paths.Root);
         if (OS.GetCmdlineUserArgs().Contains("--smoke-test"))
         {
             CallDeferred(MethodName.RunSmokeTest);
@@ -497,6 +498,39 @@ public partial class Main : Node
             minds.ShowWholeSystem();
             minds.Camera.SetScale(minds.Camera.TargetScale, instant: true);
             await Shoot("20-rival-mind");
+
+            // Player information, two months in: the cleaned-up fleet panel, a ship card, How am I doing,
+            // the intelligence screen and the key list.
+            minds.ToggleRevealAll();
+            var own = Sim.World.Fleets.Where(f => f.Side == Lightlag.Sim.Core.Side.Player).OrderByDescending(f => f.ShipIds.Count).First();
+            minds.Select(own.Id);
+            minds.Follow(own.Id, false);
+            minds.Camera.SetScale(0.05, instant: true);
+            PlayerInfo.SetOpen("Ships", true);
+            await Shoot("50-fleet-panel");
+            PlayerInfo.SetOpen("Orders", true);
+            PlayerInfo.SetOpen("Battle rules", true);
+            await Shoot("50b-fleet-panel-open");
+            PlayerInfo.SetOpen("Orders", false);
+            PlayerInfo.SetOpen("Battle rules", false);
+            PlayerInfo.SetOpen("Ships", false);
+            minds.ShipCardId = own.ShipIds[0];
+            await Shoot("51-ship-card");
+            minds.ShipCardId = null;
+            minds.Select(null);
+            minds.ShowProgress = true;
+            await Shoot("52-how-am-i-doing");
+            minds.ShowProgress = false;
+            // Screenshot only: show the file as it looks after some contact (a look at its fleets and a battle).
+            foreach (var rf in Sim.World.Fleets.Where(f => f.Side == Lightlag.Sim.Core.Side.Rival).ToList()) Sensors.Reveal(Sim.World, Lightlag.Sim.Core.Side.Player, rf);
+            Intel.Update(Sim);
+            Intel.Note(Sim.World, Lightlag.Sim.Core.Side.Player, IntelSource.Battle, "Screenshot: railguns seen in a skirmish", 45, "railguns");
+            minds.ShowIntel = true;
+            await Shoot("53-intelligence");
+            minds.ShowIntel = false;
+            minds.ShowHelp = true;
+            await Shoot("54-keys");
+            minds.ShowHelp = false;
 
             // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
             StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 150), 7);
