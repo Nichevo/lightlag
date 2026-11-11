@@ -33,6 +33,7 @@ public partial class Hud : CanvasLayer
     private EmpirePanel _empire = null!;
     private Button _researchButton = null!;
     private ResearchScreen _research = null!;
+    private FittingPanel _fitting = null!;
     private EndPanel _end = null!;
     private EngagementPanel _engagement = null!;
     private ContactsPanel _contacts = null!;
@@ -186,6 +187,11 @@ public partial class Hud : CanvasLayer
         _engagement = new EngagementPanel(_screen);
         AddChild(_engagement);
 
+        _fitting = new FittingPanel(_screen) { Visible = false };
+        _fitting.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
+        _fitting.GrowHorizontal = Control.GrowDirection.Both;
+        _fitting.GrowVertical = Control.GrowDirection.Both;
+        AddChild(_fitting);
         _research = new ResearchScreen(_screen) { Visible = false };
         AddChild(_research);
 
@@ -280,7 +286,11 @@ public partial class Hud : CanvasLayer
         var engagement = _screen.EngagementNow;
         // A panel you opened yourself (empire, planner, a report or a replay) sits where the engagement
         // panel draws, so while it is open the engagement panel steps aside; it comes back when you close it.
-        var covered = _research.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
+        var fittingFleet = _screen.FittingFleetId is int ff ? w.FindFleet(ff) : null;
+        if (fittingFleet == null || fittingFleet.Side != Side.Player) _screen.FittingFleetId = null;
+        _fitting.Visible = fittingFleet != null && fittingFleet.Side == Side.Player && !_research.Visible;
+        if (_fitting.Visible) _fitting.Refresh(sim, fittingFleet!);
+        var covered = _research.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;

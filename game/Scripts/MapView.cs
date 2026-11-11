@@ -1022,9 +1022,16 @@ public static class ShipIcons
     private static readonly Vector2[] Frigate = { new(9, 0), new(-6, 6), new(-3, 0), new(-6, -6) };
     private static readonly Vector2[] Destroyer = { new(11, 0), new(3, 4.5f), new(-9, 4.5f), new(-6, 0), new(-9, -4.5f), new(3, -4.5f) };
 
+    private static readonly Vector2[] Escort = { new(7, 0), new(-5, 4.5f), new(-3, 0), new(-5, -4.5f) };
+    private static readonly Vector2[] Cruiser = { new(14, 0), new(6, 5.5f), new(-11, 5.5f), new(-8, 0), new(-11, -5.5f), new(6, -5.5f) };
+    private static readonly Vector2[] Hauler = { new(9, 0), new(6, 4), new(-9, 4), new(-9, -4), new(6, -4) };
+
     public static Vector2[] For(string icon) => icon switch
     {
         "destroyer" => Destroyer,
+        "escort" => Escort,
+        "cruiser" => Cruiser,
+        "tanker" or "freighter" => Hauler,
         _ => Frigate,
     };
 }

@@ -87,6 +87,9 @@ public partial class GameScreen : Node2D
     /// <summary>The empire panel (E): Industry, shipyard, research, claims.</summary>
     public bool ShowEmpire { get; set; }
 
+    /// <summary>The fleet whose ships and fittings are shown (null: none).</summary>
+    public int? FittingFleetId { get; set; }
+
     /// <summary>The research screen (T) covers the map while open.</summary>
     public bool ShowResearch { get; set; }
 
@@ -1278,6 +1281,7 @@ public partial class GameScreen : Node2D
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
             case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;
+            case Key.Escape when FittingFleetId != null: FittingFleetId = null; break;
             case Key.F5:
                 Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
                 _main.Log.Info("save", "Quick save");

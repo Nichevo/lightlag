@@ -94,6 +94,11 @@ public partial class EmpirePanel : PanelContainer
                 var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.Queue(OrderKind.Ship, id),
                     $"Build a {cls.Name}: {cls.Cost:0} Industry, {days:0.#} days. {cls.Role}");
                 b.CustomMinimumSize = new Vector2(180, 30);
+                if (cls.Needs.Length > 0 && !Tech.Has(w, Side.Player, cls.Needs))
+                {
+                    b.Disabled = true;
+                    b.TooltipText = $"{cls.Name}: needs {GameData.Research(cls.Needs).Name} (research screen, T). {cls.Role}";
+                }
                 row.AddChild(b);
             }
         }
