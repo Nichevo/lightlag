@@ -102,7 +102,8 @@ public static class Sensors
     {
         var state = StateOf(f);
         var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) : 1;
-        return SizeOf(w, f) * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f))
+        var solo = state == SignatureState.Cold && f.ShipIds.Count == 1 ? S.SoloCold : 1;
+        return SizeOf(w, f) * solo * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f))
                * Tech.SignatureFactor(w, f.Side, state == SignatureState.Burn);
     }
 

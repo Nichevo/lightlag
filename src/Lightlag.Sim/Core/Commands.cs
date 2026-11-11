@@ -19,6 +19,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetAutonomyCommand), "setAutonomy")]
 [JsonDerivedType(typeof(SetProtectCommand), "setProtect")]
 [JsonDerivedType(typeof(SetCoverCommand), "setCover")]
+[JsonDerivedType(typeof(SetFormationCommand), "setFormation")]
 [JsonDerivedType(typeof(SetRadioSilenceCommand), "setRadioSilence")]
 [JsonDerivedType(typeof(SendDroneCommand), "sendDrone")]
 [JsonDerivedType(typeof(SetFireModeCommand), "setFireMode")]

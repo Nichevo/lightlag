@@ -63,6 +63,9 @@ public sealed class ChaseOrder
     public Vec2 TargetVelocity { get; set; }
     public double PlannedHour { get; set; }
 
+    /// <summary>When the chase began (0: not yet noted); a chase that has not caught its quarry in Chases.GiveUpHours is dropped.</summary>
+    public double StartHour { get; set; }
+
     /// <summary>The current flight goes round a body first: aim the chase again once it ends.</summary>
     public bool Detouring { get; set; }
 
@@ -170,6 +173,12 @@ public sealed class Fleet
     /// <summary>How it guards its protected ships, and what its weapons go for.</summary>
     public CoverStyle Cover { get; set; }
     public FireAt FireAt { get; set; }
+
+    /// <summary>The shape it keeps (Auto: picked from loadout and threat), and the shape, front and ship count it was last laid out for.</summary>
+    public Formation Formation { get; set; }
+    public Formation LaidShape { get; set; }
+    public double LaidFront { get; set; }
+    public int LaidCount { get; set; }
 
     /// <summary>Heat: where its radiators are, and whether ships throw heat sinks on their own (running hot, missiles closing).</summary>
     public RadiatorMode Radiators { get; set; }
@@ -382,15 +391,11 @@ public static class Fleets
         return fleet;
     }
 
-    /// <summary>Lays the ships out: first in the middle, then rings of 6, 12, 18...</summary>
+    /// <summary>Lays the ships out in the fleet's formation (see Formations).</summary>
     public static void Arrange(World w, Fleet f)
     {
-        var slot = 0;
-        foreach (var s in w.ShipsOf(f))
-        {
-            s.FormationOffset = SlotOffset(slot++);
-            s.Position = f.Position + s.FormationOffset;
-        }
+        Formations.Layout(w, f, Formations.Shape(w, f), Formations.Front(w, f));
+        foreach (var s in w.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
     }
 
     public static Vec2 SlotOffset(int slot)

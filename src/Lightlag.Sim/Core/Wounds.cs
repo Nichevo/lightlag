@@ -131,6 +131,7 @@ public static class Wounds
         lost?.Crippled.Add(target.Name);
         if (battle != null) BattleRecords.Mark(w, battle, target.Side, MarkKind.ShipLost, $"{target.Name} crippled");
         if (w.Loop) Economy.Of(w, target.Side).Totals.ShipsCrippled++;
+        Sparks.Fire(sim, target.Side, "ship-crippled");
         sim.Log.Info("combat", $"{target.Name} is crippled", new { shipId = target.Id, by = by.ToString(), left = target.CrippleLeft });
     }
 
@@ -189,8 +190,21 @@ public static class Wounds
             }
             w.Wrecks.Remove(wr);
             if (w.Loop) Economy.Of(w, f.Side).Totals.Salvaged += total;
+            Sparks.Fire(sim, f.Side, "wreck-salvaged");
             sim.Log.Info("combat", $"{f.Name} salvages the wreck of {wr.Name}", new { fleetId = f.Id, wreck = wr.Id, store = store.Name, wr.Salvage });
         }
+    }
+
+    /// <summary>What mending this ship fully at a yard will cost: alloys for the hull, electronics for the other bars.</summary>
+    public static Dictionary<string, double> RepairBill(World w, Ship s)
+    {
+        var cls = GameData.ShipClass(s.ClassId);
+        var hull = 1 - Share(w, s, Bar.Hull);
+        var worn = Bars.Skip(1).Sum(b => 1 - Share(w, s, b)) / 4;
+        var bill = new Dictionary<string, double>();
+        if (hull > 1e-6) bill["alloys"] = (cls.Materials?.GetValueOrDefault("alloys") ?? 0) * D.RepairAlloys * hull;
+        if (worn > 1e-6) bill["electronics"] = (cls.Materials?.GetValueOrDefault("electronics") ?? 0) * D.RepairElectronics * worn;
+        return bill;
     }
 
     /// <summary>

@@ -252,6 +252,7 @@ public sealed record SendForRefitCommand(Side Side, int FleetId, bool Half = fal
     public override void Apply(World world, Simulation sim)
     {
         if (GetFleet(world, sim, FleetId, "Refit order") is not Fleet f || f.Side != Side) return;
+        Choices.Note(world, Side, "refit", Half ? "half at a time" : "whole fleet", "", Source);
         Refits.Send(sim, f, Half);
     }
 }

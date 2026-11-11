@@ -441,9 +441,21 @@ public static class SupplyChain
                     else cause += " Nothing that makes it can be built yet.";
                 }
                 fixes.Add(new ChainFix("Show chain", "", Ui: $"chain:{good}"));
-                var severity = (line > 0 ? 1 - held / line : 1) + (Colonies.Want(to, good) > 0 ? 0.5 : 0) + use * 0.1;
+                var severity = ShortSeverity(to, good);
                 list.Add(new ChainProblem(ProblemKind.Short, $"chain:short:{to.Id}:{good}", title, cause, fixes, severity, to.Id, null, good));
             }
+    }
+
+    /// <summary>
+    /// How bad a shortage is, for the Supply tab, Needs you and Auto transport alike: how far under its ask
+    /// line the planet is, more if something waits for it (a building, a ship order, a repair), and more the
+    /// faster it is used.
+    /// </summary>
+    public static double ShortSeverity(Body to, string good)
+    {
+        var line = AskLine(to, good);
+        var held = Colonies.Held(to, good);
+        return (line > 0 ? Math.Max(0, 1 - held / line) : 1) + (Colonies.Want(to, good) > held ? 0.5 : 0) + Colonies.UsePerDay(to, good) * 0.1;
     }
 
     /// <summary>A freighter from the shipyard (bulk once researched), if one can be queued.</summary>
@@ -673,6 +685,7 @@ public sealed record SetStockRuleCommand(Side Side, int BodyId, string Good, dou
             return;
         }
         var rule = new StockRule { Keep = Keep, ExportAbove = ExportAbove, ImportBelow = ImportBelow };
+        Choices.Note(world, Side, "stock", rule.Empty ? "rule cleared" : rule.ExportAbove != null ? "export above" : rule.ImportBelow != null ? "import below" : "keep", b.Name, $"{Good}; {Source}");
         if (rule.Empty) b.StockRules.Remove(Good);
         else b.StockRules[Good] = rule;
         sim.Log.Info("supply", "Stock rule set", new { side = Side.ToString(), body = b.Name, Good, Keep, ExportAbove, ImportBelow, Source });
@@ -691,6 +704,7 @@ public sealed record SetSiegeModeCommand(Side Side, int BodyId, bool On) : GameC
             sim.Log.Warn("supply", "Bad siege mode order", new { side = Side.ToString(), BodyId, On, Source });
             return;
         }
+        if (b.SiegeMode != On) Choices.Note(world, Side, "siege", On ? "siege mode on" : "siege mode off", b.Name, Source);
         b.SiegeMode = On;
         sim.Log.Info("supply", On ? "Siege mode on" : "Siege mode off", new { side = Side.ToString(), body = b.Name, Source });
     }
@@ -711,6 +725,7 @@ public sealed record SetRouteCommand(Side Side, int FromBodyId, int ToBodyId, in
             return;
         }
         var routes = SupplyChain.Book(world, Side).Routes;
+        Choices.Note(world, Side, "escort", EscortFleetId != null ? "route escorted" : ViaBodyId != null ? "route via a planet" : "route back to Auto", $"{from.Name} to {to.Name}", Source);
         routes.RemoveAll(r => r.FromBodyId == FromBodyId && r.ToBodyId == ToBodyId);
         if (EscortFleetId != null || ViaBodyId != null)
             routes.Add(new RouteSetting { FromBodyId = FromBodyId, ToBodyId = ToBodyId, EscortFleetId = EscortFleetId, ViaBodyId = ViaBodyId });
