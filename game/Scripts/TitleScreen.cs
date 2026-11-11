@@ -61,6 +61,8 @@ public partial class TitleScreen : Control
         Box("Happiness", main.HappinessChoice, v => main.HappinessChoice = v,
             "Happiness moves with food, blockades and bombing, and blockaded planets give up when unhappy. Off: only starving planets give up");
         Box("Supply lines", main.SupplyLinesChoice, v => main.SupplyLinesChoice = v, "Ammunition and food run down away from home. Off: ships keep full stocks (fuel still counts)");
+        Box("Fuel types", main.FuelTypesChoice, v => main.FuelTypesChoice = v,
+            "Each engine burns its own fuel (water, hydrogen + oxygen, fission pellets, deuterium, helium-3, antimatter), each with its own thrust, reach, heat and signature. Off: one fuel for every engine");
         Box("People everywhere", main.SpreadPeopleChoice, v => main.SpreadPeopleChoice = v,
             "Planets start with a few independent people instead of empty: hold orbit to win them over");
         return row;

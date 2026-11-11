@@ -101,7 +101,7 @@ public static class Sensors
     public static double Signature(World w, Fleet f)
     {
         var state = StateOf(f);
-        var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) : 1;
+        var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) * Fuels.Signature(w, f) : 1;
         var solo = state == SignatureState.Cold && f.ShipIds.Count == 1 ? S.SoloCold : 1;
         return SizeOf(w, f) * solo * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f))
                * Tech.SignatureFactor(w, f.Side, state == SignatureState.Burn);

@@ -100,20 +100,33 @@ public static class Heat
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
-                var gain = D.IdlePerHour + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) : 0);
+                var gain = D.IdlePerHour + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) : 0);
                 var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 s.Heat = Math.Max(0, s.Heat + (gain - shed) * dt);
                 if (!s.Overheated && s.Heat > cap)
                 {
                     s.Overheated = true;
                     if (InBattle(w, f) && w.ActiveBattle is Battle b) BattleRecords.Mark(w, b, f.Side, MarkKind.Decision, $"{s.Name} overheats: guns and shields off, radiators out");
-                    if (w.Loop) Economy.Of(w, f.Side).Totals.Overheats++;
+                    if (w.Loop)
+                    {
+                        var t = Economy.Of(w, f.Side).Totals;
+                        t.Overheats++;
+                        if (InBattle(w, f)) t.OverheatsInBattle++;
+                        if (f.Thrusting) t.OverheatsBurning++;
+                        if (f.Radiators == RadiatorMode.Cold) t.OverheatsCold++;
+                    }
                     sim.Log.Info("heat", $"{s.Name} overheats", new { shipId = s.Id, heat = s.Heat, cap, radiators = f.Radiators.ToString() });
                 }
                 else if (s.Overheated && s.Heat <= cap * D.RecoverAt)
                 {
                     s.Overheated = false;
                     sim.Log.Info("heat", $"{s.Name} has cooled down", new { shipId = s.Id, heat = s.Heat });
+                }
+                if (w.Loop && InBattle(w, f))
+                {
+                    var t = Economy.Of(w, f.Side).Totals;
+                    t.BattleShipHours += dt;
+                    if (s.Overheated) t.OverheatedBattleHours += dt;
                 }
                 var max = MaxShield(w, s);
                 if (!s.Overheated && s.Shield < max) s.Shield = Math.Min(max, s.Shield + max * D.ShieldRegenPerHour * dt);

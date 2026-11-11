@@ -80,6 +80,18 @@ win rate with and without it, and battle win rate and ships lost per battle with
 either way are marked thin. Personality and its research list go together, so read research rows next to
 the personality rows.
 
+## Balance audit: goods and heat
+
+Every full game keeps a goods ledger per side (in the save): how much of each good was mined or made,
+captured, salvaged or skimmed, and how much was used and by what (each kind of building, power plants,
+ship fuel, tanker fuel, ships, refits, repairs, research), plus output lost because the stores were full.
+The batch summary ends with two audit tables: goods (made, used, lost to full stores, left at the end, and
+where it came from and went, per side per game) and heat (overheats per side per game, split into in
+battle, with engines burning and running cold; and for each class how much of its heat and power budget
+the fits in use take).
+
+Fuel types are on by default; `--single-fuel` plays a batch with one fuel for every engine.
+
 ## The overnight "what matters" report
 
 Before the detail, the summary opens with "What matters tonight", and the same report is written as a

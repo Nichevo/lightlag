@@ -271,6 +271,16 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id < 0 ? null : (int)id), "supply run");
         });
         box.AddChild(_supplyRun);
+        _fuel = new MenuButton { Text = "Fuel: Auto ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "The fuel the ships fill up with. Auto picks for the job: far reach for warships, a dim, cool burn for ambushers and running cold, the cheapest for haulers. Each engine burns only its own fuels" };
+        _fuel.AddThemeFontSizeOverride("font_size", 15);
+        _fuel.AboutToPopup += FillFuelMenu;
+        _fuel.GetPopup().IdPressed += id => Main.Instance.RunGuarded("fuel", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf)
+                _screen.IssueNow(new SetFleetFuelCommand(Side.Player, sf.Id, id < 0 || id >= Fuels.All.Count ? null : Fuels.All[(int)id].Id), "fuel");
+        });
+        box.AddChild(_fuel);
         _fittings = Ui.SmallButton("Ships and fittings", () => _screen.FittingFleetId = _screen.FittingFleetId == null ? _screen.SelectedFleet?.Id : null,
             "Each ship's drawing, slots and modules. Swap modules at your shipyard, or save a design for new ships");
         box.AddChild(_fittings);
@@ -525,7 +535,9 @@ public partial class FleetPanel : PanelContainer
             var lag = Light.DelayHours(w, Side.Player, f.Position);
             parts.Add(lag > 1.0 / 60 ? $"{Format.Lag(lag)} lag" : "live");
         }
+        var kinds = w.Rules.FuelTypes ? string.Join(", ", ships.GroupBy(s => Fuels.Of(w, s).Name).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key} ×{g.Count()}")) : "";
         var tip = $"Fuel {fuel:P0} (lowest ship): {Format.Speed(perf.DeltaVLeft)} of speed change left, top speed {Format.Speed(perf.MaxSpeed)} (slowest ship)"
+                  + (kinds.Length > 0 ? $"\nIn the tanks: {kinds}" : "")
                   + (fed.Count > 0 ? $"\nFood for {fed.Min(s => s.Food):0} days (lowest ship)" : "")
                   + (armed.Count > 0 ? $"\nAmmunition {armed.Sum(s => s.Ammo):0} of {armed.Sum(s => SupplyLines.MaxAmmo(s)):0}" : "")
                   + (w.Light.On ? "\nLight lag from your flagship each way; live means orders arrive at once" : "");
@@ -585,6 +597,25 @@ public partial class FleetPanel : PanelContainer
 
     private Button _engagementButton = null!;
     private MenuButton _supplyRun = null!;
+    private MenuButton _fuel = null!;
+
+    /// <summary>Auto, then each fuel the fleet's engines can burn, with how it burns.</summary>
+    private void FillFuelMenu()
+    {
+        var popup = _fuel.GetPopup();
+        popup.Clear();
+        if (_screen.SelectedFleet is not Fleet f || Main.Instance.Sim is not Simulation sim) return;
+        var w = sim.World;
+        popup.AddItem("Auto (for the job)", -1);
+        var burns = w.ShipsOf(f).SelectMany(s => Fuels.Burns(w, s)).Distinct().ToList();
+        for (var i = 0; i < Fuels.All.Count; i++)
+        {
+            var fuel = Fuels.All[i];
+            if (!burns.Contains(fuel.Id)) continue;
+            popup.AddItem($"{fuel.Name}: thrust ×{fuel.Thrust:0.##}, reach ×{fuel.Reach:0.##}, burn heat ×{fuel.BurnHeat:0.##}, plume ×{fuel.Signature:0.##}", i);
+            popup.SetItemTooltip(popup.ItemCount - 1, fuel.Note);
+        }
+    }
 
     private void FillSupplyRunMenu()
     {
@@ -671,6 +702,9 @@ public partial class FleetPanel : PanelContainer
         _supplyRun.Visible = mine && ships.Any(SupplyLines.IsSupplyShip);
         RefreshPlanetRow(w, f, mine, ships);
         RefreshBoardRow(w, f, mine);
+        _fuel.Visible = mine && w.Rules.FuelTypes;
+        if (_fuel.Visible)
+            _fuel.Text = f.Fuel.Length == 0 ? "Fuel: Auto ▾" : $"Fuel: {Fuels.Data(f.Fuel).Name} ▾";
         if (_supplyRun.Visible)
             _supplyRun.Text = f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t ? $"Supply run: {t.Name} ▾" : "Supply run ▾";
         _title.Text = f.Name + (mine ? "" : "  (rival)");
@@ -796,7 +830,7 @@ public partial class FleetPanel : PanelContainer
             var cls = Fitting.Spec(s);
             var share = s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s));
             var armour = s.Armour / Tech.MaxArmour(w, s);
-            var bits = new List<string> { $"armour {armour:P0}", $"fuel {share:P0}" };
+            var bits = new List<string> { $"armour {armour:P0}", w.Rules.FuelTypes ? $"{Fuels.Of(w, s).Short} {share:P0}" : $"fuel {share:P0}" };
             if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}");
             if (mine && SupplyLines.MaxFood(s) > 0) bits.Add(SupplyLines.Hungry(s) ? "HUNGRY" : $"food {s.Food:0} d");
             if (mine && SupplyLines.IsSupplyShip(s)) bits.Add($"cargo {SupplyLines.CargoShare(s):P0}");
@@ -872,6 +906,7 @@ public partial class FleetPanel : PanelContainer
         _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : Ui.Dim);
         _droneButton.Visible = mine && open && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         _supplyRun.Visible &= mine;
+        _fuel.Visible &= mine;
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
         _mission.Text = MissionText(w, f) + " ▾";

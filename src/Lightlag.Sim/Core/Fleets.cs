@@ -184,6 +184,9 @@ public sealed class Fleet
     public RadiatorMode Radiators { get; set; }
     public bool AutoSinks { get; set; } = true;
 
+    /// <summary>The fuel its ships fill up with (see Fuels): "" lets Auto pick for the fleet's job.</summary>
+    public string Fuel { get; set; } = "";
+
     /// <summary>Railguns fire beyond their normal reach (forces the enemy to dodge, rarely hits), and when missiles launch.</summary>
     public bool LongShots { get; set; }
     public MissileLaunch MissileLaunch { get; set; }
@@ -342,7 +345,7 @@ public readonly record struct FleetPerformance(double MaxSpeed, double Accel, do
             // Engines damage slows a ship; knocked out it limps at half speed, crippled at a quarter.
             var engines = Wounds.SpeedFactor(s);
             speed = Math.Min(speed, s.MaxSpeed * engines);
-            accel = Math.Min(accel, s.Accel * engines);
+            accel = Math.Min(accel, s.Accel * engines * Fuels.Thrust(w, s));
             dv = Math.Min(dv, s.Supplies / Tech.SuppliesPerDeltaV(w, s));
         }
         if (speed == double.MaxValue) return new FleetPerformance(0, 0, 0);

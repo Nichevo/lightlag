@@ -117,8 +117,14 @@ public static class Planner
         if (sparesShort && Staffed("workshop") && Pick("workshop") is string shop) return (shop, null, null, true);
         // Materials: ships, big buildings and later research wait for alloys, electronics and ammunition.
         // The plant for a short one goes up (at home first), then mines for the minerals it eats.
-        foreach (var (good, plant) in MaterialPlants)
-            if (MaterialShort(w, side, good) && Staffed(plant) && Fits(plant) && GoodSiteFor(w, side, b, plant)
+        // A material nobody makes yet goes first, and while one is short with no plant at all, no second plant of
+        // another kind takes the land; no second plant of any kind before the first electronics plant (home boards
+        // are small: second and third smelters used to leave no room for electronics, the yards' real bottleneck).
+        var shortNone = MaterialPlants.Where(m => MaterialShort(w, side, m.Good) && Fits(m.Plant) && !Has(w, side, m.Plant)).Select(m => m.Plant).ToList();
+        var noElectronics = !Has(w, side, "electronics-plant");
+        foreach (var (good, plant) in MaterialPlants.OrderBy(m => Has(w, side, m.Plant) ? 1 : 0))
+            if ((shortNone.Count == 0 || shortNone.Contains(plant)) && !(noElectronics && Has(w, side, plant))
+                && MaterialShort(w, side, good) && Staffed(plant) && Fits(plant) && GoodSiteFor(w, side, b, plant)
                 && !w.Bodies.Any(o => o.Owner == side && o.Pieces.Any(p => p.Kind == plant && !p.Built))) // one new plant at a time
             {
                 if (Powered(plant)) return (plant, null, null, true);
@@ -130,10 +136,13 @@ public static class Planner
         foreach (var good in new[] { "copper", "rare-earths", "uranium", "water" })
             if ((Short(good) || Colonies.Want(b, good) > Colonies.Held(b, good)) && Powered(Planets.Mine) && DepositFor(b, good) is var (gx, gy))
                 return (Planets.Mine, gx, gy, true);
+        // Fuel: a plant for a fuel the side's ships burn and run short of, or that a better engine waits for.
+        if (FuelPlantWanted(w, side, b, Fits) is var (fuelPlant, fuelUrgent) && Staffed(fuelPlant) && Powered(fuelPlant)) return (fuelPlant, null, null, fuelUrgent);
         if (b.Home && Colonies.Built(b).Count(p => p.Kind == "dry-dock") == 0 && Planets.Count(b, Planets.Mine) >= 3 && Staffed("dry-dock") && Pick("dry-dock") is string dock)
             return (dock, null, null, false);
         if (w.Rules.Happiness && b.Happiness < 45 && Planets.Count(b, "clinic") == 0 && Pick("clinic") is string clinic) return (clinic, null, null, false);
-        if (Staffed(Planets.Mine) && Pick(Planets.Mine) is string dig) return (dig, null, null, false);
+        // Another mine: on the mineral the side has least of for what it uses, and never one whose stores are already full.
+        if (Staffed(Planets.Mine) && Pick(Planets.Mine) != null && LeastHeldMineral(w, side, b) is var (lx, ly)) return (Planets.Mine, lx, ly, false);
         if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return (home, null, null, false);
         if (!Colonies.Built(b).Any(p => p.Kind == "storehouse") && b.Pieces.Count >= 3 && Pick("storehouse") is string store) return (store, null, null, false);
         if (b.Home && Planets.Count(b, Planets.Mine) >= 2)
@@ -143,6 +152,81 @@ public static class Planner
             if (Planets.Count(b, "research-lab") < (easy ? 1 : 2) && Staffed("research-lab") && Pick("research-lab") is string lab) return (lab, null, null, false);
         }
         if (Colonies.Held(b, Colonies.Fuel) < 40 && b.Home && Pick("fuel-plant", "ice-mine") is string fuel) return (fuel, null, null, false);
+        return null;
+    }
+
+    /// <summary>Does the side have this kind of building (built or under way)?</summary>
+    private static bool Has(World w, Side side, string kind) => w.Bodies.Any(o => o.Owner == side && o.Pieces.Any(p => p.Kind == kind));
+
+    /// <summary>The minerals mines dig.</summary>
+    public static readonly string[] Minerals = { "iron", "copper", "rare-earths", "uranium", "water", "helium-3" };
+
+    /// <summary>
+    /// A deposit here for a new mine (mines also make Industry, so one always goes somewhere): the mineral the
+    /// side holds fewest days of (stock against what it uses a day); minerals nobody uses, or whose stores are
+    /// already mostly full, only when nothing else is here, the emptiest stores first.
+    /// </summary>
+    public static (int X, int Y)? LeastHeldMineral(World w, Side side, Body b)
+    {
+        var held = w.Bodies.Where(o => o.Owner == side).ToList();
+        (int, int)? best = null;
+        (int Wasted, double Key) bestKey = (2, 0);
+        foreach (var m in Minerals)
+        {
+            if (DepositFor(b, m) is not var (x, y)) continue;
+            var stock = held.Sum(o => Colonies.Held(o, m));
+            var use = held.Sum(o => Colonies.UsePerDay(o, m)) + held.Sum(o => o.Wants.GetValueOrDefault(m)) / 30;
+            var room = Math.Max(1, held.Where(o => o.Board != null).Sum(o => Colonies.StoreCap(o, m)));
+            var wasted = use < 0.01 || stock > room * 0.6;
+            (int, double) key = wasted ? (1, stock / room) : (0, stock / use);
+            if (best == null || key.CompareTo(bestKey) < 0) { bestKey = key; best = (x, y); }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// The fuels a side wants made: those its ships burn, the usual fuel of each engine it has researched but
+    /// can't fuel yet (so a better engine is not left waiting), and a fuel its best engine burns that would
+    /// suit its warships better than any it can get now (fission pellets once Engine Mk II is in).
+    /// </summary>
+    public static List<string> FuelsWanted(World w, Side side)
+    {
+        var wanted = new List<string>();
+        if (!Fuels.On(w)) return wanted;
+        foreach (var s in w.Ships.Where(s => s.Side == side).OrderBy(s => s.Id))
+            if (!wanted.Contains(Fuels.IdOf(s))) wanted.Add(Fuels.IdOf(s));
+        foreach (var m in GameData.Modules.Values.Where(m => m.Slot == "E" && m.Needs.Length > 0 && Tech.Has(w, side, m.Needs)).OrderBy(m => m.AccelFactor))
+            if (!Fuels.EngineUsable(w, side, m) && !wanted.Contains(Fuels.Burns(m)[0])) wanted.Add(Fuels.Burns(m)[0]);
+        if (GameData.Module(Fitting.BestEngine(w, side)) is ModuleData best)
+        {
+            var burns = Fuels.Burns(best);
+            var have = burns.Where(f => Fuels.Obtainable(w, side, f)).Select(f => Fuels.Score(Fuels.Data(f), Fuels.Job.Fight)).DefaultIfEmpty(double.MinValue).Max();
+            foreach (var f in burns.Where(f => !Fuels.Obtainable(w, side, f) && Fuels.Score(Fuels.Data(f), Fuels.Job.Fight) > have).OrderBy(f => f, StringComparer.Ordinal))
+                if (!wanted.Contains(f)) wanted.Add(f);
+        }
+        return wanted;
+    }
+
+    /// <summary>
+    /// A fuel plant this planet could put up, and whether it is urgent: for each fuel wanted that the side
+    /// makes less of than it draws (or has none of yet) with little in store. One plant under way at a time per fuel.
+    /// </summary>
+    private static (string Kind, bool Urgent)? FuelPlantWanted(World w, Side side, Body b, Func<string, bool> fits)
+    {
+        foreach (var fuel in FuelsWanted(w, side))
+        {
+            var data = Fuels.Data(fuel);
+            if (data.Anywhere) continue; // water: ice mines and water mines come with the minerals
+            var held = w.Bodies.Where(o => o.Owner == side).ToList();
+            var made = held.Sum(o => Colonies.MadePerDay(o, fuel));
+            var drawn = held.Sum(o => o.FuelUse.GetValueOrDefault(fuel));
+            var stock = held.Sum(o => Colonies.Held(o, fuel));
+            var none = !Fuels.Obtainable(w, side, fuel);
+            if (!none && (made >= drawn * 1.2 + 0.05 || stock >= 60 + 40 * drawn)) continue;
+            var plants = GameData.Economy.Planets?.Buildings?.Where(k => k.Makes?.ContainsKey(fuel) == true && k.Buildable).Select(k => k.Id).ToList() ?? new List<string>();
+            if (held.Any(o => o.Pieces.Any(p => !p.Built && plants.Contains(p.Kind)))) continue;
+            if (plants.FirstOrDefault(fits) is string plant) return (plant, none || stock < 20);
+        }
         return null;
     }
 

@@ -55,6 +55,7 @@ public static class SupplyLines
     public static void FillCargo(Ship s)
     {
         var (fuel, ammo, food) = Hold(s);
+        s.CargoFuels.Clear();
         s.CargoFuel = fuel;
         s.CargoAmmo = ammo;
         s.CargoFood = food;
@@ -84,7 +85,7 @@ public static class SupplyLines
     /// ships. Ammunition comes out of the planet's store of the ammunition good; with none it comes slowly
     /// (a third of the pace) from local stores. A planet with no store at all (an outpost) restocks freely.
     /// </summary>
-    public static void Restock(Ship s, double hours, Body? at = null)
+    public static void Restock(World w, Ship s, double hours, Body? at = null)
     {
         var (fuel, ammo, food) = Hold(s);
         var ammoWant = Math.Min(MaxAmmo(s) - s.Ammo, MaxAmmo(s) * RestockPerHour * hours)
@@ -96,10 +97,12 @@ public static class SupplyLines
             var have = Colonies.Held(at, "ammunition");
             ammoRate = have >= goods ? 1 : Math.Max(1.0 / 3, have / goods);
             at.Stock["ammunition"] = Math.Max(0, have - goods * ammoRate);
+            Ledger.Out(w, at.Owner, "ammunition", have - Colonies.Held(at, "ammunition"), "ship ammo");
         }
         s.Ammo = Math.Min(MaxAmmo(s), s.Ammo + MaxAmmo(s) * RestockPerHour * hours * ammoRate);
         s.Food = Math.Min(MaxFood(s), s.Food + MaxFood(s) * RestockPerHour * hours);
-        s.CargoFuel = Math.Min(fuel, s.CargoFuel + fuel * LoadPerHour * hours);
+        // Fuel comes out of the planet's store, each fuel the fleet it supplies burns (see Fuels).
+        Fuels.Load(w, s, Math.Min(fuel - s.CargoFuel, fuel * LoadPerHour * hours), at);
         s.CargoAmmo = Math.Min(ammo, s.CargoAmmo + ammo * LoadPerHour * hours * ammoRate);
         s.CargoFood = Math.Min(food, s.CargoFood + food * LoadPerHour * hours);
     }
@@ -141,10 +144,14 @@ public static class SupplyLines
             var fuel = Math.Min(src.CargoFuel, hf * rate);
             var ammo = Math.Min(src.CargoAmmo, ha * rate);
             var food = Math.Min(src.CargoFood, hfood * rate);
-            foreach (var s in to.OrderBy(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s))))
+            foreach (var s in to.OrderBy(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s))).ThenBy(s => s.Id))
             {
-                var take = Math.Min(fuel, Fitting.MaxSupplies(w, s) - s.Supplies);
-                if (take > 0) { s.Supplies += take; src.CargoFuel -= take; fuel -= take; }
+                // Each ship takes only the fuel it burns; a ship nearly dry may switch to another fuel its engine takes.
+                if (Fuels.On(w) && Fuels.CargoOf(src, Fuels.IdOf(s)) <= 1e-9 && s.Supplies < Fitting.MaxSupplies(w, s) * 0.05
+                    && Fuels.Burns(w, s).FirstOrDefault(x => Fuels.CargoOf(src, x) > 1e-9) is string other)
+                    Fuels.Switch(w, s, other, null);
+                var take = Math.Min(Math.Min(fuel, Fuels.CargoOf(src, Fuels.IdOf(s))), Fitting.MaxSupplies(w, s) - s.Supplies);
+                if (take > 0) { s.Supplies += take; Fuels.TakeCargo(src, Fuels.IdOf(s), take); fuel -= take; }
                 take = Math.Min(ammo, MaxAmmo(s) - s.Ammo);
                 if (take > 0) { s.Ammo += take; src.CargoAmmo -= take; ammo -= take; }
                 take = Math.Min(food, MaxFood(s) - s.Food);

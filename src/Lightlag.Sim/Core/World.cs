@@ -122,6 +122,9 @@ public sealed class GameRules
 
     /// <summary>The two homes are picked at random from the planets that can hold people.</summary>
     public bool RandomStarts { get; set; }
+
+    /// <summary>Fuel types: each engine burns its own fuel family (see Fuels). Off: every engine burns the one "fuel" good.</summary>
+    public bool FuelTypes { get; set; } = true;
 }
 
 public enum BodyKind { Star, Planet, Moon, Station, Asteroid }
@@ -195,6 +198,9 @@ public sealed class Body
 
     /// <summary>Goods held here (spares, fuel, minerals), and how many days of them to keep for a siege.</summary>
     public Dictionary<string, double> Stock { get; set; } = new();
+
+    /// <summary>Fuel drawn here per day lately, by good (ships and tankers filling up; see Fuels.NoteDraw).</summary>
+    public Dictionary<string, double> FuelUse { get; set; } = new();
     public int SiegeDays { get; set; } = 30;
 
     /// <summary>The planet's own stock rules per good (keep, export above, import below), and siege mode (see SupplyChain).</summary>
@@ -347,6 +353,12 @@ public sealed class Ship
 
     /// <summary>Supply ships: cargo carried for other ships (fuel and ammunition on a tanker, food on a freighter).</summary>
     public double CargoFuel { get; set; }
+
+    /// <summary>With fuel types on: the fuel cargo by fuel (it adds up to CargoFuel). Empty: all of it is "fuel".</summary>
+    public Dictionary<string, double> CargoFuels { get; set; } = new();
+
+    /// <summary>The fuel in the tanks (see Fuels): "" or "fuel" is hydrogen + oxygen, the one fuel when fuel types are off.</summary>
+    public string Fuel { get; set; } = "";
     public double CargoAmmo { get; set; }
     public double CargoFood { get; set; }
 

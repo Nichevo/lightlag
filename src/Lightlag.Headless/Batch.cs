@@ -51,8 +51,8 @@ public static class Batch
             ? new LightSetup(true, double.Parse(lag, System.Globalization.CultureInfo.InvariantCulture)) : null;
         // --autonomy strict|sensible|free: what fleets decide for themselves when cut off (default sensible).
         _autonomy = opts.Get("autonomy") is string a ? Enum.Parse<AutonomyLevel>(a, ignoreCase: true) : null;
-        // --random-starts, --spread (start with some people everywhere), --no-happiness, --no-supply-lines: the optional systems.
-        _rules = (opts.Has("random-starts"), opts.Has("spread"), opts.Has("no-happiness"), opts.Has("no-supply-lines"));
+        // --random-starts, --spread (start with some people everywhere), --no-happiness, --no-supply-lines, --single-fuel: the optional systems.
+        _rules = (opts.Has("random-starts"), opts.Has("spread"), opts.Has("no-happiness"), opts.Has("no-supply-lines"), opts.Has("single-fuel"));
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -65,6 +65,7 @@ public static class Batch
         WhatMatters.Rows.Clear();
         _report = null;
         Overnight.Fights.Clear();
+        Audit.Clear();
         Overnight.Raids.Clear();
         var clock = Stopwatch.StartNew();
         for (var i = 0; i < games; i++)
@@ -121,10 +122,10 @@ public static class Batch
                 ChoiceSpread = HeadlessSpread,
                 Light = _light, Autonomy = _autonomy,
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
-                Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null,
+                Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
             };
 
-    private static (bool Random, bool Spread, bool NoHappiness, bool NoSupply) _rules;
+    private static (bool Random, bool Spread, bool NoHappiness, bool NoSupply, bool SingleFuel) _rules;
 
     private static AutonomyLevel? _autonomy;
 
@@ -179,6 +180,7 @@ public static class Batch
                     WarReport.Rows.Add(WarReport.Row.Of(w, side));
                 }
             Overnight.Collect(w);
+            Audit.Collect(w);
             var (mid, curve) = Overnight.Warships(w, days);
             string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
@@ -210,6 +212,7 @@ public static class Batch
         md.AppendLine($"- Build: {build}");
         md.AppendLine($"- Scenario: {scenario}, {days} game days each, rule checks every tick ({(strict ? "strict" : "lenient")})");
         md.AppendLine(_light is { On: true } l ? $"- Light lag: on, light at {l.SpeedFactor:0.##} x real speed" : "- Light lag: off");
+        md.AppendLine(_rules.SingleFuel ? "- Fuel types: off (one fuel)" : "- Fuel types: on");
         if (_autonomy is AutonomyLevel level) md.AppendLine($"- Fleet autonomy: {level}");
         var ended = results.Where(r => r.Player != null && r.Rival != null).ToList();
         if (_light is { On: true } && ended.Count > 0)
@@ -305,6 +308,7 @@ public static class Batch
         md.AppendLine();
         var report = Overnight.Build(ai, rows.ToDictionary(g => g.Key, g => (g.Count(), g.Count(x => x.Won))));
         Overnight.Append(md, report);
+        Audit.Append(md);
         _report = Overnight.Html(report, "Lightlag overnight report", html.ToString());
         AppendFights(md, ai);
         WarReport.Append(md);

@@ -191,7 +191,8 @@ public class LaneTests
         Combat.Destroy(sim, tanker);
         var totals = Economy.Of(sim.World, Side.Rival).Totals;
         Assert.Equal(1, totals.AmbushCatches);
-        Assert.Equal(55, totals.CargoCaptured, 6);
+        // Half of the cargo: fuel counted as the fuel good (100 supplies x 0.25), and the ammunition.
+        Assert.Equal(17.5, totals.CargoCaptured, 6);
         Assert.Single(sim.World.LossSpots);
         Assert.Contains(sim.World.Choices, c => c.Side == Side.Rival && c.Kind == "raid" && c.What == "caught a supply ship");
         Assert.Contains("escort-hull", Economy.Of(sim.World, Side.Player).Sparked);

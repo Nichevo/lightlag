@@ -18,7 +18,8 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 /// (null: the default, see GameRules).
 /// </summary>
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
-    bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null)
+    bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
+    bool? FuelTypes = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -1419,6 +1420,17 @@ public static class Mind
             {
                 Do(new BuildStationCommand(_side, watch.Id, Economy.SensorStation));
                 Note($"Builds a sensor station at {watch.Name}");
+                return;
+            }
+            // Helium-3: a skimmer over a gas giant it holds, once its engines or reactors want helium-3.
+            var skimmer = Economy.StationKind(Works.Skimmer);
+            if (skimmer != null && spare >= skimmer.Cost * 1.5 && (skimmer.Needs == null || Tech.Has(_w, _side, skimmer.Needs))
+                && (Planner.FuelsWanted(_w, _side).Contains("helium-3") || Tech.Has(_w, _side, "helium-3-reactors"))
+                && !_w.Stations.Any(st => st.Side == _side && st.Kind == Works.Skimmer)
+                && _w.Bodies.Where(b => b.Owner == _side && skimmer.OnTypes?.Contains(b.Type) == true).OrderBy(b => b.Id).FirstOrDefault() is Body giant)
+            {
+                Do(new BuildStationCommand(_side, giant.Id, Works.Skimmer));
+                Note($"Builds a helium-3 skimmer at {giant.Name}");
                 return;
             }
             var relay = Economy.StationKind(Economy.Relay);

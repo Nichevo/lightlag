@@ -1014,6 +1014,7 @@ public static class Combat
             if (at != null && Colonies.Held(at, "ammunition") >= 1)
             {
                 at.Stock["ammunition"] = Colonies.Held(at, "ammunition") - 1;
+                Ledger.Out(w, at.Owner, "ammunition", 1, "missiles");
                 s.Missiles++;
             }
             else if (s.Supplies >= 1 && w.Hour % 12 < hours)
