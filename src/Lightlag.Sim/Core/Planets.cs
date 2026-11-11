@@ -591,7 +591,7 @@ public static class Planets
                     f.PeopleRun = null;
                     foreach (var s in ships)
                     {
-                        if (from.Owner == f.Side) from.PopK += s.CargoPeople;
+                        if (from.Owner == f.Side) from.PopK = Math.Min(Math.Max(from.PopK, Cap(from)), from.PopK + s.CargoPeople);
                         s.CargoPeople = 0;
                         w.Ships.Remove(s);
                         f.ShipIds.Remove(s.Id);
