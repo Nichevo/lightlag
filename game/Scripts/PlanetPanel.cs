@@ -13,7 +13,7 @@ public partial class PlanetPanel : PanelContainer
 {
     private readonly GameScreen _screen;
     private Label _title = null!, _body = null!;
-    private HBoxContainer _build = null!, _people = null!;
+    private HBoxContainer _build = null!, _people = null!, _war = null!;
     private MenuButton _settle = null!;
     private CheckButton _topUp = null!;
     private int _bodyId;
@@ -40,6 +40,11 @@ public partial class PlanetPanel : PanelContainer
             "The planet screen: lay out buildings on its map, set priorities, storage and transport"));
         _build.AddChild(Ui.SmallButton("Planets list", () => _screen.ShowPlanets = true, "All worlds in one list (Y)"));
         box.AddChild(_build);
+
+        _war = new HBoxContainer();
+        _war.AddChild(Ui.SmallButton("Ground fight ▸", () => _screen.GroundScreenId = _bodyId,
+            "The planet's board in the fight: who holds what, the front, troops and buildings, the plan and the calls"));
+        box.AddChild(_war);
 
         _people = new HBoxContainer();
         _people.AddThemeConstantOverride("separation", 6);
@@ -129,7 +134,11 @@ public partial class PlanetPanel : PanelContainer
             lines.Add("Goods: " + (held.Any() ? string.Join(" · ", held) : "none"));
         }
         if (b.LandingSide is Side lander)
-            lines.Add($"GROUND FIGHT: {(lander == Side.Player ? "your" : "rival")} troops {b.LandingTroops:0.##}k against a garrison of {b.Garrison:0.##}k");
+            lines.Add($"GROUND FIGHT: {(lander == Side.Player ? "your" : "rival")} troops {b.LandingTroops:0.##}k against a garrison of {b.Garrison:0.##}k"
+                      + (b.Front is GroundFront front ? $" · {Ground.PlanName(front.Plan)}, {WarTab.Taken(b, front):P0} of the ground taken"
+                                                         + (Ground.DaysLeft(w, b) is double left ? $", about {left:0.#} days left" : "") : ""));
+        if (b.BlockadeHours >= 7 * 24 && owner != null && b.PopK > 0)
+            lines.Add($"Blockaded {b.BlockadeHours / 24:0} days: the garrison is down to {Ground.BlockadeFactor(b):P0} of its strength");
         if (b.Grudge is Side g)
             lines.Add(g == Side.Player ? "Holds a grudge against you (you bombed its people): it will never surrender to you, only to troops" : "Holds a grudge against the rival: it will never surrender to it");
         if (owner == Side.Rival && b.PopK > 0)
@@ -147,6 +156,7 @@ public partial class PlanetPanel : PanelContainer
         _body.Text = string.Join("\n", lines);
 
         _build.Visible = mine && b.Board != null;
+        _war.Visible = b.Front != null && b.Board != null;
         _people.Visible = cap > 0 && (mine || owner == null && b.PopK <= 0);
         if (_people.Visible)
         {

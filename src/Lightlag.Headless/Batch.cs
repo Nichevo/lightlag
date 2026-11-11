@@ -165,7 +165,10 @@ public static class Batch
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}-choices.csv"), Choices.ToCsv(w));
             if (w.Minds.Count == 2)
                 foreach (var side in new[] { Side.Player, Side.Rival })
+                {
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
+                    WarReport.Rows.Add(WarReport.Row.Of(w, side));
+                }
             string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
@@ -283,6 +286,7 @@ public static class Batch
                           + $"{g.Average(x => x.End.Planets):0.0} | {g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Battles):0.0} |");
         md.AppendLine();
         AppendFights(md, ai);
+        WarReport.Append(md);
         WhatMatters.Append(md);
         md.AppendLine();
         md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "

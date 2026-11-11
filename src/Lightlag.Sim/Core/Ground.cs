@@ -118,7 +118,7 @@ public static class Ground
 
     /// <summary>Could armed enemy fleets this side knows of reach this spot within the hours given?</summary>
     public static bool ReliefNear(World w, Side side, Vec2 at, double hours) =>
-        w.Sightings.Any(s => s.SeenBy == side && !s.Own && w.Hour - s.Hour < 48 && w.FindFleet(s.FleetId) is Fleet f && f.Side != side
+        w.Sightings.Any(s => s.SeenBy == side && !s.Own && w.Hour - s.Hour < 48 && w.FindFleet(s.FleetId) is Fleet f && f.Side != side && f.ShipIds.Count > 0
                              && Combat.Armed(w, f) && !w.ShipsOf(f).All(Boarders.Helpless)
                              && Vec2.Distance(s.Position, at) <= hours * w.ShipsOf(f).Min(x => x.MaxSpeed) * 0.6);
 
