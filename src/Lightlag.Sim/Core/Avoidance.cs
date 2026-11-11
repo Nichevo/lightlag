@@ -108,15 +108,25 @@ public static class Avoidance
             var hit = FirstHit(w, best.Flight!);
             if (hit == null) return best;
             var clearance = Fleets.ClearanceFor(hit.Body) * (1 + 0.5 * tries);
-            var detour = new Waypoint(hit.BodyAt + hit.Side * clearance, Auto: true);
-            var points = new List<Waypoint>(req.Waypoints ?? new List<Waypoint>());
             var hours = best.Flight!.WaypointHours;
             var at = 0;
+            var points = new List<Waypoint>(req.Waypoints ?? new List<Waypoint>());
             while (at < points.Count && at < hours.Count && hours[at] <= hit.Hour) at++;
-            points.Insert(at, detour);
-            req = req with { Waypoints = points };
-            var next = replan(req);
-            if (next.Flight == null) return best;
+            // Try passing on the side the line leans to, and the other side; keep the quicker. (Passing a
+            // planet on the wrong side on the way to its own moon can make a very long trip.)
+            FlightRequest? chosen = null;
+            FlightPlan? next = null;
+            foreach (var side in new[] { hit.Side, hit.Side * -1 })
+            {
+                var tryPoints = new List<Waypoint>(points);
+                tryPoints.Insert(at, new Waypoint(hit.BodyAt + side * clearance, Auto: true));
+                var tryReq = req with { Waypoints = tryPoints };
+                var tryPlan = replan(tryReq);
+                if (tryPlan.Flight == null) continue;
+                if (next == null || tryPlan.Flight.ArriveHour < next.Flight!.ArriveHour - 1e-9) { next = tryPlan; chosen = tryReq; }
+            }
+            if (next == null) return best;
+            req = chosen!;
             best = next;
         }
         return FirstHit(w, best.Flight!) == null ? best : plan;

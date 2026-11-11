@@ -328,8 +328,12 @@ public static class Economy
         if (target != null)
             waiting = InOrbitAt(target, yard) && target.Flight == null && !target.Retreating ? target : null;
         else
+        {
+            // Colony ships keep to themselves (they have their own errands); warships don't wait on them.
+            var colony = Planets.IsColonyShip(ship);
             waiting = w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
-                                                   && InOrbitAt(f, yard));
+                                                   && f.PeopleRun == null && InOrbitAt(f, yard) && w.ShipsOf(f).All(Planets.IsColonyShip) == colony);
+        }
         if (waiting != null)
         {
             waiting.ShipIds.Add(ship.Id);

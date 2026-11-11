@@ -41,7 +41,7 @@
       "slots": [ { "type": "D", "fit": "point-defence" }, { "type": "U", "fit": "" }, { "type": "U", "fit": "" }, { "type": "E", "fit": "engine-mk1" } ],
       "role": "Supply ship: carries food out to fleets." },
     { "id": "colony-ship", "name": "Colony ship", "short": "CS", "icon": "freighter", "lengthM": 200,
-      "maxSpeedMmPerHour": 400, "accelMmPerHour2": 7, "supplies": 120, "suppliesPerDeltaV": 0.02,
+      "maxSpeedMmPerHour": 420, "accelMmPerHour2": 8, "supplies": 120, "suppliesPerDeltaV": 0.02,
       "armour": 70, "evasion": 0.05, "railguns": 0, "pointDefence": 1, "missiles": 0, "cost": 100,
       "sensorMm": 25, "signatureSize": 2.2, "heatCapacity": 120, "heatSinks": 2, "shield": 0, "power": 8, "heatBudget": 6, "cargo": 10, "cargoKind": "people",
       "slots": [ { "type": "D", "fit": "point-defence" }, { "type": "U", "fit": "" }, { "type": "E", "fit": "engine-mk1" } ],

@@ -634,14 +634,14 @@ public static class Planets
     /// <summary>Takes troops off a fleet's troop ships (as many as there are, up to amount); returns how many.</summary>
     public static double TakeTroops(World w, Fleet f, double amount)
     {
-        var left = amount;
+        double taken = 0;
         foreach (var s in w.ShipsOf(f).Where(IsTroopShip))
         {
-            var off = Math.Min(left, s.CargoTroops);
+            var off = Math.Min(amount - taken, s.CargoTroops);
             s.CargoTroops -= off;
-            left -= off;
+            taken += off;
         }
-        return amount - left;
+        return taken;
     }
 
     /// <summary>Why this building can't be ordered here, or null if it can.</summary>
