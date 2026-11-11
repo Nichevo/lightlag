@@ -37,7 +37,7 @@ public partial class ResearchScreen : PanelContainer
         var box = new StyleBoxFlat { BgColor = new Color(0.02f, 0.03f, 0.045f, 0.97f) };
         box.SetContentMarginAll(20);
         AddThemeStyleboxOverride("panel", box);
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _root = new VBoxContainer();
         _root.AddThemeConstantOverride("separation", 12);
         AddChild(_root);
@@ -46,6 +46,10 @@ public partial class ResearchScreen : PanelContainer
     public void Refresh(Simulation sim)
     {
         var w = sim.World;
+        // Fill the window: under a CanvasLayer the anchors alone can leave the screen only as tall as its
+        // contents need, and then the idea cards' scroll area gets no height at all.
+        var view = GetViewportRect().Size;
+        if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
         var shape = Shape(w);
         if (shape != _shape)
         {
@@ -372,7 +376,8 @@ public partial class ResearchScreen : PanelContainer
             row2.AddChild(Chip(char.ToUpperInvariant(g[0]) + g[1..], _unlocks == g, () => _unlocks = _unlocks == g ? null : g));
         v.AddChild(row2);
 
-        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            CustomMinimumSize = new Vector2(0, 260) };
         var width = GetViewportRect().Size.X - Mathf.Min(560, GetViewportRect().Size.X * 0.3f) - 110;
         var grid = new GridContainer { Columns = Math.Max(1, (int)(width / 300)) };
         grid.AddThemeConstantOverride("h_separation", 12);

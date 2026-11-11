@@ -94,6 +94,14 @@ public sealed class WorkOrder
     /// <summary>Ship orders: the fleet the new ship flies out to join (null: the fleet at the shipyard).</summary>
     public int? JoinFleetId { get; set; }
 
+    /// <summary>Settle orders: the planet the settler ship carries people to, the fleet that escorts it, and the planet's name.</summary>
+    public int? SettleBodyId { get; set; }
+    public int? EscortFleetId { get; set; }
+    public string? SettleName { get; set; }
+
+    /// <summary>Settle orders placed by Auto top-up rather than by hand.</summary>
+    public bool Auto { get; set; }
+
     /// <summary>Research orders: the team working on it. HoursLeft counts base hours; a team gets through Research.Speed of them an hour.</summary>
     public int? TeamId { get; set; }
     public double HoursLeft { get; set; }
@@ -195,7 +203,7 @@ public static class Economy
         ? GameData.ShipClass(key).Cost / (E.BuildIndustryPerDay * Tech.Factor(w, side, Tech.FastShipyard)) * 24
         : Research.BaseHours(w, side, key);
 
-    public static string NameOf(WorkOrder o) => o.Kind == OrderKind.Ship ? GameData.ShipClass(o.Key).Name : GameData.Research(o.Key).Name;
+    public static string NameOf(WorkOrder o) => o.SettleBodyId != null ? $"Settlers for {o.SettleName}" : o.Kind == OrderKind.Ship ? GameData.ShipClass(o.Key).Name : GameData.Research(o.Key).Name;
 
     /// <summary>A fleet that is holding orbit at this body (not flying off).</summary>
     public static bool InOrbitAt(Fleet f, Body b) =>
@@ -308,14 +316,14 @@ public static class Economy
         order.HoursLeft -= GameTime.HoursPerTick;
         if (order.HoursLeft > 1e-9) return;
         w.Orders.Remove(order);
-        Launch(sim, side, order.Key, order.JoinFleetId);
+        Launch(sim, side, order.Key, order.JoinFleetId, order);
     }
 
     /// <summary>
     /// A new ship leaves the shipyard. With no fleet named it joins a fleet waiting there, or forms a new one.
     /// With a fleet named it joins it at once if it is at the shipyard, or forms its own fleet and flies out to it.
     /// </summary>
-    private static void Launch(Simulation sim, Side side, string classId, int? joinFleetId = null)
+    private static void Launch(Simulation sim, Side side, string classId, int? joinFleetId = null, WorkOrder? order = null)
     {
         var w = sim.World;
         var yard = ShipyardOf(w, side)!;
@@ -338,7 +346,7 @@ public static class Economy
         {
             // Colony ships keep to themselves (they have their own errands); warships don't wait on them.
             var colony = Planets.IsColonyShip(ship);
-            waiting = w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
+            waiting = order?.SettleBodyId != null ? null : w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
                                                    && f.PeopleRun == null && InOrbitAt(f, yard) && w.ShipsOf(f).All(Planets.IsColonyShip) == colony);
         }
         if (waiting != null)
@@ -360,6 +368,7 @@ public static class Economy
         foreach (var s in w.ShipsOf(waiting)) s.Position = waiting.Position + s.FormationOffset;
         sim.Log.Info("economy", $"{ship.Name} is launched at {yard.Name} and joins {waiting.Name}",
             new { side = side.ToString(), shipId = ship.Id, classId, fleetId = waiting.Id });
+        if (order?.SettleBodyId is int settle) Planets.SendSettlers(sim, waiting, yard, settle, order.EscortFleetId, order.Auto);
         if (target != null && waiting != target)
         {
             waiting.JoinFleetId = target.Id;
@@ -618,13 +627,13 @@ public static class Economy
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
 public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null) : GameCommand
 {
-    /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    /// <summary>Home orders take effect at once (no light lag), so they work while paused.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
         if (Kind == OrderKind.Research) Research.EnsureTeams(world);
-        if (Economy.CanQueue(world, Side, Kind, Key, TeamId) is string problem)
+        if ((Kind == OrderKind.Ship && Key == Planets.SettlerClass ? "Settler ships are ordered with Settle on the planet to settle" : Economy.CanQueue(world, Side, Kind, Key, TeamId)) is string problem)
         {
             sim.Log.Warn("economy", $"Can't queue {Key}: {problem}", new { side = Side.ToString(), Kind, Key, Source });
             return;
@@ -661,8 +670,8 @@ public sealed record BuildStationCommand(Side Side, int BodyId, string Kind) : G
 /// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
 public sealed record SetOrderFleetCommand(Side Side, int OrderId, int? JoinFleetId) : GameCommand
 {
-    /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    /// <summary>Home orders take effect at once (no light lag), so they work while paused.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
@@ -685,8 +694,8 @@ public sealed record SetOrderFleetCommand(Side Side, int OrderId, int? JoinFleet
 /// <summary>Take an order off its queue. If it was already started, its Industry comes back.</summary>
 public sealed record CancelOrderCommand(Side Side, int OrderId) : GameCommand
 {
-    /// <summary>Shipyard and research orders go home, to the shipyard.</summary>
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, Economy.ShipyardOf(world, Side)?.Position ?? Light.Seat(world, Side));
+    /// <summary>Home orders take effect at once (no light lag), so they work while paused.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {

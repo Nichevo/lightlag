@@ -44,6 +44,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(DemolishCommand), "demolish")]
 [JsonDerivedType(typeof(SendPeopleCommand), "sendPeople")]
 [JsonDerivedType(typeof(SetAutoTopUpCommand), "setAutoTopUp")]
+[JsonDerivedType(typeof(SettleCommand), "settle")]
 [JsonDerivedType(typeof(SetOrbitHeightCommand), "setOrbitHeight")]
 [JsonDerivedType(typeof(SetBombingCommand), "setBombing")]
 [JsonDerivedType(typeof(LandTroopsCommand), "landTroops")]

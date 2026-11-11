@@ -40,7 +40,41 @@ public partial class GameScreen : Node2D
     private int _speed;
     private bool _paused;
     private int? _selected;
-    private int? _follow;
+    /// <summary>What the camera follows. Setting it drops any other ships the view was locked on to as well.</summary>
+    private int? _follow
+    {
+        get => _followId;
+        set { _followId = value; _followAlso.Clear(); }
+    }
+    private int? _followId;
+
+    /// <summary>More fleets kept in view with the followed one (both sides of a battle, a picked group).</summary>
+    private readonly List<int> _followAlso = new();
+
+    /// <summary>Lock the view on several fleets or bodies: centred between them, zooming out when they spread apart.</summary>
+    public void FollowAll(IReadOnlyList<int> ids)
+    {
+        if (ids.Count == 0) return;
+        _follow = ids[0];
+        _followAlso.AddRange(ids.Skip(1).Distinct().Where(id => id != ids[0]));
+    }
+
+    /// <summary>Where the camera should be: the followed thing, or the middle of everything locked on (zooming out to keep it all on screen).</summary>
+    private Vec2? FollowPoint()
+    {
+        if (_follow is not int id || _map.DrawnPosition(id) is not { IsFinite: true } first) return null;
+        if (_followAlso.Count == 0) return first;
+        var points = new List<Vec2> { first };
+        foreach (var other in _followAlso)
+            if (_map.DrawnPosition(other) is { IsFinite: true } p) points.Add(p);
+        var min = new Vec2(points.Min(p => p.X), points.Min(p => p.Y));
+        var max = new Vec2(points.Max(p => p.X), points.Max(p => p.Y));
+        var mid = (min + max) * 0.5;
+        var spread = Vec2.Distance(min, max) * 0.5;
+        // Zoom out when they no longer fit; zooming back in is left to you.
+        if (spread * _camera.TargetScale > Math.Min(_camera.ScreenSize.X, _camera.ScreenSize.Y) * 0.4) _camera.FitRadius(spread * 1.25);
+        return mid;
+    }
     private bool _dragging;
     private bool _dragMoved;
     private double _sinceAutosave;
@@ -229,7 +263,7 @@ public partial class GameScreen : Node2D
         _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
         _map.UpdatePositions();
         if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
-        _camera.Update(delta, _follow is int id ? _map.DrawnPosition(id) : null);
+        _camera.Update(delta, FollowPoint());
         if (_selected is int sel && Sim.World.FindBody(sel) == null && Sim.World.FindFleet(sel) == null) _selected = null;
         UpdatePlanner(delta);
         UpdateEngagement(delta);
@@ -310,7 +344,7 @@ public partial class GameScreen : Node2D
         {
             // Fit both fleets and the closest pass, and at least the missile ranges.
             var spread = Math.Max(Vec2.Distance(mine.Position, info.EnemyAt), GameData.Combat.Missile.LaunchRangeMm);
-            _follow = mineId;
+            FollowAll(new[] { mineId, e }); // both fleets stay in view as they move
             _camera.FitRadius(spread * 1.4);
             _camera.Glide();
         }
@@ -1122,7 +1156,7 @@ public partial class GameScreen : Node2D
         _planAge += delta;
         if (_planAge > (Settings.Route == RouteKind.Slingshot ? 2.0 : 0.3)) Replan(); // a slingshot search takes longer
     }
-    public bool IsFollowing(int id) => _follow == id;
+    public bool IsFollowing(int id) => _follow == id || _followAlso.Contains(id);
 
     // ---- Input ----------------------------------------------------------------------------
 
@@ -1254,6 +1288,10 @@ public partial class GameScreen : Node2D
             case Key.Equal or Key.KpAdd: SetSpeed(_speed + 1); break;
             case Key.Minus or Key.KpSubtract: SetSpeed(_speed - 1); break;
             case Key.Home or Key.H: ShowWholeSystem(); break;
+            case Key.F when Group.Count >= 2:
+                FollowAll(Group.Select(g => g.Id).ToList());
+                _main.Toast($"View locked on {Group.Count} fleets: it keeps them all on screen");
+                break;
             case Key.F when _selected is int id: Follow(id, zoom: !key.ShiftPressed); break;
             case Key.Z: ZoomToSelected(); break;
             case Key.Enter or Key.KpEnter: ConfirmPlan(); break;

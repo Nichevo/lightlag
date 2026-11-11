@@ -54,7 +54,7 @@ public partial class FleetPanel : PanelContainer
     // Mission menu ids: small numbers for the plain missions; raids and escorts carry the body or fleet id.
     private const int MissionNone = 1, MissionHold = 2, MissionPatrol = 3, MissionScout = 4, RaidBase = 1000, EscortBase = 100000;
     private HBoxContainer _orders = null!;
-    private readonly Dictionary<int, (CheckBox Box, Label Supplies)> _rows = new();
+    private readonly Dictionary<int, (CheckBox Box, ShipBars Bars, Label Supplies)> _rows = new();
     private string _shipKey = "";
 
     public FleetPanel() : this(null!) { }
@@ -66,14 +66,27 @@ public partial class FleetPanel : PanelContainer
         var box = new VBoxContainer { CustomMinimumSize = new Vector2(330, 0) };
         box.AddThemeConstantOverride("separation", 6);
         AddChild(box);
+        // Header: the name, then Info (all the text), More (every control) and Tuck (just the name and what it is doing).
+        var header = new HBoxContainer();
+        header.AddThemeConstantOverride("separation", 4);
         _title = Ui.Label("", 17);
-        box.AddChild(_title);
+        _title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        header.AddChild(_title);
+        _infoButton = HeaderToggle("Info", "Show everything known about the fleet: lag, speed and fuel, cargo, blockade, signature, heat", () => _showInfo = !_showInfo);
+        _moreButton = HeaderToggle("More", "Show every order: mission and autonomy, cover and targeting, heat, weapons, fittings", () => _showMore = !_showMore);
+        _tuckButton = HeaderToggle("◂ Tuck", "Shrink the panel to its name and what the fleet is doing; click again to bring it back", () => _tucked = !_tucked);
+        header.AddChild(_infoButton);
+        header.AddChild(_moreButton);
+        header.AddChild(_tuckButton);
+        box.AddChild(header);
         _status = Ui.Label("", 14, Ui.Dim);
         _status.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _status.CustomMinimumSize = new Vector2(330, 0);
         box.AddChild(_status);
         _shipList = new VBoxContainer();
         box.AddChild(_shipList);
+        _barsKey = Ui.Label("bars: armour · fuel · ammo · heat (hover a ship for numbers)", 11, Ui.Dim);
+        box.AddChild(_barsKey);
         _buttons = new HBoxContainer();
         _buttons.AddThemeConstantOverride("separation", 4);
         _orbit = Ui.SmallButton("Orbit", () => _screen.OrderHold(HoldStyle.Orbit), "Orbit the nearest planet or moon (O)");
@@ -237,13 +250,14 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id < 0 ? null : (int)id), "supply run");
         });
         box.AddChild(_supplyRun);
-        box.AddChild(Ui.SmallButton("Ships and fittings", () => _screen.FittingFleetId = _screen.FittingFleetId == null ? _screen.SelectedFleet?.Id : null,
-            "Each ship's drawing, slots and modules. Swap modules at your shipyard, or save a design for new ships"));
+        _fittings = Ui.SmallButton("Ships and fittings", () => _screen.FittingFleetId = _screen.FittingFleetId == null ? _screen.SelectedFleet?.Id : null,
+            "Each ship's drawing, slots and modules. Swap modules at your shipyard, or save a design for new ships");
+        box.AddChild(_fittings);
         _droneButton = Ui.SmallButton("Send orders by drone", () => _screen.SendDrone(),
             $"A planet blocks the signal to this fleet. A messenger drone flies the orders there instead: slower than light, {Drones.D.Cost:0} Industry, and easy to shoot down");
         box.AddChild(_droneButton);
 
-        // Planets and people: orbit height, bombing, landings, boarding, and colony ships' people runs.
+        // Planets: orbit height, bombing, landings and boarding.
         _planetRow = new HBoxContainer();
         _planetRow.AddThemeConstantOverride("separation", 4);
         _height = Ui.SmallButton("Low orbit", () =>
@@ -273,52 +287,38 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new BoardSlipwayCommand(sf.Id), "boarding");
         }, $"Send {Planets.D.BoardTroopsK:0.#}k troops to take the ship being built on the blockaded enemy slipway");
         _planetRow.AddChild(_board);
-        _people = new MenuButton { Text = "Carry people ▾", Flat = false, FocusMode = FocusModeEnum.None,
-            TooltipText = "The colony ships load people at your planet with the most to spare and land them where you pick: an empty world (it becomes yours) or one of your planets, taken ones too" };
-        _people.AddThemeFontSizeOverride("font_size", 13);
-        _people.AboutToPopup += FillPeopleMenu;
-        _people.GetPopup().IdPressed += id => Main.Instance.RunGuarded("people run", () =>
-        {
-            if (_screen.SelectedFleet is not Fleet sf) return;
-            if (id < 0) { _screen.IssueNow(new SendPeopleCommand(Side.Player, sf.Id, 0, null), "people run"); return; }
-            var repeat = id >= RepeatOffset;
-            var to = (int)id % RepeatOffset;
-            if (PeopleSource(Main.Instance.Sim!.World, to) is Body from)
-                _screen.IssueNow(new SendPeopleCommand(Side.Player, sf.Id, from.Id, to, repeat), "people run");
-        });
-        _planetRow.AddChild(_people);
         box.AddChild(_planetRow);
     }
 
-    private const int RepeatOffset = 100000;
     private HBoxContainer _planetRow = null!;
     private Button _height = null!, _land = null!, _board = null!;
-    private MenuButton _bomb = null!, _people = null!;
+    private MenuButton _bomb = null!;
 
-    /// <summary>Where settlers for this planet come from: your planet with the most people to spare (not the planet itself).</summary>
-    public static Body? PeopleSource(World w, int toId) =>
-        w.Bodies.Where(b => b.Owner == Side.Player && b.Id != toId && b.PopK - Math.Max(Planets.D.KeepAtSourceK, Planets.StaffNeeded(b)) > 1)
-            .OrderByDescending(b => b.PopK - Planets.StaffNeeded(b)).ThenBy(b => b.Id).FirstOrDefault();
+    // Panel view: tucked to its name, the info text, and every control (kept between selections).
+    private static bool _tucked, _showInfo, _showMore;
+    private Button _infoButton = null!, _moreButton = null!, _tuckButton = null!, _fittings = null!;
+    private Label _barsKey = null!;
 
-    private void FillPeopleMenu()
+    private Button HeaderToggle(string text, string tip, Action flip)
     {
-        var popup = _people.GetPopup();
-        popup.Clear();
-        var w = Main.Instance.Sim!.World;
-        if (_screen.SelectedFleet is not Fleet f) return;
-        if (f.PeopleRun != null) popup.AddItem("End the people run", -1);
-        var targets = w.Bodies.Where(b => Planets.Settleable(b) && (b.Owner == Side.Player || b.Owner == null && b.PopK <= 0))
-            .OrderBy(b => b.Owner == Side.Player ? 1 : 0).ThenBy(b => Vec2.Distance(b.Position, f.Position)).ToList();
-        foreach (var b in targets)
-        {
-            var from = PeopleSource(w, b.Id);
-            if (from == null) continue;
-            var what = b.Owner == null ? $"Settle {b.Name} (empty, room for {Planets.Cap(b):0}k)" : $"Bring people to {b.Name} ({b.PopK:0.#}k of {Planets.Cap(b):0}k)";
-            popup.AddItem($"{what} from {from.Name}", b.Id);
-            if (b.Owner == Side.Player) popup.AddItem($"   ...and keep going back and forth", b.Id + RepeatOffset);
-        }
-        if (popup.ItemCount == 0) popup.AddItem("No planet of yours has people to spare", -2);
+        var b = Ui.SmallButton(text, flip, tip);
+        b.ToggleMode = true;
+        b.AddThemeFontSizeOverride("font_size", 12);
+        b.CustomMinimumSize = new Vector2(0, 24);
+        return b;
     }
+
+    /// <summary>Keeps the bottom-right corner where it is while the panel grows or shrinks.</summary>
+    private void FitToCorner()
+    {
+        var min = GetCombinedMinimumSize();
+        if (Mathf.IsEqualApprox(Size.X, min.X) && Mathf.IsEqualApprox(Size.Y, min.Y)) return;
+        OffsetLeft = OffsetRight - min.X;
+        OffsetTop = OffsetBottom - min.Y;
+    }
+
+    /// <summary>A line worth showing even with Info off: warnings written in capitals (LOW ON SUPPLIES, LEFT ORBIT...).</summary>
+    private static bool Alert(string line) => line.Length > 3 && char.IsUpper(line[0]) && char.IsUpper(line[1]) && char.IsUpper(line[2]);
 
     private Button _engagementButton = null!;
     private MenuButton _supplyRun = null!;
@@ -372,9 +372,8 @@ public partial class FleetPanel : PanelContainer
     {
         var orbiting = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int ob ? w.FindBody(ob) : null;
         var enemyPlanet = orbiting != null && orbiting.Owner is Side o && o != f.Side;
-        var colony = ships.Any(Planets.IsColonyShip);
         var troops = ships.Any(Planets.IsTroopShip);
-        _planetRow.Visible = mine && w.Loop && (orbiting != null || colony || troops);
+        _planetRow.Visible = mine && w.Loop && (orbiting != null || troops);
         if (!_planetRow.Visible) return;
         _height.Text = f.OrbitHeight == OrbitHeight.Low ? "Low orbit" : "High orbit";
         _height.Visible = orbiting != null || troops;
@@ -395,8 +394,6 @@ public partial class FleetPanel : PanelContainer
             _board.Disabled = why != null;
             _board.TooltipText = why ?? "Take the ship on the slipway: it joins this fleet";
         }
-        _people.Visible = colony;
-        _people.Text = f.PeopleRun is { } run && w.FindBody(run.ToBodyId) is Body to ? $"People to {to.Name}{(run.Repeat ? " (repeat)" : "")} ▾" : "Carry people ▾";
     }
 
     private List<int> Checked() => _rows.Where(r => r.Value.Box.ButtonPressed).Select(r => r.Key).ToList();
@@ -434,9 +431,10 @@ public partial class FleetPanel : PanelContainer
             if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int orbitId && w.FindBody(orbitId) is Body orbiting && Economy.BombardStatus(w, orbiting, Side.Player) is string attack)
                 lines.Add($"{orbiting.Name}: {attack}");
             if (ships.Any(Planets.IsColonyShip))
-                lines.Add($"Settlers aboard: {Planets.PeopleAboard(w, f):0.#}k of {ships.Sum(Planets.PeopleHold):0}k"
-                          + (f.PeopleRun is { } pr && w.FindBody(pr.FromBodyId) is Body pf && w.FindBody(pr.ToBodyId) is Body pt
-                              ? $" · carrying people from {pf.Name} to {pt.Name}{(pr.Repeat ? ", back and forth" : "")}{(pr.Auto ? " (Auto top-up)" : "")}" : ""));
+                lines.Add($"Settlers aboard: {Planets.PeopleAboard(w, f):0.#}k"
+                          + (f.PeopleRun is { } pr && w.FindBody(pr.ToBodyId) is Body pt
+                              ? pr.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" · waiting for {escort.Name} to escort them to {pt.Name}"
+                              : $" · bound for {pt.Name}, where the ship lands for good{(pr.Auto ? " (Auto top-up)" : "")}" : ""));
             if (ships.Any(Planets.IsTroopShip))
                 lines.Add($"Troops aboard: {Planets.TroopsAboard(w, f):0.##}k (they load at your planets with people to spare)");
             if (Planets.BombStatus(w, f) is string bombing) lines.Add(bombing);
@@ -469,8 +467,9 @@ public partial class FleetPanel : PanelContainer
                 if (Mind.Of(w, f.Side)?.JobOf(f.Id) is FleetJob job) lines.Add($"(debug) Rival job: {job.Kind}: {job.Why}");
             }
         }
-        _status.Text = string.Join("\n", lines);
-        _shipList.Visible = seen;
+        _status.Text = string.Join("\n", _showInfo && !_tucked ? lines : lines.Take(1).Concat(lines.Skip(1).Where(Alert)));
+        _shipList.Visible = seen && !_tucked;
+        _barsKey.Visible = _shipList.Visible;
 
         // Rebuild the ship rows only when the fleet's ships change.
         var key = string.Join(",", f.ShipIds) + (mine ? "m" : "r");
@@ -496,10 +495,12 @@ public partial class FleetPanel : PanelContainer
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 row.AddChild(check);
-                var supplies = Ui.Label("", 13, Ui.Dim);
+                var bars = new ShipBars();
+                row.AddChild(bars);
+                var supplies = Ui.Label("", 12, Ui.Dim);
                 row.AddChild(supplies);
                 _shipList.AddChild(row);
-                _rows[s.Id] = (check, supplies);
+                _rows[s.Id] = (check, bars, supplies);
             }
         }
         ApplyTick();
@@ -519,7 +520,22 @@ public partial class FleetPanel : PanelContainer
             if (mine && Heat.MaxShield(w, s) > 0) bits.Add($"shield {s.Shield / Heat.MaxShield(w, s):P0}");
             if (s.Disabled is Module m) bits.Add($"{Combat.ModuleName(m)} out");
             if (Light.Flagship(w, s.Side)?.Id == s.Id) bits.Insert(0, "FLAGSHIP");
-            row.Supplies.Text = string.Join(" · ", bits);
+            // Bars for the everyday numbers; words only for what needs attention. The tooltip has it all.
+            var ammo = mine && SupplyLines.MaxAmmo(s) > 0 ? s.Ammo / SupplyLines.MaxAmmo(s) : -1;
+            row.Bars.Set((armour, armour < 0.5 ? Ui.Danger : new Color("7fd67f")), (share, share < 0.2 ? Ui.Danger : new Color("5fb0ff")),
+                (ammo, ammo is >= 0 and < 0.2 ? Ui.Danger : new Color("e6c95a")), (mine ? heat : -1, s.Overheated || heat >= 0.75 ? Ui.Danger : new Color("ff9a4d")));
+            var tip = $"{s.Name}: " + string.Join(" · ", bits);
+            row.Bars.TooltipText = tip;
+            row.Box.TooltipText = tip;
+            var alerts = new List<string>();
+            if (Light.Flagship(w, s.Side)?.Id == s.Id) alerts.Add("FLAG");
+            if (mine && SupplyLines.Hungry(s)) alerts.Add("HUNGRY");
+            if (s.Overheated) alerts.Add("HOT");
+            if (s.Disabled is Module dm) alerts.Add($"{Combat.ModuleName(dm)} out");
+            if (cls.Missiles > 0) alerts.Add($"{s.Missiles}m");
+            row.Supplies.Text = string.Join(" ", alerts);
+            row.Supplies.TooltipText = tip;
+            row.Supplies.MouseFilter = MouseFilterEnum.Pass;
             if (_protect.TryGetValue(s.Id, out var pb))
             {
                 var on = Flagships.IsProtected(w, s);
@@ -530,17 +546,28 @@ public partial class FleetPanel : PanelContainer
                 : mine && heat >= 0.75 ? Ui.Rival : Ui.Dim);
         }
 
-        _buttons.Visible = mine;
-        _orders.Visible = mine;
-        _engagementButton.Visible = mine && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
+        var open = !_tucked;
+        var more = open && _showMore;
+        _infoButton.Visible = _moreButton.Visible = open;
+        _infoButton.SetPressedNoSignal(_showInfo);
+        _moreButton.SetPressedNoSignal(_showMore);
+        _tuckButton.SetPressedNoSignal(_tucked);
+        _tuckButton.Text = _tucked ? "▸ Open" : "◂ Tuck";
+        _buttons.Visible = mine && open;
+        _orders.Visible = mine && open;
+        _engagementButton.Visible = mine && open && Lightlag.Sim.Core.Engagement.EnemyFor(sim.World, f) != null;
+        _supplyRun.Visible &= open;
+        _planetRow.Visible &= open;
+        _fittings.Visible = more;
         var at = Array.FindIndex(Stances, x => x.Stance == f.Stance);
         if (at >= 0 && _stance.Selected != at) _stance.Select(at);
         _retreat.SetPressedNoSignal(f.RetreatWhenDamaged);
-        _missionRow.Visible = mine;
-        _coverRow.Visible = mine;
+        _missionRow.Visible = mine && more;
+        _coverRow.Visible = mine && more;
         _coverLabel.Visible = _cover.Visible = w.Light.On;
         _fireAt.SetItemDisabled(1, !w.Light.On);
-        _heatRow.Visible = _fireRow.Visible = _heat.Visible = mine;
+        _heatRow.Visible = _fireRow.Visible = mine && more;
+        _heat.Visible = mine && open && (_showMore || _showInfo || ships.Any(x => x.Overheated));
         if (_radiators.Selected != (int)f.Radiators) _radiators.Select((int)f.Radiators);
         _autoSinks.SetPressedNoSignal(f.AutoSinks);
         _longShots.SetPressedNoSignal(f.LongShots);
@@ -548,7 +575,7 @@ public partial class FleetPanel : PanelContainer
         _drop.Disabled = !ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
         _heat.Text = HeatText(w, f, ships);
         _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : Ui.Dim);
-        _droneButton.Visible = mine && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
+        _droneButton.Visible = mine && open && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
         _mission.Text = MissionText(w, f) + " ▾";
@@ -565,6 +592,7 @@ public partial class FleetPanel : PanelContainer
         var candidate = _screen.MergeCandidate();
         _merge.Disabled = candidate == null;
         _merge.TooltipText = candidate != null ? $"Join {candidate.Name} into this fleet" : "No other fleet of yours is close by and stopped";
+        FitToCorner();
     }
 
     /// <summary>One line on the fleet's heat: how hot, sinks and shields left, overheated ships, the cold clock.</summary>
@@ -714,6 +742,39 @@ public partial class FleetPanel : PanelContainer
     }
 }
 
+/// <summary>A ship's armour, fuel, ammunition and heat as four small bars (a value below 0 draws an empty slot).</summary>
+public partial class ShipBars : Control
+{
+    private const float W = 20, Gap = 3, H = 7;
+    private (float Value, Color Color)[] _bars = Array.Empty<(float, Color)>();
+
+    public ShipBars()
+    {
+        CustomMinimumSize = new Vector2(4 * W + 3 * Gap, 16);
+        MouseFilter = MouseFilterEnum.Pass;
+        SizeFlagsVertical = SizeFlags.ShrinkCenter;
+    }
+
+    public void Set(params (double Value, Color Color)[] bars)
+    {
+        var next = bars.Select(b => ((float)Math.Round(b.Value, 2), b.Color)).ToArray();
+        if (next.SequenceEqual(_bars)) return;
+        _bars = next;
+        QueueRedraw();
+    }
+
+    public override void _Draw()
+    {
+        var y = (Size.Y - H) / 2;
+        for (var i = 0; i < _bars.Length; i++)
+        {
+            var x = i * (W + Gap);
+            DrawRect(new Rect2(x, y, W, H), new Color(1, 1, 1, 0.12f));
+            if (_bars[i].Value >= 0) DrawRect(new Rect2(x, y, W * Mathf.Clamp(_bars[i].Value, 0, 1), H), _bars[i].Color);
+        }
+    }
+}
+
 /// <summary>Several of your fleets picked at once: what they are, and one button to gather them into one.</summary>
 public partial class GroupPanel : PanelContainer
 {
@@ -742,6 +803,10 @@ public partial class GroupPanel : PanelContainer
         _gather = Ui.SmallButton("Gather", () => _screen.OrderGather(), "Merge them all into the largest; fleets further off fly there first (M)");
         _gather.CustomMinimumSize = new Vector2(110, 32);
         row.AddChild(_gather);
+        var watch = Ui.SmallButton("Keep in view", () => _screen.FollowAll(_screen.Group.Select(g => g.Id).ToList()),
+            "Lock the view on all of them (F): centred between them, zooming out as they spread apart. Pan or pick something else to let go");
+        watch.CustomMinimumSize = new Vector2(120, 32);
+        row.AddChild(watch);
         var clear = Ui.SmallButton("Clear", () => _screen.Select(null), "Unpick them");
         clear.CustomMinimumSize = new Vector2(80, 32);
         row.AddChild(clear);

@@ -6,7 +6,7 @@ namespace Lightlag.Game;
 
 /// <summary>
 /// The planet screen, bottom right when a planet or moon is selected: its people, happiness and why,
-/// food, industry, buildings (with build buttons), settlers (bring people, Auto top-up) and, for an
+/// food, industry, buildings (with build buttons), settlers (Settle with an optional escort, Auto top-up) and, for an
 /// enemy planet, how close it is to giving up.
 /// </summary>
 public partial class PlanetPanel : PanelContainer
@@ -15,7 +15,7 @@ public partial class PlanetPanel : PanelContainer
     private Label _title = null!, _body = null!;
     private HBoxContainer _build = null!, _people = null!;
     private readonly Dictionary<string, Button> _buildButtons = new();
-    private Button _bring = null!;
+    private MenuButton _settle = null!;
     private CheckButton _topUp = null!;
     private int _bodyId;
 
@@ -49,29 +49,29 @@ public partial class PlanetPanel : PanelContainer
 
         _people = new HBoxContainer();
         _people.AddThemeConstantOverride("separation", 6);
-        _bring = Ui.SmallButton("Bring settlers", BringSettlers,
-            "Send your nearest idle colony ship: it loads people at your planet with the most to spare and lands them here");
-        _people.AddChild(_bring);
+        _settle = new MenuButton { Text = "Settle ▾", Flat = false, FocusMode = FocusModeEnum.None };
+        _settle.AddThemeFontSizeOverride("font_size", 14);
+        _settle.AboutToPopup += FillSettleMenu;
+        _settle.GetPopup().IdPressed += id => Main.Instance.RunGuarded("settle", () =>
+            _screen.IssueNow(new SettleCommand(Side.Player, _bodyId, id < 0 ? null : (int)id), "settle"));
+        _people.AddChild(_settle);
         _topUp = new CheckButton { Text = "Auto top-up", FocusMode = FocusModeEnum.None,
-            TooltipText = "Idle colony ships keep bringing people here from your fullest planet until it is nearly full" };
+            TooltipText = "Settlers are ordered for this planet by themselves, one ship at a time, until it is nearly full" };
         _topUp.AddThemeFontSizeOverride("font_size", 14);
         _topUp.Toggled += on => Main.Instance.RunGuarded("auto top-up", () => _screen.IssueNow(new SetAutoTopUpCommand(Side.Player, _bodyId, on), "auto top-up"));
         _people.AddChild(_topUp);
         box.AddChild(_people);
     }
 
-    /// <summary>Your colony fleets with nothing to do, nearest first.</summary>
-    private static List<Fleet> IdleColonyFleets(World w, Body to) =>
-        w.Fleets.Where(f => f.Side == Side.Player && f.PeopleRun == null && f.ShipIds.Count > 0 && w.ShipsOf(f).All(Planets.IsColonyShip))
-            .OrderBy(f => Vec2.Distance(f.Position, to.Position)).ThenBy(f => f.Id).ToList();
-
-    private void BringSettlers()
+    /// <summary>Settle alone, or with one of your fleets as escort (it comes to the shipyard, flies out with the settlers and stays).</summary>
+    private void FillSettleMenu()
     {
+        var popup = _settle.GetPopup();
+        popup.Clear();
         var w = Main.Instance.Sim!.World;
-        if (w.FindBody(_bodyId) is not Body to) return;
-        var fleet = IdleColonyFleets(w, to).FirstOrDefault();
-        if (fleet == null || FleetPanel.PeopleSource(w, to.Id) is not Body from) return;
-        _screen.IssueNow(new SendPeopleCommand(Side.Player, fleet.Id, from.Id, to.Id), "bring settlers");
+        popup.AddItem("Send settlers (no escort)", -1);
+        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player && f.PeopleRun == null && Combat.Armed(w, f)).OrderBy(f => f.Id))
+            popup.AddItem($"Send settlers, escorted by {f.Name} ({f.ShipIds.Count} ships)", f.Id);
     }
 
     private static string Signed(double v) => v >= 0 ? $"+{v:0}" : $"−{-v:0}";
@@ -94,7 +94,7 @@ public partial class PlanetPanel : PanelContainer
         var cap = Planets.Cap(b);
         if (cap <= 0) lines.Add("Nobody can live here (a giant): it can be held, but not settled");
         else if (b.PopK <= 0)
-            lines.Add($"Empty: room for {cap:0}k people. " + (mine ? $"Makes half its industry ({b.Industry * Planets.D.UnsettledShare:0.#}/day) until settlers arrive" : "A colony ship can settle it"));
+            lines.Add($"Empty: room for {cap:0}k people. " + (mine ? $"Makes half its industry ({b.Industry * Planets.D.UnsettledShare:0.#}/day) until settlers arrive" : "Settle it from here (a settler ship is built at your shipyard)"));
         else
         {
             var growth = b.Hungry ? "shrinking: HUNGRY" : b.PopK >= cap * 0.99 ? "full" : "growing";
@@ -156,12 +156,13 @@ public partial class PlanetPanel : PanelContainer
         _people.Visible = cap > 0 && (mine || owner == null && b.PopK <= 0);
         if (_people.Visible)
         {
-            var idle = IdleColonyFleets(w, b);
-            var from = FleetPanel.PeopleSource(w, b.Id);
-            _bring.Disabled = idle.Count == 0 || from == null || b.PopK >= cap - 0.1;
-            _bring.TooltipText = idle.Count == 0 ? "No idle colony ship: build one at the shipyard (Empire)"
-                : from == null ? "None of your other planets has people to spare"
-                : $"{idle[0].Name} loads people at {from.Name} and lands them here";
+            var why = Planets.CanSettle(w, Side.Player, b.Id);
+            var cls = GameData.ShipClass(Planets.SettlerClass);
+            _settle.Disabled = why != null;
+            _settle.TooltipText = (why != null ? why + ". " : "")
+                + $"The shipyard builds a settler ship ({cls.Cost:0} Industry, {cls.Cost / GameData.Economy.BuildIndustryPerDay:0.#} days). It takes up to {cls.Cargo:0}k people from "
+                + $"{Economy.ShipyardOf(w, Side.Player)?.Name ?? "the shipyard planet"}, flies here and lands for good. On the way it can be blockaded or shot down: "
+                + "pick a fleet to escort it, and that fleet comes to fetch it, flies out with it and stays in orbit here";
             _topUp.Visible = mine;
             _topUp.SetPressedNoSignal(b.AutoTopUp);
         }

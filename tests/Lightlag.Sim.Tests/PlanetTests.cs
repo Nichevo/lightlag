@@ -77,20 +77,57 @@ public class PlanetTests
     }
 
     [Fact]
-    public void A_colony_ship_settles_an_empty_asteroid_and_tops_it_up_from_home()
+    public void Settlers_ordered_for_an_empty_asteroid_settle_it_and_their_ship_lands_for_good()
     {
         var sim = NewGame();
-        var verdant = BodyNamed(sim, "verdant");
         var kesh = BodyNamed(sim, "kesh");
-        var colony = NewFleet(sim, Side.Player, verdant, "colony-ship");
-        sim.Issue(new SendPeopleCommand(Side.Player, colony.Id, verdant.Id, kesh.Id, Repeat: true));
-        for (var day = 0; day < 200 && kesh.PopK < Planets.Cap(kesh) - 0.5; day++) Days(sim, 1);
+        // Settler ships are not built from the ship list, only by a settle order.
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, Planets.SettlerClass));
+        sim.Issue(new SettleCommand(Side.Player, kesh.Id));
+        sim.ApplyPending();
+        var order = Assert.Single(sim.World.Orders);
+        Assert.Equal(kesh.Id, order.SettleBodyId);
+        Assert.NotNull(Planets.CanSettle(sim.World, Side.Player, kesh.Id)); // already bound there
+        for (var day = 0; day < 120 && kesh.Owner == null; day++) Days(sim, 1);
+        Days(sim, 1);
         Assert.Equal(Side.Player, kesh.Owner);
-        Assert.InRange(kesh.PopK, Planets.Cap(kesh) - 0.5, Planets.Cap(kesh));
+        Assert.True(kesh.PopK > 5);
         Assert.Equal(1, kesh.OwnShare, 6);
-        // A full asteroid has no room left: the run ends there.
-        Days(sim, 60);
-        Assert.Null(colony.PeopleRun);
+        Assert.DoesNotContain(sim.World.Ships, s => s.Side == Side.Player && Planets.IsColonyShip(s));
+        Assert.DoesNotContain(sim.World.Fleets, f => f.Side == Side.Player && f.PeopleRun != null);
+    }
+
+    [Fact]
+    public void Auto_top_up_orders_settlers_by_itself()
+    {
+        var sim = NewGame();
+        var kesh = BodyNamed(sim, "kesh");
+        kesh.Owner = Side.Player;
+        kesh.PopK = 1;
+        kesh.OwnShare = 1;
+        sim.Issue(new SetAutoTopUpCommand(Side.Player, kesh.Id, true));
+        sim.StepMany(6);
+        Assert.Contains(sim.World.Orders, o => o.SettleBodyId == kesh.Id && o.Auto);
+        Days(sim, 120);
+        Assert.True(kesh.PopK > Planets.Cap(kesh) * 0.8, $"{kesh.PopK}");
+    }
+
+    [Fact]
+    public void An_escort_fetches_the_settler_ship_flies_it_out_and_stays_in_orbit()
+    {
+        var sim = NewGame();
+        var kesh = BodyNamed(sim, "kesh");
+        var pale = BodyNamed(sim, "pale");
+        var escort = Home(sim);
+        PlaceInOrbit(sim, escort, pale); // away from the shipyard: it has to come and fetch the settlers
+        sim.Issue(new SettleCommand(Side.Player, kesh.Id, escort.Id));
+        for (var day = 0; day < 150 && kesh.Owner == null; day++) Days(sim, 1);
+        Days(sim, 1);
+        Assert.Equal(Side.Player, kesh.Owner);
+        Assert.Contains(escort, sim.World.Fleets);
+        Assert.True(Economy.InOrbitAt(escort, kesh));
+        Assert.DoesNotContain(sim.World.Ships, s => s.Side == Side.Player && Planets.IsColonyShip(s));
+        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player);
     }
 
     [Fact]
@@ -102,10 +139,9 @@ public class PlanetTests
         pale.Owner = Side.Player;
         pale.PopK = 5;
         pale.OwnShare = 0;
-        var colony = NewFleet(sim, Side.Player, verdant, "colony-ship");
-        sim.Issue(new SendPeopleCommand(Side.Player, colony.Id, verdant.Id, pale.Id));
-        Days(sim, 15);
-        Assert.Null(colony.PeopleRun);
+        sim.Issue(new SettleCommand(Side.Player, pale.Id));
+        Days(sim, 30);
+        Assert.DoesNotContain(sim.World.Fleets, f => f.Side == Side.Player && f.PeopleRun != null);
         Assert.InRange(pale.OwnShare, 0.3, 1);
         Assert.True(pale.PopK > 5);
     }
@@ -299,14 +335,13 @@ public class PlanetTests
         var sim = NewGame(31);
         var verdant = BodyNamed(sim, "verdant");
         var warships = Home(sim);
-        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "colony-ship"));
+        var kesh = BodyNamed(sim, "kesh");
+        sim.Issue(new SettleCommand(Side.Player, kesh.Id));
         sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Farm));
         Days(sim, GameData.ShipClass("colony-ship").Cost / GameData.Economy.BuildIndustryPerDay + 0.2);
-        // The new colony ship forms a fleet of its own rather than joining the warships.
+        // The new settler ship forms a fleet of its own rather than joining the warships.
         var colony = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != warships.Id);
         Assert.All(sim.World.ShipsOf(colony), s => Assert.True(Planets.IsColonyShip(s)));
-        var kesh = BodyNamed(sim, "kesh");
-        sim.Issue(new SendPeopleCommand(Side.Player, colony.Id, verdant.Id, kesh.Id));
         sim.Issue(new SetAutoTopUpCommand(Side.Player, verdant.Id, false));
         Days(sim, 75);
         Assert.Equal(Side.Player, kesh.Owner);
