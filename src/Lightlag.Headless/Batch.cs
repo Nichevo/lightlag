@@ -10,7 +10,7 @@ public sealed record GameResult(
     int Index, ulong Seed, string Outcome, long Ticks, double Seconds, int RuleFailures,
     int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
     string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null,
-    double? WarshipsMid = null, double[]? WarshipCurve = null);
+    double? WarshipsMid = null, double[]? WarshipCurve = null, double WorstStepMs = 0, long WorstStepTick = 0);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
@@ -70,6 +70,7 @@ public static class Batch
         Overnight.Fights.Clear();
         Audit.Clear();
         Overnight.Raids.Clear();
+        Timing.Clear();
         var clock = Stopwatch.StartNew();
         for (var i = 0; i < games; i++)
         {
@@ -160,6 +161,11 @@ public static class Batch
         using var log = new GameLog(build, logPath);
         var timer = Stopwatch.StartNew();
         Simulation? sim = null;
+        // Time each part of the step (see Timing): the batch summary lists where the time goes.
+        var sections = new SectionTimer(Stopwatch.GetTimestamp, Stopwatch.Frequency);
+        SectionTimer.Active = sections;
+        double worstMs = 0;
+        long worstTick = 0;
         try
         {
             var options = OptionsFor(pilotKind);
@@ -172,7 +178,10 @@ public static class Batch
             while ((sim.World.Tick < end || sim.World.Sub != 0) && sim.World.Winner == null)
             {
                 testPilot?.Act(sim);
+                var before = Stopwatch.GetTimestamp();
                 sim.Step();
+                var ms = Stopwatch.GetElapsedTime(before).TotalMilliseconds;
+                if (ms > worstMs) (worstMs, worstTick) = (ms, sim.World.Tick);
             }
             Stats.RecordDay(sim.World);
             log.Info("game", $"Game finished at {GameTime.Format(sim.World.Tick)}", new { hash = sim.StateHash() });
@@ -193,7 +202,7 @@ public static class Batch
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
                 w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null, w.WinReason,
-                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve);
+                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve, Math.Round(worstMs, 1), worstTick);
         }
         catch (Exception ex)
         {
@@ -201,9 +210,17 @@ public static class Batch
             var outcome = ex is RuleBrokenException ? "rule" : "crash";
             return new GameResult(index, seed, outcome, sim?.World.Tick ?? 0, timer.Elapsed.TotalSeconds,
                 sim?.RuleViolations ?? 0, log.Count(LogLevel.Error), log.Count(LogLevel.Warn),
-                $"{ex.GetType().Name}: {ex.Message}", folder);
+                $"{ex.GetType().Name}: {ex.Message}", folder, WorstStepMs: Math.Round(worstMs, 1), WorstStepTick: worstTick);
+        }
+        finally
+        {
+            SectionTimer.Active = null;
+            Timing.Add(sections);
         }
     }
+
+    /// <summary>Where the batch's time went, all games together.</summary>
+    public static readonly SectionTimer Timing = new(Stopwatch.GetTimestamp, Stopwatch.Frequency);
 
     public static string Summarise(BuildInfo build, string scenario, int days, bool strict, DateTime started,
                                    TimeSpan elapsed, int requested, List<GameResult> results, string runDir, string pilot = "ai")
@@ -228,16 +245,21 @@ public static class Batch
                           + $"flagship in battle: player {ended.Average(r => r.Player!.FlagshipBattles):0.0}, rival {ended.Average(r => r.Rival!.FlagshipBattles):0.0}; "
                           + $"fleets' own decisions: player {ended.Average(r => r.Player!.OwnDecisions):0.0}, rival {ended.Average(r => r.Rival!.OwnDecisions):0.0}");
         if (ended.Count > 0)
+        {
             md.AppendLine($"- Heat, per game: ships overheated: player {ended.Average(r => r.Player!.Overheats):0.0}, rival {ended.Average(r => r.Rival!.Overheats):0.0}");
             md.AppendLine($"- Hazards, per game (player / rival): rock hits {ended.Average(r => r.Player!.RockHits):0.0} / {ended.Average(r => r.Rival!.RockHits):0.0}, "
                 + $"hull lost to rocks {ended.Average(r => r.Player!.HazardHull):0} / {ended.Average(r => r.Rival!.HazardHull):0}, "
                 + $"ship-hours in radiation {ended.Average(r => r.Player!.RadiationShipHours):0} / {ended.Average(r => r.Rival!.RadiationShipHours):0}, "
                 + $"events {ended.Average(r => r.Player!.Events):0.0} / {ended.Average(r => r.Rival!.Events):0.0}");
+        }
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
         if (results.Count > 0)
         {
             var slowest = results.MaxBy(r => r.Seconds)!;
             md.AppendLine($"- Time per game: average {results.Average(r => r.Seconds):0.00}s, slowest {slowest.Seconds:0.00}s (seed {slowest.Seed}). Target is under 60s.");
+            var stall = results.MaxBy(r => r.WorstStepMs)!;
+            md.AppendLine($"- Slowest single step: {stall.WorstStepMs:0} ms (seed {stall.Seed}, {GameTime.Format(stall.WorstStepTick)}); steps over 1 s: "
+                          + $"{results.Count(r => r.WorstStepMs > 1000)} games");
             md.AppendLine($"- Rule failures: {results.Sum(r => r.RuleFailures)}; log errors: {results.Sum(r => r.Errors)}; warnings: {results.Sum(r => r.Warnings)}");
             var won = results.Where(r => r.Winner != null).ToList();
             var who = Describe(pilot);
@@ -248,6 +270,13 @@ public static class Batch
         }
         AppendBalance(md, results);
         md.AppendLine($"- Folder: `{runDir}`");
+        if (Timing.Rows.Count > 0)
+        {
+            md.AppendLine();
+            md.AppendLine($"## Where the time goes ({Timing.Hours} game hours, rule checks every hour)");
+            md.AppendLine();
+            md.Append(Timing.Table(20));
+        }
         if (bad.Count > 0)
         {
             md.AppendLine();

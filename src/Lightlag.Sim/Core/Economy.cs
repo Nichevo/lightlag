@@ -435,7 +435,7 @@ public static class Economy
         var w = sim.World;
         if (!w.Loop || w.Winner != null) return;
         Research.EnsureTeams(w);
-        Planets.Update(sim);
+        using (SectionTimer.Time("planets")) Planets.Update(sim);
         if (w.Winner != null) return;
         Works.Update(sim);
         foreach (var side in new[] { Side.Player, Side.Rival })
@@ -443,9 +443,9 @@ public static class Economy
             var earned = IncomePerDay(w, side) / 24;
             Of(w, side).Industry += earned;
             Of(w, side).Totals.IndustryEarned += earned;
-            Work(sim, side);
-            Research.Work(sim, side);
-            SupplyLines.Upkeep(sim, side);
+            using (SectionTimer.Time("yards")) Work(sim, side);
+            using (SectionTimer.Time("research")) Research.Work(sim, side);
+            using (SectionTimer.Time("upkeep")) SupplyLines.Upkeep(sim, side);
         }
         Research.Surveys(sim);
         Sparks.Check(sim);

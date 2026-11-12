@@ -126,12 +126,13 @@ public sealed class Simulation
     /// </summary>
     public void Step()
     {
-        ApplyPending();
-        Light.Deliver(this);
+        using var step = SectionTimer.Time("step");
+        using (SectionTimer.Time("orders")) ApplyPending();
+        using (SectionTimer.Time("light")) Light.Deliver(this);
 
         var t0 = World.Hour;
         var velocities = World.Fleets.Select(f => (f, f.Velocity)).ToList();
-        InBattleTime = World.Sub != 0 || Combat.BattlePossible(World);
+        using (SectionTimer.Time("battle-check")) InBattleTime = World.Sub != 0 || Combat.BattlePossible(World);
         if (InBattleTime)
         {
             World.Sub++;
@@ -142,58 +143,59 @@ public sealed class Simulation
                 UpdateBodyPositions(World);
             }
             var t1 = World.Hour;
-            Combat.Steer(this, t0, t1);
-            MoveFleets(t0, t1);
-            Drones.Move(this, t1 - t0);
-            Heat.Update(this, t1 - t0);
-            DroppedMissiles.Update(this, t1 - t0);
+            using (SectionTimer.Time("combat-steer")) Combat.Steer(this, t0, t1);
+            using (SectionTimer.Time("move")) MoveFleets(t0, t1);
+            using (SectionTimer.Time("drones")) Drones.Move(this, t1 - t0);
+            using (SectionTimer.Time("heat")) Heat.Update(this, t1 - t0);
+            using (SectionTimer.Time("missiles")) DroppedMissiles.Update(this, t1 - t0);
             UpdateFacing(velocities, World.Hour);
-            Sensors.Update(this);
-            Light.Relay(this);
-            Combat.Fire(this, t0, t1);
+            using (SectionTimer.Time("sensors")) Sensors.Update(this);
+            using (SectionTimer.Time("light")) Light.Relay(this);
+            using (SectionTimer.Time("combat-fire")) Combat.Fire(this, t0, t1);
         }
         else
         {
             World.Tick++;
             UpdateBodyPositions(World);
             // Fleets still braking after a fight finish braking (otherwise they would drift on for ever).
-            Combat.Steer(this, t0, World.Hour);
-            MoveFleets(t0, World.Hour);
-            Drones.Move(this, World.Hour - t0);
-            Heat.Update(this, World.Hour - t0);
-            DroppedMissiles.Update(this, World.Hour - t0);
+            using (SectionTimer.Time("combat-steer")) Combat.Steer(this, t0, World.Hour);
+            using (SectionTimer.Time("move")) MoveFleets(t0, World.Hour);
+            using (SectionTimer.Time("drones")) Drones.Move(this, World.Hour - t0);
+            using (SectionTimer.Time("heat")) Heat.Update(this, World.Hour - t0);
+            using (SectionTimer.Time("missiles")) DroppedMissiles.Update(this, World.Hour - t0);
             UpdateFacing(velocities, World.Hour);
-            Sensors.Update(this);
-            Light.Relay(this);
+            using (SectionTimer.Time("sensors")) Sensors.Update(this);
+            using (SectionTimer.Time("light")) Light.Relay(this);
             // Contacts between fleets that can't fight yet start (or end) a battle at the hour.
-            Combat.UpdateContacts(this, World.Hour);
+            using (SectionTimer.Time("combat-contacts")) Combat.UpdateContacts(this, World.Hour);
             if (World.ActiveBattle is Battle b) BattleRecords.Record(this, b, World.Hour);
         }
         World.Random = Rng.Save();
         if (World.Sub != 0) return;
-        JoinFleets();
-        ShareSupplies();
-        Chases.Update(this);
-        Economy.Update(this);
-        Mind.Update(this);
-        Stewards.Update(this);
-        Autonomy.Update(this);
-        Lanes.Observe(this);
-        Intel.Update(this);
-        Lanes.UpdateZones(this);
-        Supply.Update(this);
-        SupplyLines.Update(this);
-        Combat.ReturnToOrbit(this);
-        Flagships.Update(this);
-        if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
+        if (SectionTimer.Active is SectionTimer timer) timer.Hours++;
+        using (SectionTimer.Time("fleets")) JoinFleets();
+        using (SectionTimer.Time("fleets")) ShareSupplies();
+        using (SectionTimer.Time("chases")) Chases.Update(this);
+        using (SectionTimer.Time("economy")) Economy.Update(this);
+        using (SectionTimer.Time("mind")) Mind.Update(this);
+        using (SectionTimer.Time("stewards")) Stewards.Update(this);
+        using (SectionTimer.Time("autonomy")) Autonomy.Update(this);
+        using (SectionTimer.Time("lanes")) Lanes.Observe(this);
+        using (SectionTimer.Time("intel")) Intel.Update(this);
+        using (SectionTimer.Time("lanes")) Lanes.UpdateZones(this);
+        using (SectionTimer.Time("supply")) Supply.Update(this);
+        using (SectionTimer.Time("supply-lines")) SupplyLines.Update(this);
+        using (SectionTimer.Time("combat-orbit")) Combat.ReturnToOrbit(this);
+        using (SectionTimer.Time("flagships")) Flagships.Update(this);
+        if (World.Tick % GameTime.TicksPerDay == 0) using (SectionTimer.Time("stats")) Stats.RecordDay(World);
         // The hour's work above draws from the random stream too (hazards, events, spoils): keep the saved state current.
         World.Random = Rng.Save();
 
         if (World.Tick % GameTime.TicksPerDay == 0)
-            Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));
+            using (SectionTimer.Time("checkpoint")) Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));
 
         if (RuleCheckEveryTicks > 0 && World.Tick % RuleCheckEveryTicks == 0)
-            CheckRules();
+            using (SectionTimer.Time("rules")) CheckRules();
     }
 
     /// <summary>

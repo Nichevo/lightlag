@@ -487,7 +487,7 @@ public static class Colonies
                 b.PopK = Math.Max(0, Planets.Cap(b));
             }
         }
-        Transport(sim);
+        using (SectionTimer.Time("transport")) Transport(sim);
     }
 
     private static void Construction(Simulation sim, Body b)
