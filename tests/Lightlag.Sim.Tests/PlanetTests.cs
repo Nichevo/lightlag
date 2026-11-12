@@ -57,7 +57,13 @@ public class PlanetTests
         Assert.Contains(Planets.Farm, verdant.Buildings);
         Assert.Contains(Planets.Mine, verdant.Buildings);
         Assert.True(BodyNamed(sim, "rust").PopK > 0);
-        Assert.All(sim.World.Bodies.Where(b => !b.Home), b => Assert.Equal(0, b.PopK));
+        // Each home's moon starts as a small mining outpost of its side; everything else is empty.
+        var pale = BodyNamed(sim, "pale");
+        Assert.Equal(Side.Player, pale.Owner);
+        Assert.Equal(Planets.D.OutpostStartK, pale.PopK);
+        Assert.Contains(Planets.Mine, pale.Buildings);
+        Assert.Contains(sim.World.Bodies, b => b.ParentId == BodyNamed(sim, "rust").Id && b.Owner == Side.Rival && b.PopK > 0);
+        Assert.All(sim.World.Bodies.Where(b => !b.Home && b.Owner == null), b => Assert.Equal(0, b.PopK));
         Assert.Equal(0, Planets.Cap(BodyNamed(sim, "tamber")));
         Assert.True(Planets.Settleable(BodyNamed(sim, "kesh")));
         Assert.Equal(BodyKind.Asteroid, BodyNamed(sim, "kesh").Kind);
@@ -160,7 +166,7 @@ public class PlanetTests
         Assert.Contains(escort, sim.World.Fleets);
         Assert.True(Economy.InOrbitAt(escort, kesh));
         Assert.DoesNotContain(sim.World.Ships, s => s.Side == Side.Player && Planets.IsColonyShip(s));
-        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player);
+        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player && !sim.World.ShipsOf(f).All(Colonies.IsHauler)); // and the home transport
     }
 
     [Fact]
@@ -373,7 +379,7 @@ public class PlanetTests
         sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Farm));
         Days(sim, GameData.ShipClass("colony-ship").Cost / GameData.Economy.BuildIndustryPerDay + 0.2);
         // The new settler ship forms a fleet of its own rather than joining the warships.
-        var colony = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != warships.Id);
+        var colony = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != warships.Id && !sim.World.ShipsOf(f).All(Colonies.IsHauler));
         Assert.All(sim.World.ShipsOf(colony), s => Assert.True(Planets.IsColonyShip(s)));
         sim.Issue(new SetAutoTopUpCommand(Side.Player, verdant.Id, false));
         Days(sim, 75);
@@ -407,7 +413,11 @@ public class PlanetTests
         var json = sim.ToSave().ToJson();
         var save = Lightlag.Sim.Save.SaveGame.FromJson(json);
         save.World.PeopleStarted = false;
-        foreach (var b in save.World.Bodies) { b.PopK = 0; b.Home = false; b.Buildings.Clear(); }
+        foreach (var b in save.World.Bodies)
+        {
+            b.PopK = 0; b.Home = false; b.Buildings.Clear();
+            if (!b.Shipyard) { b.Owner = null; b.Pieces.Clear(); b.Stock.Clear(); } // no moon outposts back then
+        }
         var loaded = Simulation.FromSave(Lightlag.Sim.Save.SaveGame.FromJson(save.ToJson()), GameLog.Memory());
         loaded.StrictRules = true;
         loaded.RuleCheckEveryTicks = 1;

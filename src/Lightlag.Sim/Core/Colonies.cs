@@ -62,6 +62,11 @@ public sealed class Piece
     /// <summary>Power plants: ran this hour without their fuel (at reduced power).</summary>
     public bool NoFuel { get; set; }
 
+    /// <summary>Munitions plants: Basic only or Best, and the missile brain and slug grade it is tooled for (see Munitions).</summary>
+    public PlantMode PlantMode { get; set; }
+    public int MissileGrade { get; set; } = 1;
+    public int RailGrade { get; set; } = 1;
+
     /// <summary>
     /// Queued by the player behind other work or before the Industry was there: not paid for or started yet.
     /// It holds its tiles and starts (paying its Industry then) once nothing else is being built on the planet.
@@ -302,6 +307,37 @@ public static class Colonies
         board.Deposits.Add(new Deposit { X = fx, Y = fy, Mineral = mineral });
     }
 
+    /// <summary>
+    /// The planet at a glance for its screen: free tiles by ground (land, ocean, ice), free deposits a mine
+    /// could take (by mineral, rich ones marked), and tiles in use. Mountains hold nothing.
+    /// </summary>
+    public static string BoardSummary(Body b)
+    {
+        if (b.Board is not Board board) return "No ground to build on";
+        int land = 0, ocean = 0, ice = 0, used = 0;
+        var deposits = new List<Deposit>();
+        for (var y = 0; y < board.H; y++)
+        for (var x = 0; x < board.W; x++)
+        {
+            var c = board.At(x, y);
+            if (c == 'm') continue;
+            if (b.Pieces.Any(p => p.Covers(x, y))) { used++; continue; }
+            if (board.DepositAt(x, y) is Deposit d && d.Mineral != "") { deposits.Add(d); continue; }
+            if (c == 'l') land++; else if (c == 'o') ocean++; else if (c == 'i') ice++;
+        }
+        var free = land + ocean + ice + deposits.Count;
+        var kinds = new List<string>();
+        if (land > 0) kinds.Add($"{land} land");
+        if (ocean > 0) kinds.Add($"{ocean} ocean");
+        if (ice > 0) kinds.Add($"{ice} ice");
+        var text = $"Tiles: {used} in use, {free} free" + (kinds.Count > 0 ? $" ({string.Join(", ", kinds)})" : "");
+        if (deposits.Count > 0)
+            text += " · free deposits for mines: " + string.Join(", ", deposits.GroupBy(d => d.Mineral).OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => $"{GoodName(g.Key).ToLowerInvariant()} ×{g.Count()}{(g.Any(d => d.Rich) ? $" ({g.Count(d => d.Rich)} rich)" : "")}"));
+        else text += " · no free deposits";
+        return text;
+    }
+
     private static IEnumerable<(int X, int Y)> FreeLand(Board board)
     {
         for (var y = 0; y < board.H; y++)
@@ -416,6 +452,17 @@ public static class Colonies
 
     // ---- Start ------------------------------------------------------------------------------
 
+    /// <summary>Lays out a home moon's outpost: its starting buildings (a mine on its best deposit, a solar field).</summary>
+    public static void StartOutpost(World w, Body b)
+    {
+        b.Pieces.Clear();
+        foreach (var kind in D.OutpostBuildings ?? new List<string>())
+            if (Planets.BuildingKind(kind) is BuildingData data && BestSpot(b, data) is var (x, y, turned))
+                AddPiece(w, b, data, x, y, turned, built: true);
+        b.Stock[Spares] = C.SettlerSpares;
+        SyncBuildings(b);
+    }
+
     /// <summary>Lays out a home: its starting buildings at their best spots, and a starting stock of goods.</summary>
     public static void StartHome(World w, Body b)
     {
@@ -448,15 +495,8 @@ public static class Colonies
     }
 
     /// <summary>Keeps Body.Buildings (the kinds standing, used by food, guns and bombing) in step with the board.</summary>
-    /// <summary>
-    /// After the board changes: the building list is brought up to date, and if housing was lost (bombed,
-    /// wrecked in a ground fight or pulled down) the people it held have to go.
-    /// </summary>
-    public static void SyncBuildings(Body b)
-    {
-        b.Buildings = Built(b).Select(p => p.Kind).ToList();
-        b.PopK = Math.Min(b.PopK, Math.Max(0, Planets.Cap(b)));
-    }
+    /// <summary>After the board changes: the building list is brought up to date (people housing lost no longer holds: see Planets.Rehouse).</summary>
+    public static void SyncBuildings(Body b) => b.Buildings = Built(b).Select(p => p.Kind).ToList();
 
     /// <summary>Takes one built piece of this kind off the board (bombed, failed or pulled down). Returns it.</summary>
     public static Piece? RemoveOne(Body b, Func<Piece, bool> which)
@@ -480,12 +520,6 @@ public static class Colonies
             if (b.Owner == null) { b.Pieces.RemoveAll(p => !p.Built); continue; }
             Construction(sim, b);
             Work(w, b);
-            // Habitats short of water hold only half as many: those who no longer fit move out (or die).
-            if (b.PopK > Planets.Cap(b))
-            {
-                sim.Log.Info("planets", "Short of room: people leave", new { body = b.Name, popK = b.PopK, cap = Planets.Cap(b), b.Thirsty });
-                b.PopK = Math.Max(0, Planets.Cap(b));
-            }
         }
         using (SectionTimer.Time("transport")) Transport(sim);
     }
@@ -507,6 +541,7 @@ public static class Colonies
                 p.HoursLeft -= GameTime.HoursPerTick;
                 if (!p.Built) continue;
                 p.HoursLeft = 0;
+                Munitions.Tooled(sim.World, b, p);
                 SyncBuildings(b);
                 sim.Log.Info("planets", $"{Planets.BuildingKind(p.Kind)?.Name ?? p.Kind} built at {b.Name}", new { bodyId = b.Id, side = b.Owner.ToString(), kind = p.Kind });
                 continue;
@@ -515,6 +550,7 @@ public static class Colonies
             if (p.RefitHoursLeft <= 0 && b.Owner is Side side && Planets.BuildingKind(p.Kind) is BuildingData data)
             {
                 p.Level = LevelFor(sim.World, side, data);
+                Munitions.Tooled(sim.World, b, p);
                 sim.Log.Info("planets", $"{data.Name} at {b.Name} is refitted", new { bodyId = b.Id, kind = p.Kind, p.Level });
             }
         }
@@ -671,7 +707,7 @@ public static class Colonies
                 people -= baseGot;
                 baseTaken = true;
             }
-            var need = StaffKOf(w, b, data!);
+            var need = StaffKOf(w, b, data!) * Munitions.DrawFactor(p);
             if (SwitchedOff(p, data!)) { p.Staff = 0; continue; }
             p.Staff = need <= 0 ? 1 : Math.Clamp(people / need, 0, 1);
             people -= need * p.Staff;
@@ -691,11 +727,12 @@ public static class Colonies
         {
             if (data!.Power <= 0) { p.Powered = true; continue; }
             if (p.PowerUse == PowerUse.Off) { p.Powered = false; continue; }
-            p.Powered = used + data.Power <= made + 1e-9;
-            if (p.Powered) used += data.Power;
+            var draw = data.Power * Munitions.DrawFactor(p);
+            p.Powered = used + draw <= made + 1e-9;
+            if (p.Powered) used += draw;
         }
         b.PowerUsed = used;
-        b.PowerWanted = built.Where(x => x.Data!.Power > 0 && x.Piece.PowerUse != PowerUse.Off).Sum(x => x.Data!.Power);
+        b.PowerWanted = built.Where(x => x.Data!.Power > 0 && x.Piece.PowerUse != PowerUse.Off).Sum(x => x.Data!.Power * Munitions.DrawFactor(x.Piece));
 
         // Goods: inputs first, then what each piece makes, then upkeep in spare parts.
         var cap = StoreDaysOf(b);
@@ -711,7 +748,7 @@ public static class Colonies
         }
         foreach (var (p, data) in built)
         {
-            p.Boost = MakesFactor(w, b, data!);
+            p.Boost = MakesFactor(w, b, data!) * Munitions.MakeFactor(p);
             var output = Output(w, b, p, data!) * p.Boost;
             if (data!.Makes != null)
                 foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(w, b, p, data, consume: true) / 24, Ledger.Made);

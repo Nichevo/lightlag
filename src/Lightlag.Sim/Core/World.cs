@@ -408,6 +408,12 @@ public sealed class Ship
     /// <summary>The fuel in the tanks (see Fuels): "" or "fuel" is hydrogen + oxygen, the one fuel when fuel types are off.</summary>
     public string Fuel { get; set; } = "";
     public double CargoAmmo { get; set; }
+
+    /// <summary>Grade of the missiles in its racks and the slugs in its magazines (see Munitions), and of the ammunition in its hold.</summary>
+    public int MissileGrade { get; set; } = 1;
+    public int RailGrade { get; set; } = 1;
+    public int CargoMissileGrade { get; set; } = 1;
+    public int CargoRailGrade { get; set; } = 1;
     public double CargoFood { get; set; }
 
     /// <summary>Colony ships: settlers aboard (k). Troop ships: soldiers aboard (k). See Planets.</summary>

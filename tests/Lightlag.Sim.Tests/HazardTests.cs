@@ -289,7 +289,7 @@ public class HazardTests
     [Fact]
     public void A_rock_strike_left_to_hit_destroys_a_building_and_evacuating_saves_the_people()
     {
-        var sim = NewGame();
+        var sim = Starts.Classic(NewGame());
         var w = sim.World;
         var e = Events.Spawn(sim, Side.Player, "rock-strike")!;
         var body = w.FindBody(e.BodyId!.Value)!;
@@ -306,7 +306,7 @@ public class HazardTests
     [Fact]
     public void People_over_the_cap_after_a_lost_building_move_to_another_world()
     {
-        var sim = NewGame();
+        var sim = Starts.Classic(NewGame());
         var w = sim.World;
         var home = w.Bodies.First(b => b.Owner == Side.Player && b.Home);
         var other = w.Bodies.First(b => b.Owner == null && b.Kind == BodyKind.Planet && Planets.Cap(b) > 2);

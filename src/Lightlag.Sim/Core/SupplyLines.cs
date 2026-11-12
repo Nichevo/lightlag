@@ -38,9 +38,12 @@ public static class SupplyLines
     public static double MaxAmmo(Ship s) => Fitting.Spec(s).Railguns * AmmoPerRailgun;
     public static double MaxFood(Ship s) => Fitting.Spec(s).FoodDays;
 
-    public static bool IsSupplyShip(Ship s) => Fitting.Spec(s) is { Cargo: > 0, CargoKind: "fuel" or "food" };
+    public static bool IsSupplyShip(Ship s) => Fitting.Spec(s) is { Cargo: > 0, CargoKind: "fuel" or "food" or "mixed" };
 
-    /// <summary>The ship's hold for each kind of cargo: tankers carry fuel (80 %) and ammunition (20 %), freighters food.</summary>
+    /// <summary>
+    /// The ship's hold for each kind of cargo: tankers carry fuel (80 %) and ammunition (20 %), freighters
+    /// food, and the small supply tender a little of each (fuel 50 %, ammunition 20 %, food 30 %).
+    /// </summary>
     public static (double Fuel, double Ammo, double Food) Hold(Ship s)
     {
         var spec = Fitting.Spec(s);
@@ -48,6 +51,7 @@ public static class SupplyLines
         {
             "fuel" => (spec.Cargo * 0.8, spec.Cargo * 0.2, 0),
             "food" => (0, 0, spec.Cargo),
+            "mixed" => (spec.Cargo * 0.5, spec.Cargo * 0.2, spec.Cargo * 0.3),
             _ => (0, 0, 0),
         };
     }
@@ -98,6 +102,13 @@ public static class SupplyLines
             ammoRate = have >= goods ? 1 : Math.Max(1.0 / 3, have / goods);
             at.Stock["ammunition"] = Math.Max(0, have - goods * ammoRate);
             Ledger.Out(w, at.Owner, "ammunition", have - Colonies.Held(at, "ammunition"), "ship ammo");
+            // Topped up from the planet's store: slugs (and the hold) are what the side's plants make now.
+            if (w.Loop && at.Owner == s.Side && have > 0)
+            {
+                var (missile, rail) = Munitions.Made(w, s.Side);
+                if (MaxAmmo(s) - s.Ammo > 1e-9) s.RailGrade = rail;
+                if (ammo - s.CargoAmmo > 1e-9) (s.CargoMissileGrade, s.CargoRailGrade) = (missile, rail);
+            }
         }
         s.Ammo = Math.Min(MaxAmmo(s), s.Ammo + MaxAmmo(s) * RestockPerHour * hours * ammoRate);
         s.Food = Math.Min(MaxFood(s), s.Food + MaxFood(s) * RestockPerHour * hours);
@@ -153,9 +164,18 @@ public static class SupplyLines
                 var take = Math.Min(Math.Min(fuel, Fuels.CargoOf(src, Fuels.IdOf(s))), Fitting.MaxSupplies(w, s) - s.Supplies);
                 if (take > 0) { s.Supplies += take; Fuels.TakeCargo(src, Fuels.IdOf(s), take); fuel -= take; }
                 take = Math.Min(ammo, MaxAmmo(s) - s.Ammo);
-                if (take > 0) { s.Ammo += take; src.CargoAmmo -= take; ammo -= take; }
+                if (take > 0)
+                {
+                    // Mixed magazines fire as the worse of the two; an empty one takes what comes.
+                    s.RailGrade = s.Ammo < 1 ? src.CargoRailGrade : Math.Min(s.RailGrade, src.CargoRailGrade);
+                    s.Ammo += take; src.CargoAmmo -= take; ammo -= take;
+                }
                 // Missiles: one reload an hour per ship, each taking one unit of ammunition from the hold.
-                if (s.Missiles < Tech.Racks(w, s) && src.CargoAmmo >= 1) { s.Missiles++; src.CargoAmmo -= 1; }
+                if (s.Missiles < Tech.Racks(w, s) && src.CargoAmmo >= 1)
+                {
+                    s.MissileGrade = s.Missiles == 0 ? src.CargoMissileGrade : Math.Min(s.MissileGrade, src.CargoMissileGrade);
+                    s.Missiles++; src.CargoAmmo -= 1;
+                }
                 take = Math.Min(food, MaxFood(s) - s.Food);
                 if (take > 0) { s.Food += take; src.CargoFood -= take; food -= take; }
             }

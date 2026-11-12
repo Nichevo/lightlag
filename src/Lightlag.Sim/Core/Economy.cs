@@ -272,8 +272,9 @@ public static class Tech
     public static bool BigHull(Ship s) => s.ClassId is "cruiser" or "siege-monitor" or "capital";
 
     /// <summary>A railgun slug's damage: Railgun Mk III, and Siege rail on big hulls.</summary>
+    /// <summary>Slug damage: Railgun Mk III needs Mk III slugs loaded (see Munitions); Siege rail on big hulls.</summary>
     public static double RailDamage(World w, Ship s) =>
-        GameData.Combat.Railgun.Damage * Factor(w, s.Side, RailgunMk3) * (BigHull(s) ? Factor(w, s.Side, "railgun-mk5") : 1);
+        GameData.Combat.Railgun.Damage * (s.RailGrade >= 2 ? Factor(w, s.Side, RailgunMk3) : 1) * (BigHull(s) ? Factor(w, s.Side, "railgun-mk5") : 1);
 
     /// <summary>Railgun reach: Coil-boosted rail adds 20 %.</summary>
     public static double RailRange(World w, Side side) => GameData.Combat.Railgun.RangeMm * Factor(w, side, "railgun-mk4");
@@ -597,7 +598,10 @@ public static class Economy
         ship.Missiles = Tech.Racks(w, ship);
         ship.Ammo = SupplyLines.MaxAmmo(ship);
         ship.Food = SupplyLines.MaxFood(ship);
+        // Loaded with what the side's munitions plants make (outside the game loop, e.g. the battle sandbox: no limit).
+        (ship.MissileGrade, ship.RailGrade) = w.Loop ? Munitions.Made(w, side) : (5, 2);
         SupplyLines.FillCargo(ship);
+        (ship.CargoMissileGrade, ship.CargoRailGrade) = (ship.MissileGrade, ship.RailGrade);
         ship.Armour = Tech.MaxArmour(w, ship);
         Heat.Fit(w, ship);
         ShipNames.Christen(w, ship, number, yard);

@@ -52,9 +52,13 @@ public class GameDataTests
         var w = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory()).World;
         var home = w.Bodies.Single(b => b.Key == "verdant");
         var player = w.Ships.Where(s => s.Side == Side.Player).ToList();
-        Assert.Equal(3, player.Count);
+        // Three warships and a supply tender in the war fleet, and a second tender at home as the transport.
+        Assert.Equal(5, player.Count);
         Assert.All(player, s => Assert.True(Vec2.Distance(s.Position, home.Position) < 3000));
         Assert.Contains(player, s => s.ClassId == "missile-destroyer");
+        Assert.Equal(2, player.Count(s => s.ClassId == "supply-tender"));
+        Assert.Equal(2, w.Fleets.Count(f => f.Side == Side.Player));
+        Assert.Contains(w.Fleets, f => f.Side == Side.Player && f.ShipIds.Count == 1 && w.ShipsOf(f).All(Colonies.IsHauler));
     }
 
     [Fact]

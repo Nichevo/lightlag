@@ -582,7 +582,7 @@ public static class Combat
             {
                 Id = w.NextId++, Side = ship.Side, TargetShipId = target.Id, FromShipId = ship.Id,
                 Position = ship.Position + spread, Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
-                Brain = Math.Clamp(w.MissileBrain[(int)ship.Side], 1, 5), ExpiresHour = t1 + m.LifetimeHours,
+                Brain = Munitions.Brain(w, ship), ExpiresHour = t1 + m.LifetimeHours,
             });
         }
         sim.Log.Info("combat", $"{ship.Name} fires {count} missiles at {target.Name}", new { shipId = ship.Id, targetId = target.Id, count });
@@ -1012,6 +1012,8 @@ public static class Combat
         {
             Wounds.YardRepair(w, s, hours, at);
             Heat.Restock(s);
+            // At a yard the racks are reloaded with what the side's plants make (older missiles go back to store).
+            if (w.Loop && at != null && at.Owner == s.Side && Colonies.Held(at, "ammunition") >= 1) s.MissileGrade = Munitions.Made(w, s.Side).Missile;
             if (s.Missiles >= Tech.Racks(w, s) || w.Hour % 6 >= hours) continue;
             if (at != null && Colonies.Held(at, "ammunition") >= 1)
             {

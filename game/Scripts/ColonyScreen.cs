@@ -370,6 +370,18 @@ public partial class ColonyScreen : PanelContainer
                                   + (b.PowerWanted > b.PowerMade + 1e-6 ? $" (SHORT: wants {b.PowerWanted:0})" : "")
                                   + $" · makes {Makes(w2, b)} · your Industry {Economy.Of(w2, Side.Player).Industry:0}"
                                   + (Economy.Blockaded(w2, b) ? " · BLOCKADED" : ""), 14));
+        // At a glance: the ground left, power made against what is used, people against jobs, and stores.
+        _root.AddChild(LiveWrap(w2 => Colonies.BoardSummary(b), 13, Ui.Dim));
+        _root.AddChild(LiveWrap(w2 =>
+        {
+            var spare = b.PowerMade - b.PowerWanted;
+            var jobs = Planets.StaffNeeded(b);
+            return $"Power: makes {b.PowerMade:0}, buildings want {b.PowerWanted:0}, "
+                   + (spare >= 0 ? $"{spare:0} spare" : $"SHORT {-spare:0}")
+                   + $" · jobs {jobs:0.#}k for {b.PopK:0.#}k people" + (b.PopK < jobs ? " (SHORT of workers)" : "")
+                   + $" · {Colonies.Built(b).Count()} buildings, {b.Pieces.Count(p => !p.Built)} going up"
+                   + $" · Industry {Planets.IndustryPerDay(w2, b):0.#} a day";
+        }, 13, Ui.Dim));
         _root.AddChild(LiveWrap(w2 => Colonies.PowerNote(w2, b) is string note ? "POWER: " + note : "", 13, Ui.Rival));
 
         var main = Row(14);
@@ -476,6 +488,16 @@ public partial class ColonyScreen : PanelContainer
               + (p.Level > 0 ? $" · level {p.Level + 1}" : "") + (p.RefitHoursLeft > 0 ? $" · refit {p.RefitHoursLeft / 24:0.#} d" : "")
               + (Colonies.BonusFor(b, p) > 0 ? $" · bonus +{Colonies.BonusFor(b, p):P0}" : "")
               + (Colonies.DepositUnder(b, p) is Deposit d ? $" · digs {Colonies.GoodName(d.Mineral).ToLowerInvariant()}{(d.Rich ? " (rich)" : "")}" : ""), 13));
+        if (Munitions.IsPlant(p))
+        {
+            col.AddChild(LiveWrap(w2 => Munitions.Describe(w2, b, p), 13));
+            var modeRow = Row(6);
+            modeRow.AddChild(Ui.Label("Makes", 13, Ui.Dim));
+            modeRow.AddChild(Pick(Enum.GetValues<PlantMode>().Select(m => (m.ToString(), Munitions.ModeName(m))).ToList(), p.PlantMode.ToString(),
+                k => _screen.IssueNow(new SetPlantModeCommand(Side.Player, b.Id, p.Id, Enum.Parse<PlantMode>(k)), "plant mode"),
+                "Basic only: plain missiles and slugs, 30 % more of them. Best: refits for your latest missile brain and Railgun Mk III slugs, needing 25 % more staff and power per upgrade"));
+            col.AddChild(modeRow);
+        }
         if (data.Power > 0)
         {
             var row = Row(6);

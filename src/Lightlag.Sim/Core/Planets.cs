@@ -30,7 +30,7 @@ public sealed record BuildingData(string Id, string Name, string Effect, double 
 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
-    List<string>? HomeBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
+    List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
     double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
     double HappinessPerDay = 2, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50,
@@ -167,6 +167,11 @@ public static class Planets
 
     // ---- Start ----------------------------------------------------------------------------------
 
+    /// <summary>The moon a home starts an outpost on: its settleable moon that holds the most (then the lowest id).</summary>
+    public static Body? OutpostMoon(World w, Body home) =>
+        w.Bodies.Where(m => m.ParentId == home.Id && m.Kind == BodyKind.Moon && m.Owner == null && Settleable(m) && m.Board != null)
+            .OrderByDescending(Cap).ThenBy(m => m.Id).FirstOrDefault();
+
     /// <summary>Gives the homes their people and buildings (and, with that option, a few people everywhere).</summary>
     public static void EnsureStarted(World w)
     {
@@ -181,6 +186,17 @@ public static class Planets
             b.Happiness = D.HappinessStart;
             b.OwnShare = 1;
             b.FoodStock = FoodNeedPerDay(b) * D.FoodStockDays;
+            // The home's moon starts as a small mining outpost, so goods (and the start transport) have
+            // somewhere to run from day one.
+            if (OutpostMoon(w, b) is Body moon)
+            {
+                moon.Owner = b.Owner;
+                moon.OwnShare = 1;
+                Colonies.StartOutpost(w, moon);
+                moon.PopK = Math.Min(Cap(moon), D.OutpostStartK);
+                moon.Happiness = D.HappinessStart;
+                moon.FoodStock = FoodNeedPerDay(moon) * D.FoodStockDays;
+            }
         }
         if (!w.Rules.StartPopulation) return;
         foreach (var b in w.Bodies.Where(b => !b.Home && Settleable(b) && b.Industry > 0))
@@ -271,6 +287,20 @@ public static class Planets
 
     /// <summary>The hungry people of a planet give up on it and move to the nearest of their side's planets that can feed them.</summary>
     /// <summary>People over a planet's cap (after a building is lost) move to the side's nearest planet with room; the rest are lost. Returns (moved, lost) in thousands.</summary>
+    /// <summary>
+    /// End of each hour: people housing no longer holds (bombed, wrecked in a ground fight, pulled down, or
+    /// habitats short of water) move to the side's nearest world with room, or are lost.
+    /// </summary>
+    public static void Rehouse(Simulation sim)
+    {
+        foreach (var b in sim.World.Bodies.Where(b => b.PopK > Cap(b) + 1e-9).ToList())
+        {
+            var cap = Cap(b);
+            var (moved, lost) = Overflow(sim.World, b);
+            sim.Log.Info("planets", "Short of room: people leave", new { body = b.Name, cap, moved, lost, b.Thirsty });
+        }
+    }
+
     public static (double Moved, double Lost) Overflow(World w, Body b)
     {
         var extra = b.PopK - Math.Max(0, Cap(b));

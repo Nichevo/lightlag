@@ -115,7 +115,8 @@ public static class Chases
         }
     }
 
-    private static string? Kind(string? problem) => problem?.Split(':')[0];
+    /// <summary>The kind of problem, without its live numbers (the text before any '(' or ':').</summary>
+    private static string? Kind(string? problem) => problem?.Split('(', ':')[0].Trim();
 
     /// <summary>
     /// The quarry is gone (destroyed or merged) or its track was lost. A quarry last seen holding orbit is

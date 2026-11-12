@@ -7,9 +7,10 @@ namespace Lightlag.Sim.Tests;
 
 public class EconomyTests
 {
-    private static Simulation NewGame(ulong seed = 8)
+    private static Simulation NewGame(ulong seed = 8, bool classic = true)
     {
         var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        if (classic) Starts.Classic(sim);
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         return sim;
@@ -97,7 +98,7 @@ public class EconomyTests
     [Fact]
     public void The_fleet_a_ship_joins_can_be_changed_while_it_is_built()
     {
-        var sim = NewGame();
+        var sim = NewGame(classic: false);
         var fleet = FleetOf(sim, Side.Player);
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
         sim.Step();
@@ -109,7 +110,7 @@ public class EconomyTests
         Assert.Equal(fleet.Id, order.JoinFleetId);
         // The fleet is at the shipyard, so the new ship simply joins it there.
         Days(sim, GameData.ShipClass("gun-frigate").Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
-        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player);
+        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player && !sim.World.ShipsOf(f).All(Colonies.IsHauler)); // and the home transport
         var replay = ReplayRunner.Run(ReplayFile.FromJson(sim.Replay.ToJson()), GameLog.Memory());
         Assert.True(replay.Exact, replay.Message);
     }
@@ -259,7 +260,7 @@ public class EconomyTests
     [Fact]
     public void The_sandbox_has_no_economy()
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 3, GameLog.Memory(), sandbox: new SandboxSetup());
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, 3, GameLog.Memory(), sandbox: new SandboxSetup()));
         Assert.False(sim.World.Loop);
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
         sim.StepMany(48);
@@ -270,7 +271,7 @@ public class EconomyTests
     [Fact]
     public void A_game_with_building_and_research_replays_exactly()
     {
-        var sim = NewGame(21);
+        var sim = NewGame(21, classic: false);
         var pilot = new TestPilot(21) { OrderChancePerDay = 0.5 };
         pilot.PlayUntil(sim, 120 * GameTime.TicksPerDay);
         Assert.Contains(sim.Replay.Commands, c => c.Command is QueueOrderCommand);

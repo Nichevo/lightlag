@@ -13,7 +13,7 @@ public class WarTests
 
     private static Simulation NewGame(ulong seed = 8)
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory()));
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         // Keep the rival's mind out of these set pieces.
