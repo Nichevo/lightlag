@@ -150,7 +150,8 @@ public partial class EngagementPanel : Control
         var want = _right.GetCombinedMinimumSize();
         _rightScroll.CustomMinimumSize = new Vector2(want.X + 12, Mathf.Min(want.Y, size.Y - top - 50));
         var timelineW = Mathf.Clamp(size.X - _rightPanel.Size.X - 64, 500, 1100);
-        _timeline.CustomMinimumSize = new Vector2(timelineW, 170);
+        _timeline.CustomMinimumSize = new Vector2(timelineW, _timeline.WantHeight);
+        _bottomPanel.ResetSize();
         _bottomPanel.Size = _bottomPanel.GetCombinedMinimumSize();
         _bottomPanel.Position = new Vector2(16, size.Y - _bottomPanel.Size.Y - 60);
         // Ships, spotting and the ring legend scroll when they would run into the timeline.
@@ -505,22 +506,87 @@ public partial class EngagementTimeline : Control
 {
     public EngagementInfo? Info;
     private Font _font = null!;
+    private Button _toggle = null!;
+    private const string Section = "battle-timeline";
+
+    /// <summary>Open: one row per weapon. Shut (the default): everything on one bar. Kept in ui.cfg.</summary>
+    public static bool Open => PlayerInfo.IsOpen(Section);
+    public float WantHeight => Open ? 170 : 60;
 
     public override void _Ready()
     {
         _font = ThemeDB.FallbackFont;
         MouseFilter = MouseFilterEnum.Ignore;
+        _toggle = Ui.SmallButton("", () => { PlayerInfo.SetOpen(Section, !Open); Sync(); }, "Show one row per weapon, or everything on one bar");
+        AddChild(_toggle);
+        Sync();
+    }
+
+    private void Sync()
+    {
+        _toggle.Text = Open ? "▾ One bar" : "▸ Open up";
+        CustomMinimumSize = new Vector2(CustomMinimumSize.X, WantHeight);
+        QueueRedraw();
+    }
+
+    public override void _Process(double delta)
+    {
+        _toggle.Size = _toggle.GetCombinedMinimumSize();
+        _toggle.Position = new Vector2(Size.X - _toggle.Size.X, -2);
+    }
+
+    private static string When(double h) => h < 1 / 60.0 ? $"{h * 3600:0} s" : h < 2 ? $"{h * 60:0} min" : $"{h:0.#} h";
+
+    /// <summary>Shut: one bar. Upper half is you (railguns, then missiles), lower half them, with the closest pass and salvos marked.</summary>
+    private void DrawBar(EngagementInfo e)
+    {
+        const float top = 24, h = 20;
+        var width = Size.X - 10;
+        var span = e.LookAheadHours;
+        float X(double hours) => (float)(Math.Clamp(hours / span, 0, 1) * width);
+        string? Soon(TimeWindow? w) => w == null ? null : w.From < 1e-3 ? "now" : $"in {When(w.From)}";
+
+        var bits = new List<string>();
+        if (e.WeHaveRailguns && Soon(e.OurRailguns) is string a) bits.Add($"your guns {a}");
+        if (e.WeHaveMissiles && Soon(e.OurMissiles) is string b) bits.Add($"your missiles {b}");
+        if (Soon(e.TheirRailguns) is string c) bits.Add($"their guns {c}");
+        if (Soon(e.TheirMissiles) is string d) bits.Add($"their missiles {d}");
+        if (e.Salvos.Count > 0) bits.Add($"{e.Salvos.Sum(x => x.Count)} missiles flying");
+        if (bits.Count == 0) bits.Add("nothing in reach");
+        var title = (e.InSight ? "" : "GUESS: ") + string.Join(" · ", bits);
+        DrawString(_font, new Vector2(0, 14), title, HorizontalAlignment.Left, Size.X - _toggle.Size.X - 8, 13, e.InSight ? Ui.Text : Ui.Rival);
+
+        DrawRect(new Rect2(0, top, width, h), new Color(Ui.Dim, 0.12f));
+        void Lane(TimeWindow? w, int lane, Color color)
+        {
+            if (w == null) return;
+            var x0 = X(w.From);
+            var x1 = double.IsPositiveInfinity(w.To) ? width : X(w.To);
+            DrawRect(new Rect2(x0, top + 1 + lane * 4.5f, Math.Max(3, x1 - x0), 4), new Color(color, lane % 2 == 0 ? 0.9f : 0.55f));
+        }
+        if (e.WeHaveRailguns) Lane(e.OurRailguns, 0, Ui.Player);
+        if (e.WeHaveMissiles) Lane(e.OurMissiles, 1, Ui.Player);
+        Lane(e.TheirRailguns, 2, Ui.Rival);
+        Lane(e.TheirMissiles, 3, Ui.Rival);
+        if (!e.InSight && e.SpotWindow != null) DrawLine(new Vector2(X(e.SpotWindow.From), top - 3), new Vector2(X(e.SpotWindow.From), top + h + 3), new Color(0.62f, 0.92f, 0.62f), 2);
+        if (e.ClosestInHours > 1e-3)
+            DrawDashedLine(new Vector2(X(e.ClosestInHours), top - 3), new Vector2(X(e.ClosestInHours), top + h + 3), new Color(1f, 0.83f, 0.47f), 1.5f, 3);
+        foreach (var sv in e.Salvos) DrawCircle(new Vector2(X(sv.ImpactHours), top + h / 2), 4, sv.Ours ? Ui.Player : Ui.Danger);
+        DrawString(_font, new Vector2(0, top + h + 13), "now", HorizontalAlignment.Left, -1, 11, Ui.Dim);
+        var end = $"+{When(span)}";
+        DrawString(_font, new Vector2(width - _font.GetStringSize(end, HorizontalAlignment.Left, -1, 11).X, top + h + 13), end, HorizontalAlignment.Left, -1, 11, Ui.Dim);
+        DrawString(_font, new Vector2(60, top + h + 13), "top: you (guns, missiles) · bottom: them · dashed: closest · dots: missiles land", HorizontalAlignment.Left, -1, 11, new Color(Ui.Dim, 0.8f));
     }
 
     public override void _Draw()
     {
         if (Info is not EngagementInfo e) return;
+        if (!Open) { DrawBar(e); return; }
         const float labelW = 150, top = 22, row = 20;
         const int Rows = 6;
         var width = Size.X - labelW - 10;
         var span = e.LookAheadHours;
         float X(double hours) => labelW + (float)(Math.Clamp(hours / span, 0, 1) * width);
-        string When(double h) => h < 1 / 60.0 ? $"{h * 3600:0} s" : h < 2 ? $"{h * 60:0} min" : $"{h:0.#} h";
 
         DrawString(_font, new Vector2(0, 14), e.InSight ? "Timeline, if neither changes course"
             : $"Timeline from a GUESS: not seen for {When(e.SeenHoursAgo)}, it may be elsewhere", HorizontalAlignment.Left, -1, 13, e.InSight ? Ui.Text : Ui.Rival);
