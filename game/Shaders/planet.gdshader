@@ -144,9 +144,23 @@ vec3 surface(vec3 n, float detail) {
 	return c;
 }
 
+// Asteroids and tiny moons are potato-shaped: stretched along one axis, with lumps round the edge.
+// 1.0 at most, so the rock always stays inside its circle on the map.
+float rock_shape(vec2 q, float d) {
+	if (kind != 9) return 1.0;
+	vec2 dir = d > 0.0 ? q / d : vec2(1.0, 0.0);
+	float a = atan(dir.y, dir.x) + spin * 0.3;
+	float lumps = 0.62 + 0.38 * fbm(vec3(cos(a) * 1.4, sin(a) * 1.4, seed), 3);
+	float stretch = mix(1.0, 0.7, 0.5 + 0.5 * cos(2.0 * (a - seed * 1.7)));
+	return clamp(lumps * stretch / 0.95, 0.4, 1.0);
+}
+
 // The original look (Low).
 vec4 plain(vec2 q, float d, float aa, vec3 L) {
 	vec4 col = vec4(0.0);
+	float shape = rock_shape(q, d);
+	q /= shape;
+	d /= shape;
 	if (d < 1.0) {
 		float z = sqrt(max(0.0, 1.0 - d * d));
 		vec3 n = vec3(q.x, q.y, z);
@@ -204,12 +218,7 @@ vec4 ring_at(vec2 q, vec3 L, out float depth) {
 
 vec4 fancy(vec2 q, float d, float aa, vec3 L) {
 	// Small rocks are lumpy: push the outline in and out with the angle.
-	float shape = 1.0;
-	if (kind == 9) {
-		vec2 dir = d > 0.0 ? q / d : vec2(1.0, 0.0);
-		float a = atan(dir.y, dir.x) + spin * 0.3;
-		shape = 0.8 + 0.2 * fbm(vec3(cos(a) * 1.6, sin(a) * 1.6, seed), 3);
-	}
+	float shape = rock_shape(q, d);
 	float ds = d / shape;
 	vec4 col = vec4(0.0);
 	float zp = -10.0;
