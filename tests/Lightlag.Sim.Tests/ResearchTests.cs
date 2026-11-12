@@ -31,6 +31,21 @@ public class ResearchTests
     }
 
     [Fact]
+    public void Research_costs_scientist_time_not_Industry()
+    {
+        var sim = NewGame();
+        var idea = GameData.ResearchById.Values.OrderBy(r => r.Id, StringComparer.Ordinal).First(r => !r.Later && Economy.CanQueue(sim.World, Side.Player, OrderKind.Research, r.Id) == null && r.Needs is not { Count: > 0 } && r.Materials is not { Count: > 0 });
+        Economy.Of(sim.World, Side.Player).Industry = 0;
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, idea.Id));
+        Hour(sim);
+        Hour(sim);
+        var order = sim.World.Orders.Single(o => o.Key == idea.Id);
+        Assert.True(order.Paid);
+        Assert.Null(order.Waiting);
+        Assert.True(order.HoursLeft < order.TotalHours);
+    }
+
+    [Fact]
     public void Twice_the_scientists_is_about_one_and_two_thirds_the_speed()
     {
         Assert.Equal(1, Research.SizeFactor(Research.T.BaseScientists), 9);

@@ -220,7 +220,7 @@ public partial class ResearchScreen : PanelContainer
                 // The first idea is paid for when the team starts it: say plainly when it is held up for Industry.
                 var stuck = !order.Paid && first && order.Waiting != null;
                 days.Text = order.Paid || !first ? $"{Research.DaysUntilDone(w2, order):0.#} d"
-                    : stuck ? $"WAITING: {order.Waiting}" : $"starts next hour ({Economy.CostOf(order):0} Industry)";
+                    : stuck ? $"WAITING: {order.Waiting}" : "starts next hour";
                 days.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
             });
             row.AddChild(days);
@@ -232,7 +232,7 @@ public partial class ResearchScreen : PanelContainer
                 move.GetPopup().IdPressed += id => _screen.IssueNow(new SetOrderTeamCommand(Side.Player, order.Id, (int)id), "moving research");
                 row.AddChild(move);
             }
-            row.AddChild(Ui.SmallButton("✕", () => _screen.CancelOrder(order.Id), order.Paid ? "Cancel (the Industry comes back)" : "Take off the queue"));
+            row.AddChild(Ui.SmallButton("✕", () => _screen.CancelOrder(order.Id), "Take off the queue"));
             v.AddChild(row);
             if (q == 0) v.AddChild(Bar(200, Ui.Player, () => 1 - order.HoursLeft / Math.Max(1e-6, order.TotalHours), _live));
         }
@@ -355,7 +355,7 @@ public partial class ResearchScreen : PanelContainer
                                        || r.Effect.Contains(_search, StringComparison.OrdinalIgnoreCase))).ToList();
         shown = _sort switch
         {
-            Sort.Cheapest => shown.OrderBy(r => r.Cost).ThenBy(r => r.Name).ToList(),
+            Sort.Cheapest => shown.OrderBy(r => r.Days * Research.Pace(r.Tier)).ThenBy(r => r.Name).ToList(),
             Sort.Name => shown.OrderBy(r => r.Name).ToList(),
             _ => shown.OrderBy(r => StateOf(w, r.Id) switch { IdeaState.Researching => 0, IdeaState.Queued => 1, IdeaState.Available => 2, IdeaState.Locked => 3, _ => 4 })
                 .ThenBy(r => Quickest(w, r.Id).Days).ToList(),
@@ -386,7 +386,7 @@ public partial class ResearchScreen : PanelContainer
         row1.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var sort = new OptionButton { FocusMode = FocusModeEnum.None };
         sort.AddItem("Quickest first", (int)Sort.Quickest);
-        sort.AddItem("Cheapest first", (int)Sort.Cheapest);
+        sort.AddItem("Shortest first", (int)Sort.Cheapest);
         sort.AddItem("By name", (int)Sort.Name);
         sort.Select((int)_sort);
         sort.ItemSelected += i => _sort = (Sort)(int)i;
@@ -528,7 +528,7 @@ public partial class ResearchScreen : PanelContainer
         t.AddChild(effect);
 
         var foot = new HBoxContainer();
-        var meta = new List<string> { $"Cost {r.Cost:0}" };
+        var meta = new List<string> { $"about {Research.BaseHours(w, Side.Player, r.Id) / 24:0} days" };
         if (Research.Missing(w, Side.Player, r.Id) is string missing) meta.Add(missing);
         else if (r.Needs is { Count: > 0 }) meta.Add("needs " + string.Join(", ", r.Needs.Select(n => GameData.Research(n).Name)));
         if (Economy.Of(w, Side.Player).Finds.Find(f => f.Idea == r.Id) is SurveyFind find)

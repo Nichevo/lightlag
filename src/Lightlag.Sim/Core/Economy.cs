@@ -330,9 +330,8 @@ public static class Economy
     public static double IncomePerDay(World w, Side side) =>
         w.Bodies.Where(b => b.Owner == side).Sum(b => Planets.IndustryPerDay(w, b)) * Tech.Factor(w, side, Tech.Automation);
 
-    public static double CostOf(WorkOrder o) => o.Kind == OrderKind.Ship
-        ? GameData.ShipClass(o.Key).Cost
-        : GameData.Research(o.Key).Cost;
+    /// <summary>Industry an order takes when it starts. Research costs none: only scientist time (and a T3+ idea's material).</summary>
+    public static double CostOf(WorkOrder o) => o.Kind == OrderKind.Ship ? GameData.ShipClass(o.Key).Cost : 0;
 
     /// <summary>The materials an order takes when it starts: a ship's alloys and electronics, or a T3+ idea's material.</summary>
     public static Dictionary<string, double>? MaterialsOf(WorkOrder o) => o.Kind == OrderKind.Ship

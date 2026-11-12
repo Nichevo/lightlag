@@ -1228,13 +1228,8 @@ public static class Mind
                     var pick = Easy ? open[_rng.Range(0, open.Count)]
                         : Planner.HelpsMaterials(_w, _side, open[0]) ? open[0]
                         : Choices.Band(open.Take(6).Select((r, i) => (r, Score: 1 - 0.03 * i + (GameData.Research(r).Field == _m.Lean.Field ? 0.04 : 0))).ToList(), _rng, _m.Spread);
-                    // Research waits behind ships when Industry is short, so not to stall the shipyard: a ship
-                    // waiting to start is paid for first.
-                    var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
-                    // The way to a material plant the yard is short of goes ahead of the ship, though.
-                    if (Economy.Of(_w, _side).Industry >= shipWaiting * (1.4 - P.Research) + GameData.Research(pick).Cost * 0.5 || orders.Count(o => o.Kind == OrderKind.Ship) == 0
-                        || Planner.HelpsMaterials(_w, _side, pick))
-                        Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
+                    // Research costs no Industry (only scientist time), so it never holds up the shipyard.
+                    Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
                 }
             }
             if (!Easy) Stations(orders);
