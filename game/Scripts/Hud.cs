@@ -34,6 +34,8 @@ public partial class Hud : CanvasLayer
     private ResearchScreen _research = null!;
     private ColonyScreen _colonies = null!;
     private FleetScreen _fleets = null!;
+    private ShipsScreen _ships = null!;
+    private Button _shipsButton = null!;
     private Button _fleetsButton = null!;
     private GroundScreen _ground = null!;
     private Button _planetsButton = null!;
@@ -96,7 +98,7 @@ public partial class Hud : CanvasLayer
         _silence = SmallButton("Radio silence", () => _screen.ToggleRadioSilence(),
             "No orders leave your flagship (they wait until you lift it), so the rival can't follow your signal traffic to find it. Fleets in command range still get orders");
         bar.AddChild(_silence);
-        _empireButton = SmallButton("Empire", () => _screen.ShowEmpire = !_screen.ShowEmpire, "Industry, shipyard, research and claims (E)");
+        _empireButton = SmallButton("Empire", () => { _screen.ShowShips = false; _screen.ShowEmpire = !_screen.ShowEmpire; }, "Industry, shipyard, research and claims (E)");
         bar.AddChild(_empireButton);
         _researchButton = SmallButton("Research", () => _screen.ShowResearch = !_screen.ShowResearch, "Research teams, ideas and the discovery web (T)");
         bar.AddChild(_researchButton);
@@ -104,6 +106,8 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_planetsButton);
         _fleetsButton = SmallButton("Fleets ▸", () => _screen.ToggleFleets(), "Every fleet: roles, ships, supplies, distances and calls for help (K)");
         bar.AddChild(_fleetsButton);
+        _shipsButton = SmallButton("Ships ▸", () => _screen.ToggleShips(), "Ship designs, models in service, crewing and the class tree (J)");
+        bar.AddChild(_shipsButton);
         AddChild(bar);
 
         // Second row: Needs you, the control bar, Map layers, How am I doing and key help.
@@ -237,6 +241,8 @@ public partial class Hud : CanvasLayer
         AddChild(_ground);
         _fleets = new FleetScreen(_screen) { Visible = false };
         AddChild(_fleets);
+        _ships = new ShipsScreen(_screen) { Visible = false };
+        AddChild(_ships);
 
         _shipCard = new ShipCard(_screen) { Visible = false };
         AddChild(_shipCard);
@@ -332,8 +338,11 @@ public partial class Hud : CanvasLayer
         _fleets.Visible = _screen.ShowFleets && !_research.Visible && !_colonies.Visible && !_ground.Visible && _screen.FittingFleetId == null;
         if (_fleets.Visible) _fleets.Refresh(sim);
         _fleetsButton.Modulate = _fleets.Visible ? Ui.Player : Colors.White;
+        _ships.Visible = w.Loop && _screen.ShowShips && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible;
+        if (_ships.Visible) _ships.Refresh(sim);
+        _shipsButton.Modulate = _ships.Visible ? Ui.Player : Colors.White;
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
-        _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible;
+        _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible && !_ships.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
         var rivalMind = Mind.Of(w, Side.Rival);
         _mindPanel.Visible = _screen.RevealAll && rivalMind != null && !_empire.Visible;
@@ -342,7 +351,7 @@ public partial class Hud : CanvasLayer
         if (_end.Visible) _end.Refresh(w);
 
         var fleet = _screen.SelectedFleet;
-        _fleetPanel.Visible = fleet != null && !_fleets.Visible;
+        _fleetPanel.Visible = fleet != null && !_fleets.Visible && !_ships.Visible;
         if (fleet != null) _fleetPanel.Refresh(sim, fleet);
         var group = _screen.Group;
         _groupPanel.Visible = group.Count >= 2;
@@ -364,13 +373,13 @@ public partial class Hud : CanvasLayer
         _fitting.Visible = fittingFleet != null && fittingFleet.Side == Side.Player && !_research.Visible && !_colonies.Visible;
         if (_fitting.Visible) _fitting.Refresh(sim, fittingFleet!);
         var screen = _side.GetViewportRect().Size;
-        _side.Visible = _screen.ShowSide && !_research.Visible && !_colonies.Visible && !_fleets.Visible && !_ground.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
+        _side.Visible = _screen.ShowSide && !_research.Visible && !_colonies.Visible && !_fleets.Visible && !_ships.Visible && !_ground.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
         if (_side.Visible) _side.Refresh(sim, Mathf.Max(200, screen.Y - 96 - 110));
         _sideButton.Modulate = _side.Visible ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : 16;
         _contacts.Position = new Vector2(leftEdge, 124);
         _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
-        var covered = _research.Visible || _colonies.Visible || _fleets.Visible || _ground.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
+        var covered = _research.Visible || _colonies.Visible || _fleets.Visible || _ships.Visible || _ground.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;
@@ -405,7 +414,7 @@ public partial class Hud : CanvasLayer
 
         // In a full game a selected planet gets the planet screen; the sandbox keeps the short description.
         var planet = fleet == null && group.Count < 2 && engagement == null && w.Loop ? _screen.SelectedBody : null;
-        _planetPanel.Visible = planet != null && planet.Kind != BodyKind.Star && !_colonies.Visible && !_fleets.Visible && !_ground.Visible && !_research.Visible;
+        _planetPanel.Visible = planet != null && planet.Kind != BodyKind.Star && !_colonies.Visible && !_fleets.Visible && !_ships.Visible && !_ground.Visible && !_research.Visible;
         if (_planetPanel.Visible) _planetPanel.Refresh(sim, planet!);
         var text = fleet == null && group.Count < 2 && engagement == null && !_planetPanel.Visible ? Describe(sim) : null;
         _infoPanel.Visible = text != null;

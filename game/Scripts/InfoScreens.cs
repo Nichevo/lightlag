@@ -132,7 +132,8 @@ public partial class ShipCard : PanelContainer
         lines.Add($"Hull {bars[0]:P0} · weapons {bars[1]:P0} · defence {bars[3]:P0} · crew {bars[4]:P0}");
         lines.Add($"Engines {bars[2]:P0}" + (bars[2] < 0.05 ? ": out, a quarter speed at best" : bars[2] < 0.5 ? ": slowed" : ""));
         if (s.Knocked.Count > 0) lines.Add("Knocked out: " + string.Join(", ", s.Knocked.Select(Combat.ModuleName)));
-        lines.Add("Crew: " + (mine ? "no ranks yet (veteran crews come later)" : "unknown"));
+        lines.Add("Crew: " + (mine || _screen.RevealAll ? ShipsScreen.CrewText(s) + (Crews.WornOut(s) ? " (worn out: worse aim, slower repairs and dodges; rest in port)" : "") : "unknown"));
+        if (mine && Designer.Find(w, s.Side, s.DesignId) is Design d) lines.Add($"Variant: {d.Name}");
         if (mine || _screen.RevealAll)
         {
             var fit = Fitting.FitOf(s).Select(id => GameData.Module(id)?.Name).Where(n => n != null).GroupBy(n => n).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key);
@@ -170,7 +171,7 @@ public partial class KeyHelp : PanelContainer
             "Double-click  open your planet, follow anything else", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
         ("Fleets", new[] { "Click  select · drag a box or Shift+click  several", "Tab / Shift+Tab  next fleet", "Right-click  route or attack (Shift: go now)",
             "Ctrl+right-click  add a waypoint", "Enter  go", "C  change route", "O  orbit · G  drift · X  stop", "M  merge or gather", "V  engagement view", "R  last battle report" }),
-        ("Screens", new[] { "E  empire (Needs you is a tab)", "T  research", "Y  planets", "K  fleets: roles, ships, supplies, calls for help", "I  intelligence", "N  how am I doing", "F1  this list", "Esc  close, or the game menu" }),
+        ("Screens", new[] { "E  empire (Needs you is a tab)", "T  research", "Y  planets", "K  fleets: roles, ships, supplies, calls for help", "J  ships: designs, crewing, class tree", "I  intelligence", "N  how am I doing", "F1  this list", "Esc  close, or the game menu" }),
         ("Saves and reports", new[] { "F5  quick save", "F9  quick load", "F8  send a report", "F7  debug: show every fleet and the rival's mind" }),
         ("Display", new[] { "F11 or Alt+Enter  full screen on or off", "Esc  game menu: window size and interface size" }),
     };

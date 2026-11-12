@@ -600,7 +600,7 @@ public static class Mind
             Math.Min(s.Ships, s.Classes.Count(c => GameData.ShipClasses.TryGetValue(c, out var cls) && cls.Cargo > 0));
 
         /// <summary>A sighting identified as supply ships only: a soft target worth raiding.</summary>
-        private static bool SupplyConvoy(Sighting s) => s.Ships > 0 && s.Classes.Count >= s.Ships && UnarmedSeen(s) >= s.Ships;
+        private bool SupplyConvoy(Sighting s) => s.Ships > 0 && s.Classes.Count >= s.Ships && UnarmedSeen(s) >= s.Ships && !Designer.Wary(_w, _side, s.Guess(_w.Hour));
 
         /// <summary>Known enemy power near a point (recently seen there, or heading there as last seen).</summary>
         private double EnemyNear(Vec2 at, double radius, double maxAgeHours = 3 * 24) =>

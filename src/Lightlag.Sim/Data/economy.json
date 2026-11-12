@@ -82,6 +82,7 @@
     {"id": "long-sensors", "name": "Long-range sensors", "effect": "Ships and planets see twice as far", "cost": 80, "days": 14, "factor": 2.0, "field": "sensors", "tier": 1, "unlocks": "sensors", "picture": "sensor"},
     {"id": "sun-watch", "name": "Sun watch", "effect": "Sensors keep watch on the sun: solar flares are seen 9 hours ahead instead of 2", "cost": 60, "days": 10, "factor": 1, "field": "sensors", "tier": 1, "unlocks": "sensors", "picture": "sensor", "spark": "flare"},
     {"id": "rock-mapping", "name": "Rock mapping", "effect": "Surveyed rocks: 40 % fewer hits in belts and rings, and rock strikes on colonies are seen 6 days ahead instead of 3", "cost": 70, "days": 11, "factor": 0.6, "field": "sensors", "tier": 1, "unlocks": "sensors", "picture": "sensor", "spark": "rock-strike"},
+    {"id": "concealed-mounts", "name": "Concealed mounts", "effect": "Hidden gun pairs and missile pods behind cargo doors: a freighter fitted with one looks harmless until it fires (Q-ships)", "cost": 90, "days": 14, "factor": 1.0, "field": "sensors", "tier": 2, "needs": ["long-sensors"], "unlocks": "sensors", "picture": "sensor", "materials": {"electronics": 6}},
     {"id": "signals-analysis", "name": "Signals analysis", "effect": "Rival ships are identified 50 % further out", "cost": 90, "days": 14, "factor": 1.5, "field": "sensors", "tier": 2, "needs": ["long-sensors"], "unlocks": "sensors", "picture": "sensor"},
     {"id": "tight-beam", "name": "Tight-beam comms", "effect": "Command range a third wider again, and relays pass signals on with no delay (light lag only)", "cost": 100, "days": 15, "factor": 1.34, "field": "sensors", "tier": 2, "needs": ["command-uplink"], "unlocks": "sensors", "picture": "relay"},
     {"id": "ai-cores", "name": "AI cores", "effect": "Ships need 30 % fewer crew", "cost": 110, "days": 15, "factor": 0.7, "field": "sensors", "tier": 2, "needs": ["electronics-fabs"], "unlocks": "sensors", "picture": "sensor", "materials": {"electronics": 10}},
@@ -233,11 +234,13 @@
   "_warComment": "Boarding, ground war, crews and after-battle (see War.cs, Boarding.cs, Ground.cs, AfterBattle.cs). Missing values use the defaults in code. crews.rankXp: experience where Green, Trained, Seasoned, Veteran, Elite start; aim/mend/boarding: per rank. ground.planAttack/planLoss/planDamage/planHappiness: per plan Blitz, Methodical, Starve.",
   "war": {
     "crews": { "rankXp": [0, 1, 3, 6, 10], "aim": [0.9, 1, 1.05, 1.1, 1.15], "mend": [0.7, 1, 1.1, 1.25, 1.4], "boarding": [0.8, 1, 1.1, 1.25, 1.5],
-               "battleXp": 1, "winXp": 0.5, "patrolXpPerDay": 0.04, "patrolCap": 3, "academyXpPerDay": 0.1, "academyCap": 1 },
+               "battleXp": 1, "winXp": 0.5, "patrolXpPerDay": 0.04, "patrolCap": 3, "academyXpPerDay": 0.1, "academyCap": 1,
+               "strainPerDodge": 0.0015, "hardBurnStrain": 2.5, "strainRecoverPerHour": 0.01, "portRecover": 4, "strainAimCut": 0.25, "strainMendCut": 0.3, "strainDodgeCut": 0.6, "strainHigh": 0.6,
+               "aiCoreElectronicsPer100": 2 },
     "boarding": { "rangeMm": 100, "partyShare": 0.15, "breachHours": 4, "dockHours": 6, "dockEdge": 1.25, "marinesTech": 1.3, "prisonerShare": 0.6, "prizeCrew": 0.3 },
     "ground": { "lossPerHour": 0.005, "planAttack": [1.8, 1.0, 0.35], "planLoss": [1.3, 0.9, 0.4], "planDamage": [0.6, 0.15, 0.05], "planHappiness": [-10, -3, 0],
                 "militiaPerHousingK": 0.02, "landingLossPerGun": 0.02, "gunLossPerDay": 0.01, "bunkerHold": 3, "hungryPerDay": 0.08,
                 "weekWeakens": 0.08, "weakestShare": 0.4, "partisanDays": 20, "sabotageEveryDays": 5, "garrisonStaysK": 0.3, "strikeMissiles": 6, "strikeHappiness": -3 },
-    "after": { "reachMm": 150, "rescueHoursPerWreck": 2, "salvageHoursPerWreck": 4, "podShare": 0.5, "podDays": 6, "towSpeed": 0.3, "prisonersPerScrapK": 0.05 }
+    "after": { "reachMm": 150, "rescueHoursPerWreck": 2, "salvageHoursPerWreck": 4, "podShare": 0.5, "podDays": 6, "boatShare": 0.8, "boatDays": 20, "boatSpeedMmPerHour": 6, "podScatterMmPerHour": 1.5, "orbitDrift": 0.2, "pickupMm": 3, "homeMm": 2, "sendEveryTicks": 6, "rescueSpeed": 0.7, "towSpeed": 0.3, "prisonersPerScrapK": 0.05 }
   }
 }

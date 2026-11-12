@@ -28,7 +28,7 @@ public static class Fitting
         var slots = cls.SlotList;
         if (fit.Count != slots.Count) return cls;
         int rail = 0, pd = 0, missiles = 0, sinks = 0;
-        double shield = 0, armour = 0, sensor = 0, supplies = 0, heatCap = 0, accel = 1;
+        double shield = 0, armour = 0, sensor = 0, supplies = 0, heatCap = 0, accel = 1, cargo = 0;
         for (var i = 0; i < slots.Count; i++)
         {
             if (fit[i] == slots[i].Fit) continue;
@@ -37,12 +37,14 @@ public static class Fitting
             {
                 rail += add.Railguns * n; pd += add.PointDefence * n; missiles += add.Missiles * n; sinks += add.HeatSinks * n;
                 shield += add.Shield * n; armour += add.Armour * n; sensor += add.SensorMm * n; supplies += add.Supplies * n; heatCap += add.HeatCapacity * n;
+                cargo += add.Cargo * n;
                 for (var k = 0; k < n; k++) accel *= add.AccelFactor;
             }
             if (GameData.Module(slots[i].Fit) is ModuleData std)
             {
                 rail -= std.Railguns * n; pd -= std.PointDefence * n; missiles -= std.Missiles * n; sinks -= std.HeatSinks * n;
                 shield -= std.Shield * n; armour -= std.Armour * n; sensor -= std.SensorMm * n; supplies -= std.Supplies * n; heatCap -= std.HeatCapacity * n;
+                cargo -= std.Cargo * n;
                 for (var k = 0; k < n; k++) accel /= std.AccelFactor;
             }
         }
@@ -53,6 +55,7 @@ public static class Fitting
             Shield = Math.Max(0, cls.Shield + shield), Armour = Math.Max(1, cls.Armour + armour),
             SensorMm = Math.Max(1, cls.SensorMm + sensor), Supplies = Math.Max(1, cls.Supplies + supplies),
             HeatCapacity = Math.Max(10, cls.HeatCapacity + heatCap), AccelMmPerHour2 = cls.AccelMmPerHour2 * accel,
+            Cargo = Math.Max(0, cls.Cargo + cargo),
         };
     }
 
@@ -110,16 +113,8 @@ public static class Fitting
 
     public static string SlotName(string type) => type switch { "W" => "weapon", "D" => "defence", "U" => "utility", "E" => "engine", _ => type };
 
-    /// <summary>The fit a new ship of this class gets: the side's design (if still allowed) or the standard fit, with the best engine.</summary>
-    public static List<string> AutoFit(World w, Side side, ShipClass cls)
-    {
-        var design = Economy.Of(w, side).Designs.Find(d => d.ClassId == cls.Id)?.Fit;
-        var fit = design != null && design.Count == cls.SlotList.Count ? design.ToList() : StandardFit(cls);
-        var engine = BestEngine(w, side);
-        for (var i = 0; i < fit.Count; i++)
-            if (cls.SlotList[i].Type == "E" && engine.Length > 0) fit[i] = engine;
-        return CanFit(w, side, cls, fit) == null ? fit : StandardFit(cls);
-    }
+    /// <summary>The fit a new ship of this class gets: the class's default variant (see Designer), with the best parts on Auto.</summary>
+    public static List<string> AutoFit(World w, Side side, ShipClass cls) => Designer.FitFor(w, side, cls.Id, Designer.DefaultFor(w, side, cls.Id));
 
     /// <summary>Gives a ship a fit and sets its speed, thrust and stocks to match (stocks are cut to the new maximum).</summary>
     public static void Apply(World w, Ship s, List<string> fit)
@@ -134,6 +129,14 @@ public static class Fitting
         s.Missiles = Math.Min(s.Missiles, spec.Missiles);
         s.Ammo = Math.Min(s.Ammo, SupplyLines.MaxAmmo(s));
         s.Food = Math.Min(s.Food, SupplyLines.MaxFood(s));
+        // A smaller hold (a hidden mount takes cargo space): what no longer fits stays at the yard.
+        var hold = spec.Cargo;
+        if (s.CargoFuel + s.CargoAmmo + s.CargoFood > hold + 1e-9)
+        {
+            var cut = hold / Math.Max(1e-9, s.CargoFuel + s.CargoAmmo + s.CargoFood);
+            s.CargoFuel *= cut; s.CargoAmmo *= cut; s.CargoFood *= cut;
+            foreach (var k in s.CargoFuels.Keys.ToList()) s.CargoFuels[k] *= cut;
+        }
         s.Armour = Math.Min(s.Armour, Tech.MaxArmour(w, s));
         s.HeatSinks = Math.Min(s.HeatSinks, spec.HeatSinks);
         s.Shield = Math.Min(s.Shield, Heat.MaxShield(w, s));
@@ -148,13 +151,6 @@ public static class Fitting
         if (w.FleetOf(s) is not Fleet f || !Economy.InOrbitAt(f, yard)) return $"Refits happen in orbit at {yard.Name}";
         return null;
     }
-}
-
-/// <summary>A side's saved fit for new ships of a class.</summary>
-public sealed class Design
-{
-    public string ClassId { get; set; } = "";
-    public List<string> Fit { get; set; } = new();
 }
 
 /// <summary>Swap the module in one slot of a ship (at the shipyard). The new module's cost is paid in Industry.</summary>
@@ -193,7 +189,7 @@ public sealed record SetFitCommand(Side Side, int ShipId, int Slot, string Modul
     }
 }
 
-/// <summary>Save the fit new ships of a class get (engines are always the best researched).</summary>
+/// <summary>Save the fit new ships of a class get (with the best engine researched): a pinned variant of yours, built by default.</summary>
 public sealed record SetDesignCommand(Side Side, string ClassId, List<string> Fit) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
@@ -205,9 +201,15 @@ public sealed record SetDesignCommand(Side Side, string ClassId, List<string> Fi
             sim.Log.Warn("fitting", "Can't save that design", new { side = Side.ToString(), ClassId, fit = string.Join(",", Fit), Source });
             return;
         }
-        var designs = Economy.Of(world, Side).Designs;
-        designs.RemoveAll(d => d.ClassId == ClassId);
-        designs.Add(new Design { ClassId = ClassId, Fit = Fit.ToList() });
-        sim.Log.Info("fitting", $"{Side} saves a {cls.Name} design", new { side = Side.ToString(), ClassId, fit = string.Join(",", Fit), Source });
+        var fit = Fit.ToList();
+        var engine = Fitting.BestEngine(world, Side);
+        for (var i = 0; i < fit.Count; i++)
+            if (cls.SlotList[i].Type == "E" && engine.Length > 0) fit[i] = engine;
+        if (Fitting.CanFit(world, Side, cls, fit) != null) fit = Fit.ToList();
+        var mine = Designer.Of(world, Side, ClassId).Find(d => !d.Auto && d.Name == "Your fit");
+        var d = mine ?? Designer.Add(sim, Side, ClassId, "Your fit", "", fit, auto: false, Source);
+        d.Fit = fit;
+        Economy.Of(world, Side).DefaultDesign[ClassId] = d.Id;
+        sim.Log.Info("fitting", $"{Side} saves a {cls.Name} design", new { side = Side.ToString(), ClassId, d.Id, fit = string.Join(",", fit), Source });
     }
 }

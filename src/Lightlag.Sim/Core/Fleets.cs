@@ -157,6 +157,9 @@ public sealed class Fleet
     /// <summary>Sent for refit (see Refits); null when not.</summary>
     public RefitPlan? Refit { get; set; }
 
+    /// <summary>Out to pick up survivors (see Lifeboats), or null.</summary>
+    public RescueRun? Rescue { get; set; }
+
     /// <summary>A ship (or group) that pulled out: rejoin this fleet once mended.</summary>
     public int? RejoinFleetId { get; set; }
 

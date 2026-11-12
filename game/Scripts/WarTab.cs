@@ -30,6 +30,7 @@ public sealed class WarTab
         string.Join(",", Boardings(w).Select(b => $"{b.Id}{b.Outcome}{string.Join("", b.Calls.Select(c => $"{c.Id}{c.Picked}"))}"))
         + "|" + string.Join(",", Fronts(w).Select(b => $"{b.Id}{b.Front!.Plan}{b.Front.PlanByHand}{string.Join("", b.Front.Calls.Select(c => $"{c.Id}{c.Picked}"))}"))
         + "|" + string.Join(",", Aftermaths(w).Select(a => $"{a.Id}{a.Done}{a.Home}{string.Join("", a.Tasks.Select(t => $"{t.State}{t.On}"))}"))
+        + "|" + string.Join(",", Adrift(w).Select(b => $"{b.Id}:{b.RescuerFleetId}"))
         + "|" + Economy.Of(w, Side.Player).ReserveCrews.Count + "|" + Economy.Of(w, Side.Player).Spoils.Notes.Count;
 
     private static IEnumerable<Boarding> Boardings(World w) =>
@@ -40,6 +41,11 @@ public sealed class WarTab
 
     private static IEnumerable<Aftermath> Aftermaths(World w) =>
         w.Aftermaths.Where(a => a.Side == Side.Player && (!a.Done || w.Hour - (a.EndHour ?? 0) < 12)).OrderBy(a => a.Id);
+
+    /// <summary>Our escape pods and lifeboats, and the rival's our ships or planets can see (picking those up takes prisoners).</summary>
+    private static IEnumerable<Lifeboat> Adrift(World w) =>
+        w.Lifeboats.Where(b => b.Side == Side.Player || w.Fleets.Any(f => f.Side == Side.Player && Vec2.Distance(f.Position, b.Position) < GameData.Combat.ContactRangeMm * 10))
+            .OrderBy(b => b.Side == Side.Player ? 0 : 1).ThenBy(b => b.AirUntilHour).ThenBy(b => b.Id);
 
     public void Build(World w)
     {
@@ -64,6 +70,13 @@ public sealed class WarTab
             any = true;
             Heading("After battle");
             foreach (var a in after) AfterRows(w, a);
+        }
+        var adrift = Adrift(w).ToList();
+        if (adrift.Count > 0)
+        {
+            any = true;
+            Heading("Survivors adrift");
+            foreach (var lb in adrift) BoatRows(w, lb);
         }
         if (!any)
             Text("No boarding, ground fighting or clearing up just now. Board crippled enemy ships from the fleet panel (Board ▾); land troops from orbit over an enemy planet.");
@@ -158,6 +171,32 @@ public sealed class WarTab
             var b = Small(AfterBattle.HomeName(choice), () => _screen.IssueNow(new SetHomeChoiceCommand(Side.Player, id, c), "way home"), AfterBattle.HomeWhat(choice));
             if (a.Home == choice) b.Modulate = Ui.Player;
             choices.AddChild(b);
+        }
+    }
+
+    private void BoatRows(World w, Lifeboat lb)
+    {
+        var ours = lb.Side == Side.Player;
+        var boatId = lb.Id;
+        var title = $"{(lb.Boat ? "Lifeboat" : "Escape pods")} of {lb.ShipName}{(ours ? "" : " (rival: picking them up takes prisoners)")}, {lb.CrewK * 1000:0} crew";
+        _box.AddChild(Ui.Label(title, 13, ours ? Ui.Text : Ui.Rival));
+        Live(12, Ui.Dim, w2 => w2.Lifeboats.FirstOrDefault(b => b.Id == boatId) is not Lifeboat b ? "Picked up, home or lost"
+            : $"Air for {Format.Hours(Lifeboats.AirLeftHours(w2, b))}"
+              + (b.HeadingBodyId is int hb && w2.FindBody(hb) is Body home ? $" · crawling towards {home.Name}" : " · drifting")
+              + (b.RescuerFleetId is int rid && w2.FindFleet(rid) is Fleet rf && rf.Side == Side.Player ? $" · {rf.Name} is on the way" : ""));
+        if (lb.RescuerFleetId is int r && w.FindFleet(r)?.Side == Side.Player) return;
+        var fleets = w.Fleets.Where(f => f.Side == Side.Player && f.ShipIds.Count > 0 && f.Rescue == null)
+            .Select(f => (Fleet: f, Why: Lifeboats.CanSend(w, f, lb), Hours: Lifeboats.HoursTo(w, f, lb)))
+            .OrderBy(x => x.Why == null ? 0 : 1).ThenBy(x => x.Hours).ThenBy(x => x.Fleet.Id).Take(3).ToList();
+        if (fleets.Count == 0) return;
+        var row = Flow();
+        foreach (var (f, why, hours) in fleets)
+        {
+            var fleetId = f.Id;
+            var b = Small($"Send {f.Name} ({Format.Hours(hours)})", () => _screen.IssueNow(new RescueCommand(Side.Player, fleetId, boatId), "rescue"),
+                why ?? $"{f.Name} flies out, picks them up and comes back");
+            b.Disabled = why != null;
+            row.AddChild(b);
         }
     }
 

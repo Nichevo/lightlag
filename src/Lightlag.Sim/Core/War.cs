@@ -26,6 +26,25 @@ public sealed class CrewsData
     public double SpreadShare { get; set; } = 0.25;
     /// <summary>Veterans hold on longer: their ship rule's hull line is this much lower.</summary>
     public double VeteranHold { get; set; } = 0.75;
+
+    /// <summary>
+    /// Crew strain (0..1): each slug dodged adds StrainPerDodge (times HardBurnStrain in a hard burn, and up
+    /// to the heat's close-range factor); it comes off at StrainRecoverPerHour out of battle, PortRecover
+    /// times as fast in orbit at a planet of yours. A fully strained crew aims StrainAimCut worse, mends
+    /// StrainMendCut slower and keeps only 1 - StrainDodgeCut of its dodge. AI-run ships feel none of it.
+    /// </summary>
+    public double StrainPerDodge { get; set; } = 0.0015;
+    public double HardBurnStrain { get; set; } = 2.5;
+    public double StrainRecoverPerHour { get; set; } = 0.01;
+    public double PortRecover { get; set; } = 4;
+    public double StrainAimCut { get; set; } = 0.25;
+    public double StrainMendCut { get; set; } = 0.3;
+    public double StrainDodgeCut { get; set; } = 0.6;
+    /// <summary>Strain at which the bars and Needs you warn (the crew is worn out).</summary>
+    public double StrainHigh { get; set; } = 0.6;
+
+    /// <summary>An AI core takes this many electronics per 100 Industry of hull.</summary>
+    public double AiCoreElectronicsPer100 { get; set; } = 2;
 }
 
 /// <summary>Boarding crippled ships (see Boarding).</summary>
@@ -85,6 +104,19 @@ public sealed class AfterData
     /// <summary>Share of a lost ship's crew that gets off in pods, and days they last.</summary>
     public double PodShare { get; set; } = 0.5;
     public double PodDays { get; set; } = 6;
+    /// <summary>Big hulls (class "lifeboats"): share of the crew in the lifeboat, days of air, and its crawl home (Mm an hour).</summary>
+    public double BoatShare { get; set; } = 0.8;
+    public double BoatDays { get; set; } = 20;
+    public double BoatSpeedMmPerHour { get; set; } = 6;
+    /// <summary>Pods push off from the wreck at this speed; in orbit they drift out at OrbitDrift of it.</summary>
+    public double PodScatterMmPerHour { get; set; } = 1.5;
+    public double OrbitDrift { get; set; } = 0.2;
+    /// <summary>A fleet out of battle this close picks survivors up; a lifeboat this close to a planet of its side is home.</summary>
+    public double PickupMm { get; set; } = 3;
+    public double HomeMm { get; set; } = 2;
+    /// <summary>How often Auto (and the rival) looks for free fleets to send for survivors, and the share of top speed they fly at.</summary>
+    public int SendEveryTicks { get; set; } = 6;
+    public double RescueSpeed { get; set; } = 0.7;
     /// <summary>A towed crippled ship and its tow crawl at this share of full speed.</summary>
     public double TowSpeed { get; set; } = 0.3;
     /// <summary>Prisoners (k) per scrap of intel.</summary>
@@ -237,6 +269,7 @@ public static class War
     public static void Update(Simulation sim)
     {
         if (!sim.World.Loop) return;
+        Designer.Update(sim);
         Crews.Hourly(sim);
         Boarders.Hourly(sim);
         AfterBattle.Hourly(sim);
@@ -257,7 +290,7 @@ public static class Crews
 {
     private static CrewsData C => War.D.Crews;
 
-    public static bool Crewed(Ship s) => !Fitting.Spec(s).AiCrew;
+    public static bool Crewed(Ship s) => !s.AiRun && !Fitting.Spec(s).AiCrew;
 
     public static Rank RankOf(Ship s) => RankOf(s.Xp);
 
@@ -273,8 +306,41 @@ public static class Crews
     public static double At(double[] table, Rank r) => table.Length > (int)r ? table[(int)r] : 1;
 
     /// <summary>Railgun hit chance for the crew (1 for AI ships and outside full games).</summary>
-    public static double AimFactor(World w, Ship s) => w.Loop && Crewed(s) ? At(C.Aim, RankOf(s)) : 1;
-    public static double MendFactor(World w, Ship s) => w.Loop && Crewed(s) ? At(C.Mend, RankOf(s)) : 1;
+    public static double AimFactor(World w, Ship s) => w.Loop && Crewed(s) ? At(C.Aim, RankOf(s)) * (1 - C.StrainAimCut * s.Strain) : 1;
+    public static double MendFactor(World w, Ship s) => w.Loop && Crewed(s) ? At(C.Mend, RankOf(s)) * (1 - C.StrainMendCut * s.Strain) : 1;
+
+    /// <summary>How much of a dodge a strained crew still manages: the dodge factor moved back towards 1 (no dodge).</summary>
+    public static double StrainedDodge(World w, Ship s, double factor) => w.Loop && Crewed(s) ? 1 - (1 - factor) * (1 - C.StrainDodgeCut * s.Strain) : factor;
+
+    /// <summary>A slug dodged: the crew takes strain (more in a hard burn, and the closer the shooter the harder the jink).</summary>
+    public static void Strain(World w, Ship s, bool hardBurn, double closeness)
+    {
+        if (!w.Loop || !Crewed(s)) return;
+        s.Strain = Math.Min(1, s.Strain + C.StrainPerDodge * (hardBurn ? C.HardBurnStrain : 1) * closeness);
+    }
+
+    public static bool WornOut(Ship s) => Crewed(s) && s.Strain >= C.StrainHigh;
+
+    /// <summary>Changed over at a refit: a crew taken off goes home to the reserve; a ship given a crew is manned like a new one.</summary>
+    public static void ChangeOver(World w, Ship s, Body? yard)
+    {
+        var toAi = Designer.AiRun(w, s.Side, s.ClassId);
+        if (toAi)
+        {
+            if (Crewed(s)) Economy.Of(w, s.Side).ReserveCrews.Add(s.Xp);
+            s.AiRun = true;
+            s.Xp = 0;
+            s.Strain = 0;
+            s.Food = 0;
+        }
+        else
+        {
+            s.AiRun = false;
+            Man(w, s, yard);
+            if (yard != null && yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(s.ClassId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, s.Side, "ai-cores"));
+            s.Food = SupplyLines.MaxFood(s);
+        }
+    }
     public static double BoardFactor(Ship s) => Crewed(s) ? At(C.Boarding, RankOf(s)) : 1;
 
     /// <summary>The ship rule's hull line, lower for veteran crews (they hold on longer).</summary>
@@ -335,6 +401,10 @@ public static class Crews
             var inPort = at != null && at.Owner == f.Side;
             var patrol = !inPort && (f.Mission != Mission.None || f.ZoneId != null) && !Heat.InBattle(w, f);
             var academy = inPort && Colonies.Built(at!).Any(p => p.Kind == "academy");
+            // Strain eases off out of battle, faster in port.
+            if (!Heat.InBattle(w, f))
+                foreach (var s in w.ShipsOf(f).Where(s => s.Strain > 0))
+                    s.Strain = Math.Max(0, s.Strain - C.StrainRecoverPerHour * (inPort ? C.PortRecover : 1) * GameTime.HoursPerTick);
             if (!patrol && !academy) continue;
             foreach (var s in w.ShipsOf(f).Where(Crewed))
             {

@@ -305,6 +305,9 @@ public static class Boarders
         }
         target.Side = captor.Side;
         if (!target.Name.StartsWith("Prize ", StringComparison.Ordinal)) target.Name = $"Prize {target.Name}";
+        // A prize follows our Standard of its class from now on (their variants mean nothing to us); its strain goes with the old crew.
+        target.DesignId = Designer.StandardId;
+        target.Strain = 0;
         target.Crew = D.PrizeCrew;
         target.Xp = Math.Max(0, crewXp);
         target.Protect = null;

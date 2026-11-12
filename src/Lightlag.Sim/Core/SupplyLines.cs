@@ -36,7 +36,7 @@ public static class SupplyLines
     public const double UpkeepShare = 0.004;
 
     public static double MaxAmmo(Ship s) => Fitting.Spec(s).Railguns * AmmoPerRailgun;
-    public static double MaxFood(Ship s) => Fitting.Spec(s).FoodDays;
+    public static double MaxFood(Ship s) => Crews.Crewed(s) ? Fitting.Spec(s).FoodDays : 0;
 
     public static bool IsSupplyShip(Ship s) => Fitting.Spec(s) is { Cargo: > 0, CargoKind: "fuel" or "food" or "mixed" };
 

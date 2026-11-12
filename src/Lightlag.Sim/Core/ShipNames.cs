@@ -60,6 +60,16 @@ public static class ShipNames
         return (char)('A' + Math.Min(at, 25));
     }
 
+    /// <summary>The variant letter a fit has (read-only: null if the side has never built that fit).</summary>
+    public static char? VariantLetter(World w, Side side, ShipClass cls, IReadOnlyList<string> fit)
+    {
+        var key = FitKey(fit);
+        if (key == FitKey(Fitting.StandardFit(cls))) return 'A';
+        if (!Economy.Of(w, side).Variants.TryGetValue(cls.Id, out var list)) return null;
+        var at = list.IndexOf(key);
+        return at < 0 ? null : (char)('A' + Math.Min(at, 25));
+    }
+
     public static string CodeOf(World w, Ship s) => $"{GameData.ShipClass(s.ClassId).Short}{HullMark(w, s.Side)}{Variant(w, s)}-{s.HullNumber:00}";
 
     /// <summary>A new ship: its hull number, code and name.</summary>

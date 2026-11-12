@@ -61,7 +61,8 @@ public sealed record ShipClass(
     int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
     double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
     string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null,
-    double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false)
+    double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false,
+    bool Lifeboats = false, bool AiRunAllowed = true)
 {
     /// <summary>The class's slots (none for old data).</summary>
     public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();
@@ -112,7 +113,7 @@ public sealed record SlotData(string Type, bool Pair = false, string Fit = "")
 public sealed record ModuleData(string Id, string Name, string Slot, double Power, double Heat, double Cost,
     int Railguns = 0, int PointDefence = 0, int Missiles = 0, double Shield = 0, double Armour = 0, double SensorMm = 0,
     double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "",
-    List<string>? Fuels = null);
+    List<string>? Fuels = null, double Cargo = 0, bool Hidden = false, Dictionary<string, double>? Materials = null);
 
 /// <summary>A fuel type (ship-classes.json, "fuels"): its good and how it burns. See the comment there.</summary>
 public sealed record FuelData(string Id, string Name, string Short, double Thrust = 1, double Reach = 1, double BurnHeat = 1, double Signature = 1,

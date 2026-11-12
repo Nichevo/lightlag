@@ -159,13 +159,70 @@ public sealed class RuleBook
         .Add("ship-codes-sane", ShipCodesSane)
         .Add("fuels-known", FuelsKnown)
         .Add("settle-orders-sane", SettleOrdersSane)
-        .Add("lists-bounded", ListsBounded);
+        .Add("lists-bounded", ListsBounded)
+        .Add("designs-sane", DesignsSane)
+        .Add("crews-and-strain-sane", CrewsAndStrainSane)
+        .Add("lifeboats-sane", LifeboatsSane);
 
     /// <summary>
     /// A numbered ship's code is its class letters and hull number ("DD3B-07"), the number no higher than the
     /// side has handed out for that class, and no two of a side's own ships share one (prizes keep the
     /// numbers they had, so they are left out).
     /// </summary>
+    /// <summary>Variants: unique ids below the next one, real classes and fits that fit; ships and orders point at variants of their class; defaults exist.</summary>
+    private static IEnumerable<string> DesignsSane(World w)
+    {
+        if (!w.Loop) yield break;
+        foreach (var side in new[] { Side.Player, Side.Rival })
+        {
+            var state = Economy.Of(w, side);
+            foreach (var g in state.Designs.Where(d => d.Id > 0).GroupBy(d => d.Id).Where(g => g.Count() > 1))
+                yield return $"{side} has {g.Count()} variants with id {g.Key}";
+            foreach (var d in state.Designs.Where(d => d.Id > 0))
+            {
+                if (d.Id >= state.NextDesignId) yield return $"{side} variant {d.Id} is not below the next id {state.NextDesignId}";
+                if (!GameData.ShipClasses.TryGetValue(d.ClassId, out var cls)) { yield return $"{side} variant {d.Id} has unknown class '{d.ClassId}'"; continue; }
+                if (d.Fit.Count != cls.SlotList.Count) yield return $"{side} variant {d.Id} ({d.Name}) has {d.Fit.Count} parts for {cls.SlotList.Count} slots";
+            }
+            foreach (var (classId, id) in state.DefaultDesign)
+                if (id != Designer.StandardId && Designer.Find(w, side, id)?.ClassId != classId)
+                    yield return $"{side} builds {classId} to variant {id}, which is not one of that class";
+            foreach (var s in w.Ships.Where(s => s.Side == side && s.DesignId != Designer.StandardId && Designer.Find(w, side, s.DesignId)?.ClassId != s.ClassId))
+                yield return $"ship {s.Id} {s.Name} follows variant {s.DesignId}, not one of its side's {s.ClassId} variants";
+            foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.DesignId is int id && id != Designer.StandardId
+                                                  && Designer.Find(w, side, id)?.ClassId != o.Key))
+                yield return $"order {o.Id} builds variant {o.DesignId}, not one of {o.Key}";
+            foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.FitCost is double c && (c < 0 || double.IsNaN(c))))
+                yield return $"order {o.Id} has price {o.FitCost}";
+        }
+    }
+
+    /// <summary>Strain stays between 0 and 1; AI-run ships have no strain and no food, and only classes that can run on AI do.</summary>
+    private static IEnumerable<string> CrewsAndStrainSane(World w)
+    {
+        foreach (var s in w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)))
+        {
+            if (!(s.Strain >= -1e-9 && s.Strain <= 1 + 1e-9)) yield return $"ship {s.Id} {s.Name} has strain {s.Strain}";
+            if (s.AiRun && s.Strain > 1e-9) yield return $"AI-run ship {s.Id} {s.Name} has strain {s.Strain}";
+            if (s.AiRun && s.Food > 1e-9) yield return $"AI-run ship {s.Id} {s.Name} carries {s.Food} days of food for nobody";
+            if (s.AiRun && !GameData.ShipClass(s.ClassId).AiRunAllowed) yield return $"ship {s.Id} {s.Name} is AI-run but its class always has a crew";
+        }
+    }
+
+    /// <summary>Survivors: some crew aboard, air that ran out after launch, a known side and a real position; a fleet's rescue points at a boat or none.</summary>
+    private static IEnumerable<string> LifeboatsSane(World w)
+    {
+        foreach (var b in w.Lifeboats)
+        {
+            if (!(b.CrewK > 0)) yield return $"lifeboat {b.Id} of {b.ShipName} carries {b.CrewK} k crew";
+            if (b.AirUntilHour < b.LaunchHour) yield return $"lifeboat {b.Id} runs out of air before it was launched";
+            if (w.Hour > b.AirUntilHour + 1 + 1e-9) yield return $"lifeboat {b.Id} is still out {w.Hour - b.AirUntilHour:0.#} hours after its air ran out";
+            if (!double.IsFinite(b.Position.X) || !double.IsFinite(b.Position.Y)) yield return $"lifeboat {b.Id} is at {b.Position}";
+            if (b.Side != Side.Player && b.Side != Side.Rival) yield return $"lifeboat {b.Id} has side {b.Side}";
+        }
+        foreach (var g in w.Lifeboats.GroupBy(b => b.Id).Where(g => g.Count() > 1)) yield return $"lifeboat id {g.Key} is used {g.Count()} times";
+    }
+
     private static IEnumerable<string> ShipCodesSane(World w)
     {
         var own = w.Ships.Where(s => s.HullNumber > 0 && !s.Name.StartsWith("Prize ", StringComparison.Ordinal)

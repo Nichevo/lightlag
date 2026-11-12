@@ -3,7 +3,7 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>The areas of running an empire that can be handed to automation (see Stewards).</summary>
-public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle, Events }
+public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle, Events, Designs }
 
 /// <summary>Auto: does it. Advise: suggests it in Needs you. Manual: leaves it alone.</summary>
 public enum AutoLevel { Auto, Advise, Manual }
@@ -356,6 +356,7 @@ public static class Stewards
         AutoArea.Ground => "Ground war calls",
         AutoArea.AfterBattle => "After battle",
         AutoArea.Events => "Events",
+        AutoArea.Designs => "Ship designs",
         _ => area.ToString(),
     };
 
@@ -374,6 +375,7 @@ public static class Stewards
         AutoArea.Boarding => "The calls during a boarding (Advise or Manual: ask me, Auto decides if I don't answer in time)",
         AutoArea.Ground => "The plan and the calls during an invasion (Advise or Manual: ask me)",
         AutoArea.AfterBattle => "Rescue, capture, salvage, then mend or go home (Advise or Manual: I pick how to get home)",
+        AutoArea.Designs => "Each class's Standard kept current as research lands, and new variants added when a role makes sense (Q-ship, long range); your own variants are never changed",
         AutoArea.Events => "Calls on events: flares, finds, faults, rock strikes (Advise: wait in Needs you until the deadline; Manual: also pause the game)",
         _ => "",
     };
@@ -440,6 +442,8 @@ public static class Stewards
             Supply();
             Shipyard();
             Refits.Steward(_sim, _side, Offer);
+            Lifeboats.Steward(_sim, _side, Offer);
+            Designer.Steward(_sim, _side, Offer, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.Designs));
             Munitions.Steward(_sim, _side, Offer);
             if (Munitions.Pressed(_w, _side) && LevelFor(_w, _side, AutoArea.Refits) == AutoLevel.Manual)
                 Need(NeedLevel.Soon, "munitions:pressed", "The enemy has been seen with defences our ammunition is not made for: set a munitions plant to Best on its planet screen",

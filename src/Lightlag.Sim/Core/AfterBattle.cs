@@ -18,6 +18,9 @@ public sealed class AfterTask
     public string Note { get; set; } = "";
     /// <summary>The wrecks this step works on, picked when the battle ended (their boats follow the drift).</summary>
     public List<int> WreckIds { get; set; } = new();
+
+    /// <summary>Rescue: the escape pods and lifeboats in reach when the battle ended.</summary>
+    public List<int> BoatIds { get; set; } = new();
 }
 
 /// <summary>A fleet that held the field clearing up after a battle (see AfterBattle).</summary>
@@ -113,15 +116,20 @@ public static class AfterBattle
         var w = sim.World;
         var a = new Aftermath { Id = w.NextId++, Side = f.Side, FleetId = f.Id, FleetName = f.Name, BattleId = b?.Id ?? 0, Where = f.Position, StartHour = w.Hour };
         var pods = Wrecks(w, a, f, crew: true).ToList();
+        var boats = w.Lifeboats.Where(b => Vec2.Distance(b.Position, f.Position) <= D.ReachMm).OrderBy(b => b.Id).ToList();
         var salvage = Wrecks(w, a, f, crew: false).ToList();
         var targets = Boarders.Targets(w, f).Where(t => Boarders.CanBoard(w, f, t) == null).ToList();
         var later = targets.Count * War.D.Boarding.DockHours + salvage.Count * D.SalvageHoursPerWreck;
-        var relief = Ground.ReliefNear(w, f.Side, f.Position, pods.Count * D.RescueHoursPerWreck + later + 2);
+        var rescues = pods.Count + boats.Count;
+        var relief = Ground.ReliefNear(w, f.Side, f.Position, rescues * D.RescueHoursPerWreck + later + 2);
+        var ours = pods.Where(p => p.Side == f.Side).Sum(p => p.CrewK) + boats.Where(b => b.Side == f.Side).Sum(b => b.CrewK);
+        var theirs = pods.Where(p => p.Side != f.Side).Sum(p => p.CrewK) + boats.Where(b => b.Side != f.Side).Sum(b => b.CrewK);
         a.Tasks.Add(new AfterTask
         {
-            Step = AfterStep.Rescue, WreckIds = pods.Select(x => x.Id).ToList(), HoursLeft = pods.Count * D.RescueHoursPerWreck, State = pods.Count == 0 ? "skipped" : "queued",
-            Note = pods.Count == 0 ? "Nobody in the water" : $"Pick up {pods.Where(p => p.Side == f.Side).Sum(p => p.CrewK) * 1000:0} of our crew and "
-                                                            + $"{pods.Where(p => p.Side != f.Side).Sum(p => p.CrewK) * 1000:0} enemy crew as prisoners",
+            Step = AfterStep.Rescue, WreckIds = pods.Select(x => x.Id).ToList(), BoatIds = boats.Select(b => b.Id).ToList(),
+            HoursLeft = rescues * D.RescueHoursPerWreck, State = rescues == 0 ? "skipped" : "queued",
+            Note = rescues == 0 ? "Nobody in the water" : $"Pick up {ours * 1000:0} of our crew and {theirs * 1000:0} enemy crew as prisoners"
+                                                          + $" ({boats.Count} lot{(boats.Count == 1 ? "" : "s")} of pods and lifeboats)",
         });
         a.Tasks.Add(new AfterTask
         {
@@ -150,7 +158,7 @@ public static class AfterBattle
             a.Tasks[1].State = "doing";
             a.Notes.Add($"Boarding {targets[0].Name}");
         }
-        sim.Log.Info("after", $"{f.Name} clears up after the battle", new { fleetId = f.Id, aftermath = a.Id, pods = pods.Count, targets = targets.Count, wrecks = salvage.Count,
+        sim.Log.Info("after", $"{f.Name} clears up after the battle", new { fleetId = f.Id, aftermath = a.Id, pods = pods.Count, boats = boats.Count, targets = targets.Count, wrecks = salvage.Count,
             relief, home = home.ToString(), why });
         return a;
     }
@@ -209,6 +217,9 @@ public static class AfterBattle
                 case AfterStep.Salvage:
                     task.HoursLeft -= GameTime.HoursPerTick;
                     if (task.HoursLeft > 1e-9) break;
+                    if (task.Step == AfterStep.Rescue)
+                        foreach (var lb in w.Lifeboats.Where(b => task.BoatIds.Contains(b.Id) && Vec2.Distance(b.Position, f.Position) <= D.ReachMm * 2).ToList())
+                            Lifeboats.PickUp(sim, f, lb);
                     foreach (var wr in w.Wrecks.Where(x => task.WreckIds.Contains(x.Id)).ToList())
                     {
                         if (task.Step == AfterStep.Rescue) Wounds.Rescue(sim, f, wr);
