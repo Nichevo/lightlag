@@ -125,9 +125,9 @@ public sealed record FuelData(string Id, string Name, string Short, double Thrus
 /// of speed, also scaled by it. DepartShares are the burn levels tried for the stretch to the planet:
 /// a gentler burn there leaves the swing to add the speed.
 /// </summary>
-public sealed record SlingshotData(double AssistStrength = 40, double MinTimeGain = 0.02, double MinFuelGain = 0.06,
+public sealed record SlingshotData(double AssistStrength = 250, double MinTimeGain = 0.02, double MinFuelGain = 0.06,
     double FuelHourWeight = 0.5, List<double>? DepartShares = null, List<double>? FuelSaverShares = null,
-    double GiantEarthMasses = 318, double GiantKickKmS = 30)
+    double GiantEarthMasses = 318, double GiantKickKmS = 40)
 {
     /// <summary>How much a planet counts for a swing (0..1), by its mass.</summary>
     public double Weight(double gm) => Math.Min(1, Math.Sqrt(Math.Max(0, gm / Physics.GmEarth / GiantEarthMasses)));
