@@ -253,6 +253,8 @@ public partial class MapView : Node2D
             if (PlayerInfo.Has(MapLayer.OldSightings)) DrawTracks();
             DrawEngagement();
             if (PlayerInfo.Has(MapLayer.OldSightings)) { DrawOldIntel(); DrawLastSeen(); }
+            if (PlayerInfo.Has(MapLayer.Possible)) DrawPossible();
+            if (PlayerInfo.Has(MapLayer.TheySee)) DrawTheySee();
             if (RevealAll) DrawMindJobs();
         }
         DrawWrecks();
@@ -326,6 +328,11 @@ public partial class MapView : Node2D
                     break;
                 case EffectKind.RailMiss:
                     DrawLine(from, to, new Color(mine, 0.3f * fade), 1);
+                    break;
+                case EffectKind.Decoy:
+                    // A hot heat sink tumbling away, the missile turning after it.
+                    DrawCircle(from, 2 + 3 * fade, new Color(1f, 0.55f, 0.15f, 0.8f * fade));
+                    DrawLine(to, from, new Color(1f, 0.7f, 0.3f, 0.4f * fade), 1);
                     break;
                 case EffectKind.PointDefenceKill:
                     DrawDashedLine(from, to, new Color(mine, 0.7f * fade), 1, 3);
@@ -581,17 +588,25 @@ public partial class MapView : Node2D
         if (!apart)
         {
             // Zoomed out: the fleet is one icon with a count.
-            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count} ships)" : $"{f.Name}: {(known ? ships.FirstOrDefault()?.Name : "1 ship")}") + SpeedTag(f);
+            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count} ships)" : $"{f.Name}: {(known ? ships.FirstOrDefault()?.Name : "1 ship")}") + SpeedTag(f)
+                        + (f.Side != Side.Player ? AgeTag(f) : "");
             if (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
         }
         if (f.Side == Side.Player) DrawHeat(f, ships, at);
+        // A stuck or refused order shows under the name, so it is seen without opening the fleet.
+        if (f.Side == Side.Player && (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
+            && FleetPanel.OrderStatus(Sim.World, f).FirstOrDefault(IsWarning) is string stuck)
+            DrawString(_font, at + new Vector2(12, apart ? 36 : 7), stuck.Length > 60 ? stuck[..58] + "…" : stuck, HorizontalAlignment.Left, -1, 11, new Color("ffb347"));
         if (f.Id == SelectedId || GroupIds.Contains(f.Id))
         {
             var radius = apart ? (float)(Fleets.FormationSpacing * 1.6 * Camera.Scale) + 14 : 14f;
             DrawArc(at, radius, 0, Mathf.Tau, 48, color, 1.5f, true);
         }
     }
+
+    private static bool IsWarning(string status) =>
+        status.StartsWith("Can't") || status.StartsWith("Lost contact") || status.StartsWith("Looking for") || status.Contains("can't reach") || status.StartsWith("No tanker");
 
     /// <summary>
     /// Stat bars under your ships: armour (green), supplies (yellow), shield (cyan) and heat (blue, orange
@@ -909,6 +924,13 @@ public partial class MapView : Node2D
                 DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
             if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
         }
+    }
+
+    /// <summary>" · seen 4 min ago" on an enemy fleet when what you see of it is old (light lag), else "".</summary>
+    private string AgeTag(Fleet f)
+    {
+        var age = Light.AgeHours(Sim.World, Side.Player, f.Id);
+        return age > 1 / 60.0 && !double.IsInfinity(age) ? $" · seen {Format.Hours(age)} ago" : "";
     }
 
     /// <summary>" · 12 km/s" for a moving fleet in contact with an enemy (or selected), else "".</summary>

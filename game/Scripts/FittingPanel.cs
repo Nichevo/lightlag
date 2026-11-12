@@ -73,16 +73,9 @@ public partial class FittingPanel : PanelContainer
         head.AddChild(Ui.Label($"power {Fitting.PowerUsed(cls, fit):0}/{cls.Power:0} · heat {Fitting.HeatUsed(cls, fit):0}/{cls.HeatBudget:0}", 13, Ui.Dim));
         v.AddChild(head);
 
-        if (Art.Texture("Ships", ShipArt.For(cls) + "-cutaway") is Texture2D tex)
-        {
-            var pic = new TextureRect
-            {
-                Texture = tex, ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-                CustomMinimumSize = new Vector2(700, 130),
-            };
-            if (s.Disabled != null) pic.Modulate = new Color(1, 0.85f, 0.85f);
-            v.AddChild(pic);
-        }
+        var pic = new ShipPicture(cls, new Vector2(700, 130), fit);
+        if (s.Disabled != null) pic.Modulate = new Color(1, 0.85f, 0.85f);
+        v.AddChild(pic);
 
         var slots = new GridContainer { Columns = 3 };
         slots.AddThemeConstantOverride("h_separation", 8);
@@ -146,28 +139,4 @@ public partial class FittingPanel : PanelContainer
         if (m.Slot == "E" && Main.Instance.Sim?.World.Rules.FuelTypes == true) bits.Add($"burns {string.Join(", ", Fuels.Burns(m).Select(Fuels.Name))}");
         return string.Join(", ", bits);
     }
-}
-
-/// <summary>Which approved drawing a class uses (Art/Ships), and how much of the drawing's width is hull (the rest is engine plume).</summary>
-public static class ShipArt
-{
-    public static float HullShare(string art) => art switch
-    {
-        "escort" => 0.645f,
-        "destroyer" => 0.819f,
-        "cruiser" => 0.79f,
-        "tanker" => 0.774f,
-        "freighter" => 0.76f,
-        _ => 0.745f,
-    };
-
-    public static string For(ShipClass cls) => cls.Icon switch
-    {
-        "escort" => "escort",
-        "destroyer" => "destroyer",
-        "cruiser" => "cruiser",
-        "tanker" => "tanker",
-        "freighter" => "freighter",
-        _ => "frigate",
-    };
 }

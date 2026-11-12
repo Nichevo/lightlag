@@ -140,6 +140,42 @@ public static class Engagement
         return list.OrderBy(p => p.Gap).ThenBy(p => p.Mine).ThenBy(p => p.Enemy).ToList();
     }
 
+    /// <summary>Two fleets timed to reach one enemy together: each one's order and when they both get there, or why not.</summary>
+    public sealed record TogetherPlan(FlightRequest? First, FlightRequest? Second, double ArriveHour, string? Problem);
+
+    /// <summary>
+    /// "Arrive together": both fleets close on the enemy (gun range if they have working railguns, else missile range)
+    /// and the one that would get there first eases its burn so both arrive at about the same hour. Read-only.
+    /// </summary>
+    public static TogetherPlan Together(World w, Fleet first, Fleet second, int enemyId, double burn = 1.0)
+    {
+        if (Sensors.Find(w, first.Side, enemyId, seat: true) is not Sighting s) return new(null, null, 0, "That fleet is no longer on record");
+        FlightRequest Req(Fleet f, double speed)
+        {
+            var rails = w.ShipsOf(f).Any(x => Fitting.Spec(x).Railguns > 0 && !x.Out(Module.Railguns));
+            return new FlightRequest(null, s.Guess(w.Hour), speed, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick, TargetFleetId: enemyId,
+                Chase: rails ? ChaseMode.GunRange : ChaseMode.MissileRange);
+        }
+        var a = FlightPlanner.Plan(w, first, Req(first, burn));
+        var b = FlightPlanner.Plan(w, second, Req(second, burn));
+        if (a.Flight == null) return new(null, null, 0, $"{first.Name}: {a.Problem ?? "can't get there"}");
+        if (b.Flight == null) return new(null, null, 0, $"{second.Name}: {b.Problem ?? "can't get there"}");
+        var late = Math.Max(a.Flight.ArriveHour, b.Flight.ArriveHour);
+        var early = a.Flight.ArriveHour <= b.Flight.ArriveHour ? first : second;
+        // Ease the early fleet's burn until it arrives with the other (slower arrives later); halving the range each try.
+        double lo = 0.1, hi = burn, best = burn, bestArrive = Math.Min(a.Flight.ArriveHour, b.Flight.ArriveHour);
+        for (var i = 0; i < 12 && Math.Abs(bestArrive - late) > 0.1; i++)
+        {
+            var mid = (lo + hi) / 2;
+            var p = FlightPlanner.Plan(w, early, Req(early, mid));
+            if (p.Flight == null) { lo = mid; continue; }
+            if (Math.Abs(p.Flight.ArriveHour - late) < Math.Abs(bestArrive - late)) { best = mid; bestArrive = p.Flight.ArriveHour; }
+            if (p.Flight.ArriveHour < late) hi = mid; else lo = mid;
+        }
+        var eased = Req(early, best);
+        return early == first ? new(eased, Req(second, burn), late, null) : new(Req(first, burn), eased, late, null);
+    }
+
     /// <param name="burn">How hard to burn for the approach choices: a share of the fleet's top speed (0.1 to 1).</param>
     public static EngagementInfo? Of(World w, Fleet mine, int enemyId, double burn = 1.0)
     {

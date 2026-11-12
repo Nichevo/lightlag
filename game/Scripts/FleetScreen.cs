@@ -62,6 +62,15 @@ public partial class FleetScreen : PanelContainer
         foreach (var update in _live) update(w);
     }
 
+    /// <summary>Back (-1) or Next (+1): the previous or next of your fleets in this screen's list order. Wraps around; works while paused.</summary>
+    public void Step(World w, int dir)
+    {
+        var list = Mine(w);
+        if (list.Count < 2) return;
+        var at = list.FindIndex(f => f.Id == _screen.FleetScreenId);
+        _screen.FleetScreenId = list[((at < 0 ? 0 : at) + dir + list.Count) % list.Count].Id;
+    }
+
     private List<Fleet> Mine(World w)
     {
         var rows = w.Fleets.Where(f => f.Side == Side.Player && f.ShipIds.Count > 0);
@@ -255,6 +264,8 @@ public partial class FleetScreen : PanelContainer
         row.AddChild(Ui.Label(f.Name, 22, Ui.Player));
         row.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{g.ShipIds.Count} ships · strength {Stats.Power(w2, g):0} · {Condition(w2, g)}" : "", 14, Ui.Dim));
         row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        row.AddChild(Ui.SmallButton("◀ Back", () => Step(w, -1), "Your previous fleet in the list ([)"));
+        row.AddChild(Ui.SmallButton("Next ▶", () => Step(w, 1), "Your next fleet in the list (])"));
         row.AddChild(Ui.SmallButton("Show on map", () => { _screen.ShowFleets = false; _screen.PickFleet(id); }, "Close this screen and select the fleet on the map"));
         row.AddChild(Ui.SmallButton("Ships and fittings", () => { _screen.ShowFleets = false; _screen.PickFleet(id); _screen.FittingFleetId = id; },
             "Each ship's drawing, slots and modules"));

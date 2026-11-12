@@ -26,6 +26,99 @@ public partial class BattleStrips : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         (_oursPanel, _ours) = Column("Your ships");
         (_theirsPanel, _theirs) = Column("Enemy ships you can see");
+        BuildInfo();
+    }
+
+    // The right-hand panel under the enemy ships: missiles in flight, quick orders for one of your fleets, and the score.
+    private PanelContainer _infoPanel = null!;
+    private Label _flying = null!, _score = null!, _ordersTitle = null!;
+    private Button _holdOn = null!, _pullBack = null!, _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
+    private int? _ordersFleet;
+
+    private void BuildInfo()
+    {
+        var v = new VBoxContainer { CustomMinimumSize = new Vector2(330, 0) };
+        v.AddThemeConstantOverride("separation", 4);
+        v.AddChild(Ui.Label("MISSILES IN FLIGHT", 12, Ui.Dim));
+        _flying = Ui.Label("", 12, Ui.Text);
+        _flying.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        v.AddChild(_flying);
+        _ordersTitle = Ui.Label("", 12, Ui.Dim);
+        v.AddChild(_ordersTitle);
+        Button B(string text, string tip, Func<Fleet, GameCommand> make) => Ui.SmallButton(text, () =>
+        {
+            if (_ordersFleet is int id && Main.Instance.Sim?.World.FindFleet(id) is Fleet f) _screen.IssueNow(make(f), "battle order");
+        }, tip);
+        _holdOn = B("Hold on", "Keep fighting past this fleet's pull-back rule (press again to follow the rule)", f => new HoldOnCommand(f.Id, !f.HoldOn));
+        _pullBack = B("Pull back now", "Break off now and head for safety by its pull-back rule", f => new PullBackNowCommand(f.Id));
+        _pullBack.AddThemeColorOverride("font_color", Ui.Danger);
+        _dodgeOff = B("No dodge", "Fly straight: no fuel spent on dodging", f => new SetDodgeCommand(f.Id, DodgeMode.Off));
+        _sidestep = B("Sidestep", "Jink as slugs come in", f => new SetDodgeCommand(f.Id, DodgeMode.Sidestep));
+        _hardBurn = B("Hard burn", "Burn hard out of the line of fire: more fuel", f => new SetDodgeCommand(f.Id, DodgeMode.HardBurn));
+        _focused = B("Focused", "Aimed slugs", f => new SetFireModeCommand(f.Id, FireMode.Focused));
+        _spread = B("Spread", "A fan of slugs: harder to dodge", f => new SetFireModeCommand(f.Id, FireMode.Spread));
+        foreach (var row in new[] { new[] { _holdOn, _pullBack }, new[] { _dodgeOff, _sidestep, _hardBurn }, new[] { _focused, _spread } })
+        {
+            var h = new HBoxContainer();
+            h.AddThemeConstantOverride("separation", 4);
+            foreach (var b in row) h.AddChild(b);
+            v.AddChild(h);
+        }
+        v.AddChild(Ui.Label("SCORE SO FAR", 12, Ui.Dim));
+        _score = Ui.Label("", 12, Ui.Text);
+        _score.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        v.AddChild(_score);
+        _infoPanel = Ui.Panel(v, 10);
+        AddChild(_infoPanel);
+    }
+
+    /// <summary>Missiles in flight, grouped: yours by the fleet they go for, theirs by the ship they go for, soonest first.</summary>
+    private string Flying(World w)
+    {
+        var a = GameData.Combat.Missile.AccelMmPerHour2;
+        var groups = new List<(double T, string Text, bool Ours)>();
+        foreach (var g in w.Missiles.GroupBy(m => (m.Side, m.TargetShipId)))
+        {
+            if (w.FindShip(g.Key.TargetShipId) is not Ship target || w.FleetOf(target) is not Fleet tf) continue;
+            var ours = g.Key.Side == Side.Player;
+            if (ours && !_screen.ShownFleet(tf)) continue;
+            var t = g.Min(m =>
+            {
+                var gap = target.Position - m.Position;
+                var d = gap.Length;
+                var v = d > 1e-9 ? -Vec2.Dot(gap, tf.Velocity - m.Velocity) / d : 0;
+                return (-v + Math.Sqrt(Math.Max(0, v * v + 2 * a * d))) / a;
+            });
+            groups.Add((t, ours ? $"{g.Count()} yours at {(tf.Side == Side.Player ? target.Name : tf.Name)}" : $"{g.Count()} at {target.Name} ({tf.Name})", ours));
+        }
+        if (groups.Count == 0) return "None";
+        return string.Join("\n", groups.OrderBy(x => x.T).Take(6).Select(x => $"{(x.Ours ? "●" : "▲")} {x.Text}, land in {Format.Hours(Math.Max(0, x.T))}"));
+    }
+
+    private void RefreshInfo(World w, List<Fleet> fleets)
+    {
+        _flying.Text = Flying(w);
+        var mine = fleets.Where(f => f.Side == Side.Player).ToList();
+        var pick = _screen.SelectedFleet is Fleet sel && mine.Contains(sel) ? sel : mine.FirstOrDefault();
+        _ordersFleet = pick?.Id;
+        _ordersTitle.Text = pick == null ? "ORDERS: select one of your fleets" : $"ORDERS FOR {pick.Name.ToUpperInvariant()}";
+        foreach (var b in new[] { _holdOn, _pullBack, _dodgeOff, _sidestep, _hardBurn, _focused, _spread }) b.Disabled = pick == null;
+        if (pick != null)
+        {
+            static Color On(bool on) => on ? Ui.Player : new Color(1, 1, 1, 0.7f);
+            _holdOn.Modulate = On(pick.HoldOn);
+            _dodgeOff.Modulate = On(pick.Dodge == DodgeMode.Off);
+            _sidestep.Modulate = On(pick.Dodge == DodgeMode.Sidestep);
+            _hardBurn.Modulate = On(pick.Dodge == DodgeMode.HardBurn);
+            _focused.Modulate = On(pick.Fire == FireMode.Focused);
+            _spread.Modulate = On(pick.Fire == FireMode.Spread);
+        }
+        if (w.ActiveBattle is Battle battle)
+        {
+            string Side_(BattleSide s) => $"{s.ShipsLost.Count} lost, {s.Crippled.Count} crippled · dealt {s.DamageDealt:0} damage, {s.RailHits + s.MissileHits} hits";
+            _score.Text = $"You: {Side_(battle.For(Side.Player))}\nThem: {Side_(battle.For(Side.Rival))}";
+        }
+        else _score.Text = "No battle under way";
     }
 
     private (PanelContainer, VBoxContainer) Column(string title)
@@ -62,6 +155,15 @@ public partial class BattleStrips : Control
             Layout();
         }
         foreach (var update in _live) update(w);
+        RefreshInfo(w, fleets);
+        PlaceInfo();
+    }
+
+    private void PlaceInfo()
+    {
+        var view = GetViewportRect().Size;
+        _infoPanel.ResetSize();
+        _infoPanel.Position = new Vector2(view.X - _infoPanel.Size.X - 16, view.Y - _infoPanel.Size.Y - 110);
     }
 
     private void Layout()
@@ -71,7 +173,9 @@ public partial class BattleStrips : Control
         foreach (var (panel, list) in new[] { (_oursPanel, _ours), (_theirsPanel, _theirs) })
         {
             var scroll = (ScrollContainer)list.GetMeta("scroll");
-            scroll.CustomMinimumSize = new Vector2(330, Mathf.Min(height - 40, list.GetCombinedMinimumSize().Y + 4));
+            // The enemy column stops above the missiles, orders and score panel.
+            var room = list == _theirs ? height - 40 - _infoPanel.GetCombinedMinimumSize().Y - 16 : height - 40;
+            scroll.CustomMinimumSize = new Vector2(330, Mathf.Max(60, Mathf.Min(room, list.GetCombinedMinimumSize().Y + 4)));
             panel.ResetSize();
         }
         _oursPanel.Position = new Vector2(16, 60);
@@ -87,7 +191,29 @@ public partial class BattleStrips : Control
             list.AddChild(Ui.Label(mine ? "No ships of yours in a fight (select a fleet to see its ships)" : "None in sight", 12, Ui.Dim));
             return;
         }
-        foreach (var s in ships) list.AddChild(Strip(w, s, mine));
+        int? fleetId = null;
+        foreach (var s in ships)
+        {
+            // Your ships come grouped under each fleet, with a line for the whole fleet.
+            if (mine && s.FleetId != fleetId && w.FleetOf(s) is Fleet f)
+            {
+                fleetId = s.FleetId;
+                var head = Ui.Label("", 12, Ui.Player);
+                var id = f.Id;
+                _live.Add(world =>
+                {
+                    if (world.FindFleet(id) is not Fleet g) { head.Text = ""; return; }
+                    var all = world.ShipsOf(g).ToList();
+                    var hull = all.Count == 0 ? 0 : all.Average(x => x.Armour / Math.Max(1, Tech.MaxArmour(world, x)));
+                    var missiles = all.Sum(x => x.Missiles);
+                    var hurt = all.Count(x => x.Crippled);
+                    head.Text = $"{g.Name} · {all.Count} ship{(all.Count == 1 ? "" : "s")} · hull {hull:P0}" + (missiles > 0 ? $" · {missiles} missiles" : "")
+                                + (hurt > 0 ? $" · {hurt} crippled" : "") + (g.HoldOn ? " · holding on" : "");
+                });
+                list.AddChild(head);
+            }
+            list.AddChild(Strip(w, s, mine));
+        }
     }
 
     private Control Strip(World w, Ship s, bool mine)

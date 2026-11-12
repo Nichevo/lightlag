@@ -19,6 +19,8 @@ public enum MapLayer
     OldSightings = 64,
     Labels = 128,
     Hazards = 256,
+    Possible = 512,
+    TheySee = 1024,
 }
 
 /// <summary>
@@ -31,9 +33,10 @@ public static class PlayerInfo
     public static DetailLevel Detail { get; private set; } = DetailLevel.Standard;
     public static MapLayer Layers { get; private set; } = Default;
 
-    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.Hazards;
+    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee;
     public const MapLayer Calm = MapLayer.Orbits | MapLayer.Labels;
     public const MapLayer War = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Lanes | MapLayer.Labels | MapLayer.Hazards;
+    public const MapLayer Battle = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee;
     public const MapLayer Trade = MapLayer.Orbits | MapLayer.Lanes | MapLayer.SupplyRuns | MapLayer.Labels;
 
     public static readonly (MapLayer Layer, string Name, string Tip)[] LayerList =
@@ -46,8 +49,22 @@ public static class PlayerInfo
         (MapLayer.Wells, "Gravity wells", "Shading round each planet where its pull is stronger than the sun's (Medium and High graphics)"),
         (MapLayer.OldSightings, "Old sightings", "Where rival fleets were last seen, greyed with age, and their tracks"),
         (MapLayer.Labels, "Labels", "Planet and moon names"),
+        (MapLayer.Possible, "Where they could be", "Round each enemy fleet out of sight: the area it could have reached since it was last seen, growing with time"),
+        (MapLayer.TheySee, "What they see of you", "Round your fleets near the enemy: how far the nearest enemy fleet's sensors would pick them up as they are flying now"),
         (MapLayer.Hazards, "Hazards", "Radiation belts (green), the hot zone close to the sun (orange), battle debris (grey) and the names of rock belts and rings"),
     };
+
+    /// <summary>The side list (L): which rows show ("all", "mine", "rival") and their order ("order", "name", "distance", "attention").</summary>
+    public static string SideShow { get; private set; } = "all";
+    public static string SideSort { get; private set; } = "order";
+
+    public static void SetSide(string show, string sort)
+    {
+        if (show == SideShow && sort == SideSort) return;
+        SideShow = show;
+        SideSort = sort;
+        Save();
+    }
 
     /// <summary>Fleet panel sections kept open (by name).</summary>
     public static readonly HashSet<string> OpenSections = new();
@@ -68,6 +85,8 @@ public static class PlayerInfo
         Layers = (MapLayer)(int)cfg.GetValue("ui", "layers", (int)Default);
         // Settings saved before the Hazards layer existed: switch it on once.
         if (!cfg.HasSectionKey("ui", "hazardsLayer")) Layers |= MapLayer.Hazards;
+        SideShow = (string)cfg.GetValue("ui", "sideShow", "all");
+        SideSort = (string)cfg.GetValue("ui", "sideSort", "order");
         foreach (var s in ((string)cfg.GetValue("ui", "open", "")).Split(',', StringSplitOptions.RemoveEmptyEntries)) OpenSections.Add(s);
     }
 
@@ -78,6 +97,8 @@ public static class PlayerInfo
         cfg.SetValue("ui", "detail", Detail.ToString());
         cfg.SetValue("ui", "layers", (int)Layers);
         cfg.SetValue("ui", "hazardsLayer", true);
+        cfg.SetValue("ui", "sideShow", SideShow);
+        cfg.SetValue("ui", "sideSort", SideSort);
         cfg.SetValue("ui", "open", string.Join(",", OpenSections.OrderBy(s => s, StringComparer.Ordinal)));
         cfg.Save(_file);
         Changed?.Invoke();

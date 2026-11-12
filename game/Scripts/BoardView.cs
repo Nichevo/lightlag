@@ -16,6 +16,8 @@ public partial class BoardView : Control
     public BuildingData? Placing { get; set; }
     public bool Turned { get; set; }
     public int? SelectedPieceId { get; set; }
+    /// <summary>A good hovered in storage: buildings that make it get a green outline, those that use it amber.</summary>
+    public string? HighlightGood { get; set; }
 
     /// <summary>Place the piece being placed at (x, y), turned or not.</summary>
     public Action<int, int, bool>? OnPlace { get; set; }
@@ -219,6 +221,11 @@ public partial class BoardView : Control
         else
         {
             DrawRect(rect, new Color(colour, p.Built ? 0.55f : 0.2f));
+        }
+        if (HighlightGood is string good && Body != null)
+        {
+            if (Colonies.PieceMakes(Body, p, good)) DrawRect(rect.Grow(2), ColonyScreen.MakesColor, false, 3);
+            else if (Colonies.PieceUses(Body, p, good)) DrawRect(rect.Grow(2), ColonyScreen.UsesColor, false, 3);
         }
         if (p.Id == SelectedPieceId) DrawRect(rect.Grow(1), Colors.White, false, 3);
         else if (tex == null) DrawRect(rect, colour, false, 1.5f);

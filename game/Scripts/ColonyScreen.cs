@@ -17,6 +17,8 @@ public partial class ColonyScreen : PanelContainer
     private VBoxContainer _root = null!;
     private string _shape = "";
     private readonly List<Action<World>> _live = new();
+    private readonly List<(Button Button, BuildingData Kind)> _buildButtons = new();
+    private string? _hoverGood, _shownGood;
     private BoardView? _board;
 
     // List filters.
@@ -66,17 +68,87 @@ public partial class ColonyScreen : PanelContainer
             _shape = shape;
             foreach (var c in _root.GetChildren()) c.QueueFree();
             _live.Clear();
+            _buildButtons.Clear();
+            _shownGood = null;
             _board = null;
             if (body != null) BuildPlanet(w, body);
             else BuildList(w);
         }
         foreach (var update in _live) update(w);
+        if (body != null && _hoverGood != _shownGood) ShowGood(body, _hoverGood);
         if (_board != null)
         {
             _board.World = w;
             _board.Body = body;
+            _board.HighlightGood = _hoverGood;
             _board.QueueRedraw();
         }
+    }
+
+    /// <summary>
+    /// Back (-1) or Next (+1): open the previous or next of your planets, in the planets list's order
+    /// (its filters when they include this planet, else all of yours). Wraps around. A view change, so it works while paused.
+    /// </summary>
+    public void Step(World w, int dir)
+    {
+        if (_screen.PlanetScreenId is not int id) return;
+        bool Openable(Body b) => b.Owner == Side.Player && b.Board != null;
+        var list = Rows(w).Where(Openable).ToList();
+        if (!list.Any(b => b.Id == id)) list = Sorted(w, w.Bodies.Where(Openable)).ToList();
+        if (list.Count < 2) return;
+        var at = list.FindIndex(b => b.Id == id);
+        _screen.PlanetScreenId = list[((at < 0 ? 0 : at) + dir + list.Count) % list.Count].Id;
+    }
+
+    public static readonly Color MakesColor = new("6fe08a"), UsesColor = new("f2a83e");
+
+    /// <summary>Outline the build list's buildings that make (green) or use (amber) the hovered good; none when null.</summary>
+    private void ShowGood(Body b, string? good)
+    {
+        _shownGood = good;
+        foreach (var (button, kind) in _buildButtons)
+        {
+            if (!IsInstanceValid(button)) continue;
+            var makes = good != null && Colonies.KindMakes(b, kind, good);
+            var uses = good != null && !makes && Colonies.KindUses(kind, good);
+            foreach (var state in new[] { "normal", "hover", "pressed", "disabled" })
+            {
+                if (!makes && !uses) { button.RemoveThemeStyleboxOverride(state); continue; }
+                var box = new StyleBoxFlat { BgColor = new Color(0.08f, 0.1f, 0.14f, 0.95f), BorderColor = makes ? MakesColor : UsesColor };
+                box.SetBorderWidthAll(2);
+                box.SetCornerRadiusAll(4);
+                box.SetContentMarginAll(6);
+                button.AddThemeStyleboxOverride(state, box);
+            }
+        }
+    }
+
+    /// <summary>The hover card for a good in storage: the buildings here that make and use it, and what could be built for it.</summary>
+    private static Control GoodCard(Body b, string good, string name)
+    {
+        string Count(IEnumerable<Piece> ps) => string.Join(", ", ps.GroupBy(p => Planets.BuildingKind(p.Kind)?.Name ?? p.Kind)
+            .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key));
+        var made = b.Pieces.Where(p => Colonies.PieceMakes(b, p, good)).ToList();
+        var used = b.Pieces.Where(p => Colonies.PieceUses(b, p, good)).ToList();
+        var could = Colonies.Kinds.Where(k => k.Buildable && Colonies.KindMakes(b, k, good)).Select(k => k.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        return Tips.Card(name, Ui.Text, new (string, Color?)[]
+        {
+            ($"Made by: {(made.Count > 0 ? Count(made) : "nothing here")}", MakesColor),
+            ($"Used by: {(used.Count > 0 ? Count(used) : good == "food" ? "the people" : "nothing here")}" + (good == "food" && used.Count > 0 ? " and the people" : ""), UsesColor),
+            (could.Count > 0 ? $"Could build for it: {string.Join(", ", could)}" : "", Ui.Dim),
+            ("Green outlines: buildings that make it. Amber: buildings that use it.", Ui.Dim),
+        });
+    }
+
+    /// <summary>A good's name in the storage list: hovering it outlines what makes and uses it, with a card saying which.</summary>
+    private Control GoodName(Body b, string good, string name)
+    {
+        var l = new TipLabel { Text = name, Tip = () => GoodCard(b, good, name) };
+        l.AddThemeFontSizeOverride("font_size", 13);
+        l.AddThemeColorOverride("font_color", Ui.Text);
+        l.MouseEntered += () => _hoverGood = good;
+        l.MouseExited += () => { if (_hoverGood == good) _hoverGood = null; };
+        return l;
     }
 
     // ---- Shared bits ---------------------------------------------------------------------------
@@ -194,6 +266,11 @@ public partial class ColonyScreen : PanelContainer
             "free space" => rows.Where(b => FreeTiles(b) > 0),
             _ => rows,
         };
+        return Sorted(w, rows);
+    }
+
+    private IEnumerable<Body> Sorted(World w, IEnumerable<Body> rows)
+    {
         return _sort switch
         {
             "industry" => rows.OrderByDescending(b => Planets.IndustryPerDay(w, b)).ThenBy(b => b.Name),
@@ -363,6 +440,8 @@ public partial class ColonyScreen : PanelContainer
         kind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         top.AddChild(kind);
         top.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        top.AddChild(Ui.SmallButton("◀ Back", () => Step(w, -1), "Your previous planet in the planets list ([)"));
+        top.AddChild(Ui.SmallButton("Next ▶", () => Step(w, 1), "Your next planet in the planets list (])"));
         top.AddChild(Ui.SmallButton("Planets list", () => _screen.PlanetScreenId = null, "Back to the planets list (Esc)"));
         top.AddChild(Ui.SmallButton("Back to map", () => { _screen.PlanetScreenId = null; _screen.ShowPlanets = false; }, "Close the planet screen"));
         _root.AddChild(top);
@@ -560,16 +639,18 @@ public partial class ColonyScreen : PanelContainer
             var queues = why == null && (busy || Economy.Of(w, Side.Player).Industry < k.Cost);
             if (_onlyHere && why != null) continue;
             var power = k.Power < 0 ? $"+{-k.Power:0} power" : k.Power > 0 ? $"{k.Power:0} power" : "no power";
-            var button = new Button
+            var kind = k;
+            var note = why != null ? why + "." : queues ? "Queues behind what is under way here, paid when it starts." : "";
+            var button = new TipButton
             {
                 Text = $"{k.Name}  {k.W}×{k.H}\n{k.Cost:0} Ind · {Races.BuildHours(w, b, k) / 24:0} d · {k.StaffK:0.#}k staff · {power}"
                        + (k.Materials is { Count: > 0 } mats ? "\n" + string.Join(", ", mats.Select(m => $"{m.Value:0} {Colonies.GoodName(m.Key).ToLowerInvariant()}")) : ""),
                 Alignment = HorizontalAlignment.Left, FocusMode = FocusModeEnum.None, ToggleMode = true, ButtonPressed = _placing == k.Id,
                 Disabled = why != null, SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                TooltipText = (why != null ? why + ". " : queues ? "Queues behind what is under way here, paid when it starts. " : "") + k.Effect + $". Goes on {TerrainName(k.Terrain)}. Upkeep {k.Upkeep:0.##} spare parts a day."
-                              + (k.Uses is { Count: > 0 } uses ? " Uses " + string.Join(", ", uses.Select(u => $"{u.Value:0.##} {Colonies.GoodName(u.Key).ToLowerInvariant()}")) + " a day." : "")
-                              + (k.Bonus is { Count: > 0 } bonus ? " Bonus beside " + string.Join(", ", bonus.Select(x => $"a {Planets.BuildingKind(x.Next)?.Name.ToLowerInvariant()} (+{x.Share:P0})")) + "." : ""),
+                TooltipText = k.Name,
+                Tip = () => BuildingCard(b, kind, note, why != null),
             };
+            _buildButtons.Add((button, kind));
             button.AddThemeFontSizeOverride("font_size", 13);
             button.AddThemeColorOverride("font_color", BoardView.AreaColors.GetValueOrDefault(k.Area, Ui.Text));
             var id = k.Id;
@@ -583,6 +664,32 @@ public partial class ColonyScreen : PanelContainer
         scroll.AddChild(list);
         col.AddChild(scroll);
         return Box(col, 10);
+    }
+
+    /// <summary>The hover card for a building in the build list: what it costs, takes, makes and uses, and what it does.</summary>
+    private static Control BuildingCard(Body b, BuildingData k, string note, bool blocked)
+    {
+        string Goods(Dictionary<string, double> d, string per) => string.Join(", ", d.Select(x => $"{x.Value:0.##} {Colonies.GoodName(x.Key).ToLowerInvariant()}{per}"));
+        var makes = new List<string>();
+        if (k.Makes is { Count: > 0 }) makes.Add(Goods(k.Makes, " a day"));
+        if (k.Food > 0) makes.Add($"{k.Food * Planets.D.FarmFoodPerDay:0.##} food a day" + (k.AnyAir || k.Terrain == "ocean" ? "" : " (less where little grows)"));
+        if (k.Mines > 0) makes.Add($"{k.Mines:0.##} a day of the mineral under it (more if rich)");
+        if (k.Industry > 0) makes.Add($"{k.Industry:0.##} Industry a day");
+        if (k.Research > 0) makes.Add("research");
+        if (k.HousingK > 0) makes.Add($"homes for {k.HousingK:0.#}k people");
+        var power = k.Power < 0 ? $"makes {-k.Power:0} power" : k.Power > 0 ? $"needs {k.Power:0} power" : "needs no power";
+        var lines = new List<(string, Color?)>
+        {
+            ($"{Colonies.AreaName(k.Area)} · {k.W}×{k.H} tiles on {TerrainName(k.Terrain)}", Ui.Dim),
+            ($"Cost {k.Cost:0} Industry · {k.Days:0} days to build" + (k.Materials is { Count: > 0 } mats ? $" · materials {Goods(mats, "")}" : ""), null),
+            ($"Staff {k.StaffK:0.#}k people · {power}", null),
+            (makes.Count > 0 ? "Makes " + string.Join("; ", makes) : "", new Color("8fe0a0")),
+            ((k.Uses is { Count: > 0 } uses ? "Uses " + Goods(uses, " a day") + " · " : "") + $"upkeep {k.Upkeep:0.##} spare parts a day", new Color("f2c14e")),
+            (k.Bonus is { Count: > 0 } bonus ? "Bonus beside " + string.Join(", ", bonus.Select(x => $"a {Planets.BuildingKind(x.Next)?.Name.ToLowerInvariant()} (+{x.Share:P0})")) : "", null),
+            (k.Effect, Ui.Text),
+            (note, blocked ? Ui.Rival : Ui.Dim),
+        };
+        return Tips.Card(k.Name, BoardView.AreaColors.GetValueOrDefault(k.Area, Ui.Text), lines);
     }
 
     private static string TerrainName(string t) => t switch
@@ -654,7 +761,7 @@ public partial class ColonyScreen : PanelContainer
         var grid = new GridContainer { Columns = 5 };
         grid.AddThemeConstantOverride("h_separation", 16);
         foreach (var h in new[] { "Good", "Made /day", "Used /day", "Held", "Spare" }) grid.AddChild(Ui.Label(h, 12, Ui.Dim));
-        grid.AddChild(Ui.Label("Food", 13));
+        grid.AddChild(GoodName(b, "food", "Food"));
         grid.AddChild(Live(_ => $"{Planets.FoodMadePerDay(b):0.##}", 13));
         grid.AddChild(Live(_ => $"{Planets.FoodNeedPerDay(b):0.##}", 13));
         grid.AddChild(Live(_ => $"{b.FoodStock:0}", 13));
@@ -662,7 +769,7 @@ public partial class ColonyScreen : PanelContainer
         foreach (var g in Colonies.Goods)
         {
             var id = g.Id;
-            grid.AddChild(Ui.Label(g.Name, 13));
+            grid.AddChild(GoodName(b, id, g.Name));
             grid.AddChild(Live(_ => Colonies.MadePerDay(b, id) is var v && v > 0.001 ? $"{v:0.##}" : "—", 13));
             grid.AddChild(Live(_ => Colonies.UsePerDay(b, id) is var v && v > 0.001 ? $"{v:0.##}" : "—", 13));
             grid.AddChild(Live(_ => $"{Colonies.Held(b, id):0}", 13));
@@ -697,6 +804,50 @@ public partial class ColonyScreen : PanelContainer
         return box;
     }
 
+    /// <summary>
+    /// Suggested loads both ways (Colonies.Ideas, the same rules Auto transport uses), nearest first, each with
+    /// Send once and Set up run, or a note that Auto is already on it. Rebuilt every few game hours.
+    /// </summary>
+    private Control Ideas(Body b)
+    {
+        var box = Column(3);
+        var shown = "";
+        _live.Add(w2 =>
+        {
+            var stamp = $"{(long)(w2.Hour / 6)}|{w2.Shipments.Count}|{w2.FixedRuns.Count}|{Economy.Of(w2, Side.Player).AutoTransport}";
+            if (stamp == shown || Ui.MouseHeld) return;
+            shown = stamp;
+            foreach (var c in box.GetChildren()) c.QueueFree();
+            var ideas = Colonies.Ideas(w2, Side.Player, b);
+            box.AddChild(Ui.Label("Suggested loads", 13, Ui.Dim));
+            if (ideas.Count == 0) { box.AddChild(Wrap("Nothing needed: no shortages here, and no spare another planet is short of.", 12, Ui.Dim)); return; }
+            foreach (var idea in ideas)
+            {
+                var row = Row(6);
+                var good = Colonies.GoodName(idea.Good).ToLowerInvariant();
+                var risk = idea.Risk switch { RouteRisk.High => "HIGH risk", RouteRisk.Medium => "some risk", _ => "low risk" };
+                var text = Wrap($"{(idea.Bring ? "Bring" : "Send")} {idea.Amount:0} {good} {(idea.Bring ? "from" : "to")} {idea.OtherName} · {idea.TripDays:0.#} d · {risk}", 12,
+                    idea.Risk == RouteRisk.High ? Ui.Rival : Ui.Text);
+                text.MouseFilter = MouseFilterEnum.Pass;
+                text.TooltipText = $"Route: {idea.RiskWhy}";
+                row.AddChild(text);
+                var from = idea.Bring ? idea.OtherId : b.Id;
+                var to = idea.Bring ? b.Id : idea.OtherId;
+                if (idea.AutoDoing) row.AddChild(Ui.Label("Auto is already doing this", 12, new Color("8fe0a0")));
+                else
+                {
+                    var (g, amount) = (idea.Good, idea.Amount);
+                    row.AddChild(Ui.SmallButton("Send once", () => _screen.IssueNow(new ShipGoodsCommand(Side.Player, from, to, g, amount), "send goods"),
+                        "The nearest free freighter carries one load now"));
+                    row.AddChild(Ui.SmallButton("Set up run", () => _screen.IssueNow(new FixedRunCommand(Side.Player, from, to, g, 20), "fixed run"),
+                        "A fixed run: every 20 days a free freighter carries what can be spared (stop it with ✕ below)"));
+                }
+                box.AddChild(row);
+            }
+        });
+        return box;
+    }
+
     private Control Transport(World w, Body b)
     {
         var me = Economy.Of(w, Side.Player);
@@ -719,6 +870,8 @@ public partial class ColonyScreen : PanelContainer
         col.AddChild(LiveWrap(w2 => string.Join("\n", w2.Shipments.Where(s => s.Side == Side.Player && (s.FromBodyId == b.Id || s.ToBodyId == b.Id))
             .Select(s => $"{(s.ToBodyId == b.Id ? "Coming from" : "Going to")} {w2.FindBody(s.ToBodyId == b.Id ? s.FromBodyId : s.ToBodyId)?.Name}: "
                          + string.Join(", ", s.Cargo.Select(c => $"{c.Value:0} {GoodShort(c.Key)}")) + (s.Loaded ? "" : " (loading)"))) is { Length: > 0 } t ? t : "Nothing on the way", 13));
+
+        col.AddChild(Ideas(b));
 
         foreach (var run in w.FixedRuns.Where(r => r.Side == Side.Player && (r.FromBodyId == b.Id || r.ToBodyId == b.Id)))
         {

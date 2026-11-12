@@ -147,6 +147,21 @@ public partial class ShipsScreen : PanelContainer
         _ => slot.Type,
     };
 
+    private static IEnumerable<ShipClass> ClassOrder(World w) =>
+        GameData.ShipClasses.Values.OrderBy(c => Unlocked(w, c) ? 0 : 1).ThenBy(c => c.LengthM).ThenBy(c => c.Id, StringComparer.Ordinal);
+
+    /// <summary>Back (-1) or Next (+1): the previous or next class in the Classes list, opened on Designs. Wraps around; works while paused.</summary>
+    public void Step(World w, int dir)
+    {
+        var list = ClassOrder(w).ToList();
+        if (list.Count < 2) return;
+        var at = list.FindIndex(c => c.Id == _classId);
+        _classId = list[((at < 0 ? 0 : at) + dir + list.Count) % list.Count].Id;
+        _designId = Designer.StandardId;
+        _working = null;
+        _tab = "designs";
+    }
+
     private static string SizeOf(ShipClass c) => c.LengthM < 100 ? "S" : c.LengthM < 200 ? "M" : c.LengthM < 400 ? "L" : "H";
 
     private static bool Unlocked(World w, ShipClass c) => c.Needs.Length == 0 || Tech.Has(w, Me, c.Needs);
@@ -183,6 +198,8 @@ public partial class ShipsScreen : PanelContainer
             b.Modulate = level == l ? Ui.Player : new Color(1, 1, 1, 0.6f);
             top.AddChild(b);
         }
+        top.AddChild(Ui.SmallButton("◀ Back", () => Step(w, -1), "The previous class in the list ([)"));
+        top.AddChild(Ui.SmallButton("Next ▶", () => Step(w, 1), "The next class in the list (])"));
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowShips = false, "Close the ships screen (J or Esc)"));
         _root.AddChild(top);
         if (_tab == "tree") { BuildTree(w); return; }
@@ -224,7 +241,7 @@ public partial class ShipsScreen : PanelContainer
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         var list = Column(2);
         list.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        foreach (var cls in GameData.ShipClasses.Values.OrderBy(c => Unlocked(w, c) ? 0 : 1).ThenBy(c => c.LengthM).ThenBy(c => c.Id, StringComparer.Ordinal))
+        foreach (var cls in ClassOrder(w))
         {
             var open = Unlocked(w, cls);
             var head = Ui.Label($"{cls.Name}  {SizeOf(cls)}", 15, cls.Id == _classId ? Ui.Player : open ? Ui.Text : Ui.Dim);
@@ -287,6 +304,8 @@ public partial class ShipsScreen : PanelContainer
             : design.Auto ? $"Auto variant: {Designer.RoleName(design.Role)}" : "Your variant: pinned", 13, Ui.Dim));
         col.AddChild(head);
         if (!Unlocked(w, cls)) col.AddChild(Ui.Label($"Needs {GameData.Research(cls.Needs).Name} before yards can build it", 13, Ui.Rival));
+        var picture = new ShipPicture(cls, new Vector2(0, 150), fit) { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        col.AddChild(picture);
 
         var picks = Designer.PickedVsBest(w, Me, cls, fit);
         var behind = picks.Count(p => p.Picked != p.Best);
@@ -572,6 +591,7 @@ public partial class ShipsScreen : PanelContainer
             head.AddChild(Ui.Label(m.Code, 13, Ui.Player));
             c.AddChild(head);
             var color = m.Status switch { "Active" => new Color("8fe0a0"), "Special" => Gold, "Upgrade ready" => Ui.Player, _ => Ui.Dim };
+            c.AddChild(new ShipPicture(cls, new Vector2(210, 48), m.Fit));
             c.AddChild(Ui.Label(m.Status, 13, color));
             c.AddChild(Ui.Label($"{m.InService} in service{(m.Building > 0 ? $" · building {m.Building}" : "")}", 12, Ui.Text));
             c.AddChild(Wrap(Designer.Changes(Fitting.StandardFit(cls), m.Fit) is var ch && ch != "no change" ? ch : "Standard parts", 11, Ui.Dim));
@@ -681,6 +701,7 @@ public partial class ShipsScreen : PanelContainer
         head.AddChild(Ui.Label(cls.Name, 15, open ? Ui.Player : Ui.Dim));
         head.AddChild(Ui.Label($"{cls.Short} · {cls.LengthM:0} m", 12, Ui.Dim));
         c.AddChild(head);
+        c.AddChild(new ShipPicture(cls, new Vector2(0, 54), cutaway: false) { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var slots = string.Join(" ", cls.SlotList.GroupBy(s => s.Type).Select(g => $"{g.Count()}{g.Key}" + (g.Any(s => s.Pair) ? $"({g.Count(s => s.Pair)} pair)" : "")));
         c.AddChild(Ui.Label($"Slots {slots} · {cls.Power:0} MW · {cls.Cost:0} Industry", 12, Ui.Text));
         c.AddChild(Wrap(cls.Role, 11, Ui.Dim));

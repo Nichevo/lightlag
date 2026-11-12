@@ -552,10 +552,10 @@ public static partial class FlightPlanner
     /// the enemy, or (overtake) passes beside it, OvertakePassMm off, at the chosen extra speed. Fuel is the same either way.
     /// Fails, saying why, when the fleet is too slow or short of fuel.
     /// </summary>
-    public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
+    public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf, double? standoffMm = null)
     {
         using var timed = SectionTimer.Time("route-planner");
-        var plan = PlanChaseDirect(w, fleet, enemy, mode, speedFraction, perf);
+        var plan = PlanChaseDirect(w, fleet, enemy, mode, speedFraction, perf, standoffMm);
         if (plan.Flight == null || Avoidance.FirstHit(w, plan.Flight) is not BodyHit hit) return plan;
         // The chase line runs into a body: first fly past it, then the chase is aimed again from there.
         var beside = hit.BodyAt + hit.Side * Fleets.ClearanceFor(hit.Body);
@@ -567,7 +567,7 @@ public static partial class FlightPlanner
         return around;
     }
 
-    private static FlightPlan PlanChaseDirect(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
+    private static FlightPlan PlanChaseDirect(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf, double? standoffMm = null)
     {
         var now = w.Hour;
         var side = fleet.Side;
@@ -591,7 +591,7 @@ public static partial class FlightPlanner
 
         var r = fleet.Position - at.Value;
         var u = fleet.Velocity - vt;
-        var standoff = ChaseDistance(mode) ?? r.Length;
+        var standoff = standoffMm ?? ChaseDistance(mode) ?? r.Length;
         var endSpeed = mode == ChaseMode.Overtake ? double.PositiveInfinity : 0;
         // Keep the fleet at least slightly faster than the enemy when it has to catch up.
         if (mode != ChaseMode.MatchSpeed && top <= theirSpeed * 1.02 && Vec2.Dot(vt, r) > 0 && r.Length > standoff * 1.05)

@@ -806,6 +806,30 @@ public static class Colonies
         }
     }
 
+    /// <summary>True if a kind of building could make the good on this body ("food" counts farms; a mine needs a deposit of it here).</summary>
+    public static bool KindMakes(Body b, BuildingData data, string good) =>
+        data.Makes?.ContainsKey(good) == true || (good == "food" && data.Food > 0)
+        || (data.Mines > 0 && b.Board?.Deposits.Any(d => d.Mineral == good) == true);
+
+    /// <summary>True if a kind of building uses the good (inputs, spare-part upkeep, reactor fuel, water, gun ammunition).</summary>
+    public static bool KindUses(BuildingData data, string good) =>
+        data.Uses?.ContainsKey(good) == true || (good == Spares && data.Upkeep > 0)
+        || (good == "uranium" && data.Id == "power-plant") || (good == "water" && (data.Id == "fusion-plant" || data.HousingK > 0))
+        || (good == "ammunition" && data.Ammo > 0);
+
+    /// <summary>True if this building makes the good here (a mine only digs the deposit under it).</summary>
+    public static bool PieceMakes(Body b, Piece p, string good) =>
+        Planets.BuildingKind(p.Kind) is BuildingData data
+        && (data.Makes?.ContainsKey(good) == true || (good == "food" && data.Food > 0)
+            || (data.Mines > 0 && DepositUnder(b, p)?.Mineral == good));
+
+    /// <summary>True if this building uses the good here (habitats drink water only while thirsty).</summary>
+    public static bool PieceUses(Body b, Piece p, string good) =>
+        Planets.BuildingKind(p.Kind) is BuildingData data
+        && (Inputs(b, p, data).Any(x => x.Good == good) || (good == Spares && data.Upkeep > 0)
+            || (good == "uranium" && data.Id == "power-plant") || (good == "water" && (data.Id == "fusion-plant" || (data.HousingK > 0 && b.Thirsty)))
+            || (good == "ammunition" && data.Ammo > 0));
+
     public const string ElectronicsPlant = "electronics-plant";
 
     /// <summary>Share of an electronics plant's output without rare earths (copper only).</summary>
@@ -1171,6 +1195,67 @@ public static class Colonies
             }
     }
 
+    /// <summary>A planet "will run out" of a good it burns faster than it makes when its stock lasts under this many days.</summary>
+    public const double RunOutDays = 20;
+
+    /// <summary>
+    /// How much more of a good the planet would like (0: none): up to Auto transport's fill line when it asks,
+    /// or up to its target when its stock will run out within RunOutDays.
+    /// </summary>
+    public static double NeedOf(Body b, string good)
+    {
+        if (b.Board == null) return 0;
+        var held = Held(b, good);
+        if (Asks(b, good, out var upTo)) return Math.Max(0, upTo - held);
+        var net = UsePerDay(b, good) - MadePerDay(b, good);
+        if (net > 1e-6 && held / net < RunOutDays) return Math.Max(0, Math.Max(Target(b, good), net * RunOutDays * 1.5) - held);
+        return 0;
+    }
+
+    /// <summary>
+    /// Suggested loads for one planet, both ways, matching Auto transport's rules: "bring here" for goods it is
+    /// short of (or will run out of) from planets with spare, and "send from here" for its spare to planets that
+    /// need it. Spare is stock above the planet's own keep line (SpareOf); risk is the Supply tab's route risk.
+    /// Sorted by trip time, nearest first; AutoDoing when a load is already on the way or Auto would send it.
+    /// </summary>
+    public static List<TransportIdea> Ideas(World w, Side side, Body here, int max = 8)
+    {
+        var ideas = new List<TransportIdea>();
+        if (here.Owner != side) return ideas;
+        var speed = GameData.ShipClasses.TryGetValue("freighter", out var fr) ? fr.MaxSpeedMmPerHour : 600;
+        var auto = Economy.Of(w, side).AutoTransport;
+        var mine = w.Bodies.Where(b => b.Owner == side && b.Id != here.Id).OrderBy(b => b.Id).ToList();
+        var sources = w.Bodies.Where(b => b.Owner == side && (b.Board != null || b.Stock.Count > 0) && !Economy.Blockaded(w, b)).OrderBy(b => b.Id).ToList();
+
+        // The source Auto would pick for a planet asking for a good: lowest risk, then most spare.
+        Body? AutoSource(Body to, string good) => sources.Where(b => b.Id != to.Id && SpareOf(b, good) >= 1)
+            .Select(b => (Body: b, Risk: SupplyChain.RiskOf(w, side, b.Position, to.Position, null, false).Risk))
+            .OrderBy(x => x.Risk).ThenByDescending(x => SpareOf(x.Body, good)).ThenBy(x => x.Body.Id).FirstOrDefault().Body;
+
+        TransportIdea Make(bool bring, Body from, Body to, string good, double amount)
+        {
+            var other = bring ? from : to;
+            var (risk, why) = SupplyChain.RiskOf(w, side, from.Position, to.Position, null, false);
+            var doing = ShipmentTo(w, side, to.Id, good) != null || (auto && Asks(to, good, out _) && AutoSource(to, good)?.Id == from.Id);
+            return new TransportIdea(bring, other.Id, other.Name, good, amount, Vec2.Distance(from.Position, to.Position) / Math.Max(1, speed) / 24, risk, why, doing);
+        }
+
+        foreach (var good in Goods.Select(g => g.Id))
+        {
+            var need = NeedOf(here, good);
+            if (need >= 1 && !Economy.Blockaded(w, here))
+                foreach (var from in sources.Where(b => b.Id != here.Id && SpareOf(b, good) >= 1))
+                    ideas.Add(Make(true, from, here, good, Math.Min(need, SpareOf(from, good))));
+            var spare = Economy.Blockaded(w, here) ? 0 : SpareOf(here, good);
+            if (spare >= 1)
+                foreach (var to in mine.Where(b => b.Board != null))
+                    if (NeedOf(to, good) is var n && n >= 1)
+                        ideas.Add(Make(false, here, to, good, Math.Min(spare, n)));
+        }
+        return ideas.OrderBy(i => i.Bring ? 0 : 1).ThenBy(i => i.TripDays).ThenBy(i => i.Risk).ThenBy(i => i.Good, StringComparer.Ordinal).ThenBy(i => i.OtherId)
+            .Take(max).ToList();
+    }
+
     /// <summary>Sends the nearest free freighter with one load (false: none free, or nothing to send).</summary>
     public static bool ShipOnce(Simulation sim, Side side, Body from, Body to, string good, double amount)
     {
@@ -1374,6 +1459,9 @@ public sealed record SetSiegeStockCommand(Side Side, int BodyId, int Days) : Gam
 
 /// <summary>Turn Auto transport on or off for a side.</summary>
 /// <summary>Send one load of a good from one planet to another with the nearest free freighter.</summary>
+/// <summary>A suggested load for the planet screen's Transport section (see Colonies.Ideas).</summary>
+public sealed record TransportIdea(bool Bring, int OtherId, string OtherName, string Good, double Amount, double TripDays, RouteRisk Risk, string RiskWhy, bool AutoDoing);
+
 public sealed record ShipGoodsCommand(Side Side, int FromBodyId, int ToBodyId, string Good, double Amount) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null;
