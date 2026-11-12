@@ -66,6 +66,7 @@ public partial class Hud : CanvasLayer
     private KeyHelp _keyHelp = null!;
     private ProgressScreen _progress = null!;
     private IntelScreen _intel = null!;
+    private BottomBar _bottomBar = null!;
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -167,6 +168,8 @@ public partial class Hud : CanvasLayer
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
+        _bottomBar = new BottomBar(JumpTo) { Visible = false };
+        AddChild(_bottomBar);
 
         _info = Ui.Label("", 14);
         _info.CustomMinimumSize = new Vector2(280, 0);
@@ -351,6 +354,17 @@ public partial class Hud : CanvasLayer
         _ships.Visible = w.Loop && _screen.ShowShips && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible;
         if (_ships.Visible) _ships.Refresh(sim);
         _shipsButton.Modulate = _ships.Visible ? Ui.Player : Colors.White;
+        if (w.Loop) ApplyBadges(w);
+        _bottomBar.UrgentOnly = _screen.Engagement != null;
+        if (w.Loop)
+        {
+            var view = GetViewport().GetVisibleRect().Size;
+            var barWidth = Math.Min(view.X * 0.55f, 900);
+            _bottomBar.Position = new Vector2(16, view.Y - 64);
+            _bottomBar.Size = new Vector2(barWidth, 30);
+            _bottomBar.Refresh(w, barWidth);
+        }
+        else _bottomBar.Visible = false;
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
         _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible && !_ships.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
@@ -481,6 +495,47 @@ public partial class Hud : CanvasLayer
         }
         _needsPrimed = true; // items already there when the game opens don't pop up
         _toasted.IntersectWith(me.Needs.Select(n => n.Key)); // an item that clears and comes back pops up again
+    }
+
+    /// <summary>
+    /// Colour each screen tab by the Needs you items that belong to it (red urgent, amber soon, blue advice), with a
+    /// count and an underline: fleet troubles on Fleets, shortages on Planets, and so on.
+    /// </summary>
+    private void ApplyBadges(World w)
+    {
+        var groups = Economy.Of(w, Side.Player).Needs.GroupBy(n => NeedScreens.For(w, n)).ToDictionary(g => g.Key, g => g.ToList());
+        void Badge(Button b, string screen)
+        {
+            var list = groups.GetValueOrDefault(screen);
+            var baseText = b.Text;
+            var cut = baseText.IndexOf("  ●", StringComparison.Ordinal);
+            if (cut >= 0) baseText = baseText[..cut];
+            if (list is not { Count: > 0 })
+            {
+                b.Text = baseText;
+                foreach (var st in new[] { "normal", "hover" }) b.RemoveThemeStyleboxOverride(st);
+                b.RemoveThemeColorOverride("font_color");
+                return;
+            }
+            var worst = list.Min(n => n.Level);
+            var color = BottomBar.ColorOf(worst);
+            b.Text = $"{baseText}  ● {list.Count}";
+            b.AddThemeColorOverride("font_color", color);
+            foreach (var st in new[] { "normal", "hover" })
+            {
+                var box = new StyleBoxFlat { BgColor = new Color(0.1f, 0.12f, 0.17f, st == "hover" ? 1f : 0.9f), BorderColor = color };
+                box.BorderWidthBottom = 3;
+                box.SetCornerRadiusAll(4);
+                box.SetContentMarginAll(6);
+                b.AddThemeStyleboxOverride(st, box);
+            }
+            b.TooltipText = b.TooltipText.Split("\n\nNeeds you here:")[0] + "\n\nNeeds you here:\n" + string.Join("\n", list.OrderBy(n => n.Level).Take(5).Select(n => $"{n.Level}: {n.Text}"));
+        }
+        Badge(_fleetsButton, NeedScreens.Fleets);
+        Badge(_planetsButton, NeedScreens.Planets);
+        Badge(_shipsButton, NeedScreens.Ships);
+        Badge(_researchButton, NeedScreens.Research);
+        Badge(_empireButton, NeedScreens.Empire);
     }
 
     private void JumpTo(NeedItem n)

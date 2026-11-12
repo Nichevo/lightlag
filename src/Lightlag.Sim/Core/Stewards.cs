@@ -28,6 +28,23 @@ public sealed class NeedItem
     public double Hour { get; set; }
 }
 
+/// <summary>Which screen a Needs you item belongs to, for the tab badges: fleets, planets, ships, research or empire.</summary>
+public static class NeedScreens
+{
+    public const string Fleets = "fleets", Planets = "planets", Ships = "ships", Research = "research", Empire = "empire";
+
+    public static string For(World w, NeedItem n) => n.Area switch
+    {
+        AutoArea.Research => Research,
+        AutoArea.Shipyard or AutoArea.Designs or AutoArea.Refits or AutoArea.Crews => Ships,
+        AutoArea.Building or AutoArea.Workers or AutoArea.Transport or AutoArea.Settling => Planets,
+        AutoArea.Supply or AutoArea.Battle or AutoArea.Boarding or AutoArea.AfterBattle => Fleets,
+        _ when n.FleetId != null => Fleets,
+        _ when n.BodyId != null => Planets,
+        _ => Empire,
+    };
+}
+
 /// <summary>A different automation level for one planet or fleet in one area.</summary>
 public sealed record AutoOverride(AutoArea Area, int? BodyId, int? FleetId, AutoLevel Level);
 
@@ -451,9 +468,27 @@ public static class Stewards
             BattleRules.Steward(_sim, _side, Offer);
             Crews.Steward(_sim, _side, Offer);
             Events.Needs(_w, _side, (key, text, bodyId, fleetId, act, label) => Need(NeedLevel.Urgent, key, text, bodyId, fleetId, act, label, AutoArea.Events));
+            LostContacts();
             AfterBattle.Needs(_w, _side, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.AfterBattle));
             _state.Needs = _needs.Where(n => !_state.Dismissed.ContainsKey(n.Key))
                 .OrderBy(n => n.Level).ThenBy(n => n.Hour).ThenBy(n => n.Key, StringComparer.Ordinal).ToList();
+        }
+
+        /// <summary>Chases that ended with the quarry not where expected: say so for two days, with a search at its likely base.</summary>
+        private void LostContacts()
+        {
+            foreach (var f in _w.Fleets.Where(f => f.Side == _side && f.LostContact != null).OrderBy(f => f.Id))
+            {
+                var lc = f.LostContact!;
+                if (_w.Hour - lc.Hour > 48 || f.Chase != null || f.ShipIds.Count == 0) { if (_w.Hour - lc.Hour > 48) f.LostContact = null; continue; }
+                var age = _w.Hour - lc.LastSeenHour;
+                var ago = age < 48 ? $"{age:0} hours" : $"{age / 24:0} days";
+                var body = lc.LikelyBodyId is int id ? _w.FindBody(id) : null;
+                Need(NeedLevel.Soon, $"contact:{f.Id}", $"{f.Name} lost contact with {lc.Name} (last seen {ago} ago)" + (body != null ? $"; its likely base is {body.Name}" : ""),
+                    body?.Id, f.Id,
+                    body == null ? null : new PlanFlightCommand(f.Id, new FlightRequest(body.Id, body.Position, 0.8, ArrivalStyle.Brake, HoldStyle.Orbit, _w.Tick)),
+                    body == null ? null : $"Search at {body.Name}");
+            }
         }
 
         private void Need(NeedLevel level, string key, string text, int? bodyId = null, int? fleetId = null, GameCommand? act = null, string? label = null, AutoArea? area = null)

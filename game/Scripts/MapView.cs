@@ -326,6 +326,11 @@ public partial class MapView : Node2D
                 case EffectKind.RailMiss:
                     DrawLine(from, to, new Color(mine, 0.3f * fade), 1);
                     break;
+                case EffectKind.Decoy:
+                    // A hot heat sink tumbling away, the missile turning after it.
+                    DrawCircle(from, 2 + 3 * fade, new Color(1f, 0.55f, 0.15f, 0.8f * fade));
+                    DrawLine(to, from, new Color(1f, 0.7f, 0.3f, 0.4f * fade), 1);
+                    break;
                 case EffectKind.PointDefenceKill:
                     DrawDashedLine(from, to, new Color(mine, 0.7f * fade), 1, 3);
                     DrawArc(to, 3 + 6 * (1 - fade), 0, Mathf.Tau, 12, new Color(1, 1, 1, 0.9f * fade), 1.5f, true);

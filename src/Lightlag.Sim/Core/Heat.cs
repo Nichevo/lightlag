@@ -166,7 +166,7 @@ public static class Heat
             w.Missiles.Remove(m);
             fooled++;
             if (w.ActiveBattle is Battle b) b.For(m.Side).Decoyed++;
-            sim.AddEffect(new CombatEffect(w.Hour, EffectKind.PointDefenceKill, s.Position, m.Position, f.Side));
+            sim.AddEffect(new CombatEffect(w.Hour, EffectKind.Decoy, s.Position, m.Position, f.Side)); // drawn off by the sink, not shot down
         }
         if (fooled > 0 && w.ActiveBattle is Battle battle) BattleRecords.Mark(w, battle, f.Side, MarkKind.Decision, $"{s.Name}'s heat sink draws off {fooled} missile{(fooled == 1 ? "" : "s")}");
         sim.Log.Info("heat", $"{s.Name} ejects a heat sink", new { shipId = s.Id, why, left = s.HeatSinks, fooled });

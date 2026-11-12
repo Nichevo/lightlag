@@ -134,8 +134,11 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
         if (!plan.Ok || plan.Flight == null)
         {
             sim.Log.Warn("fleet", $"{fleet.Name} cannot fly that: {plan.Problem}", new { fleetId = fleet.Id, Request, Source });
+            fleet.Refused = plan.Problem ?? "no way to fly that";
+            fleet.RefusedHour = world.Hour;
             return;
         }
+        fleet.Refused = null;
         fleet.Flight = plan.Flight;
         fleet.JoinFleetId = null;
         fleet.Chase = null;

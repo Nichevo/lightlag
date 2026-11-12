@@ -52,6 +52,9 @@ public enum ChaseMode { None, MatchSpeed, GunRange, MissileRange, ShadowGuns, Sh
 /// be (its last seen track), and planned again only when a new burn is seen, so the chase goes on while
 /// it is out of sight.
 /// </summary>
+/// <summary>A quarry lost from a chase: who, when it was last seen, and where it most likely went (its base).</summary>
+public sealed record LostContact(int FleetId, string Name, double Hour, double LastSeenHour, int? LikelyBodyId);
+
 public sealed class ChaseOrder
 {
     public int TargetFleetId { get; set; }
@@ -78,6 +81,13 @@ public sealed class ChaseOrder
 
     /// <summary>The current flight goes round a body first: aim the chase again once it ends.</summary>
     public bool Detouring { get; set; }
+
+    /// <summary>When and where the quarry was last seen (for the lost-contact report).</summary>
+    public double LastSeenHour { get; set; }
+    public Vec2? LastSeenAt { get; set; }
+
+    /// <summary>The quarry has been out of sight so long the chase now closes to sensor range of the guess to look (Chases.SearchAfterHours).</summary>
+    public bool Searching { get; set; }
 
     /// <summary>Why the last attempt to re-aim failed (null when it worked).</summary>
     public string? Problem { get; set; }
@@ -176,6 +186,9 @@ public sealed class Fleet
     /// <summary>Chasing an enemy fleet: re-aimed whenever it is seen to change course.</summary>
     public ChaseOrder? Chase { get; set; }
 
+    /// <summary>A chase that ended because the quarry was not where it was expected: shown in Needs you for a while.</summary>
+    public LostContact? LostContact { get; set; }
+
     /// <summary>Its mission, the body or fleet it is about, how far through it is, and when it moves on.</summary>
     public Mission Mission { get; set; }
     public int? MissionBodyId { get; set; }
@@ -213,6 +226,13 @@ public sealed class Fleet
     public bool AutoRun { get; set; }
 
     public int? SupplyRunFor { get; set; }
+
+    /// <summary>The last order this fleet turned down, and when (shown against the fleet for a day so the player isn't left guessing).</summary>
+    public string? Refused { get; set; }
+    public double RefusedHour { get; set; }
+
+    /// <summary>Why this supply fleet can't set out to the fleet it serves yet (null: nothing holds it back).</summary>
+    public string? SupplyRunProblem { get; set; }
 
     /// <summary>Colony ships: carrying people from one planet to another (see Planets).</summary>
     public PeopleRun? PeopleRun { get; set; }

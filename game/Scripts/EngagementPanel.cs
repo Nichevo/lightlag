@@ -522,7 +522,8 @@ public partial class EngagementTimeline : Control
         float X(double hours) => labelW + (float)(Math.Clamp(hours / span, 0, 1) * width);
         string When(double h) => h < 1 / 60.0 ? $"{h * 3600:0} s" : h < 2 ? $"{h * 60:0} min" : $"{h:0.#} h";
 
-        DrawString(_font, new Vector2(0, 14), "Timeline, if neither changes course", HorizontalAlignment.Left, -1, 13, Ui.Text);
+        DrawString(_font, new Vector2(0, 14), e.InSight ? "Timeline, if neither changes course"
+            : $"Timeline from a GUESS: not seen for {When(e.SeenHoursAgo)}, it may be elsewhere", HorizontalAlignment.Left, -1, 13, e.InSight ? Ui.Text : Ui.Rival);
         for (var i = 0; i <= 4; i++)
         {
             var t = span * i / 4;
@@ -551,7 +552,7 @@ public partial class EngagementTimeline : Control
             var r = new Rect2(x0, y + 3, Math.Max(4, x1 - x0), 12);
             DrawRect(r, new Color(color, 0.35f));
             DrawRect(r, color, false, 1);
-            var text = win.From < 1e-3 ? "in reach now" : $"from {When(win.From)}";
+            var text = win.From < 1e-3 ? (e.InSight ? "in reach now" : "in reach of the guess") : $"from {When(win.From)}" + (e.InSight ? "" : " (guess)");
             if (!double.IsPositiveInfinity(win.To)) text += $" for {When(win.To - win.From)}";
             DrawString(_font, new Vector2(Math.Min(x1 + 4, labelW + width - 120), y + 13), text, HorizontalAlignment.Left, -1, 11, color);
         }

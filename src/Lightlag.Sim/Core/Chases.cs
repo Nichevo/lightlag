@@ -15,6 +15,7 @@ public static class Chases
     {
         var s = Sensors.Find(w, f.Side, targetId);
         var own = w.FindFleet(targetId) is { } t && t.Side == f.Side ? t : null; // joining one of its own fleets
+        f.LostContact = null;
         return new ChaseOrder
         {
             TargetFleetId = targetId,
@@ -31,6 +32,26 @@ public static class Chases
 
     /// <summary>Where the current chase flight expects the enemy to be now.</summary>
     public static Vec2 Expected(ChaseOrder c, double hour) => c.TargetAt + c.TargetVelocity * (hour - c.PlannedHour);
+
+    /// <summary>
+    /// A quarry out of sight this long, once the chase has reached its standoff from the guess, is looked for:
+    /// the chase closes to within its own sensor range of the guess (not its weapons standoff), so the spot is
+    /// really seen, and an empty spot ends the chase. Fresher guesses are trusted (closing in on a real quarry
+    /// to look would walk into its guns).
+    /// </summary>
+    public const double SearchAfterHours = 72;
+
+    /// <summary>Share of the fleet's cold-target sensor range a search closes to.</summary>
+    public const double SearchShare = 0.6;
+
+    /// <summary>
+    /// Far from its quarry (beyond this many standoffs), a chase re-aims at most this often while the quarry is
+    /// seen burning: re-aiming every hour of a long braking burn only spammed new flights.
+    /// </summary>
+    public const double FarStandoffs = 4, FarReaimHours = 4;
+
+    /// <summary>How close a searching chase comes to the guess: well inside what it would see of a cold fleet.</summary>
+    public static double SearchStandoff(World w, Fleet f) => Sensors.Range(Sensors.SensorOf(w, f), GameData.Sensors.Cold) * SearchShare;
 
     /// <summary>How long a chase goes on without closing on its quarry before the fleet gives up.</summary>
     public const double GiveUpHours = 10 * 24;
@@ -58,6 +79,8 @@ public static class Chases
             }
             if (c.StartHour <= 0) c.StartHour = now;
             c.LastBodyId = s.OrbitBodyId;
+            c.LastSeenHour = s.Hour;
+            c.LastSeenAt = s.Position;
             // Closing in counts as progress however long it takes (a far quarry holding orbit takes weeks to reach);
             // a quarry that keeps ahead for days is let go: endless chases kept battles from ever ending.
             var gapNow = Vec2.Distance(f.Position, Sensors.Predict(w, f.Side, c.TargetFleetId, now) ?? s.Guess(now));
@@ -80,13 +103,31 @@ public static class Chases
             var guess = Sensors.Predict(w, f.Side, c.TargetFleetId, now) ?? s.Guess(now);
             var turned = s.Hour >= c.PlannedHour && ((s.Velocity - c.TargetVelocity).Length > Math.Max(0.5, 0.02 * s.Velocity.Length)
                                        || Vec2.Distance(guess, Expected(c, now)) > ReaimDriftMm);
-            // A chase that has arrived but drifted off its spot (after a fight, say) sets off again.
+            // Far off, a quarry seen burning is re-aimed at every few hours, not every hour of its burn.
             var want = FlightPlanner.ChaseDistance(c.Mode);
-            var adrift = f.Flight == null && want is double d && Math.Abs(Vec2.Distance(f.Position, guess) - d) > Math.Max(2, d * 0.25);
+            if (turned && !detoured && now - c.PlannedHour < FarReaimHours && gapNow > (want ?? 0) * FarStandoffs + 50) turned = false;
+            // Out of sight for a while: close to where the fleet's own sensors would show it, to look.
+            var search = !s.Visible && now - s.Hour >= SearchAfterHours && c.Mode != ChaseMode.Overtake && (c.Searching || f.Flight == null);
+            double? standoff = null;
+            if (search)
+            {
+                var look = SearchStandoff(w, f);
+                if (want is not double wd || wd > look) standoff = look;
+                if (!c.Searching && standoff != null)
+                {
+                    c.Searching = true;
+                    turned = true;
+                    sim.Log.Info("fleet", $"{f.Name} closes in to look for {s.Name}", new { fleetId = f.Id, targetFleetId = c.TargetFleetId, lastSeenHour = s.Hour, standoff });
+                }
+            }
+            else if (c.Searching && s.Visible) { c.Searching = false; turned = true; }
+            // A chase that has arrived but drifted off its spot (after a fight, say) sets off again.
+            var spot = standoff ?? want;
+            var adrift = f.Flight == null && spot is double d && Math.Abs(Vec2.Distance(f.Position, guess) - d) > Math.Max(2, d * 0.25);
             if (!turned && !adrift && !detoured) continue;
 
             var perf = FleetPerformance.Of(w, f);
-            var plan = FlightPlanner.PlanChase(w, f, target, c.Mode, c.SpeedFraction, perf);
+            var plan = FlightPlanner.PlanChase(w, f, target, c.Mode, c.SpeedFraction, perf, standoff);
             c.TargetAt = guess;
             c.TargetVelocity = s.Velocity;
             c.PlannedHour = now;
@@ -140,8 +181,19 @@ public static class Chases
             Autonomy.Report(sim, f, $"{f.Name} lost sight of {name}, last seen in orbit at {body.Name}: it goes on to {body.Name} to look for it", NoteKind.StandingOrder);
             return;
         }
-        Autonomy.Report(sim, f, $"{f.Name} lost track of {name}: it flies on to where it was last expected and waits there", NoteKind.StandingOrder);
+        var likely = LikelyBase(w, f.Side, c.LastSeenAt ?? f.Position);
+        var age = Math.Max(0, w.Hour - c.LastSeenHour);
+        f.LostContact = new LostContact(c.TargetFleetId, name, w.Hour, c.LastSeenHour, likely?.Id);
+        Autonomy.Report(sim, f, $"{name} is not where expected (last seen {Ago(age)} ago): {f.Name} stops chasing and waits"
+                                + (likely != null ? $". Its likely base is {likely.Name}: search there, or bring the fleet home" : ""), NoteKind.StandingOrder);
     }
+
+    private static string Ago(double hours) => hours < 48 ? $"{hours:0} hours" : $"{hours / 24:0} days";
+
+    /// <summary>Where a lost rival fleet most likely went: the nearest rival planet with a shipyard, else the nearest rival planet.</summary>
+    public static Body? LikelyBase(World w, Side side, Vec2 near) =>
+        w.Bodies.Where(b => b.Owner != null && b.Owner != side)
+            .OrderBy(b => b.Shipyard ? 0 : 1).ThenBy(b => Vec2.Distance(b.Position, near)).ThenBy(b => b.Id).FirstOrDefault();
 
     /// <summary>Joining one of its own fleets that is moving: merge once alongside, else re-aim when it changes course.</summary>
     private static void Join(Simulation sim, Fleet f, ChaseOrder c, Fleet? into)

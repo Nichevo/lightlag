@@ -335,9 +335,17 @@ public sealed class Simulation
                 if (flight.TargetBodyId == null && flight.TargetFleetId == null) flight.Target += by;
             }
             else if (inward < 0) f.Velocity -= dir * inward;
-            Log.Info("fleet", $"{f.Name} pulls up clear of {b.Name}", new { fleetId = f.Id, bodyId = b.Id });
+            // Logged once a day per fleet and body: in a fight it can happen every 10-second step.
+            if (!_pulledUp.TryGetValue((f.Id, b.Id), out var last) || hour - last >= 24)
+            {
+                _pulledUp[(f.Id, b.Id)] = hour;
+                Log.Info("fleet", $"{f.Name} pulls up clear of {b.Name}", new { fleetId = f.Id, bodyId = b.Id });
+            }
         }
     }
+
+    /// <summary>When each fleet last logged pulling up clear of each body (logging only, not game state).</summary>
+    private readonly Dictionary<(int Fleet, int Body), double> _pulledUp = new();
 
     private void MoveFleets(double t0, double t1)
     {
@@ -474,7 +482,7 @@ public sealed class Simulation
     }
 }
 
-public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley }
+public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley, Decoy }
 
 /// <summary>Something to draw for a moment: a railgun shot (from, to), point defence killing a missile, a missile striking.</summary>
 /// <summary>Something to draw for a moment. Width: how wide a volley's fan is at the target (Mm).</summary>
