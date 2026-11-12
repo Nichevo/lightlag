@@ -566,7 +566,7 @@ public partial class Hud : CanvasLayer
         else { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Needs); }
     }
 
-    private const int PresetCalm = 1000, PresetWar = 1001, PresetTrade = 1002, PresetDefault = 1003;
+    private const int PresetCalm = 1000, PresetWar = 1001, PresetTrade = 1002, PresetDefault = 1003, PresetBattle = 1004;
 
     private void FillLayersMenu()
     {
@@ -582,6 +582,7 @@ public partial class Hud : CanvasLayer
         popup.AddSeparator("Presets");
         popup.AddItem("Calm: orbits and labels", PresetCalm);
         popup.AddItem("War: sight, lag, old sightings, lanes", PresetWar);
+        popup.AddItem("Battle: sight, lag, where they could be, what they see of you", PresetBattle);
         popup.AddItem("Trade: lanes and supply runs", PresetTrade);
         popup.AddItem("Everything as it was", PresetDefault);
     }
@@ -593,6 +594,7 @@ public partial class Hud : CanvasLayer
             PresetCalm => PlayerInfo.Calm,
             PresetWar => PlayerInfo.War,
             PresetTrade => PlayerInfo.Trade,
+            PresetBattle => PlayerInfo.Battle,
             PresetDefault => PlayerInfo.Default,
             _ => PlayerInfo.Layers ^ (MapLayer)id,
         };

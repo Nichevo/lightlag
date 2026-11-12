@@ -19,6 +19,8 @@ public enum MapLayer
     OldSightings = 64,
     Labels = 128,
     Hazards = 256,
+    Possible = 512,
+    TheySee = 1024,
 }
 
 /// <summary>
@@ -31,9 +33,10 @@ public static class PlayerInfo
     public static DetailLevel Detail { get; private set; } = DetailLevel.Standard;
     public static MapLayer Layers { get; private set; } = Default;
 
-    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.Hazards;
+    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee;
     public const MapLayer Calm = MapLayer.Orbits | MapLayer.Labels;
     public const MapLayer War = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Lanes | MapLayer.Labels | MapLayer.Hazards;
+    public const MapLayer Battle = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee;
     public const MapLayer Trade = MapLayer.Orbits | MapLayer.Lanes | MapLayer.SupplyRuns | MapLayer.Labels;
 
     public static readonly (MapLayer Layer, string Name, string Tip)[] LayerList =
@@ -46,6 +49,8 @@ public static class PlayerInfo
         (MapLayer.Wells, "Gravity wells", "Shading round each planet where its pull is stronger than the sun's (Medium and High graphics)"),
         (MapLayer.OldSightings, "Old sightings", "Where rival fleets were last seen, greyed with age, and their tracks"),
         (MapLayer.Labels, "Labels", "Planet and moon names"),
+        (MapLayer.Possible, "Where they could be", "Round each enemy fleet out of sight: the area it could have reached since it was last seen, growing with time"),
+        (MapLayer.TheySee, "What they see of you", "Round your fleets near the enemy: how far the nearest enemy fleet's sensors would pick them up as they are flying now"),
         (MapLayer.Hazards, "Hazards", "Radiation belts (green), the hot zone close to the sun (orange), battle debris (grey) and the names of rock belts and rings"),
     };
 

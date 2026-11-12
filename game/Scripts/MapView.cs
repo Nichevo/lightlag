@@ -253,6 +253,8 @@ public partial class MapView : Node2D
             if (PlayerInfo.Has(MapLayer.OldSightings)) DrawTracks();
             DrawEngagement();
             if (PlayerInfo.Has(MapLayer.OldSightings)) { DrawOldIntel(); DrawLastSeen(); }
+            if (PlayerInfo.Has(MapLayer.Possible)) DrawPossible();
+            if (PlayerInfo.Has(MapLayer.TheySee)) DrawTheySee();
             if (RevealAll) DrawMindJobs();
         }
         DrawWrecks();
@@ -534,7 +536,8 @@ public partial class MapView : Node2D
         if (!apart)
         {
             // Zoomed out: the fleet is one icon with a count.
-            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count} ships)" : $"{f.Name}: {(known ? ships.FirstOrDefault()?.Name : "1 ship")}") + SpeedTag(f);
+            var label = (ships.Count > 1 ? $"{f.Name} ({ships.Count} ships)" : $"{f.Name}: {(known ? ships.FirstOrDefault()?.Name : "1 ship")}") + SpeedTag(f)
+                        + (f.Side != Side.Player ? AgeTag(f) : "");
             if (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
         }
@@ -869,6 +872,13 @@ public partial class MapView : Node2D
                 DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
             if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
         }
+    }
+
+    /// <summary>" · seen 4 min ago" on an enemy fleet when what you see of it is old (light lag), else "".</summary>
+    private string AgeTag(Fleet f)
+    {
+        var age = Light.AgeHours(Sim.World, Side.Player, f.Id);
+        return age > 1 / 60.0 && !double.IsInfinity(age) ? $" · seen {Format.Hours(age)} ago" : "";
     }
 
     /// <summary>" · 12 km/s" for a moving fleet in contact with an enemy (or selected), else "".</summary>

@@ -15,10 +15,17 @@ public partial class EngagementPanel : Control
     private Label _header = null!;
     private VBoxContainer _options = null!;
     private readonly List<(Button Button, string Key)> _optionButtons = new();
-    private Label _defence = null!, _ships = null!;
+    private Label _defence = null!, _ships = null!, _deadline = null!;
     private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
+    private VBoxContainer _together = null!;
+    private Label? _othersLine;
+
+    /// <summary>Your other fleets facing the same enemy: each one's engagement and a plan to arrive together. Worked out about once a second.</summary>
+    private readonly List<(Fleet Fleet, EngagementInfo Info, Lightlag.Sim.Core.Engagement.TogetherPlan Plan)> _others = new();
+    private ulong _othersAt;
+    private string _othersKey = "";
     private VBoxContainer _right = null!;
     private ScrollContainer _rightScroll = null!, _leftScroll = null!;
     private VBoxContainer _left = null!;
@@ -47,6 +54,12 @@ public partial class EngagementPanel : Control
         var headBox = new VBoxContainer();
         headBox.AddThemeConstantOverride("separation", 6);
         headBox.AddChild(head);
+        _deadline = Ui.Label("", 14, new Color("ffd166"));
+        headBox.AddChild(_deadline);
+        _othersLine = Ui.Label("", 13, Ui.Dim);
+        _othersLine.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _othersLine.CustomMinimumSize = new Vector2(760, 0);
+        headBox.AddChild(_othersLine);
         _headPanel = Ui.Panel(headBox, 10);
         AddChild(_headPanel);
 
@@ -75,6 +88,9 @@ public partial class EngagementPanel : Control
         _options = new VBoxContainer();
         _options.AddThemeConstantOverride("separation", 4);
         right.AddChild(_options);
+        _together = new VBoxContainer();
+        _together.AddThemeConstantOverride("separation", 4);
+        right.AddChild(_together);
 
         right.AddChild(Ui.Label("Defences", 16, Ui.Text));
         var c = GameData.Combat;
@@ -301,6 +317,78 @@ public partial class EngagementPanel : Control
         return line;
     }
 
+    /// <summary>Two or more of your fleets against one: a line per other fleet, a timeline bar each, and Arrive together.</summary>
+    private void RefreshOthers(World w, EngagementInfo e)
+    {
+        var pairs = _screen.Engagements.Where(p => p.Enemy == e.EnemyId && p.Mine != e.Mine.Id).Select(p => p.Mine).Distinct().ToList();
+        var key = $"{e.Mine.Id}:{e.EnemyId}:{e.Burn}:" + string.Join(",", pairs);
+        var now = Time.GetTicksMsec();
+        if (key != _othersKey || now - _othersAt > 1000)
+        {
+            _othersAt = now;
+            _others.Clear();
+            foreach (var id in pairs)
+                if (w.FindFleet(id) is Fleet other && Lightlag.Sim.Core.Engagement.Of(w, other, e.EnemyId, e.Burn) is EngagementInfo info)
+                    _others.Add((other, info, Lightlag.Sim.Core.Engagement.Together(w, e.Mine, other, e.EnemyId, e.Burn)));
+        }
+        _othersLine!.Text = string.Join("\n", _others.Select(o =>
+        {
+            string Soon(TimeWindow? t) => t == null ? "never" : t.From < 1e-3 ? "now" : $"in {When(t.From)}";
+            var guns = o.Info.WeHaveRailguns ? $"its guns {Soon(o.Info.OurRailguns)}" : o.Info.WeHaveMissiles ? $"its missiles {Soon(o.Info.OurMissiles)}" : "no weapons";
+            return $"{o.Fleet.Name} also faces them: {Km(o.Info.Gap)} away, {guns}, their guns {Soon(o.Info.TheirRailguns)}.";
+        }));
+        _othersLine.Visible = _others.Count > 0;
+        _timeline.Others = _others.Select(o => o.Info).ToList();
+
+        if (key != _othersKey)
+        {
+            foreach (var c in _together.GetChildren()) c.QueueFree();
+            foreach (var (other, _, _) in _others)
+            {
+                var otherId = other.Id;
+                var b = new Button { FocusMode = FocusModeEnum.None, Alignment = HorizontalAlignment.Left, AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(380, 0) };
+                b.AddThemeFontSizeOverride("font_size", 13);
+                b.SetMeta("other", otherId);
+                b.Pressed += () => Main.Instance.RunGuarded("arrive together", () => ArriveTogether(otherId));
+                _together.AddChild(b);
+            }
+        }
+        _othersKey = key;
+        foreach (var c in _together.GetChildren())
+        {
+            if (c is not Button b || !b.HasMeta("other")) continue;
+            var id = b.GetMeta("other").AsInt32();
+            var o = _others.FirstOrDefault(x => x.Fleet.Id == id);
+            if (o.Fleet == null) continue;
+            b.Text = o.Plan.Problem is string why
+                ? $"Arrive together with {o.Fleet.Name}: can't\n{why}"
+                : $"Arrive together with {o.Fleet.Name}\nThe faster one eases its burn: both in reach about {When(Math.Max(0, o.Plan.ArriveHour - w.Hour))} from now.";
+            b.Disabled = o.Plan.Problem != null;
+            b.Modulate = o.Plan.Problem != null ? new Color(1, 1, 1, 0.6f) : Colors.White;
+        }
+    }
+
+    private void ArriveTogether(int otherId)
+    {
+        if (_screen.EngagementNow is not EngagementInfo e || _others.FirstOrDefault(x => x.Fleet.Id == otherId) is not { Fleet: not null } o) return;
+        if (o.Plan is not { First: FlightRequest a, Second: FlightRequest b }) return;
+        var sim = Main.Instance.Sim!;
+        sim.Issue(new PlanFlightCommand(e.Mine.Id, a with { DepartTick = sim.World.Tick }));
+        sim.Issue(new PlanFlightCommand(otherId, b with { DepartTick = sim.World.Tick }));
+        Main.Instance.Toast($"{e.Mine.Name} and {o.Fleet.Name} close in together");
+    }
+
+    /// <summary>The order deadline as a countdown of its own: time left for an order sent now to reach the fleet before contact.</summary>
+    private static (string Text, bool Late) Deadline(World w, Fleet f, EngagementInfo e)
+    {
+        var me = Lightlag.Sim.Core.Side.Player;
+        var lag = Light.DelayHours(w, me, f.Position);
+        if (lag <= 0 || e.ContactInHours is not double contact || contact <= 0) return ("", false);
+        if (!Light.SignalClear(w, me, f.Position)) return ("⏱ Orders blocked by a planet: they wait until it clears", true);
+        var left = contact - lag;
+        return left > 0 ? ($"⏱ {Format.Lag(left)} left to give {f.Name} orders before contact", false) : ("⏱ Too late for orders: it fights by its standing orders", true);
+    }
+
     public void Refresh(Simulation sim, EngagementInfo e)
     {
         var w = sim.World;
@@ -314,6 +402,11 @@ public partial class EngagementPanel : Control
                        + $"{Km(e.Gap)} apart, {how}; {pass}, if neither changes course."
                        + LagLine(w, f, e);
         RefreshTabs(e);
+        RefreshOthers(w, e);
+        var (deadline, late) = Deadline(w, f, e);
+        _deadline.Text = deadline;
+        _deadline.Visible = deadline != "";
+        _deadline.AddThemeColorOverride("font_color", late ? Ui.Danger : new Color("ffd166"));
 
         // Approach options.
         if (_optionButtons.Count != e.Options.Count || _optionButtons.Select(o => o.Key).Where((k, i) => k != e.Options[i].Key).Any())
@@ -505,13 +598,16 @@ public static class EngagementRings
 public partial class EngagementTimeline : Control
 {
     public EngagementInfo? Info;
+
+    /// <summary>Your other fleets facing the same enemy: one more bar each.</summary>
+    public List<EngagementInfo> Others = new();
     private Font _font = null!;
     private Button _toggle = null!;
     private const string Section = "battle-timeline";
 
     /// <summary>Open: one row per weapon. Shut (the default): everything on one bar. Kept in ui.cfg.</summary>
     public static bool Open => PlayerInfo.IsOpen(Section);
-    public float WantHeight => Open ? 170 : 60;
+    public float WantHeight => (Open ? 170 : 60) + Others.Count * 40;
 
     public override void _Ready()
     {
@@ -538,9 +634,10 @@ public partial class EngagementTimeline : Control
     private static string When(double h) => h < 1 / 60.0 ? $"{h * 3600:0} s" : h < 2 ? $"{h * 60:0} min" : $"{h:0.#} h";
 
     /// <summary>Shut: one bar. Upper half is you (railguns, then missiles), lower half them, with the closest pass and salvos marked.</summary>
-    private void DrawBar(EngagementInfo e)
+    private void DrawBar(EngagementInfo e, float y0 = 0, string? who = null)
     {
-        const float top = 24, h = 20;
+        var top = y0 + 24f;
+        const float h = 20;
         var width = Size.X - 10;
         var span = e.LookAheadHours;
         float X(double hours) => (float)(Math.Clamp(hours / span, 0, 1) * width);
@@ -553,8 +650,8 @@ public partial class EngagementTimeline : Control
         if (Soon(e.TheirMissiles) is string d) bits.Add($"their missiles {d}");
         if (e.Salvos.Count > 0) bits.Add($"{e.Salvos.Sum(x => x.Count)} missiles flying");
         if (bits.Count == 0) bits.Add("nothing in reach");
-        var title = (e.InSight ? "" : "GUESS: ") + string.Join(" · ", bits);
-        DrawString(_font, new Vector2(0, 14), title, HorizontalAlignment.Left, Size.X - _toggle.Size.X - 8, 13, e.InSight ? Ui.Text : Ui.Rival);
+        var title = (who != null ? who + ": " : "") + (e.InSight ? "" : "GUESS: ") + string.Join(" · ", bits);
+        DrawString(_font, new Vector2(0, y0 + 14), title, HorizontalAlignment.Left, Size.X - _toggle.Size.X - 8, 13, e.InSight ? Ui.Text : Ui.Rival);
 
         DrawRect(new Rect2(0, top, width, h), new Color(Ui.Dim, 0.12f));
         void Lane(TimeWindow? w, int lane, Color color)
@@ -575,13 +672,18 @@ public partial class EngagementTimeline : Control
         DrawString(_font, new Vector2(0, top + h + 13), "now", HorizontalAlignment.Left, -1, 11, Ui.Dim);
         var end = $"+{When(span)}";
         DrawString(_font, new Vector2(width - _font.GetStringSize(end, HorizontalAlignment.Left, -1, 11).X, top + h + 13), end, HorizontalAlignment.Left, -1, 11, Ui.Dim);
-        DrawString(_font, new Vector2(60, top + h + 13), "top: you (guns, missiles) · bottom: them · dashed: closest · dots: missiles land", HorizontalAlignment.Left, -1, 11, new Color(Ui.Dim, 0.8f));
+        if (y0 == 0) DrawString(_font, new Vector2(60, top + h + 13), "top: you (guns, missiles) · bottom: them · dashed: closest · dots: missiles land", HorizontalAlignment.Left, -1, 11, new Color(Ui.Dim, 0.8f));
     }
 
     public override void _Draw()
     {
         if (Info is not EngagementInfo e) return;
-        if (!Open) { DrawBar(e); return; }
+        var multi = Others.Count > 0;
+        if (!Open) DrawBar(e, 0, multi ? e.Mine.Name : null);
+        // Two or more of your fleets on one enemy: a bar each for the others, under the main view.
+        var y = Open ? 170f : 60f;
+        foreach (var o in Others) { DrawBar(o, y - 6, o.Mine.Name); y += 40; }
+        if (!Open) return;
         const float labelW = 150, top = 22, row = 20;
         const int Rows = 6;
         var width = Size.X - labelW - 10;
