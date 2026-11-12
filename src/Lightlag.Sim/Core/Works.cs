@@ -13,18 +13,13 @@ public static class Works
     public static void Update(Simulation sim)
     {
         var w = sim.World;
-        Tech.Refresh(w);
-        Academies(sim);
-        MassDrivers(sim);
-        Skimmers(w);
-        Mend(w);
-        Wounds.UpdateWrecks(sim);
-        War.Update(sim);
-        Hazards.Hourly(sim);
-        Events.Update(sim);
-        Events.Lasting(sim);
-        Refits.Update(sim);
-        BattleRules.Hourly(sim);
+        using (SectionTimer.Time("works")) { Tech.Refresh(w); Academies(sim); MassDrivers(sim); Skimmers(w); Mend(w); }
+        using (SectionTimer.Time("wrecks")) Wounds.UpdateWrecks(sim);
+        using (SectionTimer.Time("war")) War.Update(sim);
+        using (SectionTimer.Time("hazards")) Hazards.Hourly(sim);
+        using (SectionTimer.Time("events")) { Events.Update(sim); Events.Lasting(sim); }
+        using (SectionTimer.Time("refits")) Refits.Update(sim);
+        using (SectionTimer.Time("battle-rules")) BattleRules.Hourly(sim);
     }
 
     /// <summary>Hours an academy takes per batch of scientists (Scientist training: 30 % faster).</summary>

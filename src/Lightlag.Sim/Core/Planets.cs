@@ -197,14 +197,14 @@ public static class Planets
     {
         var w = sim.World;
         EnsureStarted(w);
-        Colonies.Update(sim);
+        using (SectionTimer.Time("colonies")) Colonies.Update(sim);
         Food(w);
         Grow(sim);
         Moods(w);
         Decay(sim);
         Bomb(sim);
         PlanetGuns(sim);
-        Core.Ground.Update(sim);
+        using (SectionTimer.Time("ground-war")) Core.Ground.Update(sim);
         Surrenders(sim);
         Runs(sim);
         TopUps(sim);

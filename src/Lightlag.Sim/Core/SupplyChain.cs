@@ -141,6 +141,7 @@ public static class SupplyChain
     /// </summary>
     public static (RouteRisk Risk, string Why) RiskOf(World w, Side side, Vec2 from, Vec2 to, Vec2? via, bool escorted)
     {
+        using var timed = SectionTimer.Time("supply-chain");
         var legs = Legs(from, to, via).ToList();
         var score = 0;
         var why = new List<string>();
@@ -378,6 +379,7 @@ public static class SupplyChain
     /// <summary>Everything wrong in the side's supply chain with the fixes for it, ranked: Short, Risk, Soon, Stock, then how bad.</summary>
     public static List<ChainProblem> Problems(World w, Side side, int max = 12)
     {
+        using var timed = SectionTimer.Time("supply-chain");
         var list = new List<ChainProblem>();
         var state = Economy.Of(w, side);
         Shorts(w, side, list);

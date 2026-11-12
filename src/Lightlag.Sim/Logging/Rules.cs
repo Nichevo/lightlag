@@ -144,7 +144,85 @@ public sealed class RuleBook
         .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>())
         .Add("hazards-sane", HazardsSane)
         .Add("events-sane", EventsSane)
-        .Add("ship-names-sane", ShipNamesSane);
+        .Add("ship-names-sane", ShipNamesSane)
+        .Add("ship-codes-sane", ShipCodesSane)
+        .Add("fuels-known", FuelsKnown)
+        .Add("settle-orders-sane", SettleOrdersSane)
+        .Add("lists-bounded", ListsBounded);
+
+    /// <summary>
+    /// A numbered ship's code is its class letters and hull number ("DD3B-07"), the number no higher than the
+    /// side has handed out for that class, and no two of a side's own ships share one (prizes keep the
+    /// numbers they had, so they are left out).
+    /// </summary>
+    private static IEnumerable<string> ShipCodesSane(World w)
+    {
+        var own = w.Ships.Where(s => s.HullNumber > 0 && !s.Name.StartsWith("Prize ", StringComparison.Ordinal)
+                                     && GameData.ShipClasses.ContainsKey(s.ClassId)).ToList();
+        foreach (var s in own)
+        {
+            var cls = GameData.ShipClass(s.ClassId);
+            if (!s.Code.StartsWith(cls.Short, StringComparison.Ordinal) || !s.Code.EndsWith($"-{s.HullNumber:00}", StringComparison.Ordinal))
+                yield return $"ship {s.Id} {s.Name} ({cls.Id}, hull {s.HullNumber}) has code '{s.Code}'";
+            if (s.HullNumber > w.ShipNumbers.GetValueOrDefault($"{s.Side}:{cls.Id}"))
+                yield return $"ship {s.Id} {s.Name} has hull number {s.HullNumber}, past the {w.ShipNumbers.GetValueOrDefault($"{s.Side}:{cls.Id}")} handed out";
+            if (s.Name.Length > ShipNames.MaxLength + 8) yield return $"ship {s.Id} has a {s.Name.Length}-letter name";
+        }
+        foreach (var g in own.GroupBy(s => (s.Side, s.ClassId, s.HullNumber)).Where(g => g.Count() > 1))
+            yield return $"{g.Key.Side} ships {string.Join(", ", g.Select(s => s.Id))} share hull number {g.Key.HullNumber} of {g.Key.ClassId}";
+    }
+
+    /// <summary>Tanks, fuel cargo and planets' fuel draws name fuels that exist, with sensible amounts.</summary>
+    private static IEnumerable<string> FuelsKnown(World w)
+    {
+        var known = new HashSet<string>(GameData.Fuels.Select(f => f.Id));
+        foreach (var s in w.Ships)
+        {
+            if (s.Fuel.Length > 0 && !known.Contains(s.Fuel)) yield return $"ship {s.Id} {s.Name} has unknown fuel '{s.Fuel}' in its tanks";
+            foreach (var (fuel, amount) in s.CargoFuels)
+                if (!known.Contains(fuel) || !double.IsFinite(amount)) yield return $"ship {s.Id} {s.Name} carries {amount} of '{fuel}'";
+        }
+        foreach (var b in w.Bodies)
+        {
+            if (b.FuelUse.Any(kv => !Colonies.Goods.Any(g => g.Id == kv.Key) || !double.IsFinite(kv.Value) || kv.Value < -1e-9))
+                yield return $"{b.Name} fuel use is {string.Join(",", b.FuelUse.Select(kv => $"{kv.Key}={kv.Value}"))}";
+            if (!double.IsFinite(b.FissionFuel) || b.FissionFuel < 0) yield return $"{b.Name} fission fuel is {b.FissionFuel}";
+        }
+    }
+
+    /// <summary>A settle order builds a settler ship for a body that exists, and settler ships fly one-trip runs to real bodies.</summary>
+    private static IEnumerable<string> SettleOrdersSane(World w)
+    {
+        foreach (var o in w.Orders.Where(o => o.SettleBodyId != null))
+            if (o.Kind != OrderKind.Ship || o.Key != Planets.SettlerClass || w.FindBody(o.SettleBodyId!.Value) == null)
+                yield return $"settle order {o.Id} ({o.Kind} {o.Key}) is for body {o.SettleBodyId}";
+        foreach (var f in w.Fleets.Where(f => f.PeopleRun != null))
+            if (w.FindBody(f.PeopleRun!.ToBodyId) == null || w.FindBody(f.PeopleRun.FromBodyId) == null || f.PeopleRun.ToBodyId == f.PeopleRun.FromBodyId)
+                yield return $"fleet {f.Id} {f.Name} has a people run from {f.PeopleRun.FromBodyId} to {f.PeopleRun.ToBodyId}";
+    }
+
+    /// <summary>
+    /// The lists the game trims as it goes stay short (a year of play keeps each to a few dozen): one that
+    /// grows past this has stopped being trimmed, and saves and every step would slow down with it.
+    /// </summary>
+    public const int ListLimit = 2000;
+
+    private static IEnumerable<string> ListsBounded(World w)
+    {
+        var lists = new (string Name, int Count)[]
+        {
+            ("wrecks", w.Wrecks.Count), ("lanes", w.Lanes.Count), ("lane sightings", w.LaneObs.Count), ("loss spots", w.LossSpots.Count),
+            ("battles", w.Battles.Count), ("boardings", w.Boardings.Count), ("after-battle plans", w.Aftermaths.Count),
+            ("sightings", w.Sightings.Count), ("picture", w.Picture.Count), ("missiles", w.Missiles.Count), ("dropped missiles", w.Dropped.Count),
+            ("drones", w.Drones.Count), ("shipments", w.Shipments.Count), ("events", w.Events.Count), ("debris", w.Debris.Count),
+            ("zones", w.Zones.Count), ("orders", w.Orders.Count), ("choices", w.Choices.Count),
+            ("orders in transit", w.Light.InTransit.Count), ("reports in transit", w.Light.Reports.Count),
+        };
+        foreach (var (name, count) in lists.Where(l => l.Count > ListLimit))
+            yield return $"{count} {name}";
+        foreach (var side in w.Sides.Where(s => s.Intel.Fleets.Count > ListLimit || s.Intel.Notes.Count > ListLimit))
+            yield return $"{side.Side} intel holds {side.Intel.Fleets.Count} fleets and {side.Intel.Notes.Count} notes";
+    }
 
     /// <summary>Every ship has a name no other living ship has, and a numbered ship has a designation code.</summary>
     private static IEnumerable<string> ShipNamesSane(World w)
@@ -180,6 +258,9 @@ public sealed class RuleBook
             if (e.Call.Open && !e.Done && w.Winner == null && w.Hour > e.Call.DueHour + 1.01) yield return $"event {e.Id} ({e.Kind}) is open {w.Hour - e.Call.DueHour:0.#} hours past its deadline";
             if (e.UntilHour < e.HitsHour - 1e-6) yield return $"event {e.Id} ({e.Kind}) ends before it hits";
         }
+        foreach (var e in w.Events.Where(e => !Events.Kinds.Contains(e.Kind) || e.BodyId is int id && w.FindBody(id) == null))
+            yield return $"event {e.Id} is of kind '{e.Kind}' at body {e.BodyId}";
+        if (!double.IsFinite(w.FlareUntilHour)) yield return $"the flare ends at hour {w.FlareUntilHour}";
         if (w.Events.GroupBy(e => e.Id).Any(g => g.Count() > 1)) yield return "two events share an id";
     }
 

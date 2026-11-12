@@ -478,7 +478,8 @@ public static class Mind
                 if (f.Cover != cover || f.FireAt != fireAt)
                 {
                     Do(new SetCoverCommand(f.Id, cover, fireAt));
-                    if (fireAt == FireAt.Flagship && f.FireAt != FireAt.Flagship) Note($"{f.Name} goes for the suspected flagship in {near!.Name}");
+                    // (A personality that always fires at the flagship has no sighting to name here.)
+                    if (fireAt == FireAt.Flagship && f.FireAt != FireAt.Flagship && near != null) Note($"{f.Name} goes for the suspected flagship in {near.Name}");
                 }
             }
         }

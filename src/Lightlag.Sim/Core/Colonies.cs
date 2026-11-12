@@ -433,7 +433,7 @@ public static class Colonies
             Construction(sim, b);
             Work(w, b);
         }
-        Transport(sim);
+        using (SectionTimer.Time("transport")) Transport(sim);
     }
 
     private static void Construction(Simulation sim, Body b)
