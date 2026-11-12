@@ -935,7 +935,7 @@ public partial class GameScreen : Node2D
         var first = _researchSeen < 0;
         var me = Economy.Of(w, Side.Player);
         if (!first && me.Researched.Count > _researchSeen)
-            _main.Toast($"Research done: {GameData.Research(me.Researched[^1]).Name}");
+            _main.Toast($"Research done: {GameData.Research(me.Researched[^1]).Name}", onClick: () => ShowResearch = true);
         _researchSeen = me.Researched.Count;
 
         foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
@@ -1493,6 +1493,7 @@ public partial class GameScreen : Node2D
             case Key.J when Sim.World.Loop: ToggleShips(); break;
             case Key.Bracketleft: _hud.Step(Sim.World, -1); break;
             case Key.Bracketright: _hud.Step(Sim.World, 1); break;
+            case Key.Period when Sim.World.Loop: _hud.JumpToNextNeed(Sim.World); break;
             case Key.Escape when ShowShips && ShipCardId == null: ShowShips = false; break;
             case Key.Escape when ShowFleets && ShipCardId == null: ShowFleets = false; break;
             case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;

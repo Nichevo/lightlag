@@ -20,7 +20,24 @@ public partial class Main : Node
     public GameLog Log { get; private set; } = null!;
 
     /// <summary>The game being played, if any. Crash and F8 reports include it.</summary>
-    public Simulation? Sim { get; set; }
+    public Simulation? Sim
+    {
+        get => _sim;
+        set
+        {
+            if (_sim != null) _sim.OrderRefused -= OnRefused;
+            _sim = value;
+            if (_sim != null) _sim.OrderRefused += OnRefused;
+        }
+    }
+    private Simulation? _sim;
+
+    /// <summary>Any order of yours that is turned down says why on screen, not only in the log.</summary>
+    private void OnRefused(GameCommand command, string why)
+    {
+        var fleetId = (command as IFleetCommand)?.FleetId;
+        Toast($"Order not carried out: {why}", onClick: fleetId is int id && _screen is GameScreen g ? () => g.OpenFleet(id) : null);
+    }
 
     private Node? _screen;
     private CanvasLayer _overlay = null!;

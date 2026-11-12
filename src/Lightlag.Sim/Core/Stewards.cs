@@ -658,7 +658,7 @@ public static class Stewards
                         Need(NeedLevel.Soon, $"piece-waiting:{p.Id}", $"{Planets.BuildingKind(p.Kind)?.Name ?? p.Kind} at {b.Name} waits: {why}", b.Id);
             if (LevelFor(_w, _side, AutoArea.Research) == AutoLevel.Manual)
                 foreach (var t in IdleTeams())
-                    Need(NeedLevel.Soon, $"idle-team:{t.Id}", $"{t.Name} has nothing to research");
+                    Need(NeedLevel.Soon, $"idle-team:{t.Id}", $"{t.Name} has nothing to research", area: AutoArea.Research);
             foreach (var n in _state.SparkNotes.Where(n => _w.Hour - n.Hour < 48))
                 Need(NeedLevel.Info, $"spark:{n.Idea}",
                     $"{n.Why}: {GameData.Research(n.Idea).Name} {(n.SpedUp ? "sped up" : "comes into view")}");

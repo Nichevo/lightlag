@@ -539,12 +539,19 @@ public partial class MapView : Node2D
                 DrawString(_font, at + new Vector2(12, -8), label, HorizontalAlignment.Left, -1, 12, color);
         }
         if (f.Side == Side.Player) DrawHeat(f, ships, at);
+        // A stuck or refused order shows under the name, so it is seen without opening the fleet.
+        if (f.Side == Side.Player && (f.Id == SelectedId || f.Id == HoverId || Camera.Scale > 0.01)
+            && FleetPanel.OrderStatus(Sim.World, f).FirstOrDefault(IsWarning) is string stuck)
+            DrawString(_font, at + new Vector2(12, apart ? 36 : 7), stuck.Length > 60 ? stuck[..58] + "…" : stuck, HorizontalAlignment.Left, -1, 11, new Color("ffb347"));
         if (f.Id == SelectedId || GroupIds.Contains(f.Id))
         {
             var radius = apart ? (float)(Fleets.FormationSpacing * 1.6 * Camera.Scale) + 14 : 14f;
             DrawArc(at, radius, 0, Mathf.Tau, 48, color, 1.5f, true);
         }
     }
+
+    private static bool IsWarning(string status) =>
+        status.StartsWith("Can't") || status.StartsWith("Lost contact") || status.StartsWith("Looking for") || status.Contains("can't reach") || status.StartsWith("No tanker");
 
     /// <summary>
     /// Stat bars under your ships: armour (green), supplies (yellow), shield (cyan) and heat (blue, orange

@@ -217,9 +217,24 @@ public sealed class Simulation
     /// <summary>Carries out an order that has reached its fleet (or home), now or after its light arrives.</summary>
     public void Carry(GameCommand command)
     {
-        command.Apply(World, this);
+        if (command.Source != "player" || OrderRefused == null)
+        {
+            command.Apply(World, this);
+            Autonomy.Heard(this, command);
+            return;
+        }
+        // The screen hears about the player's orders that were turned down, so a refusal never sits only in the log.
+        string? refused = null;
+        void Watch(LogEntry e) { if (e.Level == LogLevel.Warn) refused = e.Message; }
+        Log.Written += Watch;
+        try { command.Apply(World, this); }
+        finally { Log.Written -= Watch; }
         Autonomy.Heard(this, command);
+        if (refused != null) OrderRefused(command, refused);
     }
+
+    /// <summary>A player's order logged a warning while it was carried out (the screen shows it). Not part of the world.</summary>
+    public event Action<GameCommand, string>? OrderRefused;
 
     /// <summary>How much game time the next step will probably take (for the screen's clock; the step itself decides).</summary>
     public double PeekStepHours() => World.Sub != 0 || Combat.BattlePossible(World) ? GameTime.SubStepHours : GameTime.HoursPerTick;

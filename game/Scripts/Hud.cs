@@ -538,10 +538,31 @@ public partial class Hud : CanvasLayer
         Badge(_empireButton, NeedScreens.Empire);
     }
 
+    private int _nextNeed;
+
+    /// <summary>The "." key: go to the next thing that needs you, most urgent first, wrapping round.</summary>
+    public void JumpToNextNeed(World w)
+    {
+        var needs = Economy.Of(w, Side.Player).Needs
+            .OrderBy(n => n.Level).ThenBy(n => n.Hour).ThenBy(n => n.Key, StringComparer.Ordinal).ToList();
+        if (needs.Count == 0) { Main.Instance.Toast("Nothing needs you right now"); return; }
+        var i = _nextNeed % needs.Count;
+        _nextNeed = i + 1;
+        var n = needs[i];
+        Main.Instance.Toast($"{i + 1} of {needs.Count}: {n.Text}");
+        JumpTo(n);
+    }
+
     private void JumpTo(NeedItem n)
     {
-        if (n.FleetId is int f && Main.Instance.Sim?.World.FindFleet(f) != null) _screen.PickFleet(f);
-        else if (n.BodyId is int b) _screen.PickBody(b);
+        // Go where the fix is: the research or ships screen, your planet's screen, or the fleet on the map.
+        var w = Main.Instance.Sim?.World;
+        var screen = w == null ? NeedScreens.Empire : NeedScreens.For(w, n);
+        if (screen == NeedScreens.Research && n.FleetId == null && n.BodyId == null) _screen.ShowResearch = true;
+        else if (screen == NeedScreens.Ships && n.FleetId == null) { if (!_screen.ShowShips) _screen.ToggleShips(); }
+        else if (n.FleetId is int f && w?.FindFleet(f) != null) _screen.PickFleet(f);
+        else if (n.BodyId is int b && screen == NeedScreens.Planets && w?.FindBody(b)?.Owner == Side.Player) { _screen.PickBody(b); _screen.OpenPlanet(b); }
+        else if (n.BodyId is int b2) _screen.PickBody(b2);
         else { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Needs); }
     }
 
