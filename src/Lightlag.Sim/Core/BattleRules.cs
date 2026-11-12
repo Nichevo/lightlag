@@ -109,6 +109,14 @@ public static class BattleRules
             PullBack(sim, f, ships.Count == 1 ? "is crippled and limps home" : "is crippled to the last ship and limps home", toYard: true);
             return;
         }
+        // Every gun off with heat, no missiles left, and so close to the sun that it cannot cool while it
+        // manoeuvres: it cannot fight, so it pulls out (otherwise the fight goes on for weeks with nobody shooting).
+        if (enemy != null && !f.HoldOn && ships.All(s => s.Overheated && s.Missiles == 0)
+            && Heat.D.IdlePerHour + Hazards.SunHeat(w, f.Position) + Heat.D.BurnPerHour >= Heat.D.RadiateOutPerHour)
+        {
+            PullBack(sim, f, "is overheated this close to the sun and pulls out to cool");
+            return;
+        }
         var rule = Effective(f);
         if (rule.ShipRule && ships.Count > 1) ShipRule(sim, f, rule);
         else if (rule.ShipRule && ships.Count == 1 && ShipShouldLeave(w, ships[0], rule) && !f.HoldOn)

@@ -22,7 +22,7 @@ public sealed record HeatData(
     double LongRangeMm = 100, double LongAccuracy = 0.12, double LongReloadFactor = 2,
     double EnginesHitFactor = 0.85, double EnginesModuleChance = 0.45,
     double MidLaunchMm = 40, double CloseLaunchMm = 25, double HeldDodgeCut = 0.6, double HeldPdCut = 0.4, double HeldDecoyCut = 0.5,
-    double DropWaitHoursMax = 48, double DropSeekMm = 40, double DropLifetimeHours = 0.5);
+    double DropWaitHoursMax = 48, double DropSeekMm = 40, double DropLifetimeHours = 0.5, double MaxHeatShare = 2);
 
 /// <summary>
 /// Heat. Every ship has a heat budget beside its power: reactors and crew make a little all the time,
@@ -102,7 +102,9 @@ public static class Heat
                 if (cap <= 0) continue;
                 var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) : 0);
                 var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
-                s.Heat = Math.Max(0, s.Heat + (gain - shed) * dt);
+                // Past twice its capacity the hull and crew take the heat instead: it stops climbing, so a ship
+                // can always cool down again in reasonable time.
+                s.Heat = Math.Clamp(s.Heat + (gain - shed) * dt, 0, Math.Max(s.Heat, cap * D.MaxHeatShare));
                 if (!s.Overheated && s.Heat > cap)
                 {
                     s.Overheated = true;
@@ -142,7 +144,7 @@ public static class Heat
     }
 
     /// <summary>Adds heat to a ship (railgun slugs, dodging, a shield soaking a hit).</summary>
-    public static void Add(Ship s, double heat) => s.Heat = Math.Max(0, s.Heat + heat);
+    public static void Add(Ship s, double heat) => s.Heat = Math.Clamp(s.Heat + heat, 0, Math.Max(s.Heat, Capacity(s) * D.MaxHeatShare));
 
     /// <summary>
     /// Throws one heat sink overboard: the ship sheds its heat at once, and missiles closing on it may

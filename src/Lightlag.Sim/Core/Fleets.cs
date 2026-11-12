@@ -73,6 +73,9 @@ public sealed class ChaseOrder
     /// <summary>The body the quarry was last seen holding orbit at: where to look for it if the track is lost.</summary>
     public int? LastBodyId { get; set; }
 
+    /// <summary>Joins: hour the join chase first failed to find a way to catch up (null: it has one).</summary>
+    public double? StuckSinceHour { get; set; }
+
     /// <summary>The current flight goes round a body first: aim the chase again once it ends.</summary>
     public bool Detouring { get; set; }
 

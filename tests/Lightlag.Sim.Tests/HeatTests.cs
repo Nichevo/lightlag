@@ -31,6 +31,22 @@ public class HeatTests
     }
 
     [Fact]
+    public void Heat_stops_climbing_at_twice_capacity_so_a_ship_can_always_cool_again()
+    {
+        var sim = Sandbox(new SandboxSetup());
+        var f = FleetOf(sim, Side.Player);
+        var s = sim.World.ShipsOf(f).First();
+        s.HeatSinks = 0;
+        f.AutoSinks = false;
+        for (var i = 0; i < 1000; i++) Heat.Add(s, 50);
+        Assert.Equal(2 * Heat.Capacity(s), s.Heat, 6);
+        // Hot hours (radiators in, a hard burn) do not take it past the cap either.
+        f.Radiators = RadiatorMode.Cold;
+        Heat.Update(sim, 24);
+        Assert.True(s.Heat <= 2 * Heat.Capacity(s) + 1e-9);
+    }
+
+    [Fact]
     public void Running_cold_hides_the_fleet_but_heat_builds_until_it_must_vent()
     {
         var sim = Sandbox(new SandboxSetup(DistanceMm: 5000));

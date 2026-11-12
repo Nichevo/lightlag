@@ -448,7 +448,15 @@ public static class Colonies
     }
 
     /// <summary>Keeps Body.Buildings (the kinds standing, used by food, guns and bombing) in step with the board.</summary>
-    public static void SyncBuildings(Body b) => b.Buildings = Built(b).Select(p => p.Kind).ToList();
+    /// <summary>
+    /// After the board changes: the building list is brought up to date, and if housing was lost (bombed,
+    /// wrecked in a ground fight or pulled down) the people it held have to go.
+    /// </summary>
+    public static void SyncBuildings(Body b)
+    {
+        b.Buildings = Built(b).Select(p => p.Kind).ToList();
+        b.PopK = Math.Min(b.PopK, Math.Max(0, Planets.Cap(b)));
+    }
 
     /// <summary>Takes one built piece of this kind off the board (bombed, failed or pulled down). Returns it.</summary>
     public static Piece? RemoveOne(Body b, Func<Piece, bool> which)
@@ -472,6 +480,12 @@ public static class Colonies
             if (b.Owner == null) { b.Pieces.RemoveAll(p => !p.Built); continue; }
             Construction(sim, b);
             Work(w, b);
+            // Habitats short of water hold only half as many: those who no longer fit move out (or die).
+            if (b.PopK > Planets.Cap(b))
+            {
+                sim.Log.Info("planets", "Short of room: people leave", new { body = b.Name, popK = b.PopK, cap = Planets.Cap(b), b.Thirsty });
+                b.PopK = Math.Max(0, Planets.Cap(b));
+            }
         }
         Transport(sim);
     }

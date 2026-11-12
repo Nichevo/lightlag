@@ -180,7 +180,10 @@ public static class Chases
         var turned = (into.Velocity - c.TargetVelocity).Length > Math.Max(0.5, 0.02 * into.Velocity.Length)
                      || Vec2.Distance(into.Position, Expected(c, now)) > ReaimDriftMm;
         if (!turned && f.Flight != null) return;
-        var plan = FlightPlanner.PlanChase(w, f, into, ChaseMode.Join, c.SpeedFraction, FleetPerformance.Of(w, f));
+        var perf = FleetPerformance.Of(w, f);
+        var plan = FlightPlanner.PlanChase(w, f, into, ChaseMode.Join, c.SpeedFraction, perf);
+        // Too slow at the speed it was given: a join may burn at full speed to catch up.
+        if (!plan.Ok && c.SpeedFraction < 1) plan = FlightPlanner.PlanChase(w, f, into, ChaseMode.Join, 1.0, perf);
         c.TargetAt = into.Position;
         c.TargetVelocity = into.Velocity;
         c.PlannedHour = now;
@@ -188,11 +191,24 @@ public static class Chases
         {
             f.Flight = flight;
             c.Problem = null;
+            c.StuckSinceHour = null;
+            return;
         }
-        else if (c.Problem != plan.Problem)
-        {
-            c.Problem = plan.Problem;
+        // The wording carries live numbers (the other fleet's speed), so only a new kind of problem is logged.
+        if (Kind(c.Problem) != Kind(plan.Problem))
             sim.Log.Warn("fleet", $"{f.Name} cannot catch up with {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id, problem = plan.Problem });
+        c.Problem = plan.Problem;
+        c.StuckSinceHour ??= now;
+        if (now - c.StuckSinceHour.Value >= JoinGiveUpHours)
+        {
+            f.Chase = null;
+            f.JoinFleetId = null;
+            sim.Log.Info("fleet", $"{f.Name} gives up joining {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id, problem = plan.Problem });
+            Autonomy.Report(sim, f, $"{f.Name} cannot catch up with {into.Name} ({plan.Problem}) and stops trying: order {into.Name} to stop or wait, then join again",
+                NoteKind.StandingOrder);
         }
     }
+
+    /// <summary>A join chase that has found no way to catch up for this long gives up and says why.</summary>
+    public const double JoinGiveUpHours = 24;
 }
