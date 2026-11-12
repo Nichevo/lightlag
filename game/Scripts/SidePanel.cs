@@ -198,6 +198,7 @@ public partial class SidePanel : PanelContainer
             else if (w.Loop && b.Kind != BodyKind.Star) tags.Add("can't be claimed");
             if (w.Loop && b.Owner != null && Economy.Blockaded(w, b)) tags.Add("BLOCKADED");
             if (w.Loop && b.LandingSide != null) tags.Add("ground fight");
+            if (w.Loop && Planets.SettlerStatus(w, Side.Player, b.Id) is string settlers) tags.Add("settlers: " + settlers);
             var (badge, color) = b.Owner switch
             {
                 Side.Player => ("yours", Ui.Player),

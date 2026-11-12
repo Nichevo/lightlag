@@ -522,6 +522,35 @@ public static class Planets
     public static bool SettlersBound(World w, Side side, int bodyId) =>
         w.Orders.Any(o => o.Side == side && o.SettleBodyId == bodyId) || w.Fleets.Any(f => f.Side == side && f.PeopleRun?.ToBodyId == bodyId);
 
+    /// <summary>
+    /// Where the settlers bound for this body are, for the player: waiting on the shipyard queue (and why),
+    /// being built, waiting for their escort, or flying with hours to landing. Null when none are bound.
+    /// </summary>
+    public static string? SettlerStatus(World w, Side side, int bodyId)
+    {
+        if (w.Fleets.FirstOrDefault(f => f.Side == side && f.PeopleRun is { OneTrip: true } run && run.ToBodyId == bodyId) is Fleet f)
+        {
+            var aboard = PeopleAboard(w, f);
+            if (f.PeopleRun!.EscortFleetId is int e && w.FindFleet(e) is Fleet escort)
+                return $"{f.Name} ({aboard:0.#}k people) waits for {escort.Name} to escort it";
+            if (f.Flight is { } fl)
+                return $"{f.Name} ({aboard:0.#}k people) lands in {SpanText(Math.Max(0, fl.ArriveHour - w.Hour))}";
+            return Economy.InOrbitAt(f, w.FindBody(bodyId)!) ? $"{f.Name} ({aboard:0.#}k people) is landing" : $"{f.Name} ({aboard:0.#}k people) is on its way";
+        }
+        var orders = w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship).ToList();
+        var order = orders.Find(o => o.SettleBodyId == bodyId);
+        if (order == null) return null;
+        if (order.Paid) return $"Settler ship being built: ready in {SpanText(order.HoursLeft)}, then it flies out";
+        if (order.Blockaded) return "Settler ship waiting: the shipyard is blockaded";
+        var ahead = orders.IndexOf(order);
+        if (ahead > 0) return $"Settler ship queued at the shipyard behind {ahead} other ship{(ahead == 1 ? "" : "s")}";
+        return order.Waiting != null ? $"Settler ship waiting to start: {order.Waiting}" : "Settler ship starts next hour";
+    }
+
+    private static string SpanText(double hours) => hours < 48
+        ? FormattableString.Invariant($"{Math.Ceiling(hours):0} hours")
+        : FormattableString.Invariant($"{hours / 24:0.#} days");
+
     /// <summary>Why this side can't order settlers to this body (escorted by that fleet), or null if it can.</summary>
     public static string? CanSettle(World w, Side side, int bodyId, int? escortFleetId = null)
     {

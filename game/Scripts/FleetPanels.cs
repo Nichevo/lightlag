@@ -772,7 +772,8 @@ public partial class FleetPanel : PanelContainer
                 lines.Add($"Settlers aboard: {Planets.PeopleAboard(w, f):0.#}k"
                           + (f.PeopleRun is { } pr && w.FindBody(pr.ToBodyId) is Body pt
                               ? pr.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" · waiting for {escort.Name} to escort them to {pt.Name}"
-                              : $" · bound for {pt.Name}, where the ship lands for good{(pr.Auto ? " (Auto top-up)" : "")}" : ""));
+                              : $" · bound for {pt.Name}, where the ship lands for good{(pr.Auto ? " (Auto top-up)" : "")}"
+                                + (f.Flight is { } sf ? $", landing in {Format.Hours(Math.Max(0, sf.ArriveHour - w.Hour))}" : "") : ""));
             if (ships.Any(Planets.IsTroopShip))
                 lines.Add($"Troops aboard: {Planets.TroopsAboard(w, f):0.##}k (they load at your planets with people to spare)");
             if (Planets.BombStatus(w, f) is string bombing) lines.Add(bombing);

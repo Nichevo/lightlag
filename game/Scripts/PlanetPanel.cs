@@ -153,6 +153,7 @@ public partial class PlanetPanel : PanelContainer
         else if (owner != Side.Player && b.Industry > 0 && b.PopK <= 0 && !b.Shipyard)
             lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it" + (cap > 0 && owner == null ? ", or land settlers to take it at once" : ""));
         if (b.Shipyard && owner == Side.Rival && Economy.BombardStatus(w, b, Side.Player) is string attack) lines.Add("Shipyard: " + attack);
+        if (w.Loop && Planets.SettlerStatus(w, Side.Player, b.Id) is string settlers) lines.Add("SETTLERS: " + settlers);
         _body.Text = string.Join("\n", lines);
 
         _build.Visible = mine && b.Board != null;

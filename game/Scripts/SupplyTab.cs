@@ -56,7 +56,7 @@ public sealed class SupplyTab
     {
         Update(sim);
         var w = sim.World;
-        return _filter + "|" + _cell + "|" + _editGood
+        return _filter + "|" + _cell + "|" + _editGood + "|" + (_flows.Count == 0) + _haulers.Ships
                + "|" + string.Join(",", _problems.Select(p => p.Key + ":" + string.Join("/", p.Fixes.Select(f => f.Label))))
                + "|" + string.Join(",", _routes.Select(r => r.Key + r.Fixed + r.EscortFleetId + r.ViaBodyId))
                + "|" + string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player && b.Board != null).Select(b => $"{b.Id}{(b.SiegeMode ? "s" : "")}"));
@@ -86,6 +86,7 @@ public sealed class SupplyTab
         columns.AddChild(left);
         columns.AddChild(right);
         Chain(left);
+        if (_flows.Count == 0 && _routes.Count == 0) Empty(w, left);
         Routes(w, left, live);
         Problems(w, right, live);
         Stock(w, right, live);
@@ -107,6 +108,23 @@ public sealed class SupplyTab
         _view = new SupplyChainView(_screen) { CustomMinimumSize = new Vector2(LeftWidth, 360) };
         box.AddChild(_view);
         box.AddChild(Text("Line width = amount a day (last 30 days) · red = short · dashed = at risk on the route · click a planet or fleet to go there", 11));
+    }
+
+    /// <summary>Why the chain shows planets but no lines yet, and what makes goods start moving.</summary>
+    private static void Empty(World w, VBoxContainer box)
+    {
+        var colonies = w.Bodies.Where(b => b.Owner == Side.Player && b.Board != null).ToList();
+        var lines = new List<string> { "Why there are no lines yet:" };
+        if (colonies.Count < 2)
+            lines.Add($"• Only {colonies.FirstOrDefault()?.Name ?? "your home"} is settled, so everything is made and used there.");
+        else
+            lines.Add("• Each planet still has what it needs: goods move only when one falls under its import line (Stock targets, right) and another has spare above its export line.");
+        if (SupplyChain.Haulers(w, Side.Player).Ships == 0)
+            lines.Add("• You have no freighters to carry goods: research Freighter hull, then build freighters at the shipyard. They run on their own.");
+        lines.Add("• Supply runs out to fleets show here too: pick a fleet, open Supply, then Get supplies out here.");
+        var l = Text(string.Join("\n", lines), 12);
+        l.Modulate = Ui.Rival;
+        box.AddChild(l);
     }
 
     // ---- Routes ---------------------------------------------------------------------------------

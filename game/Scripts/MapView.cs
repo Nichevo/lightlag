@@ -223,6 +223,8 @@ public partial class MapView : Node2D
             var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
             var name = b.Name + (b.Shipyard ? " · shipyard" : "");
             if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
+            if (w.Loop && w.Fleets.FirstOrDefault(f => f.Side == Side.Player && f.PeopleRun is { OneTrip: true } run && run.ToBodyId == b.Id) is { Flight: { } settling })
+                name += $" · settlers land in {Format.Hours(Math.Max(0, settling.ArriveHour - w.Hour))}";
             if (b.ClaimSide is Side claimer)
             {
                 var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));

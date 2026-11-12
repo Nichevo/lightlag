@@ -110,6 +110,27 @@ public class PlanetTests
     }
 
     [Fact]
+    public void Settler_status_follows_the_ship_from_the_queue_to_landing()
+    {
+        var sim = NewGame();
+        var kesh = BodyNamed(sim, "kesh");
+        Assert.Null(Planets.SettlerStatus(sim.World, Side.Player, kesh.Id));
+        sim.Issue(new SettleCommand(Side.Player, kesh.Id));
+        sim.ApplyPending();
+        var seen = new List<string>();
+        for (var hour = 0; hour < 120 * 24 && kesh.Owner == null; hour++)
+        {
+            if (Planets.SettlerStatus(sim.World, Side.Player, kesh.Id) is string status && !seen.Contains(status.Split(':')[0])) seen.Add(status.Split(':')[0]);
+            sim.Step();
+        }
+        Assert.Equal(Side.Player, kesh.Owner);
+        Assert.Contains(seen, s => s.StartsWith("Settler ship being built", StringComparison.Ordinal));
+        Assert.Contains(seen, s => s.Contains("lands in", StringComparison.Ordinal));
+        Days(sim, 1);
+        Assert.Null(Planets.SettlerStatus(sim.World, Side.Player, kesh.Id));
+    }
+
+    [Fact]
     public void Auto_top_up_orders_settlers_by_itself()
     {
         var sim = NewGame();
