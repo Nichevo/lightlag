@@ -99,6 +99,9 @@ public partial class GameScreen : Node2D
     /// <summary>Pause the game when an enemy fleet comes into sight.</summary>
     public bool PauseOnContact { get; set; } = true;
 
+    /// <summary>Skip those pauses when a role fleet is already dealing with the enemy within its rules (see HelpCalls).</summary>
+    public bool QuietWhenHandled { get; set; } = true;
+
     /// <summary>Debug view (F7): every fleet is drawn, seen or not.</summary>
     public bool RevealAll { get; private set; }
     /// <summary>What the map shows of your sensors: shadows, full coverage or nothing (B cycles).</summary>
@@ -129,6 +132,13 @@ public partial class GameScreen : Node2D
 
     /// <summary>The planets list (Y) covers the map while open.</summary>
     public bool ShowPlanets { get; set; }
+
+    /// <summary>The fleets screen (K), and the fleet picked on it.</summary>
+    public bool ShowFleets { get; set; }
+    public int? FleetScreenId { get; set; }
+
+    /// <summary>The world now (for screens that need to read it outside a refresh).</summary>
+    public World World => Sim.World;
 
     /// <summary>The planet whose screen (board, priorities, storage, transport) is open, over the planets list.</summary>
     public int? PlanetScreenId { get; set; }
@@ -648,6 +658,20 @@ public partial class GameScreen : Node2D
         if (Engagement != null) CloseEngagement();
     }
 
+    /// <summary>The fleets screen (K): opens it over anything else, picking the selected fleet; closes it when open.</summary>
+    public void ToggleFleets()
+    {
+        if (ShowFleets) { ShowFleets = false; return; }
+        ShowResearch = false;
+        ShowPlanets = false;
+        PlanetScreenId = null;
+        GroundScreenId = null;
+        ShowEmpire = false;
+        FittingFleetId = null;
+        if (SelectedFleet is Fleet f && f.Side == Side.Player) FleetScreenId = f.Id;
+        ShowFleets = true;
+    }
+
     /// <summary>The planets screen (Y): opens it over anything else (research hid it before); closes it when open.</summary>
     public void TogglePlanets()
     {
@@ -724,6 +748,9 @@ public partial class GameScreen : Node2D
             // Every enemy fleet in it is one you said not to pause for: a news line instead.
             var rivals = w.Fleets.Where(f => f.Side == Side.Rival && b.For(Side.Rival).Fleets.Contains(f.Name)).Select(f => f.Id).ToList();
             var quiet = rivals.Count > 0 && rivals.All(QuietEnemies.Contains);
+            // Our role fleets are handling every enemy in it within their rules: no pause either.
+            var handled = !quiet && QuietWhenHandled && HelpCalls.BattleInHand(w, b, Side.Player);
+            quiet |= handled;
             var far = w.Light.On && b.For(Side.Player).LagHours > 5.0 / 60;
             if (far)
             {
@@ -739,7 +766,7 @@ public partial class GameScreen : Node2D
             }
             else if (again || quiet)
             {
-                _main.AddNews($"{(again ? "Contact again" : "Contact (no pause)")}: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
+                _main.AddNews($"{(again ? "Contact again" : handled ? "Contact, role fleets handling it (no pause)" : "Contact (no pause)")}: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
             }
             else
             {
@@ -828,6 +855,13 @@ public partial class GameScreen : Node2D
                 // Spotted before this session: back in sight is a quiet news line, no pop-up and no pause.
                 var id = s.FleetId;
                 _main.AddNews($"{s.Name} back in sight", () => GoToSighting(id));
+                continue;
+            }
+            if (QuietWhenHandled && HelpCalls.HandledBy(w, Side.Player, s.FleetId) is Fleet handler)
+            {
+                // A role fleet has it in hand within its rules: a news line, no pop-up and no pause.
+                var seen = s.FleetId;
+                _main.AddNews($"Spotted {s.Name} ({s.Ships} ships). {handler.Name} ({HelpCalls.RoleName(handler.Role)}) is dealing with it", () => GoToSighting(seen));
                 continue;
             }
             var nearest = w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => Vec2.Distance(f.Position, s.Position)).FirstOrDefault();
@@ -1421,6 +1455,8 @@ public partial class GameScreen : Node2D
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
             case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
             case Key.Y when Sim.World.Loop: TogglePlanets(); break;
+            case Key.K: ToggleFleets(); break;
+            case Key.Escape when ShowFleets && ShipCardId == null: ShowFleets = false; break;
             case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;
             case Key.Escape when PlanetScreenId != null: PlanetScreenId = null; break;

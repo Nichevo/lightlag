@@ -295,6 +295,8 @@ public partial class FleetPanel : PanelContainer
         _fittings = Ui.SmallButton("Ships and fittings", () => _screen.FittingFleetId = _screen.FittingFleetId == null ? _screen.SelectedFleet?.Id : null,
             "Each ship's drawing, slots and modules. Swap modules at your shipyard, or save a design for new ships");
         box.AddChild(_fittings);
+        box.AddChild(Ui.SmallButton("Fleet screen: role and ships", () => _screen.ToggleFleets(),
+            "This fleet on the fleets screen: its role (which calls for help it answers by itself), rules, every ship, supplies and distances (K)"));
         _droneButton = Ui.SmallButton("Send orders by drone", () => _screen.SendDrone(),
             $"A planet blocks the signal to this fleet. A messenger drone flies the orders there instead: slower than light, {Drones.D.Cost:0} Industry, and easy to shoot down");
         box.AddChild(_droneButton);

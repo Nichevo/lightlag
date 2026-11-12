@@ -35,6 +35,9 @@ public sealed class World
     /// <summary>What each side knows about the other's fleets (see Sensors).</summary>
     public List<Sighting> Sightings { get; set; } = new();
 
+    /// <summary>Calls for help from planets, cargo runs and fleets, and who answers them (see HelpCalls).</summary>
+    public List<HelpCall> HelpCalls { get; set; } = new();
+
     /// <summary>
     /// Under light lag, what each side's command knows: the sightings above (and its own fleets) as the
     /// last reports carried them home. Empty with light lag off, when command sees what the fleets see.

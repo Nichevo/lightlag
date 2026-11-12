@@ -592,10 +592,18 @@ public static class Stewards
             {
                 var near = mine.Where(b => b.PopK > 0 && Vec2.Distance(s.Position, b.Position) < 0.15 * Physics.MmPerAu)
                     .OrderBy(b => Vec2.Distance(s.Position, b.Position)).ThenBy(b => b.Id).FirstOrDefault();
-                if (near != null) Need(NeedLevel.Urgent, $"enemy-near:{near.Id}", $"Enemy fleet ({s.Ships} ships) near {near.Name}", near.Id);
+                if (near == null) continue;
+                // A role fleet already on it within its rules: still listed, but not urgent.
+                var on = HelpCalls.HandledBy(_w, _side, s.FleetId);
+                Need(on != null ? NeedLevel.Info : NeedLevel.Urgent, $"enemy-near:{near.Id}",
+                    $"Enemy fleet ({s.Ships} ships) near {near.Name}" + (on != null ? $": {on.Name} is dealing with it" : ""), near.Id);
             }
             foreach (var (enemy, from, to) in Lanes.RaidersNearRuns(_w, _side))
-                Need(NeedLevel.Urgent, $"raiders:{from.Id}:{to.Id}", $"Raiders ({enemy.Ships} ships) near the {from.Name}–{to.Name} run", to.Id);
+            {
+                var on = HelpCalls.HandledBy(_w, _side, enemy.FleetId);
+                Need(on != null ? NeedLevel.Info : NeedLevel.Urgent, $"raiders:{from.Id}:{to.Id}",
+                    $"Raiders ({enemy.Ships} ships) near the {from.Name}–{to.Name} run" + (on != null ? $": {on.Name} is dealing with it" : ""), to.Id);
+            }
             foreach (var o in _w.Orders.Where(o => o.Side == _side && o.Waiting != null && !o.Waiting.Contains("Industry")).OrderBy(o => o.Id))
                 Need(o.Kind == OrderKind.Ship ? NeedLevel.Urgent : NeedLevel.Soon, $"waiting:{o.Id}",
                     $"{Economy.NameOf(o)} waits: {o.Waiting}", o.YardBodyId ?? _home.Id);
