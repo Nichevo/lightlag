@@ -258,7 +258,9 @@ public partial class Hud : CanvasLayer
     private static string ResearchLine(World w)
     {
         var orders = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research && o.Paid).ToList();
-        if (orders.Count == 0) return "Research: idle ▸";
+        // A team held up because its next idea can't be paid for yet: say so, so it doesn't look like research stopped.
+        var held = w.Orders.FirstOrDefault(o => o.Side == Side.Player && o.Kind == OrderKind.Research && !o.Paid && o.Waiting != null && Research.Next(w, o));
+        if (orders.Count == 0) return held != null ? $"Research WAITING: {held.Waiting} ▸" : "Research: idle ▸";
         var first = orders.OrderBy(o => Research.DaysUntilDone(w, o)).First();
         return $"Research: {GameData.Research(first.Key).Name} {Research.DaysUntilDone(w, first):0.#} d"
                + (orders.Count > 1 ? $" (+{orders.Count - 1})" : "") + " ▸";
@@ -312,7 +314,7 @@ public partial class Hud : CanvasLayer
         _intelButton.Modulate = _screen.ShowIntel ? Ui.Player : Colors.White;
         _progressButton.Modulate = _screen.ShowProgress ? Ui.Player : Colors.White;
         _researchButton.Visible = w.Loop;
-        if (w.Loop) _researchButton.Text = ResearchLine(w);
+        if (w.Loop) { _researchButton.Text = ResearchLine(w); _researchButton.Modulate = _researchButton.Text.Contains("WAITING") ? Ui.Danger : Colors.White; }
         _planetsButton.Visible = w.Loop;
         _research.Visible = w.Loop && _screen.ShowResearch;
         if (_research.Visible) _research.Refresh(sim);

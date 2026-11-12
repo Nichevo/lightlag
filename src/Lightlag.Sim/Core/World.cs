@@ -204,8 +204,8 @@ public sealed class Body
     public List<string> Buildings { get; set; } = new();
 
     /// <summary>The first building under way, and its hours left (from Pieces).</summary>
-    [System.Text.Json.Serialization.JsonIgnore] public string? Building => Pieces.FirstOrDefault(p => !p.Built)?.Kind;
-    [System.Text.Json.Serialization.JsonIgnore] public double BuildingHoursLeft => Pieces.FirstOrDefault(p => !p.Built)?.HoursLeft ?? 0;
+    [System.Text.Json.Serialization.JsonIgnore] public string? Building => Pieces.FirstOrDefault(p => !p.Built && !p.Waiting)?.Kind ?? Pieces.FirstOrDefault(p => !p.Built)?.Kind;
+    [System.Text.Json.Serialization.JsonIgnore] public double BuildingHoursLeft => (Pieces.FirstOrDefault(p => !p.Built && !p.Waiting) ?? Pieces.FirstOrDefault(p => !p.Built))?.HoursLeft ?? 0;
 
     /// <summary>The surface (tiles and deposits; null where nothing can be built) and the pieces on it.</summary>
     public Board? Board { get; set; }

@@ -60,6 +60,10 @@ public sealed class RuleBook
         .Add("fuel-sane", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => Fuels.Problem(w, s) is string p ? $"ship {s.Id} {s.Name} {p}" : null).OfType<string>())
         .Add("planets-sane", PlanetsSane)
+        // A queued building is not paid for or started: it has made no progress and is not standing.
+        .Add("queued-buildings-unstarted", w => w.Bodies.SelectMany(b => b.Pieces.Where(p => p.Waiting
+                && (p.Built || Lightlag.Sim.Core.Planets.BuildingKind(p.Kind) is not { } d || Math.Abs(p.HoursLeft - d.Days * 24) > 1e-6))
+            .Select(p => $"{b.Name} piece {p.Id} ({p.Kind}) is queued but has {p.HoursLeft:0.#} hours left")))
         .Add("war-sane", WarSane)
         .Add("supply-rules-sane", SupplyRulesSane)
         .Add("positions-finite", PositionsFinite)
@@ -210,7 +214,7 @@ public sealed class RuleBook
             if (!(b.FoodStock >= -1e-9 && double.IsFinite(b.FoodStock))) yield return $"{b.Name} has food stock {b.FoodStock}";
             if (b.Pieces.Any(p => Planets.BuildingKind(p.Kind) == null))
                 yield return $"{b.Name} has unknown buildings {string.Join(",", b.Pieces.Select(p => p.Kind))}";
-            if (b.Pieces.Count(p => !p.Built) > 1) yield return $"{b.Name} has more than one building under way";
+            if (b.Pieces.Count(p => !p.Built && !p.Waiting) > 1) yield return $"{b.Name} has more than one building under way"; // queued ones wait their turn
             if (b.Board is Board board)
             {
                 var used = new HashSet<(int, int)>();

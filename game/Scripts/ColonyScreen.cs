@@ -370,7 +370,7 @@ public partial class ColonyScreen : PanelContainer
             Placing = _placing != null ? Planets.BuildingKind(_placing) : null, SelectedPieceId = _selectedPiece,
             OnPlace = (x, y, turned) =>
             {
-                _screen.IssueNow(new BuildOnPlanetCommand(Side.Player, b.Id, _placing!, x, y, turned), "building");
+                _screen.IssueNow(new BuildOnPlanetCommand(Side.Player, b.Id, _placing!, x, y, turned, Queue: true), "building");
                 _placing = null;
             },
             OnSelect = id => _selectedPiece = id,
@@ -379,8 +379,9 @@ public partial class ColonyScreen : PanelContainer
         left.AddChild(_board);
         left.AddChild(LiveWrap(_ => _placing != null
             ? $"Placing a {Planets.BuildingKind(_placing)?.Name.ToLowerInvariant()}: R turns it, right click cancels" + (_board?.Problem is string p ? $" · {p}" : "")
-            : "Pick a building on the right to place it · click a building to see it", 13, Ui.Dim));
+            : "Pick a building on the right to place it (it queues if one is under way or the Industry isn't there yet) · click a building to see it, take it down or call it off", 13, Ui.Dim));
         left.AddChild(Wrap("Tiles: brown land, blue ocean, white ice, grey mountains (nothing builds there). Diamonds are mineral deposits (+ rich). Green dots link buildings that help each other.", 12, Ui.Dim));
+        if (b.Pieces.Any(p => !p.Built)) left.AddChild(BuildQueue(w, b));
         if (_selectedPiece is int pid && b.Pieces.Find(p => p.Id == pid) is Piece piece) left.AddChild(PieceInfo(w, b, piece));
         var under = Row(10);
         under.AddChild(Priorities(w, b));
@@ -417,19 +418,45 @@ public partial class ColonyScreen : PanelContainer
         return l;
     }
 
+    /// <summary>What is being built here and what is queued behind it, each with a button to call it off.</summary>
+    private Control BuildQueue(World w, Body b)
+    {
+        var col = Column(4);
+        col.AddChild(Ui.Label("Building here", 16));
+        foreach (var p in b.Pieces.Where(p => !p.Built).OrderBy(p => p.Waiting).ThenBy(p => p.Id))
+        {
+            var data = Planets.BuildingKind(p.Kind);
+            var row = Row(8);
+            var name = Ui.SmallButton(data?.Name ?? p.Kind, () => _selectedPiece = p.Id, "Show it on the board");
+            name.AddThemeFontSizeOverride("font_size", 13);
+            row.AddChild(name);
+            var state = LiveWrap(w2 => p.Waiting ? $"Queued: {Colonies.QueuedWhy(w2, b, p)} ({data?.Cost ?? 0:0} Industry when it starts)"
+                : $"{p.HoursLeft / 24:0.#} days left" + (Colonies.MaterialShort(b, p) is string waits ? $" · WAITING: {waits}" : ""), 13);
+            row.AddChild(state);
+            row.AddChild(Ui.SmallButton("✕", () =>
+            {
+                _screen.IssueNow(new DemolishCommand(Side.Player, b.Id, p.Kind, p.Id), "call off");
+                if (_selectedPiece == p.Id) _selectedPiece = null;
+            }, p.Waiting ? "Take it out of the queue (nothing was paid yet)" : "Stop building it (no refund)"));
+            col.AddChild(row);
+        }
+        return Box(col, 10);
+    }
+
     private Control PieceInfo(World w, Body b, Piece p)
     {
         var data = Planets.BuildingKind(p.Kind)!;
         var col = Column(4);
         col.AddChild(Ui.Label(data.Name, 16, BoardView.AreaColors.GetValueOrDefault(data.Area, Ui.Text)));
         col.AddChild(Wrap(data.Effect, 13, Ui.Dim));
-        col.AddChild(LiveWrap(w2 => !p.Built ? $"Being built: {p.HoursLeft / 24:0.#} days left" + (Colonies.MaterialShort(b, p) is string waits ? $" · WAITING: {waits}" : "")
+        col.AddChild(LiveWrap(w2 => p.Waiting ? $"Queued: {Colonies.QueuedWhy(w2, b, p)}"
+            : !p.Built ? $"Being built: {p.HoursLeft / 24:0.#} days left" + (Colonies.MaterialShort(b, p) is string waits ? $" · WAITING: {waits}" : "")
             : $"Output {Colonies.Output(w2, b, p):P0} · staff {p.Staff:P0} · {(p.Powered ? "powered" : "NO POWER")} · condition {p.Condition:P0}"
               + (p.Level > 0 ? $" · level {p.Level + 1}" : "") + (p.RefitHoursLeft > 0 ? $" · refit {p.RefitHoursLeft / 24:0.#} d" : "")
               + (Colonies.BonusFor(b, p) > 0 ? $" · bonus +{Colonies.BonusFor(b, p):P0}" : "")
               + (Colonies.DepositUnder(b, p) is Deposit d ? $" · digs {Colonies.GoodName(d.Mineral).ToLowerInvariant()}{(d.Rich ? " (rich)" : "")}" : ""), 13));
         if (p.Kind != Colonies.Shipyard)
-            col.AddChild(Ui.SmallButton(p.Built ? "Take down" : "Call off", () =>
+            col.AddChild(Ui.SmallButton(p.Built ? "Take down" : p.Waiting ? "Take out of the queue" : "Call off", () =>
             {
                 _screen.IssueNow(new DemolishCommand(Side.Player, b.Id, p.Kind, p.Id), "demolish");
                 _selectedPiece = null;
@@ -476,8 +503,10 @@ public partial class ColonyScreen : PanelContainer
         var busy = b.Pieces.Any(p => !p.Built);
         foreach (var k in kinds)
         {
-            var why = busy ? "One building at a time: wait for the one under way" : Colonies.CanPlace(w, Side.Player, b.Id, k.Id, null, null, false);
-            if (_onlyHere && why != null && !why.StartsWith("Needs ") && !why.StartsWith("One building")) continue;
+            // Buildings go up one at a time, but more can be queued behind, even before the Industry is there.
+            var why = Colonies.CanPlace(w, Side.Player, b.Id, k.Id, null, null, false, queue: true);
+            var queues = why == null && (busy || Economy.Of(w, Side.Player).Industry < k.Cost);
+            if (_onlyHere && why != null) continue;
             var power = k.Power < 0 ? $"+{-k.Power:0} power" : k.Power > 0 ? $"{k.Power:0} power" : "no power";
             var button = new Button
             {
@@ -485,7 +514,7 @@ public partial class ColonyScreen : PanelContainer
                        + (k.Materials is { Count: > 0 } mats ? "\n" + string.Join(", ", mats.Select(m => $"{m.Value:0} {Colonies.GoodName(m.Key).ToLowerInvariant()}")) : ""),
                 Alignment = HorizontalAlignment.Left, FocusMode = FocusModeEnum.None, ToggleMode = true, ButtonPressed = _placing == k.Id,
                 Disabled = why != null, SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                TooltipText = (why != null ? why + ". " : "") + k.Effect + $". Goes on {TerrainName(k.Terrain)}. Upkeep {k.Upkeep:0.##} spare parts a day."
+                TooltipText = (why != null ? why + ". " : queues ? "Queues behind what is under way here, paid when it starts. " : "") + k.Effect + $". Goes on {TerrainName(k.Terrain)}. Upkeep {k.Upkeep:0.##} spare parts a day."
                               + (k.Uses is { Count: > 0 } uses ? " Uses " + string.Join(", ", uses.Select(u => $"{u.Value:0.##} {Colonies.GoodName(u.Key).ToLowerInvariant()}")) + " a day." : "")
                               + (k.Bonus is { Count: > 0 } bonus ? " Bonus beside " + string.Join(", ", bonus.Select(x => $"a {Planets.BuildingKind(x.Next)?.Name.ToLowerInvariant()} (+{x.Share:P0})")) + "." : ""),
             };

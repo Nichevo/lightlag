@@ -23,6 +23,8 @@ public partial class ResearchScreen : PanelContainer
     private string? _unlocks;                  // null: everything
     private Sort _sort = Sort.Quickest;
     private string? _selected;                 // idea lit up in the discovery web
+    private ScrollContainer? _ideaScroll, _webScroll;
+    private (int Ideas, int WebV, int WebH)? _keepScroll; // scroll places to put back after a rebuild
 
     public enum IdeaState { Available, Queued, Researching, Done, Locked }
     private enum Sort { Quickest, Cheapest, Name }
@@ -54,7 +56,18 @@ public partial class ResearchScreen : PanelContainer
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
+            // A rebuild (clicking a card, queueing an idea) used to jump the lists back to the top.
+            if (_ideaScroll != null && IsInstanceValid(_ideaScroll) && _webScroll != null && IsInstanceValid(_webScroll))
+                _keepScroll = (_ideaScroll.ScrollVertical, _webScroll.ScrollVertical, _webScroll.ScrollHorizontal);
             Rebuild(w);
+        }
+        else if (_keepScroll is var (ideas, webV, webH) && _ideaScroll != null && _webScroll != null)
+        {
+            // Put the scroll places back once the new lists have their size (a frame after the rebuild).
+            _ideaScroll.ScrollVertical = ideas;
+            _webScroll.ScrollVertical = webV;
+            _webScroll.ScrollHorizontal = webH;
+            _keepScroll = null;
         }
         foreach (var update in _live) update(w);
     }
@@ -202,7 +215,14 @@ public partial class ResearchScreen : PanelContainer
             name.ClipText = true;
             row.AddChild(name);
             var days = Ui.Label("", 13, Ui.Dim);
-            _live.Add(w2 => days.Text = order.Paid || !first ? $"{Research.DaysUntilDone(w2, order):0.#} d" : $"waits for {Economy.CostOf(order):0} Industry");
+            _live.Add(w2 =>
+            {
+                // The first idea is paid for when the team starts it: say plainly when it is held up for Industry.
+                var stuck = !order.Paid && first && order.Waiting != null;
+                days.Text = order.Paid || !first ? $"{Research.DaysUntilDone(w2, order):0.#} d"
+                    : stuck ? $"WAITING: {order.Waiting}" : $"starts next hour ({Economy.CostOf(order):0} Industry)";
+                days.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
+            });
             row.AddChild(days);
             var others = Economy.Of(w, Side.Player).Teams.Where(t => t.Id != team.Id).ToList();
             if (others.Count > 0)
@@ -306,8 +326,12 @@ public partial class ResearchScreen : PanelContainer
         var order = w.Orders.Find(o => o.Side == Side.Player && o.Kind == OrderKind.Research && o.Key == id);
         if (order != null)
             return order.TeamId is int t && Research.QueueOf(w, Side.Player, t).FirstOrDefault() == order && order.Paid ? IdeaState.Researching : IdeaState.Queued;
-        return Research.Missing(w, Side.Player, id) != null ? IdeaState.Locked : IdeaState.Available;
+        return Research.Missing(w, Side.Player, id) != null || GameData.Research(id).Later ? IdeaState.Locked : IdeaState.Available;
     }
+
+    /// <summary>Has the player come across this idea (so it shows on the screen)? Later-build ideas never show.</summary>
+    public static bool Discovered(World w, ResearchData r) =>
+        !r.Later && (StateOf(w, r.Id) != IdeaState.Locked || Research.Seen(w, Side.Player, r.Id));
 
     /// <summary>Days the idea would take the team that would finish it first (counting its queue).</summary>
     private static (ResearchTeam? Team, double Days) Quickest(World w, string id)
@@ -322,7 +346,9 @@ public partial class ResearchScreen : PanelContainer
         var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 8);
 
-        var all = GameData.Economy.Research;
+        // Only ideas the side has come across: ones it can work on now, has done or queued, or whose needs
+        // are partly done. Undiscovered ideas (the old "????") and ideas for a later build stay hidden.
+        var all = GameData.Economy.Research.Where(r => Discovered(w, r)).ToList();
         var shown = all.Where(r => (_field == null || r.Field == _field) && (_unlocks == null || r.Unlocks == _unlocks)
                                    && _states.Contains(StateOf(w, r.Id))
                                    && (_search.Length == 0 || r.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
@@ -381,7 +407,7 @@ public partial class ResearchScreen : PanelContainer
             row2.AddChild(Chip(char.ToUpperInvariant(g[0]) + g[1..], _unlocks == g, () => _unlocks = _unlocks == g ? null : g));
         v.AddChild(row2);
 
-        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        var scroll = _ideaScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
             CustomMinimumSize = new Vector2(0, 260) };
         var width = GetViewportRect().Size.X - Mathf.Min(560, GetViewportRect().Size.X * 0.3f) - 110;
         var grid = new GridContainer { Columns = Math.Max(1, (int)(width / 300)) };
@@ -416,9 +442,21 @@ public partial class ResearchScreen : PanelContainer
         var card = Box(0, border);
         card.CustomMinimumSize = new Vector2(width, 0);
         if (state == IdeaState.Locked) card.Modulate = new Color(1, 1, 1, 0.55f);
+        card.TooltipText = state == IdeaState.Available ? "Click to light up its path in the web · double-click to queue it with the team that finishes it first"
+            : "Click to light up its path in the web";
         card.GuiInput += e =>
         {
-            if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) _selected = _selected == r.Id ? null : r.Id;
+            if (e is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click) return;
+            if (click.DoubleClick)
+            {
+                // Double-click: queue it with the team that would finish it first (a home order, so it works paused).
+                _selected = r.Id;
+                if (StateOf(Main.Instance.Sim!.World, r.Id) == IdeaState.Available && Main.Instance.Sim.World.Winner == null)
+                    _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id), "queueing research");
+                card.AcceptEvent();
+                return;
+            }
+            _selected = _selected == r.Id ? null : r.Id;
         };
         var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 0);
@@ -528,11 +566,11 @@ public partial class ResearchScreen : PanelContainer
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         head.AddChild(Ui.Label("view only", 12, Ui.Dim));
         v.AddChild(head);
-        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
+        var scroll = _webScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
         var web = new DiscoveryWeb(w, _selected);
         scroll.AddChild(web);
         v.AddChild(scroll);
-        var note = Ui.Label("Lines show what led to what; blurred ideas are not found yet. Click an idea card to light up its path.", 11, Ui.Dim);
+        var note = Ui.Label("Lines show what led to what; ideas you haven't found yet stay off the web. Click an idea card to light up its path, double-click to queue it.", 11, Ui.Dim);
         note.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         v.AddChild(note);
         return v;
@@ -541,7 +579,7 @@ public partial class ResearchScreen : PanelContainer
 
 /// <summary>
 /// The discovery web: ideas in columns by how many steps of other ideas lead to them, survey finds
-/// on the left in gold. Ideas whose needs aren't met yet show blurred; ones two steps away are hidden.
+/// on the left in gold. Only ideas you can work on or have done show; undiscovered ones are left off.
 /// </summary>
 public partial class DiscoveryWeb : Control
 {
@@ -559,8 +597,8 @@ public partial class DiscoveryWeb : Control
             : depth[id] = (GameData.Research(id).Needs ?? new List<string>()).Select(n => Depth(n) + 1).DefaultIfEmpty(0).Max();
         var me = Economy.Of(w, Side.Player);
         bool Known(string id) => ResearchScreen.StateOf(w, id) != ResearchScreen.IdeaState.Locked;
-        // Visible: known ideas, plus blurred ones whose needs are all known.
-        var visible = all.Where(r => Known(r.Id) || (r.Needs ?? new()).All(Known)).ToList();
+        // Visible: only ideas you can work on, are working on or have done. Undiscovered ones are not shown.
+        var visible = all.Where(r => !r.Later && Known(r.Id)).ToList();
         var path = new HashSet<string>();
         void Mark(string id) { if (path.Add(id)) foreach (var n in GameData.Research(id).Needs ?? new()) Mark(n); }
         if (selected != null) Mark(selected);
@@ -586,8 +624,7 @@ public partial class DiscoveryWeb : Control
                     _ => (new Color("10151e"), new Color("4c5666")),
                 };
                 if (lit) fill = fill.Lightened(0.15f);
-                var blur = state == ResearchScreen.IdeaState.Locked;
-                _nodes.Add((r.Id, at, blur ? new string('?', Math.Min(9, r.Name.Length)) : r.Name, fill, ink, blur));
+                _nodes.Add((r.Id, at, r.Name, fill, ink, false));
             }
         }
         foreach (var r in visible)

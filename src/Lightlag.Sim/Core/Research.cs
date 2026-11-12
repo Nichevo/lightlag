@@ -10,7 +10,8 @@ namespace Lightlag.Sim.Core;
 /// so twice the scientists gives about 1.7x the speed. Finishing an idea raises the team's skill in its
 /// field by skillPerIdea up to maxSkill; skills a team doesn't keep fade back towards 1 by fadePer30Days.
 /// A side surveys a body by holding orbit there for surveyHours the first time, and the survey takes
-/// surveyCut off one random idea it hasn't researched.
+/// surveyCut off one random idea it hasn't researched. TierPace stretches each idea's listed days by its
+/// tier (tier 1 first), so early ideas come in weeks and late ones take most of a year.
 /// </summary>
 public sealed record TeamsData(
     int Slots = 3,
@@ -29,7 +30,8 @@ public sealed record TeamsData(
     double SplitShare = 0.5,
     double MinScientists = 6,
     double SurveyHours = 24,
-    double SurveyCut = 0.25);
+    double SurveyCut = 0.25,
+    double[]? TierPace = null);
 
 // ---- State ----------------------------------------------------------------------------------
 
@@ -106,9 +108,20 @@ public static class Research
     public static bool Next(World w, WorkOrder o) =>
         o.TeamId is int id && QueueOf(w, o.Side, id).FirstOrDefault() == o;
 
-    /// <summary>Hours of base work for an idea, after any survey discovery cut.</summary>
-    public static double BaseHours(World w, Side side, string id) =>
-        GameData.Research(id).Days * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1);
+    /// <summary>How much an idea's listed days are stretched for its tier (1 when no pace is set).</summary>
+    public static double Pace(int tier)
+    {
+        var pace = T.TierPace;
+        if (pace is not { Length: > 0 }) return 1;
+        return pace[Math.Clamp(tier, 1, pace.Length) - 1];
+    }
+
+    /// <summary>Hours of base work for an idea: its days, stretched for its tier, after any survey discovery cut.</summary>
+    public static double BaseHours(World w, Side side, string id)
+    {
+        var r = GameData.Research(id);
+        return r.Days * Pace(r.Tier) * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1);
+    }
 
     /// <summary>Days until this order is done, counting the orders ahead of it in its team's queue.</summary>
     public static double DaysUntilDone(World w, WorkOrder order)

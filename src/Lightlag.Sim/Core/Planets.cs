@@ -808,23 +808,28 @@ public static class Planets
     }
 
     /// <summary>Why this building can't be ordered here (at its best spot, or at x, y), or null if it can.</summary>
-    public static string? CanBuild(World w, Side side, int bodyId, string kind, int? x = null, int? y = null, bool turned = false)
+    public static string? CanBuild(World w, Side side, int bodyId, string kind, int? x = null, int? y = null, bool turned = false, bool queue = false)
     {
         if (w.FindBody(bodyId) is Body b && b.Owner == side && b.PopK <= 0) return "Settle it first: buildings need people";
-        return Colonies.CanPlace(w, side, bodyId, kind, x, y, turned);
+        return Colonies.CanPlace(w, side, bodyId, kind, x, y, turned, queue);
     }
 }
 
 // ---- Commands -------------------------------------------------------------------------------
 
-/// <summary>Start a building on a planet you hold: paid now, standing after its build time.</summary>
-public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, int? X = null, int? Y = null, bool Turned = false) : GameCommand
+/// <summary>
+/// Start a building on a planet you hold: paid now, standing after its build time. With Queue (the planet
+/// screen), a building that can't start now (another is under way, or the Industry isn't there yet) is
+/// placed as queued: it holds its tiles and starts, paying then, when its turn comes.
+/// </summary>
+public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, int? X = null, int? Y = null, bool Turned = false, bool Queue = false) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
+    /// <summary>A home order: placed at once, even while paused (the work itself still needs the planet's people and goods).</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => Queue ? null : (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
 
     public override void Apply(World world, Simulation sim)
     {
-        if (Planets.CanBuild(world, Side, BodyId, Kind, X, Y, Turned) is string problem)
+        if (Planets.CanBuild(world, Side, BodyId, Kind, X, Y, Turned, Queue) is string problem)
         {
             sim.Log.Warn("planets", $"Can't build: {problem}", new { side = Side.ToString(), BodyId, Kind, X, Y, Source });
             return;
@@ -833,6 +838,14 @@ public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, in
         var b = world.FindBody(BodyId)!;
         var (x, y, turned) = X is int px && Y is int py ? (px, py, Turned) : Colonies.BestSpot(b, data)!.Value;
         var state = Economy.Of(world, Side);
+        if (Queue && (state.Industry < data.Cost || b.Pieces.Any(p => !p.Built)))
+        {
+            var queued = Colonies.AddPiece(world, b, data, x, y, turned, built: false);
+            queued.Waiting = true;
+            Choices.Note(world, Side, "building", Kind, b.Name);
+            sim.Log.Info("planets", $"{Side} queues a {data.Name.ToLowerInvariant()} at {b.Name}", new { side = Side.ToString(), BodyId, Kind, x, y, Source });
+            return;
+        }
         state.Industry -= data.Cost;
         state.Totals.IndustrySpent += data.Cost;
         Colonies.AddPiece(world, b, data, x, y, turned, built: false);
@@ -844,7 +857,8 @@ public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, in
 /// <summary>Take down a building (to free its tiles and its people), or call off one being built: by piece, or the last of a kind.</summary>
 public sealed record DemolishCommand(Side Side, int BodyId, string Kind, int? PieceId = null) : GameCommand
 {
-    public override (Side Side, Vec2 At)? Destination(World world) => (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
+    /// <summary>A home order: at once, even while paused, so calling off a queued building is immediate.</summary>
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
 
     public override void Apply(World world, Simulation sim)
     {
