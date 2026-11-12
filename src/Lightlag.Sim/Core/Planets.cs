@@ -26,7 +26,7 @@ public sealed record BuildingData(string Id, string Name, string Effect, double 
     string? Needs = null, bool AnyAir = false, bool Solar = false, bool Buildable = true, string[]? RefitBy = null, List<BonusData>? Bonus = null,
     Dictionary<string, double>? Materials = null, double Happiness = 0, double Growth = 0, Dictionary<string, double>? TouchHappiness = null,
     double LaunchPerDay = 0, bool Hot = false, double TrainScientists = 0, bool Repairs = false, bool BombProof = false, double TroopRate = 0,
-    bool Sees = false, double Ammo = 0);
+    bool Sees = false, double Ammo = 0, int Squadrons = 0);
 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
@@ -399,7 +399,7 @@ public static class Planets
 
     /// <summary>Share of bombing that gets through the planet's point defence grids and shield domes.</summary>
     public static double BombShare(Body b) =>
-        1 / (1 + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.BombShield ?? 0) * Colonies.Output(null!, b, p)));
+        1 / (1 + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.BombShield ?? 0) * Colonies.Output(null!, b, p))) / StrikeCraft.BombCover(b);
 
     /// <summary>Is any of the planet's holders' fleets close enough to stop bombing (as for the shipyard)?</summary>
     public static bool Defended(World w, Body b) =>

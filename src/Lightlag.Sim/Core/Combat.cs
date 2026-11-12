@@ -17,6 +17,10 @@ public sealed class Missile
 
     /// <summary>A dropped missile: drifts dark until this hour (see DroppedMissiles).</summary>
     public double WakeHour { get; set; }
+
+    /// <summary>Heavy warheads loaded (held back while a fleet keeps its tech secret), and a hijack already tried on it.</summary>
+    public bool Heavy { get; set; }
+    public bool HijackTried { get; set; }
 }
 
 /// <summary>How one side did in a battle: the numbers behind the combat report.</summary>
@@ -51,6 +55,34 @@ public sealed class BattleSide
     public bool Withdrew { get; set; }
     public bool WithdrewBeforeShots { get; set; }
     public List<string> Fleets { get; set; } = new();
+
+    /// <summary>Why missiles missed beyond point defence and dodges: jammed, spoofed, or hijacked and turned on their own side.</summary>
+    public int Jammed { get; set; }
+    public int Spoofed { get; set; }
+    public int Hijacked { get; set; }
+
+    /// <summary>Pulse lance shots and hits, mine hits taken, squadrons sent at the enemy and lost.</summary>
+    public int LanceShots { get; set; }
+    public int LanceHits { get; set; }
+    public int MineHits { get; set; }
+    public int Sorties { get; set; }
+    public int SquadronsLost { get; set; }
+
+    /// <summary>The farthest this side was seen to fire railguns, launch missiles and fire lances (Mm): what the rival learns of its reach.</summary>
+    public double RailReach { get; set; }
+    public double MissileReach { get; set; }
+    public double LanceReach { get; set; }
+
+    /// <summary>Lists of research ids by key (see Secrecy: ideas held back, ideas shown).</summary>
+    public Dictionary<string, List<string>> Ideas { get; set; } = new();
+
+    public void Note(string key, string id)
+    {
+        if (!Ideas.TryGetValue(key, out var list)) Ideas[key] = list = new List<string>();
+        if (!list.Contains(id)) list.Add(id);
+    }
+
+    public IReadOnlyList<string> Notes(string key) => Ideas.TryGetValue(key, out var list) ? list : Array.Empty<string>();
 
     /// <summary>Light lag from this side's flagship to the battle when it started (hours), and whether the flagship's fleet fought.</summary>
     public double LagHours { get; set; }
@@ -462,6 +494,7 @@ public static class Combat
         var battle = w.ActiveBattle;
         if (battle == null) return;
         BattleRecords.Record(sim, battle, t1);
+        Secrecy.Check(sim, battle);
 
         foreach (var ship in w.Ships.ToList())
         {
@@ -469,6 +502,8 @@ public static class Combat
             var cls = Fitting.Spec(ship);
             if (cls.Railguns > 0 && !ship.Out(Module.Railguns) && !ship.Overheated && !fleet.Resupplying && t1 >= ship.RailsReadyHour)
                 FireRailguns(sim, battle, ship, fleet, cls, t1);
+            if (cls.Lances > 0 && !ship.Out(Module.Railguns) && !ship.Overheated && t1 >= ship.LanceReadyHour && w.FindShip(ship.Id) != null)
+                Beams.Fire(sim, battle, ship, fleet, cls, t1);
             if (ship.Missiles > 0 && !ship.Out(Module.Missiles) && t1 >= ship.SalvoReadyHour)
                 LaunchSalvo(sim, battle, ship, fleet, t1);
         }
@@ -480,7 +515,7 @@ public static class Combat
     {
         var w = sim.World;
         var rail = C.Railgun;
-        var railRange = Tech.RailRange(w, ship.Side);
+        var railRange = Secrecy.RailRange(w, fleet);
         var reach = fleet.LongShots || AiLongShots(w, fleet) ? Math.Max(railRange, Heat.D.LongRangeMm) : railRange;
         var target = FireControl.Pick(sim, ship, fleet, railRange) ?? (reach > railRange ? NearestEnemyShip(w, ship, reach, fleet) : null);
         if (target == null) return;
@@ -501,6 +536,9 @@ public static class Combat
         target = Flagships.Screened(sim, target);
         var dist = Vec2.Distance(ship.Position, target.Position);
         var longShot = dist > railRange;
+        if (!longShot) battle.For(ship.Side).RailReach = Math.Max(battle.For(ship.Side).RailReach, dist);
+        foreach (var id in new[] { Tech.RailgunMk3, "railgun-mk4", "railgun-mk5" })
+            if (Tech.Has(w, ship.Side, id)) battle.For(ship.Side).Note(Secrecy.Quiet(w, fleet, id) ? Secrecy.HeldKey : Secrecy.ShownKey, id);
         target.LastTargetedHour = t1;
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
@@ -557,7 +595,7 @@ public static class Combat
             if (hit)
             {
                 stats.RailHits++;
-                Damage(sim, battle, target, Tech.RailDamage(w, ship) * Wounds.WeaponFactor(ship), ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
+                Damage(sim, battle, target, Secrecy.RailDamage(w, fleet, ship) * Wounds.WeaponFactor(ship), ship.Side, missile: false, engines: fleet.FireAt == FireAt.Engines);
                 if (w.FindShip(target.Id) == null) break;
             }
         }
@@ -567,7 +605,7 @@ public static class Combat
     {
         var w = sim.World;
         var m = C.Missile;
-        var launch = Heat.LaunchRange(fleet);
+        var launch = Heat.LaunchRange(fleet) * Secrecy.ReachShare(w, fleet);
         var target = (fleet.FireAt == FireAt.Flagship ? Flagships.FlagTarget(sim, ship, launch) : null)
                      ?? (fleet.FireAt is FireAt.Largest or FireAt.Weakest ? FireControl.Pick(sim, ship, fleet, launch) : null)
                      ?? SalvoTarget(w, ship, launch, fleet);
@@ -579,6 +617,12 @@ public static class Combat
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
         battle.For(ship.Side).MissilesFired += count;
+        battle.For(ship.Side).MissileReach = Math.Max(battle.For(ship.Side).MissileReach, Vec2.Distance(ship.Position, target.Position));
+        var brain = fleet.DumbSalvos ? 1 : Math.Min(Munitions.Brain(w, ship), Secrecy.BrainCap(w, fleet));
+        var heavy = Secrecy.HeavyWarheads(w, fleet);
+        for (var k = 2; k <= Munitions.Brain(w, ship); k++)
+            battle.For(ship.Side).Note(k <= brain ? Secrecy.ShownKey : Secrecy.HeldKey, $"missile-brain-{k}");
+        if (Tech.Has(w, ship.Side, "heavy-warheads")) battle.For(ship.Side).Note(heavy ? Secrecy.ShownKey : Secrecy.HeldKey, "heavy-warheads");
         if (Designer.Hidden(ship)) Designer.Revealed(sim, ship, target.Side);
         for (var i = 0; i < count; i++)
         {
@@ -588,7 +632,7 @@ public static class Combat
             {
                 Id = w.NextId++, Side = ship.Side, TargetShipId = target.Id, FromShipId = ship.Id,
                 Position = ship.Position + spread, Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
-                Brain = Munitions.Brain(w, ship), ExpiresHour = t1 + m.LifetimeHours,
+                Brain = brain, Heavy = heavy, ExpiresHour = t1 + m.LifetimeHours,
             });
         }
         sim.Log.Info("combat", $"{ship.Name} fires {count} missiles at {target.Name}", new { shipId = ship.Id, targetId = target.Id, count });
@@ -623,6 +667,11 @@ public static class Combat
                 stats.RanDry++;
                 w.Missiles.Remove(missile);
                 continue;
+            }
+            if (!missile.HijackTried && Vec2.Distance(missile.Position, target.Position) <= GameData.Weapons.C.HijackMm)
+            {
+                missile.HijackTried = true;
+                if (Countermeasures.TryHijack(sim, battle, missile, target) is Ship turned) target = turned;
             }
             var targetFleet = w.FleetOf(target)!;
             var start = missile.Position;
@@ -699,18 +748,25 @@ public static class Combat
         // Spoofing: the target's jammers lead some missiles off (researched: a share of 1 - factor).
         if (Tech.Has(w, targetFleet.Side, Tech.Spoofing) && sim.Rng.NextDouble() < 1 - GameData.Research(Tech.Spoofing).Factor * BrainSpoofResist(missile))
         {
-            stats.Dodged++;
+            stats.Spoofed++;
             return;
         }
-        // Jamming: a share of the missiles that get this far lose their target in the noise.
-        if (w.Loop && Tech.Has(w, targetFleet.Side, "jamming") && sim.Rng.NextDouble() < 0.1)
+        // Jamming: a share of the guided missiles that get this far lose their target in the noise (dumb ones fly on regardless).
+        if (w.Loop && Tech.Has(w, targetFleet.Side, "jamming") && sim.Rng.NextDouble() < GameData.Weapons.C.Jam(missile.Brain))
         {
-            stats.Dodged++;
+            stats.Jammed++;
+            return;
+        }
+        // Planet fighters over the target's orbit: they pick off some missiles at the last moment.
+        if (StrikeCraft.MissileScreen(w, targetFleet) is double screen && screen > 0 && sim.Rng.NextDouble() < screen)
+        {
+            stats.ShotDown++;
             return;
         }
         stats.MissileHits++;
         sim.AddEffect(new CombatEffect(w.Hour, EffectKind.MissileHit, missile.Position, target.Position, missile.Side));
-        Damage(sim, battle, target, Tech.MissileDamage(w, missile.Side), missile.Side, missile: true);
+        var warhead = GameData.Combat.Missile.Damage * (missile.Heavy || missile.WakeHour > 0 && Tech.Has(w, missile.Side, "heavy-warheads") ? Tech.Factor(w, missile.Side, "heavy-warheads") : 1);
+        Damage(sim, battle, target, warhead, missile.Side, missile: true);
     }
 
     /// <summary>Missile brains 3 and 4 (research): each level past 2 cuts point defence kills and dodges by a further 15 %.</summary>
@@ -730,7 +786,15 @@ public static class Combat
         return result * (1 - frac * (1 - b));
     }
 
-    private static void Damage(Simulation sim, Battle battle, Ship target, double amount, Side by, bool missile, bool engines = false)
+    /// <summary>Damage from outside a gun duel (mines, bombers): through shields and the damage bars, counted in the battle if one is on.</summary>
+    public static void Strike(Simulation sim, Ship target, double amount, Side by, bool missile = true)
+    {
+        if (sim.World.ActiveBattle is Battle battle) { Damage(sim, battle, target, amount, by, missile); return; }
+        amount = Heat.Absorb(target, amount, missile, new Battle());
+        Wounds.Hit(sim, null, target, amount, by, missile, false);
+    }
+
+    internal static void Damage(Simulation sim, Battle battle, Ship target, double amount, Side by, bool missile, bool engines = false)
     {
         var w = sim.World;
         if (w.FleetOf(target) is Fleet tf && Heat.RadiatorsOut(w, tf, target)) amount *= Heat.D.RadiatorsOutDamage;

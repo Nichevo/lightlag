@@ -6,6 +6,13 @@ namespace Lightlag.Sim.Core;
 /// <summary>Running totals for one side over the whole game (kept in SideState, so saves keep them).</summary>
 public sealed class SideTotals
 {
+    /// <summary>Weapons and counters (Plan 3 build 2): missiles of ours hijacked, mines laid and hit, squadron sorties and losses.</summary>
+    public int MissilesHijacked { get; set; }
+    public int MinesLaid { get; set; }
+    public int MineHits { get; set; }
+    public int Sorties { get; set; }
+    public int SquadronsLost { get; set; }
+
     public int ShipsBuilt { get; set; }
     public int ShipsLost { get; set; }
     public int ShipsKilled { get; set; }

@@ -74,6 +74,9 @@ public sealed class World
     /// <summary>Missiles dropped to drift dark until their timer runs out (see DroppedMissiles).</summary>
     public List<Missile> Dropped { get; set; } = new();
 
+    /// <summary>Minefields laid round planets and in space (see Mines).</summary>
+    public List<Minefield> Minefields { get; set; } = new();
+
     /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
     public List<Station> Stations { get; set; } = new();
 
@@ -295,6 +298,12 @@ public sealed class Body
     public double FaultShare { get; set; }
     public double FaultUntilHour { get; set; } = -1e9;
     public Side? PartisansAgainst { get; set; }
+
+    /// <summary>Fighter base squadrons lost and waiting to be rebuilt, hours towards the next, and the last sortie (see StrikeCraft).</summary>
+    public int FightersLost { get; set; }
+    public int BombersLost { get; set; }
+    public double RebuildHours { get; set; }
+    public double LastSortieHour { get; set; } = -1e9;
 }
 
 public enum BeltKind { Belt, Ring, Radiation }
@@ -385,6 +394,9 @@ public sealed class Ship
     /// <summary>When an enemy last fired at it (ships not under fire aim steadier).</summary>
     public double LastTargetedHour { get; set; } = -1e9;
     public double SalvoReadyHour { get; set; }
+
+    /// <summary>Game hour its pulse lances can fire again (see Beams).</summary>
+    public double LanceReadyHour { get; set; }
 
     /// <summary>Heat (see Heat): how hot it is, whether it has overheated, heat sinks left, and its shield.</summary>
     public double Heat { get; set; }

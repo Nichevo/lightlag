@@ -75,6 +75,9 @@ public sealed class IntelFile
 
     /// <summary>One estimate a day (see IntelDay).</summary>
     public List<IntelDay> Days { get; set; } = new();
+
+    /// <summary>Rival fleets' weapon reach as seen in fights (see RivalTech.Guess).</summary>
+    public List<ReachFact> Reach { get; set; } = new();
 }
 
 /// <summary>
@@ -107,7 +110,7 @@ public static class Intel
     public const double SeenUsMm = 0.25 * Physics.MmPerAu;
     public const double TechForgetDays = 120;
 
-    public static readonly string[] Parts = { "railguns", "missiles", "point-defence", "shields", "engines", "armour" };
+    public static readonly string[] Parts = { "railguns", "missiles", "point-defence", "shields", "engines", "armour", "lances", "hijack" };
 
     /// <summary>The side's file on a rival (the other side, while there are only two).</summary>
     public static IntelFile Of(World w, Side side, Side? rival = null)
@@ -184,12 +187,15 @@ public static class Intel
         "shields" => "Shields",
         "engines" => "Engines",
         "armour" => "Armour",
+        "lances" => "Pulse lances",
+        "hijack" => "Missile hijack",
         _ => part,
     };
 
     public static string LevelName(string part, int level) => part switch
     {
         "missiles" => $"brain {level}",
+        "lances" or "hijack" => level == 0 ? "none" : "yes",
         "shields" => level == 0 ? "none" : $"Mk {Roman(level)}",
         _ => $"Mk {Roman(level)}",
     };
@@ -197,9 +203,9 @@ public static class Intel
     private static string Roman(int n) => n switch { 1 => "I", 2 => "II", 3 => "III", 4 => "IV", 5 => "V", _ => n.ToString() };
 
     /// <summary>The true level of a side's part, from its research (what a look at its ships would show).</summary>
-    public static int TrueLevel(World w, Side side, string part)
+    public static int TrueLevel(World w, Side side, string part, ISet<string>? held = null)
     {
-        bool Has(string id) => Lightlag.Sim.Core.Tech.Has(w, side, id);
+        bool Has(string id) => Lightlag.Sim.Core.Tech.Has(w, side, id) && held?.Contains(id) != true;
         return part switch
         {
             "railguns" => Has("railgun-mk5") ? 5 : Has("railgun-mk4") ? 4 : Has(Core.Tech.RailgunMk3) ? 3 : Has(Core.Tech.FastRailguns) ? 2 : 1,
@@ -208,6 +214,8 @@ public static class Intel
             "shields" => Has(Core.Tech.ShieldsMk3) ? 3 : Has(Core.Tech.DeflectorGrid) ? 2 : w.Ships.Any(s => s.Side == side && Heat.MaxShield(w, s) > 0) ? 1 : 0,
             "engines" => Has("engine-mk5") ? 5 : Has("engine-mk4") ? 4 : Has("engine-mk3") ? 3 : Has("engine-mk2") ? 2 : 1,
             "armour" => Has(Core.Tech.ArmourMk3) ? 3 : Has(Core.Tech.HeavyArmour) ? 2 : 1,
+            "lances" => Has(Beams.LanceIdea) ? 1 : 0,
+            "hijack" => Has(Countermeasures.Hijack) ? 1 : 0,
             _ => 0,
         };
     }
@@ -279,9 +287,9 @@ public static class Intel
         if (part != null) LearnTech(w, side, f, part, source);
     }
 
-    private static void LearnTech(World w, Side side, IntelFile f, string part, IntelSource source)
+    private static void LearnTech(World w, Side side, IntelFile f, string part, IntelSource source, ISet<string>? held = null)
     {
-        var level = TrueLevel(w, f.About, part);
+        var level = TrueLevel(w, f.About, part, held);
         var fact = f.Tech.Find(t => t.Part == part);
         if (fact == null) f.Tech.Add(fact = new TechFact { Part = part });
         fact.Level = level;
@@ -359,12 +367,23 @@ public static class Intel
                 if (them.Withdrew) Habit(f, "pulls-back");
                 if (them.MissilesFired > them.RailShots) Habit(f, "missile-heavy");
                 else if (them.RailShots > 0) Habit(f, "gun-heavy");
-                if (them.RailShots > 0) LearnTech(w, side, f, "railguns", IntelSource.Battle);
-                if (them.MissilesFired > 0) LearnTech(w, side, f, "missiles", IntelSource.Battle);
-                if (us.ShotDown > 0) LearnTech(w, side, f, "point-defence", IntelSource.Battle);
-                if (them.ShieldSoaked > 0) LearnTech(w, side, f, "shields", IntelSource.Battle);
-                if (us.DamageDealt > 0) LearnTech(w, side, f, "armour", IntelSource.Battle);
-                LearnTech(w, side, f, "engines", IntelSource.Battle);
+                // What they held back all fight stays unknown: the level seen is what they showed.
+                var held = Secrecy.HeldAllFight(them);
+                var shown = new List<string> { "engines" };
+                if (them.RailShots > 0) shown.Add("railguns");
+                if (them.MissilesFired > 0) shown.Add("missiles");
+                if (us.ShotDown > 0) shown.Add("point-defence");
+                if (them.ShieldSoaked > 0) shown.Add("shields");
+                if (us.DamageDealt > 0) shown.Add("armour");
+                if (them.LanceShots > 0) shown.Add("lances");
+                if (us.Hijacked > 0) shown.Add("hijack");
+                foreach (var part in shown) LearnTech(w, side, f, part, IntelSource.Battle, held);
+                if (us.Jammed > 0) shown.Add("jamming");
+                if (us.Spoofed > 0) shown.Add("spoofing");
+                if (us.MineHits > 0) shown.Add("mines");
+                if (them.Sorties > 0) shown.Add("fighters");
+                RivalTech.FromBattle(sim, side, b, shown);
+                RivalTech.NoteReach(w, side, b);
             }
             if (w.Battles.Count > 0 && w.Battles[^1].EndHour != null) f.LastBattleId = Math.Max(f.LastBattleId, w.Battles[^1].Id);
 
@@ -453,6 +472,12 @@ public static class Intel
             lines.Add($"{PartName(t.Part)}: thinks {LevelName(t.Part, t.Level)}, truly {LevelName(t.Part, TrueLevel(w, rival, t.Part))}");
         if (Personality(f) is var (name, sure, _))
             lines.Add($"Temperament: guesses {name} ({sure:P0})" + (Mind.Of(w, rival) is MindState m ? $", truly {m.Personality}" : ""));
+        if (f.Reach.Count > 0)
+        {
+            var guess = RivalTech.Guess(w, side, f.Reach.OrderByDescending(x => x.Hour).First().FleetId);
+            var truth = RivalTech.Truth(w, rival);
+            lines.Add($"Reach: thinks railguns {guess.Rail * 1000:#,0} km, missiles {guess.Missile * 1000:#,0} km; truly {truth.Rail * 1000:#,0} km and {truth.Missile * 1000:#,0} km");
+        }
         var theirs = Of(w, rival);
         lines.Add($"Guess of their level on us: {LevelFor(f.TheirPointsGuess)}, truly {Level(theirs)}");
         return lines;
