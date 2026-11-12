@@ -137,7 +137,47 @@ public sealed class RuleBook
         // Ships stay in formation: never further from the fleet's centre than its row or column could reach.
         .Add("formation-tight", w => w.Fleets.SelectMany(f => w.ShipsOf(f).Where(s => s.FormationOffset.Length > Fleets.FormationSpacing * (f.ShipIds.Count + 1))
             .Select(s => $"{s.Name} sits {s.FormationOffset.Length:0.0} Mm from the centre of {f.Name}")))
-        .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>());
+        .Add("winner-only-in-loop", w => w.Winner != null && !w.Loop ? new[] { "a sandbox game has a winner" } : Array.Empty<string>())
+        .Add("hazards-sane", HazardsSane)
+        .Add("events-sane", EventsSane)
+        .Add("ship-names-sane", ShipNamesSane);
+
+    /// <summary>Every ship has a name no other living ship has, and a numbered ship has a designation code.</summary>
+    private static IEnumerable<string> ShipNamesSane(World w)
+    {
+        foreach (var s in w.Ships.Where(s => string.IsNullOrWhiteSpace(s.Name) || s.HullNumber > 0 && string.IsNullOrEmpty(s.Code)))
+            yield return $"ship {s.Id} has name '{s.Name}', code '{s.Code}', hull number {s.HullNumber}";
+        foreach (var g in w.Ships.GroupBy(s => ShipNames.Bare(s.Name), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+            yield return $"ships {string.Join(", ", g.Select(s => s.Id))} share the name {g.Key}";
+    }
+
+    /// <summary>Belts with sensible radii round a body that exists; debris clouds thick and placed; bars from hazards never past their floors.</summary>
+    private static IEnumerable<string> HazardsSane(World w)
+    {
+        foreach (var b in w.Belts.Where(b => !(b.InnerRadius >= 0 && b.OuterRadius > b.InnerRadius && b.Density > 0) || w.FindBody(b.ParentId) == null))
+            yield return $"belt {b.Key} has radii {b.InnerRadius}-{b.OuterRadius}, density {b.Density}, parent {b.ParentId}";
+        foreach (var d in w.Debris.Where(d => !(d.Density > 0) || !d.Position.IsFinite || d.BodyId is int id && w.FindBody(id) == null))
+            yield return $"debris {d.Id} has density {d.Density} at {d.Position}, body {d.BodyId}";
+        foreach (var s in w.Ships.Where(s => !(s.Crew >= 0 && s.Crew <= 1 && s.Defence >= 0 && s.Defence <= 1 && s.Engines >= 0 && s.Engines <= 1)))
+            yield return $"ship {s.Id} {s.Name} has bars crew {s.Crew}, defence {s.Defence}, engines {s.Engines}";
+        foreach (var b in w.Bodies.Where(b => b.FaultShare is < 0 or > 1))
+            yield return $"{b.Name} has a reactor fault share of {b.FaultShare}";
+    }
+
+    /// <summary>Every event has its options and a pick in range; one made once it has hit; none open past its deadline by more than a step.</summary>
+    private static IEnumerable<string> EventsSane(World w)
+    {
+        foreach (var e in w.Events)
+        {
+            var n = e.Call.Options.Count;
+            if (n == 0 || e.Call.AutoPick < 0 || e.Call.AutoPick >= n || e.Call.Picked is int p && (p < 0 || p >= n))
+                yield return $"event {e.Id} ({e.Kind}) has {n} options, auto pick {e.Call.AutoPick}, picked {e.Call.Picked}";
+            if (e.Hit && e.Call.Open) yield return $"event {e.Id} ({e.Kind}) hit with no call made";
+            if (e.Call.Open && !e.Done && w.Winner == null && w.Hour > e.Call.DueHour + 1.01) yield return $"event {e.Id} ({e.Kind}) is open {w.Hour - e.Call.DueHour:0.#} hours past its deadline";
+            if (e.UntilHour < e.HitsHour - 1e-6) yield return $"event {e.Id} ({e.Kind}) ends before it hits";
+        }
+        if (w.Events.GroupBy(e => e.Id).Any(g => g.Count() > 1)) yield return "two events share an id";
+    }
 
     /// <summary>Stock rules are known goods with numbers that make sense; route settings and loads going by a planet name real planets.</summary>
     private static IEnumerable<string> SupplyRulesSane(World w)

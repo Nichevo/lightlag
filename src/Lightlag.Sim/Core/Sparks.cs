@@ -46,6 +46,10 @@ public static class Sparks
         "ship-crippled" => "Hardship: a ship crippled in battle",
         "wreck-salvaged" => "Salvage: a wreck stripped for materials",
         "yard-waiting" => "Hardship: the shipyard waits ten days for materials",
+        "rock-hits" => "Hardship: a ship hit by rocks",
+        "rock-strike" => "Hardship: a rock strike on a colony",
+        "radiation" => "Hardship: a crew sick from radiation",
+        "flare" => "Hardship: a solar flare",
         _ => kind,
     };
 

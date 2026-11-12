@@ -65,6 +65,15 @@ public partial class TitleScreen : Control
             "Each engine burns its own fuel (water, hydrogen + oxygen, fission pellets, deuterium, helium-3, antimatter), each with its own thrust, reach, heat and signature. Off: one fuel for every engine");
         Box("People everywhere", main.SpreadPeopleChoice, v => main.SpreadPeopleChoice = v,
             "Planets start with a few independent people instead of empty: hold orbit to win them over");
+        Box("Hazards", main.HazardsChoice, v => main.HazardsChoice = v,
+            "Rocks in belts, rings and battle debris hit ships at speed (big ships most), radiation belts strain crews, ships run hot close to the sun. Off: space is empty");
+        row.AddChild(Ui.Label("Events:", 15, Ui.Dim));
+        var events = new OptionButton { FocusMode = FocusModeEnum.None,
+            TooltipText = "How often events come (flares, finds, reactor faults, rock strikes, defectors, comets): the same for the rival. Each has an Auto pick" };
+        foreach (var r in Enum.GetValues<Lightlag.Sim.Core.EventRate>()) events.AddItem(r.ToString(), (int)r);
+        events.Selected = (int)main.EventsChoice;
+        events.ItemSelected += i => main.EventsChoice = (Lightlag.Sim.Core.EventRate)(int)i;
+        row.AddChild(events);
         return row;
     }
 

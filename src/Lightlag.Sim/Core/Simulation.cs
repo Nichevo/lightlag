@@ -72,6 +72,8 @@ public sealed class Simulation
             world.Rules.StartPopulation = options?.StartPopulation ?? false;
             world.Rules.RandomStarts = options?.RandomStarts ?? false;
             world.Rules.FuelTypes = options?.FuelTypes ?? true;
+            world.Rules.Hazards = options?.Hazards ?? true;
+            world.Rules.Events = options?.Events ?? EventRate.Normal;
             Planets.EnsureStarted(world);
         }
         if (sandbox == null) Mind.Setup(world, options, seed);
@@ -184,6 +186,8 @@ public sealed class Simulation
         Combat.ReturnToOrbit(this);
         Flagships.Update(this);
         if (World.Tick % GameTime.TicksPerDay == 0) Stats.RecordDay(World);
+        // The hour's work above draws from the random stream too (hazards, events, spoils): keep the saved state current.
+        World.Random = Rng.Save();
 
         if (World.Tick % GameTime.TicksPerDay == 0)
             Replay.Checkpoints.Add(new Checkpoint(World.Tick, StateHash()));

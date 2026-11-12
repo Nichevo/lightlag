@@ -124,8 +124,17 @@ public sealed class SideState
     /// <summary>What this side has learned of the other from prisoners, captures and wrecks (see Spoils).</summary>
     public SpoilsState Spoils { get; set; } = new();
 
+    /// <summary>Ship names (see ShipNames): the side's race, and per class the fits it has built (index = variant letter).</summary>
+    public string Race { get; set; } = ShipNames.DefaultRace;
+    public Dictionary<string, List<string>> Variants { get; set; } = new();
+
     /// <summary>What this side has learned about its rival (see Intel).</summary>
     public IntelFile Intel { get; set; } = new();
+
+    /// <summary>Events (see Events): when the next one comes (0: not rolled yet); a flare sheltered from (sensors blind) or used to hide, until.</summary>
+    public double NextEventHour { get; set; }
+    public double BlindUntilHour { get; set; } = -1e9;
+    public double HiddenUntilHour { get; set; } = -1e9;
 }
 
 public enum OrderKind { Ship, Research }
@@ -509,7 +518,7 @@ public static class Economy
     {
         var w = sim.World;
         var yard = from ?? ShipyardOf(w, side)!;
-        var ship = NewShip(w, side, classId);
+        var ship = NewShip(w, side, classId, yard);
         ship.BuiltHour = w.Hour;
         ship.BuiltAtBodyId = yard.Id;
         Crews.Man(w, ship, yard);
@@ -570,7 +579,7 @@ public static class Economy
     public const double ReinforceSpeed = 0.7;
 
     /// <summary>Makes a ship with full supplies and armour, numbered after the side's earlier ships of its class.</summary>
-    public static Ship NewShip(World w, Side side, string classId)
+    public static Ship NewShip(World w, Side side, string classId, Body? yard = null)
     {
         var cls = GameData.ShipClass(classId);
         var key = $"{side}:{cls.Id}";
@@ -578,7 +587,7 @@ public static class Economy
         var number = w.ShipNumbers[key] = w.ShipNumbers.GetValueOrDefault(key) + 1;
         var ship = new Ship
         {
-            Id = w.NextId++, Name = $"{cls.Short}-{(side == Side.Player ? "" : "R")}{number}", Side = side, ClassId = cls.Id,
+            Id = w.NextId++, Side = side, ClassId = cls.Id,
             MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies, Missiles = cls.Missiles, Fit = fit,
         };
         var spec = Fitting.Spec(ship);
@@ -592,6 +601,7 @@ public static class Economy
         SupplyLines.FillCargo(ship);
         ship.Armour = Tech.MaxArmour(w, ship);
         Heat.Fit(w, ship);
+        ShipNames.Christen(w, ship, number, yard);
         w.Ships.Add(ship);
         return ship;
     }

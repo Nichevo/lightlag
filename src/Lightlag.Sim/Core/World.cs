@@ -48,6 +48,13 @@ public sealed class World
     public int[] MissileBrain { get; set; } = { 1, 1 };
     public List<Belt> Belts { get; set; } = new();
 
+    /// <summary>Clouds of battle debris (see Hazards), and events with their calls (see Events).</summary>
+    public List<Debris> Debris { get; set; } = new();
+    public List<GameEvent> Events { get; set; } = new();
+
+    /// <summary>A solar flare: every side's sensors are dazzled until this hour (see Events).</summary>
+    public double FlareUntilHour { get; set; } = -1e9;
+
     /// <summary>True in a full game (income, building, research, claims, winning); false in the battle sandbox.</summary>
     public bool Loop { get; set; }
 
@@ -125,7 +132,15 @@ public sealed class GameRules
 
     /// <summary>Fuel types: each engine burns its own fuel family (see Fuels). Off: every engine burns the one "fuel" good.</summary>
     public bool FuelTypes { get; set; } = true;
+
+    /// <summary>Space hazards: rocks in belts, rings and battle debris, radiation belts, the sun's heat (see Hazards).</summary>
+    public bool Hazards { get; set; } = true;
+
+    /// <summary>How often events come (see Events): the same for both sides.</summary>
+    public EventRate Events { get; set; } = EventRate.Normal;
 }
+
+public enum EventRate { Off, Rare, Normal, Lively }
 
 public enum BodyKind { Star, Planet, Moon, Station, Asteroid }
 
@@ -255,10 +270,19 @@ public sealed class Body
 
     /// <summary>After an invasion: partisans sabotage buildings until this hour (unless troops stay as a garrison).</summary>
     public double PartisansUntilHour { get; set; }
+
+    /// <summary>A reactor fault (see Events): this share of the power it makes is lost until the hour.</summary>
+    public double FaultShare { get; set; }
+    public double FaultUntilHour { get; set; } = -1e9;
     public Side? PartisansAgainst { get; set; }
 }
 
-/// <summary>An asteroid belt. Scenery for now; hiding places come later.</summary>
+public enum BeltKind { Belt, Ring, Radiation }
+
+/// <summary>
+/// A ring round a body: an asteroid belt round the star, a planet's ring of ice and rock, or a gas giant's
+/// radiation belt. Rocks hit ships moving through belts and rings; radiation strains crews (see Hazards).
+/// </summary>
 public sealed class Belt
 {
     public string Key { get; set; } = "";
@@ -267,6 +291,10 @@ public sealed class Belt
     public double InnerRadius { get; set; }      // Mm
     public double OuterRadius { get; set; }      // Mm
     public string Color { get; set; } = "888888";
+    public BeltKind Kind { get; set; }
+
+    /// <summary>How thick it is: rocks for belts and rings, strength for radiation (1 = the standard belt).</summary>
+    public double Density { get; set; } = 1;
 }
 
 public enum Side { Player, Rival }
@@ -278,7 +306,11 @@ public enum Side { Player, Rival }
 public sealed class Ship
 {
     public int Id { get; set; }
+
+    /// <summary>The ship's name (see ShipNames), its designation code ("DD3B-07": type, hull mark, variant, hull number) and hull number.</summary>
     public string Name { get; set; } = "";
+    public string Code { get; set; } = "";
+    public int HullNumber { get; set; }
     public Side Side { get; set; }
     public string ClassId { get; set; } = "";
     public int FleetId { get; set; }

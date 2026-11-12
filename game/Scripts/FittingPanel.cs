@@ -68,7 +68,7 @@ public partial class FittingPanel : PanelContainer
         card.AddChild(v);
 
         var head = new HBoxContainer();
-        head.AddChild(Ui.Label($"{s.Name} · {cls.Name} · {cls.LengthM:0} m", 15, new Color("f2f5fa")));
+        head.AddChild(Ui.Label($"{s.Name} · {s.Code} · {cls.Name} · {cls.LengthM:0} m", 15, new Color("f2f5fa")));
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         head.AddChild(Ui.Label($"power {Fitting.PowerUsed(cls, fit):0}/{cls.Power:0} · heat {Fitting.HeatUsed(cls, fit):0}/{cls.HeatBudget:0}", 13, Ui.Dim));
         v.AddChild(head);

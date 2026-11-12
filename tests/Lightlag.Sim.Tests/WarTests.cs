@@ -166,6 +166,7 @@ public class WarTests
     {
         var sim = NewGame();
         var (mine, target) = BoardingSetPiece(sim);
+        var name = target.Name;
         Assert.Contains(target, Boarders.Targets(sim.World, mine));
         Assert.Null(Boarders.CanBoard(sim.World, mine, target));
         new BoardShipCommand(mine.Id, target.Id, BoardApproach.Dock).Apply(sim.World, sim);
@@ -176,6 +177,7 @@ public class WarTests
         _out.WriteLine(string.Join("\n", b.Notes));
         Assert.Equal("taken", b.Outcome);
         Assert.Equal(Side.Player, target.Side);
+        Assert.Equal("Prize " + name, target.Name);
         Assert.Equal(b.CallKinds.Count, b.Calls.Count);
         Assert.All(b.Calls, c => Assert.True(c.ByAuto));
         var me = Economy.Of(sim.World, Side.Player);

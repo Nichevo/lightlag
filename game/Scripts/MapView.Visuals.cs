@@ -143,7 +143,7 @@ public partial class MapView
     private void SyncBelts()
     {
         var w = Sim.World;
-        foreach (var belt in w.Belts)
+        foreach (var belt in w.Belts.Where(b => b.Kind != BeltKind.Radiation))
         {
             if (!_belts.TryGetValue(belt.Key, out var specks))
             {

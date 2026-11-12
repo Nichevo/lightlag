@@ -104,7 +104,7 @@ public static class Sensors
         var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) * Fuels.Signature(w, f) : 1;
         var solo = state == SignatureState.Cold && f.ShipIds.Count == 1 ? S.SoloCold : 1;
         return SizeOf(w, f) * solo * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f))
-               * Tech.SignatureFactor(w, f.Side, state == SignatureState.Burn);
+               * Tech.SignatureFactor(w, f.Side, state == SignatureState.Burn) * Events.SignatureFactor(w, f.Side);
     }
 
     /// <summary>The fleet's best sensor range (for a signature of 1).</summary>
@@ -251,7 +251,7 @@ public static class Sensors
                 foreach (var o in observers)
                 {
                     var d = Vec2.Distance(o.At, enemy.Position);
-                    if (d <= Range(o.Sensor, signature) * cue && d < nearest && LineOfSight(w, o.At, enemy.Position, o.Body)) nearest = d;
+                    if (d <= Range(o.Sensor, signature) * cue * Hazards.SensorFactor(w, side, o.At, enemy.Position) && d < nearest && LineOfSight(w, o.At, enemy.Position, o.Body)) nearest = d;
                 }
                 var seen = !double.IsPositiveInfinity(nearest);
                 var sighting = Find(w, side, enemy.Id);

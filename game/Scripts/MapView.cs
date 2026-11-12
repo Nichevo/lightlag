@@ -182,7 +182,8 @@ public partial class MapView : Node2D
 
         var fancy = Graphics.Fancy;
         BeginFx();
-        if (!fancy) foreach (var belt in w.Belts) DrawBelt(belt);
+        if (!fancy) foreach (var belt in w.Belts.Where(b => b.Kind != BeltKind.Radiation)) DrawBelt(belt);
+        if (!Quiet && PlayerInfo.Has(MapLayer.Hazards)) DrawHazards();
         if (fancy && (Quiet || PlayerInfo.Has(MapLayer.Wells))) DrawWells();
 
         foreach (var b in w.Bodies)

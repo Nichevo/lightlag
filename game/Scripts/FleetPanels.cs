@@ -807,7 +807,7 @@ public partial class FleetPanel : PanelContainer
                     row.AddChild(protect);
                     _protect[s.Id] = protect;
                 }
-                var check = new CheckBox { Text = $"{s.Name}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
+                var check = new CheckBox { Text = $"{s.Name}  {s.Code}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 row.AddChild(check);
@@ -902,8 +902,9 @@ public partial class FleetPanel : PanelContainer
         _longShots.SetPressedNoSignal(f.LongShots);
         if (_launch.Selected != (int)f.MissileLaunch) _launch.Select((int)f.MissileLaunch);
         _drop.Disabled = !ships.Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
-        _heat.Text = HeatText(w, f, ships);
-        _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : Ui.Dim);
+        var hazard = Hazards.Here(w, f);
+        _heat.Text = HeatText(w, f, ships) + (hazard != null ? $"\nHazard: {hazard.Text}" : "");
+        _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : hazard != null ? Ui.Rival : Ui.Dim);
         _droneButton.Visible = mine && open && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         _supplyRun.Visible &= mine;
         _fuel.Visible &= mine;
@@ -1502,11 +1503,17 @@ public partial class PlannerPanel : PanelContainer
             ? $"WARNING: arrives at {Format.Speed(endSpeed)} with fuel for only {Format.Speed(left)}: it could not stop again"
             : $"Arrives at {Format.Speed(endSpeed)}; enough fuel left to stop");
         if (canAhead && s.FastAhead) lines.Add("Fast ships go ahead, wait there and rejoin; times above are for the slowest ship");
+        var risky = false;
+        if (fleet != null && Hazards.RouteWarning(w, fleet, f) is string hazards)
+        {
+            lines.Add(hazards);
+            risky = Hazards.Estimate(w, fleet, f).HullShare > Hazards.D.SlowAbove;
+        }
         if (!plan.Ok) lines.Add(plan.Problem ?? "Cannot fly this");
         if (!plan.Ok && fleet != null && fleet.Velocity.Length > perf.DeltaVLeft)
             lines.Add($"It is moving at {Format.Speed(fleet.Velocity.Length)} with fuel for only {Format.Speed(perf.DeltaVLeft)} of speed change: Stop (X) brakes as much as it can.");
         _result.Text = string.Join("\n", lines);
-        _result.AddThemeColorOverride("font_color", !plan.Ok ? Ui.Danger : stranded ? Ui.Rival : Ui.Text);
+        _result.AddThemeColorOverride("font_color", !plan.Ok ? Ui.Danger : stranded || risky ? Ui.Rival : Ui.Text);
     }
 }
 

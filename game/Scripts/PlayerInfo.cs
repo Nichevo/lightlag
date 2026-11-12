@@ -18,6 +18,7 @@ public enum MapLayer
     Wells = 32,
     OldSightings = 64,
     Labels = 128,
+    Hazards = 256,
 }
 
 /// <summary>
@@ -30,9 +31,9 @@ public static class PlayerInfo
     public static DetailLevel Detail { get; private set; } = DetailLevel.Standard;
     public static MapLayer Layers { get; private set; } = Default;
 
-    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels;
+    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.Hazards;
     public const MapLayer Calm = MapLayer.Orbits | MapLayer.Labels;
-    public const MapLayer War = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Lanes | MapLayer.Labels;
+    public const MapLayer War = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Lanes | MapLayer.Labels | MapLayer.Hazards;
     public const MapLayer Trade = MapLayer.Orbits | MapLayer.Lanes | MapLayer.SupplyRuns | MapLayer.Labels;
 
     public static readonly (MapLayer Layer, string Name, string Tip)[] LayerList =
@@ -45,6 +46,7 @@ public static class PlayerInfo
         (MapLayer.Wells, "Gravity wells", "Shading round each planet where its pull is stronger than the sun's (Medium and High graphics)"),
         (MapLayer.OldSightings, "Old sightings", "Where rival fleets were last seen, greyed with age, and their tracks"),
         (MapLayer.Labels, "Labels", "Planet and moon names"),
+        (MapLayer.Hazards, "Hazards", "Radiation belts (green), the hot zone close to the sun (orange), battle debris (grey) and the names of rock belts and rings"),
     };
 
     /// <summary>Fleet panel sections kept open (by name).</summary>
@@ -64,6 +66,8 @@ public static class PlayerInfo
         if (cfg.Load(_file) != Error.Ok) return;
         if (Enum.TryParse<DetailLevel>((string)cfg.GetValue("ui", "detail", "Standard"), out var d)) Detail = d;
         Layers = (MapLayer)(int)cfg.GetValue("ui", "layers", (int)Default);
+        // Settings saved before the Hazards layer existed: switch it on once.
+        if (!cfg.HasSectionKey("ui", "hazardsLayer")) Layers |= MapLayer.Hazards;
         foreach (var s in ((string)cfg.GetValue("ui", "open", "")).Split(',', StringSplitOptions.RemoveEmptyEntries)) OpenSections.Add(s);
     }
 
@@ -73,6 +77,7 @@ public static class PlayerInfo
         var cfg = new ConfigFile();
         cfg.SetValue("ui", "detail", Detail.ToString());
         cfg.SetValue("ui", "layers", (int)Layers);
+        cfg.SetValue("ui", "hazardsLayer", true);
         cfg.SetValue("ui", "open", string.Join(",", OpenSections.OrderBy(s => s, StringComparer.Ordinal)));
         cfg.Save(_file);
         Changed?.Invoke();

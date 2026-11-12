@@ -70,7 +70,7 @@ public class EconomyTests
         Days(sim, frigate.Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
         Assert.Equal(ships + 1, home.ShipIds.Count);
         Assert.Empty(sim.World.Orders);
-        Assert.Contains(sim.World.ShipsOf(home), s => s.Name == "FF-3");
+        Assert.Contains(sim.World.ShipsOf(home), s => s.HullNumber == 3 && s.Code == "FF1A-03");
     }
 
     [Fact]
