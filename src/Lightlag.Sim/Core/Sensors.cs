@@ -118,7 +118,7 @@ public static class Sensors
     {
         double best = 0;
         foreach (var s in w.ShipsOf(f)) best = Math.Max(best, Fitting.Spec(s).SensorMm);
-        return best * Tech.Factor(w, f.Side, Tech.LongSensors);
+        return best * Tech.Factor(w, f.Side, Tech.LongSensors) * Races.Of(w, f.Side).Sensors;
     }
 
     /// <summary>
@@ -228,7 +228,7 @@ public static class Sensors
         var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || station;
         // Deep-space telescopes: stations and arrays see half again as far.
         return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.Factor(w, side, Tech.LongSensors)
-               * (station ? Tech.Factor(w, side, "deep-space-telescopes") : 1);
+               * (station ? Tech.Factor(w, side, "deep-space-telescopes") : 1) * Races.Of(w, side).Sensors;
     }
 
     /// <summary>How a fleet is really moving now: a fleet in orbit moves with its body (its Velocity is zero).</summary>

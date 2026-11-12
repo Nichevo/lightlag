@@ -11,13 +11,14 @@ public static class Cli
     public const string Usage = """
         Lightlag headless runner
 
-          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--lag 1|0.1] [--autonomy strict|sensible|free] [--random-starts] [--spread] [--no-happiness] [--no-supply-lines] [--single-fuel] [--no-hazards] [--events off|rare|normal|lively] [--data-dir DIR] [--lenient]
+          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--lag 1|0.1] [--autonomy strict|sensible|free] [--random-starts] [--spread] [--no-happiness] [--no-supply-lines] [--single-fuel] [--no-hazards] [--events off|rare|normal|lively] [--player-race R] [--rival-race R] [--data-dir DIR] [--lenient]
                   Plays N games, computer against computer (--pilot ai, the default; easy; easy-v-normal; test-v-ai, a random test pilot against the rival; or test, the test pilot on both sides), and writes a summary to <data>/nightly/<time>_batch/.
                   Rule checks run every tick and a broken rule counts as a crash, unless --lenient.
                   The summary lists where the time goes (each part of the hour, slowest first) and the slowest single step.
                   Stops starting new games after M minutes. The newest summary is also copied to
                   <data>/nightly/latest-summary.md (the "morning summary").
-          nightly Same as batch with overnight defaults (--games 200 --days 365 --minutes 360).
+                  --player-race / --rival-race: human, hive or random (each game rolls its own). Default human; nightly: random.
+          nightly Same as batch with overnight defaults (--games 200 --days 365 --minutes 360, races random).
 
           battles [--repeats N] [--seed S] [--data-dir DIR]
                   Battle sweep: every fleet mix x approach x missile brain in the sandbox, N times each.
@@ -26,7 +27,7 @@ public static class Cli
           replay  <replay.json | save.json> [--until-tick T]
                   Replays a game and checks it matches what was recorded. Exit code 0 = exact.
 
-          ai-trace [--seed S] [--days D] [--every N] [--easy] [--economy] [--thoughts]
+          ai-trace [--seed S] [--days D] [--every N] [--easy] [--economy] [--thoughts] [--player-race R] [--rival-race R]
                   Plays one computer-vs-computer game and prints each side's goal and fleet jobs every N days.
                   --economy also prints each held planet's buildings and materials, and what the yard waits for; --thoughts its recent thoughts.
 

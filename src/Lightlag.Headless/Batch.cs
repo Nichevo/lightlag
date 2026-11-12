@@ -10,7 +10,8 @@ public sealed record GameResult(
     int Index, ulong Seed, string Outcome, long Ticks, double Seconds, int RuleFailures,
     int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
     string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null,
-    double? WarshipsMid = null, double[]? WarshipCurve = null, double WorstStepMs = 0, long WorstStepTick = 0);
+    double? WarshipsMid = null, double[]? WarshipCurve = null, double WorstStepMs = 0, long WorstStepTick = 0,
+    string? PlayerRace = null, string? RivalRace = null);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
@@ -56,6 +57,10 @@ public static class Batch
         // --no-hazards: no rocks, radiation or sun heat; --events off|rare|normal|lively (default normal).
         _noHazards = opts.Has("no-hazards");
         _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
+        // --player-race / --rival-race human|hive|random: each side's race (batch: human; nightly: random, so both races get played).
+        _races = (opts.Get("player-race") ?? (nightly ? Races.Random : null), opts.Get("rival-race") ?? (nightly ? Races.Random : null));
+        foreach (var r in new[] { _races.Player, _races.Rival })
+            if (r != null && r != Races.Random && !Races.Known(r)) throw new ArgumentException($"Unknown race '{r}': use {string.Join(", ", Races.All.Select(x => x.Id))} or random");
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
         var started = DateTime.UtcNow;
@@ -85,6 +90,7 @@ public static class Batch
             Console.WriteLine($"  game {r.Index,4}  seed {r.Seed,-12} {r.Outcome,-9} {r.Seconds,7:0.00}s  rules {r.RuleFailures}  errors {r.Errors}"
                               + (r.Winner != null ? $"  {r.Winner} wins day {r.WinDay} ({r.WinReason})" : "  no winner")
                               + (r.PlayerMind != null ? $"  [{r.PlayerMind} v {r.RivalMind}]" : "")
+                              + (r.PlayerRace != Races.Human || r.RivalRace != Races.Human ? $"  ({r.PlayerRace} v {r.RivalRace})" : "")
                               + (r.Error != null ? $"  {r.Error}" : ""));
         }
 
@@ -120,6 +126,11 @@ public static class Batch
     public const double HeadlessSpread = 0.1;
 
     private static GameOptions? OptionsFor(string pilot) =>
+        _races != default ? (OptionsForRules(pilot) ?? new GameOptions()) with { PlayerRace = _races.Player, RivalRace = _races.Rival } : OptionsForRules(pilot);
+
+    private static (string? Player, string? Rival) _races;
+
+    private static GameOptions? OptionsForRules(string pilot) =>
         _light == null && _autonomy == null && _rules == default && !_noHazards && _events == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
@@ -202,7 +213,8 @@ public static class Batch
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
                 w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null, w.WinReason,
-                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve, Math.Round(worstMs, 1), worstTick);
+                MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve, Math.Round(worstMs, 1), worstTick,
+                Economy.Of(w, Side.Player).Race, Economy.Of(w, Side.Rival).Race);
         }
         catch (Exception ex)
         {
@@ -345,6 +357,7 @@ public static class Batch
                         + $"<td>{g.Average(x => x.End.ShipsBuilt):0.0}</td><td>{g.Average(x => x.End.ShipsLost):0.0}</td><td>{g.Average(x => x.End.Battles):0.0}</td><td>{g.Average(x => x.End.AmbushCatches):0.0}</td></tr>");
         }
         html.Append("</tbody></table>");
+        AppendRaces(md, ai);
         md.AppendLine();
         var report = Overnight.Build(ai, rows.ToDictionary(g => g.Key, g => (g.Count(), g.Count(x => x.Won))));
         Overnight.Append(md, report);
@@ -358,5 +371,26 @@ public static class Batch
                       + $"{ai.Average(r => r.Player!.ShipsLost + r.Rival!.ShipsLost):0.0} ships lost, "
                       + $"{ai.Average(r => r.Player!.Planets + r.Rival!.Planets):0.0} planets held by the two sides at the end. "
                       + "Day-by-day numbers for each game are in the `stats` folder (CSV).");
+    }
+
+    /// <summary>Races table (when any game had a race other than humans): wins by race, and how the Hive's own systems did.</summary>
+    private static void AppendRaces(StringBuilder md, List<GameResult> ai)
+    {
+        var rows = ai.SelectMany(r => new[]
+        {
+            (Race: r.PlayerRace ?? Races.Human, Won: r.Winner == "Player", End: r.Player!, Mirror: r.PlayerRace == r.RivalRace),
+            (Race: r.RivalRace ?? Races.Human, Won: r.Winner == "Rival", End: r.Rival!, Mirror: r.PlayerRace == r.RivalRace),
+        }).ToList();
+        if (rows.All(x => x.Race == Races.Human)) return;
+        md.AppendLine();
+        md.AppendLine("## Races");
+        md.AppendLine();
+        md.AppendLine("Games against the other race only (mirror games left out).");
+        md.AppendLine();
+        md.AppendLine("| Race | Sides played | Wins | Win % | Avg planets at end | Ships built | Ships lost | Warships at end | Stall days |");
+        md.AppendLine("|---|---|---|---|---|---|---|---|---|");
+        foreach (var g in rows.Where(x => !x.Mirror).GroupBy(x => x.Race).OrderBy(g => g.Key, StringComparer.Ordinal))
+            md.AppendLine($"| {Races.Get(g.Key).Name} | {g.Count()} | {g.Count(x => x.Won)} | {100.0 * g.Count(x => x.Won) / g.Count():0} | {g.Average(x => x.End.Planets):0.0} | "
+                          + $"{g.Average(x => x.End.ShipsBuilt):0.0} | {g.Average(x => x.End.ShipsLost):0.0} | {g.Average(x => x.End.Warships):0.0} | {g.Average(x => x.End.MaterialStallHours) / 24:0} |");
     }
 }

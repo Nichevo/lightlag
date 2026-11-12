@@ -653,6 +653,7 @@ public partial class ShipsScreen : PanelContainer
     public static string CrewText(Ship s)
     {
         if (!Crews.Crewed(s)) return "AI-run";
+        if (!Crews.Learns(Main.Instance.Sim!.World, s)) return "Drones (no ranks)" + (s.Strain >= 0.05 ? $" · strain {s.Strain:P0}" : "");
         var rank = Crews.RankOf(s);
         var stars = rank switch { Rank.Seasoned => " ★", Rank.Veteran => " ★★", Rank.Elite => " ★★★", _ => "" };
         return $"{Crews.Name(rank)}{stars}" + (s.Strain >= 0.05 ? $" · strain {s.Strain:P0}" : "");

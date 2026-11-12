@@ -467,7 +467,8 @@ public static class Colonies
     public static void StartHome(World w, Body b)
     {
         b.Pieces.Clear();
-        foreach (var kind in D.HomeBuildings ?? new List<string>())
+        // Some races start with more (the Hive: an extra farm for its hungry people), where there is room.
+        foreach (var kind in (D.HomeBuildings ?? new List<string>()).Concat(Races.OfBody(w, b).StartBuildings ?? new List<string>()))
         {
             if (Planets.BuildingKind(kind) is not BuildingData data) continue;
             // The first mine digs iron, which the workshop turns into spare parts.
@@ -486,7 +487,7 @@ public static class Colonies
         var (pw, ph) = turned ? (data.H, data.W) : (data.W, data.H);
         var piece = new Piece
         {
-            Id = w.NextId++, Kind = data.Id, X = x, Y = y, W = pw, H = ph, HoursLeft = built ? 0 : data.Days * 24,
+            Id = w.NextId++, Kind = data.Id, X = x, Y = y, W = pw, H = ph, HoursLeft = built ? 0 : Races.BuildHours(w, b, data),
             Level = b.Owner is Side side ? LevelFor(w, side, data) : 0,
             MaterialsLeft = !built && data.Materials is { Count: > 0 } m ? new Dictionary<string, double>(m) : null,
         };

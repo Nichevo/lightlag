@@ -643,7 +643,7 @@ public partial class ColonyScreen : PanelContainer
             var note = why != null ? why + "." : queues ? "Queues behind what is under way here, paid when it starts." : "";
             var button = new TipButton
             {
-                Text = $"{k.Name}  {k.W}×{k.H}\n{k.Cost:0} Ind · {k.Days:0} d · {k.StaffK:0.#}k staff · {power}"
+                Text = $"{k.Name}  {k.W}×{k.H}\n{k.Cost:0} Ind · {Races.BuildHours(w, b, k) / 24:0} d · {k.StaffK:0.#}k staff · {power}"
                        + (k.Materials is { Count: > 0 } mats ? "\n" + string.Join(", ", mats.Select(m => $"{m.Value:0} {Colonies.GoodName(m.Key).ToLowerInvariant()}")) : ""),
                 Alignment = HorizontalAlignment.Left, FocusMode = FocusModeEnum.None, ToggleMode = true, ButtonPressed = _placing == k.Id,
                 Disabled = why != null, SizeFlagsHorizontal = SizeFlags.ExpandFill,

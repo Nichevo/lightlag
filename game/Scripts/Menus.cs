@@ -123,6 +123,8 @@ public partial class HowToPlay : CenterContainer
         "• People eat food from farms, shared between your planets. A blockade (armed ships holding orbit) cuts a planet off: it lives off its own farms and store, makes no Industry, and grows unhappy.\n" +
         "• An unhappy blockaded planet gives itself up to the blockader. Bombing its farms starves it sooner; bombing its people leaves a grudge, and it will never surrender to you. Troop ships land soldiers from low orbit to take a planet by force, or board the ship on a blockaded enemy slipway.\n" +
         "• Planet guns shoot ships in low orbit; high orbit is out of their reach but can't bomb or land troops.\n\n" +
+        "RACES\n" +
+        "• Pick your race and the rival's on the title screen. Humans are the all-rounders. The Hive is many hungry people: its ships are grown from food (a starving Hive grows none), their hulls heal while fed, drone crews stay Trained, its boarders swarm, its buildings are dug in against bombs and invaders, and its sensors are weak. The Intelligence screen (I) lists the rival's strengths and weaknesses.\n\n" +
         "THE BASICS\n" +
         "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts.\n" +
         "• Click a fleet to select it. Right-click a planet or a point to plan a route, then Enter to go. Shift+right-click goes at once.\n" +

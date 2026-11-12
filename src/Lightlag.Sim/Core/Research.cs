@@ -120,7 +120,8 @@ public static class Research
     public static double BaseHours(World w, Side side, string id)
     {
         var r = GameData.Research(id);
-        return r.Days * Pace(r.Tier) * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1) * RivalTech.TimeFactor(w, side, id);
+        return r.Days * Pace(r.Tier) * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1) * RivalTech.TimeFactor(w, side, id)
+               * Races.Of(w, side).ResearchFactor(r.Unlocks);
     }
 
     /// <summary>Days until this order is done, counting the orders ahead of it in its team's queue.</summary>

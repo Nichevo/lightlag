@@ -281,7 +281,7 @@ public static class Wounds
         }
         s.Armour = Math.Min(max, s.Armour + max * hullShare * pace);
         foreach (var b in Bars.Skip(1)) Set(s, b, Share(w, s, b) + barsShare * pace);
-        if (w.Loop) Crews.Replaced(s, crewBefore, s.Crew);
+        if (w.Loop && Crews.Learns(w, s)) Crews.Replaced(s, crewBefore, s.Crew);
         if (s.Crippled && s.Armour >= max * 0.25) { s.Crippled = false; s.CrippleLeft = 0; }
         if (s.Armour >= max * 0.5) s.Knocked.RemoveAll(m => Bars.Skip(1).All(b => !PartsOf(s, b).Contains(m) || Share(w, s, b) >= 0.5));
     }

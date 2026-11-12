@@ -47,6 +47,10 @@ Other match-ups for a batch run: `--pilot easy` (both Easy), `--pilot easy-v-nor
 against a Normal rival), `--pilot test-v-ai` (the old random test pilot against the rival) and
 `--pilot test` (the test pilot on both sides).
 
+Races: `--player-race` and `--rival-race` take `human`, `hive` or `random` (each game rolls its own). A
+batch run plays humans on both sides unless asked; the nightly run plays random races, so both races get
+played every night, and its summary has a Races table (wins by race, mirror games left out).
+
 To watch one game's AI decisions: `Lightlag.Headless ai-trace --seed S --days D --every N [--easy]` prints
 each side's goal and each fleet's job every N days.
 

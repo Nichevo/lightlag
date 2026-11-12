@@ -269,7 +269,7 @@ public static class Planner
     public static bool Hungry(World w, Side side)
     {
         var linked = w.Bodies.Where(b => b.Owner == side && !Economy.Blockaded(w, b)).ToList();
-        return linked.Sum(Planets.FoodMadePerDay) < linked.Sum(Planets.FoodNeedPerDay) * 1.15 + 0.1;
+        return linked.Sum(Planets.FoodMadePerDay) < Races.FoodWanted(w, side, linked);
     }
 
     /// <summary>The side makes fewer spare parts than it uses.</summary>

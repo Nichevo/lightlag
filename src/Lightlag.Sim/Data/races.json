@@ -1,0 +1,59 @@
+{
+  "_comment": "Races (Plan 3 build 3). Each side plays one race, picked on the new-game screen. Every number is a factor on the usual rule (1: as humans), except where named otherwise. foodNeed: food eaten per person. growth: people growth while fed. biomassPerIndustry: food a new ship takes from its yard's store per Industry of its price (grown ships); a yard whose planets are starving grows no ships. shipMaterials: alloys and electronics a ship needs. hullHealPerDay: share of full armour a ship regrows a day while it has food aboard (grown hulls). crewPop: people a new crew takes. crewRanks false: crews never gain experience (drones). strain: crew strain from dodging. boarding: boarding party strength. sensors: ship and planet sensor range. researchDays: days of ideas by research group (see economy.json 'unlocks'). digDays: days to put up a building (dug in). bombArmour: damage a building takes before bombing knocks it out. groundDefence: losses defenders take in a ground war (lower is tougher). startBuildings: extra buildings on the home planet when there is room. personalities: weights on the rival's personality roll (missing: 1).",
+  "races": [
+    {
+      "id": "human",
+      "name": "Humans",
+      "short": "Human",
+      "blurb": "Adaptable traders from the inner planets",
+      "style": "All-rounder: the baseline the others are tuned against.",
+      "pros": [
+        "Crewed or AI ships, chosen per class",
+        "Crews gain veteran levels",
+        "Flexible research: no field is slow"
+      ],
+      "cons": [
+        "Needs food, water and air everywhere",
+        "Happiness matters; blockades bite"
+      ]
+    },
+    {
+      "id": "hive",
+      "name": "The Hive",
+      "short": "Hive",
+      "blurb": "Insect collective that digs deep",
+      "style": "Wide and stubborn: many people, grown ships, dig in and swarm. Very hard to siege out.",
+      "pros": [
+        "People grow 40% faster",
+        "Ships are grown from biomass: 30% fewer alloys and electronics",
+        "Grown hulls heal 3% a day while fed, even in battle",
+        "Drone crews take 40% fewer people and strain less",
+        "Swarm boarding: boarding parties fight 60% harder",
+        "Dug in: buildings take twice the bombing; defenders lose 25% less in ground wars"
+      ],
+      "cons": [
+        "Eats 50% more food, and every ship takes food from the yard",
+        "A starving Hive grows no ships",
+        "Drone crews are bred Trained and never become veterans",
+        "Sensors see 15% less far; sensor and signals ideas take 40% longer",
+        "Buildings take half again as long to dig"
+      ],
+      "foodNeed": 1.5,
+      "growth": 1.4,
+      "biomassPerIndustry": 0.03,
+      "shipMaterials": 0.7,
+      "hullHealPerDay": 0.03,
+      "crewPop": 0.6,
+      "crewRanks": false,
+      "strain": 0.6,
+      "boarding": 1.6,
+      "sensors": 0.85,
+      "researchDays": { "sensors": 1.4, "hulls": 0.85 },
+      "digDays": 1.5,
+      "bombArmour": 2.0,
+      "groundDefence": 0.75,
+      "startBuildings": [ "farm" ],
+      "personalities": { "raider": 1.5, "expander": 1.5, "turtle": 1.0, "trader": 0.2, "hunter": 1.0, "opportunist": 0.8 }
+    }
+  ]
+}

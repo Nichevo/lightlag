@@ -62,9 +62,16 @@ public sealed class RuleBook
         .Add("planets-sane", PlanetsSane)
         // A queued building is not paid for or started: it has made no progress and is not standing.
         .Add("queued-buildings-unstarted", w => w.Bodies.SelectMany(b => b.Pieces.Where(p => p.Waiting
-                && (p.Built || Lightlag.Sim.Core.Planets.BuildingKind(p.Kind) is not { } d || Math.Abs(p.HoursLeft - d.Days * 24) > 1e-6))
+                && (p.Built || Lightlag.Sim.Core.Planets.BuildingKind(p.Kind) is not { } d
+                    // Queued at the race's digging pace (the Hive digs slower); a planet that changed hands keeps the old pace.
+                    || Lightlag.Sim.Core.Races.All.All(r => Math.Abs(p.HoursLeft - d.Days * 24 * r.DigDays) > 1e-6)))
             .Select(p => $"{b.Name} piece {p.Id} ({p.Kind}) is queued but has {p.HoursLeft:0.#} hours left")))
         .Add("war-sane", WarSane)
+        // Races (Plan 3 build 3): every side plays a known race, and drone crews never gain or lose experience.
+        .Add("races-sane", w => w.Sides.Where(s => !Lightlag.Sim.Core.Races.Known(s.Race)).Select(s => $"{s.Side} plays unknown race '{s.Race}'")
+            .Concat(w.Loop ? w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId) && Lightlag.Sim.Core.Crews.Crewed(s)
+                    && !Lightlag.Sim.Core.Races.Of(w, s.Side).CrewRanks && Math.Abs(s.Xp - Lightlag.Sim.Core.Crews.DroneXp) > 1e-9)
+                .Select(s => $"drone-crewed ship {s.Id} {s.Name} has {s.Xp} experience") : Enumerable.Empty<string>()))
         // Weapons and counters (Plan 3 build 2).
         .Add("minefields-sane", w => w.Minefields.Where(m => !(m.Mines >= 0 && m.RadiusMm > 0 && m.Position.IsFinite && m.Velocity.IsFinite && m.Known.Length == 2)
                 || m.BodyId is int b && w.FindBody(b) == null)

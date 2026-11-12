@@ -124,6 +124,7 @@ public partial class EmpirePanel : PanelContainer
             return $"Industry {me.Industry:0} · +{Economy.IncomePerDay(w2, Side.Player):0.#} a day";
         });
         Live(13, Ui.Dim, PlanetsLine);
+        Live(13, Ui.Dim, RaceLine);
 
         // Shipyard and build queue.
         Heading("Shipyard");
@@ -144,7 +145,9 @@ public partial class EmpirePanel : PanelContainer
                 var id = cls.Id;
                 var days = cls.Cost / GameData.Economy.BuildIndustryPerDay;
                 var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.Queue(OrderKind.Ship, id),
-                    $"Build a {cls.Name}: {cls.Cost:0} Industry, {days:0.#} days. {cls.Role}");
+                    $"Build a {cls.Name}: {cls.Cost:0} Industry"
+                    + (Races.BiomassFor(w, Side.Player, cls.Cost) is var bio && bio > 0 ? $" and {bio:0.#} biomass (food)" : "")
+                    + $", {days:0.#} days. {cls.Role}");
                 b.CustomMinimumSize = new Vector2(186, 26);
                 b.AddThemeFontSizeOverride("font_size", 13);
                 b.ClipText = true;
@@ -309,13 +312,27 @@ public partial class EmpirePanel : PanelContainer
     {
         var name = Economy.NameOf(o) + (o.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" (escort {escort.Name})" : o.Auto ? " (Auto top-up)" : "");
         if (o.Blockaded) return $"{name}: BLOCKADED, an enemy fleet in orbit stops the shipyard";
+        if (o.Paid && o.Waiting != null) return $"{name}: PAUSED, {o.Waiting}";
         if (o.Paid) return $"{name}: {Format.Hours(o.HoursLeft)} left ({(1 - o.HoursLeft / o.TotalHours) * 100:0} %)";
         if (!first) return $"{name}: queued";
+        // Short of something other than Industry: materials, or biomass for a grown ship.
+        if (o.Waiting != null && !o.Waiting.Contains("more Industry", StringComparison.Ordinal)) return $"{name}: WAITING, {o.Waiting}";
         var cost = Economy.CostOf(o);
         var have = Economy.Of(w, Side.Player).Industry;
         var income = Economy.IncomePerDay(w, Side.Player);
         var wait = income > 0 ? $", about {Format.Hours((cost - have) / income * 24)}" : "";
         return $"{name}: waiting for {cost:0} Industry{wait}";
+    }
+
+    /// <summary>Your race and the rival's, and for a race that grows its ships, the biomass at the shipyard.</summary>
+    private static string RaceLine(World w)
+    {
+        var me = Races.Of(w, Side.Player);
+        var line = $"You are {me.Name}; the rival is {Races.Of(w, Side.Rival).Name}.";
+        if (me.Grown && Economy.ShipyardOf(w, Side.Player) is Body yard)
+            line += yard.Hungry ? " Your planets are STARVING: the brood yard grows no ships until they are fed."
+                : $" Biomass (food) in store at {yard.Name}: {Races.BiomassAt(w, yard):0.#}; each ship takes {me.BiomassPerIndustry * 100:0.#} per 100 Industry of its price.";
+        return line;
     }
 
     private static string PlanetsLine(World w)

@@ -19,7 +19,7 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 /// </summary>
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
-    bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null)
+    bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -227,7 +227,7 @@ public static class Mind
         foreach (var setup in options.Ai.GroupBy(a => a.Side).Select(g => g.First()))
         {
             var rng = new SimRandom(Mix(seed) ^ Mix((ulong)setup.Side + 0xC0FFEEUL), stream: 11 + (ulong)setup.Side);
-            var personality = setup.Personality ?? Roll(rng);
+            var personality = setup.Personality ?? Roll(rng, Races.Of(w, setup.Side));
             var pd = DataFor(personality);
             var ratio = rng.Range(A.AttackRatio.Min, A.AttackRatio.Max) * pd.Ratio
                         + (setup.Difficulty == Difficulty.Easy ? A.Easy.ExtraRatio : 0);
@@ -252,6 +252,7 @@ public static class Mind
             mind.Lean = Leanings.Roll(rng);
             mind.Spread = setup.Difficulty == Difficulty.Easy ? 0 : options.ChoiceSpread ?? NormalSpread;
             Choices.Note(w, setup.Side, "lean", $"personality {personality}");
+            Choices.Note(w, setup.Side, "lean", $"race {Races.Of(w, setup.Side).Id}");
             foreach (var band in mind.Lean.Bands(mind.PullLeaning)) Choices.Note(w, setup.Side, "lean", band);
             mind.Random = rng.Save();
             w.Minds.Add(mind);
@@ -259,14 +260,16 @@ public static class Mind
     }
 
     /// <summary>Rolls a personality, each as likely as its weight in ai.json.</summary>
-    private static Personality Roll(SimRandom rng)
+    private static Personality Roll(SimRandom rng, RaceData race)
     {
         var all = Enum.GetValues<Personality>();
-        var total = all.Sum(p => DataFor(p).Weight);
+        // Each race leans to some personalities (a trading Hive is rare: see races.json).
+        double Weight(Personality p) => DataFor(p).Weight * race.PersonalityWeight(p);
+        var total = all.Sum(Weight);
         var roll = rng.NextDouble() * total;
         foreach (var p in all)
         {
-            roll -= DataFor(p).Weight;
+            roll -= Weight(p);
             if (roll < 0) return p;
         }
         return all[^1];
@@ -1285,7 +1288,7 @@ public static class Mind
                 .OrderByDescending(b => b.Home).ThenByDescending(b => b.PopK).ThenBy(b => b.Id).ToList();
             if (mine.Count == 0) return;
             var linked = _w.Bodies.Where(b => b.Owner == _side && !Economy.Blockaded(_w, b)).ToList();
-            var hungry = linked.Sum(Planets.FoodMadePerDay) < linked.Sum(Planets.FoodNeedPerDay) * 1.15 + 0.1;
+            var hungry = linked.Sum(Planets.FoodMadePerDay) < Races.FoodWanted(_w, _side, linked);
             var sparesShort = linked.Sum(b => Colonies.MadePerDay(b, Colonies.Spares)) < linked.Sum(b => Colonies.UsePerDay(b, Colonies.Spares)) * 1.1;
             var industry = Economy.Of(_w, _side).Industry;
             if (industry < Colonies.Kinds.Min(k => k.Cost)) return; // nothing is affordable: skip the board searches

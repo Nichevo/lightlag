@@ -74,6 +74,7 @@ public sealed class Simulation
             world.Rules.FuelTypes = options?.FuelTypes ?? true;
             world.Rules.Hazards = options?.Hazards ?? true;
             world.Rules.Events = options?.Events ?? EventRate.Normal;
+            Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
         }
         if (sandbox == null) Mind.Setup(world, options, seed);
@@ -97,7 +98,7 @@ public sealed class Simulation
         Light.Relay(sim);
         Stats.RecordDay(world);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
-        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox, options });
+        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox, options, races = world.Sides.Select(x => x.Race).ToArray() });
         foreach (var m in world.Minds)
             log.Info("ai", $"{m.Side} is run by the computer", new { side = m.Side.ToString(), difficulty = m.Difficulty.ToString(), personality = m.Personality.ToString(), m.BaseRatio, m.FirstProbeDay });
         return sim;

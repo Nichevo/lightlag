@@ -108,6 +108,10 @@ public partial class Main : Node
     public EventRate EventsChoice { get; set; } = EventRate.Normal;
     public bool RandomStartsChoice { get; set; } = true;
 
+    /// <summary>Races for the next new game: yours, and the rival's (human, hive or random; see Races).</summary>
+    public string PlayerRaceChoice { get; set; } = Races.Human;
+    public string RivalRaceChoice { get; set; } = Races.Random;
+
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
@@ -117,7 +121,7 @@ public partial class Main : Node
             {
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
-                Hazards = HazardsChoice, Events = EventsChoice,
+                Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
             });
             SetScreen(new GameScreen());
         });

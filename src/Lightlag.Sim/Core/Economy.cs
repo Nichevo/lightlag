@@ -519,11 +519,19 @@ public static class Economy
         }
         order.Blockaded = false;
         var state = Of(w, side);
+        // Grown ships (the Hive): a starving brood yard grows nothing, and a new ship takes biomass (food) from the store.
+        var biomass = order.Paid ? 0 : Races.BiomassFor(w, side, CostOf(order));
+        if (order.Paid && Races.GrowStatus(w, side, yard, 0, started: true) is string starving)
+        {
+            if (order.Waiting == null) sim.Log.Info("economy", "Brood yard starving: growth paused", new { side = side.ToString(), order.Id, order.Key });
+            order.Waiting = starving;
+            return;
+        }
         if (!order.Paid)
         {
             var cost = CostOf(order);
-            var mats = MaterialsOf(order);
-            var shortOf = MaterialShort(yard, mats);
+            var mats = Races.Materials(w, side, MaterialsOf(order));
+            var shortOf = MaterialShort(yard, mats) ?? Races.GrowStatus(w, side, yard, biomass, started: false);
             var wait = state.Industry < cost ? $"needs {cost - state.Industry:0} more Industry" : shortOf;
             if (wait != null)
             {
@@ -538,10 +546,16 @@ public static class Economy
             state.Industry -= cost;
             state.Totals.IndustrySpent += cost;
             TakeMaterials(w, yard, mats, "ships");
+            if (biomass > 0)
+            {
+                Races.TakeBiomass(w, yard, biomass);
+                Ledger.Out(w, side, "food", biomass, "ships grown");
+            }
             order.Paid = true;
             order.HoursLeft = order.TotalHours;
             sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, materials = mats });
         }
+        order.Waiting = null;
         order.HoursLeft -= GameTime.HoursPerTick * Colonies.ShipyardRate(w, yard);
         if (order.HoursLeft > 1e-9) return;
         w.Orders.Remove(order);
@@ -563,7 +577,7 @@ public static class Economy
         Of(w, side).Totals.ShipsBuilt++;
         Choices.Note(w, side, "ship", classId, yard.Name, string.Join(" ", ship.Fit));
         // The crew comes from the shipyard planet's people.
-        if (yard.PopK > 0 && Crews.Crewed(ship)) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, side, "ai-cores"));
+        if (yard.PopK > 0 && Crews.Crewed(ship)) yard.PopK = Math.Max(1, yard.PopK - Crews.CrewPeopleK(w, side, classId));
         // Troop ships leave with their soldiers aboard, raised from the same people.
         if (Planets.IsTroopShip(ship))
         {

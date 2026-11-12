@@ -119,7 +119,13 @@ public static class Planets
     /// <summary>Growth factor from clinics: 1 plus each working clinic's Growth.</summary>
     public static double GrowthFactor(World w, Body b) => 1 + Colonies.Built(b).Sum(p =>
         BuildingKind(p.Kind) is BuildingData data && data.Growth > 0 ? data.Growth * Math.Min(1, Colonies.Output(w, b, p, data)) : 0);
-    public static double FoodNeedPerDay(Body b) => b.PopK * D.FoodPerKPerDay;
+    public static double FoodNeedPerDay(Body b) => b.PopK * D.FoodPerKPerDay * Races.Get(b.PeopleRace).FoodNeed;
+
+    /// <summary>Each planet's people take their holder's race (neutral planets: human).</summary>
+    public static void SyncRaces(World w)
+    {
+        foreach (var b in w.Bodies) b.PeopleRace = b.Owner is Side s ? w.Sides[(int)s].Race : Races.Human;
+    }
 
     /// <summary>The armed enemy side holding orbit here, if any (it cuts the planet off: see Economy.Blockaded).</summary>
     public static Side? Blockader(World w, Body b) =>
@@ -177,6 +183,7 @@ public static class Planets
     {
         if (!w.Loop || w.PeopleStarted) return;
         w.PeopleStarted = true;
+        SyncRaces(w);
         Colonies.MakeBoards(w);
         foreach (var b in w.Bodies.Where(b => b.Shipyard && b.Owner != null))
         {
@@ -213,6 +220,7 @@ public static class Planets
     {
         var w = sim.World;
         EnsureStarted(w);
+        SyncRaces(w);
         using (SectionTimer.Time("colonies")) Colonies.Update(sim);
         Food(w);
         Grow(sim);
@@ -278,7 +286,7 @@ public static class Planets
         {
             var cap = Cap(b);
             if (b.Hungry) b.PopK -= D.StarvePerDay * b.PopK / 24;
-            else if (cap > 0) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * b.PopK * (1 - b.PopK / cap) / 24;
+            else if (cap > 0) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * Races.Get(b.PeopleRace).Growth * b.PopK * (1 - b.PopK / cap) / 24;
             if (cap <= 0 || b.PopK > cap) b.PopK = Math.Max(0, Math.Min(b.PopK, cap));
             if (b.PopK < 0.05) { b.PopK = 0; continue; }
             if (b.Owner is Side side && b.HungryHours >= D.LeaveAfterHungryDays * 24) Leave(sim, b, side);
@@ -436,7 +444,8 @@ public static class Planets
             if (f.Bombing == BombTarget.People)
             {
                 var first = b.Grudge != f.Side;
-                b.PopK = Math.Max(0, b.PopK - damage * D.PeopleKPerDamage * Tech.Factor(w, f.Side, "precision-strikes"));
+                // Dug-in people (the Hive) shelter below: bombing kills fewer.
+                b.PopK = Math.Max(0, b.PopK - damage * D.PeopleKPerDamage * Tech.Factor(w, f.Side, "precision-strikes") / Races.OfBody(w, b).BombArmour);
                 b.LastBombedHour = w.Hour;
                 b.Grudge = f.Side;
                 if (first) sim.Log.Info("planets", $"{f.Side} bombs the people of {b.Name}: they will never give up to it", new { bodyId = b.Id, side = f.Side.ToString() });
@@ -444,7 +453,7 @@ public static class Planets
             }
             b.LastStruckHour = w.Hour;
             b.StrikeDamage += damage;
-            if (b.StrikeDamage < D.BuildingArmour) continue;
+            if (b.StrikeDamage < BuildingArmourOf(w, b)) continue;
             b.StrikeDamage = 0;
             if (Colonies.RemoveOne(b, TargetOf(f.Bombing)) is not Piece hit) continue;
             sim.Log.Info("planets", $"{f.Side} knocks out a {BuildingKind(hit.Kind)?.Name.ToLowerInvariant() ?? hit.Kind} on {b.Name}", new { bodyId = b.Id, side = f.Side.ToString(), kind = hit.Kind });
@@ -842,13 +851,19 @@ public static class Planets
         return null;
     }
 
+    /// <summary>Bombing damage that knocks out one building here (dug-in Hive buildings take more).</summary>
+    public static double BuildingArmourOf(World w, Body b) => D.BuildingArmour * Races.OfBody(w, b).BombArmour;
+
+    /// <summary>Troops it takes to board a ship on a slipway (a swarm needs fewer).</summary>
+    public static double SlipwayTroopsK(World w, Side side) => Math.Round(D.BoardTroopsK / Races.Of(w, side).Boarding, 3);
+
     /// <summary>Why this fleet can't board a ship on the enemy's slipway here, or null if it can.</summary>
     public static string? CanBoard(World w, Fleet f, Body b)
     {
         if (!b.Shipyard || b.Owner is not Side owner || owner == f.Side) return "Only at an enemy shipyard";
         if (!Economy.InOrbitAt(f, b)) return $"Hold orbit at {b.Name} first";
         if (!Economy.Blockaded(w, b)) return "Blockade the shipyard first (armed ships in orbit)";
-        if (TroopsAboard(w, f) < D.BoardTroopsK - 1e-9) return $"Needs {D.BoardTroopsK:0.#}k troops aboard";
+        if (TroopsAboard(w, f) < SlipwayTroopsK(w, f.Side) - 1e-9) return $"Needs {SlipwayTroopsK(w, f.Side):0.##}k troops aboard";
         if (!w.Orders.Any(o => o.Side == owner && o.Kind == OrderKind.Ship && o.Paid)) return "No ship on the slipway";
         return null;
     }
@@ -1044,7 +1059,7 @@ public sealed record BoardSlipwayCommand(int FleetId) : GameCommand, IFleetComma
         var owner = b.Owner!.Value;
         var order = world.Orders.First(o => o.Side == owner && o.Kind == OrderKind.Ship && o.Paid);
         world.Orders.Remove(order);
-        Planets.TakeTroops(world, f, Planets.D.BoardTroopsK);
+        Planets.TakeTroops(world, f, Planets.SlipwayTroopsK(world, f.Side));
         var ship = Economy.NewShip(world, f.Side, order.Key);
         ship.Armour = Math.Max(1, ship.Armour * (1 - order.HoursLeft / Math.Max(1, order.TotalHours)) * 0.5 + ship.Armour * 0.25);
         ship.FleetId = f.Id;
