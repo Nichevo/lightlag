@@ -546,6 +546,21 @@ public partial class Main : Node
             await Shoot("54-keys");
             minds.ShowHelp = false;
 
+            // The fleets screen (K): the biggest fleet given a role, with a call for help from home about a rival fleet.
+            Sim.Issue(new SetFleetRoleCommand(own.Id, FleetRole.Support));
+            Sim.ApplyPending();
+            if (Economy.HomeOf(Sim.World, Lightlag.Sim.Core.Side.Player) is Body homeWorld && Sim.World.Sightings.FirstOrDefault(s => s.SeenBy == Lightlag.Sim.Core.Side.Player && !s.Own) is Sighting seen)
+            {
+                // Screenshot only: pretend the rival fleet was just seen by the home planet.
+                Sim.World.HelpCalls.Add(new HelpCall { Id = Sim.World.NextId++, Side = Lightlag.Sim.Core.Side.Player, Reasons = CallReason.EnemyNear, BodyId = homeWorld.Id,
+                    EnemyFleetId = seen.FleetId, EnemyName = seen.Name, EnemyShips = seen.Ships, Position = homeWorld.Position, RaisedHour = Sim.World.Hour, LastHour = Sim.World.Hour,
+                    Text = $"{homeWorld.Name} sees {seen.Name} ({seen.Ships} ships) close by" });
+            }
+            minds.FleetScreenId = own.Id;
+            minds.ShowFleets = true;
+            await Shoot("55-fleet-screen");
+            minds.ShowFleets = false;
+
             // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
             StartSandbox(new SandboxSetup(3, 1, 2, 2, DistanceMm: 150), 7);
             var battle = (GameScreen)_screen!;

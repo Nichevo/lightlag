@@ -229,6 +229,16 @@ public sealed class Fleet
     /// <summary>When the last direct order from command reached it (its own choices wait a while after one).</summary>
     public double LastOrderHour { get; set; } = -1e9;
 
+    /// <summary>Its role: which calls for help it answers by itself when free (see HelpCalls), and the rules for that.</summary>
+    public FleetRole Role { get; set; }
+    public RoleRules RoleRules { get; set; } = new();
+
+    /// <summary>The call for help it is answering now, and the post and mission it goes back to after.</summary>
+    public int? AnsweringCallId { get; set; }
+    public int? PostBodyId { get; set; }
+    public Mission PostMission { get; set; }
+    public int? PostMissionBodyId { get; set; }
+
     public bool InFlight => Flight != null;
 }
 

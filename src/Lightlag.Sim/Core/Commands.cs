@@ -84,6 +84,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetHomeChoiceCommand), "setHomeChoice")]
 [JsonDerivedType(typeof(PickEventCommand), "pickEvent")]
 [JsonDerivedType(typeof(RenameShipCommand), "renameShip")]
+[JsonDerivedType(typeof(SetFleetRoleCommand), "setFleetRole")]
+[JsonDerivedType(typeof(MoveShipsCommand), "moveShips")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
@@ -231,6 +233,8 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Autonomy = fleet.Autonomy;
         created.Cover = fleet.Cover;
         created.FireAt = fleet.FireAt;
+        created.Role = fleet.Role;
+        created.RoleRules = fleet.RoleRules.Copy();
         Fleets.Arrange(world, fleet);
         Fleets.SetApart(world, created);
         sim.Log.Info("fleet", $"{created.Name} splits from {fleet.Name}", new { fleetId = fleet.Id, newFleetId = created.Id, ShipIds, Source });

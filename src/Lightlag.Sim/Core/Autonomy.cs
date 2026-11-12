@@ -39,6 +39,7 @@ public static class Autonomy
     public static void Update(Simulation sim)
     {
         var w = sim.World;
+        HelpCalls.Update(sim);
         foreach (var f in w.Fleets.ToList())
         {
             if (f.ShipIds.Count == 0 || Minded(w, f.Side) || w.FindFleet(f.Id) == null) continue;
@@ -64,6 +65,11 @@ public static class Autonomy
         if (command is not IFleetCommand fc || command.Source.StartsWith("ai:", StringComparison.Ordinal) || command.Source == "auto") return;
         if (sim.World.FindFleet(fc.FleetId) is not Fleet f) return;
         f.LastOrderHour = sim.World.Hour;
+        if (f.AnsweringCallId != null && command is PlanFlightCommand or StopFleetCommand or SetHoldCommand or GatherFleetsCommand or SendAheadCommand or SetMissionCommand or SetZoneFleetCommand or HuntCommand)
+        {
+            sim.Log.Info("fleet", "Off its call for help: new orders", new { fleetId = f.Id, callId = f.AnsweringCallId });
+            HelpCalls.Dropped(f);
+        }
         if ((f.Mission != Mission.None || f.ZoneId != null) && command is PlanFlightCommand or StopFleetCommand or SetHoldCommand or GatherFleetsCommand or SendAheadCommand)
         {
             // A direct move also takes it off its zone, or the zone would pull it straight back once it got there.

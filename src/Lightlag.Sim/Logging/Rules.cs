@@ -84,6 +84,13 @@ public sealed class RuleBook
         .Add("flights-miss-bodies", w => w.Fleets.Where(f => f.Position.IsFinite && f.InFlight)
             .SelectMany(f => w.Bodies.Where(b => Vec2.Distance(f.Position, b.Position) < b.Radius && f.Flight?.Launching(w, b, w.Hour) != true)
                 .Select(b => $"fleet {f.Id} {f.Name} is inside {b.Name} at hour {w.Hour:0.0}")))
+        // A fleet answering a call for help answers one of its own side's calls that still exists, and the call is open.
+        .Add("answering-call-exists", w => w.Fleets.Where(f => f.AnsweringCallId is int c
+                && w.HelpCalls.Find(h => h.Id == c) is not { } call)
+            .Select(f => $"fleet {f.Id} {f.Name} answers call {f.AnsweringCallId}, which is gone"))
+        .Add("answering-own-side", w => w.Fleets.Where(f => f.AnsweringCallId is int c
+                && w.HelpCalls.Find(h => h.Id == c) is { } call && call.Side != f.Side)
+            .Select(f => $"fleet {f.Id} {f.Name} answers the other side's call {f.AnsweringCallId}"))
         .Add("fleets-not-empty", w => w.Fleets.Where(f => f.ShipIds.Count == 0).Select(f => $"fleet {f.Id} {f.Name} has no ships"))
         .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
                 && !(s.Supplies >= 0 && s.Supplies <= Fitting.MaxSupplies(w, s) + 1e-6))
