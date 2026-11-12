@@ -35,6 +35,16 @@ public partial class Hud : CanvasLayer
     private ColonyScreen _colonies = null!;
     private FleetScreen _fleets = null!;
     private ShipsScreen _ships = null!;
+
+    /// <summary>[ and ]: step the open planet, fleets or ships screen to the previous or next entry. False when none is open.</summary>
+    public bool Step(World w, int dir)
+    {
+        if (_ground.Visible) return false;
+        if (_colonies.Visible && _screen.PlanetScreenId != null) { _colonies.Step(w, dir); return true; }
+        if (_fleets.Visible) { _fleets.Step(w, dir); return true; }
+        if (_ships.Visible) { _ships.Step(w, dir); return true; }
+        return false;
+    }
     private Button _shipsButton = null!;
     private Button _fleetsButton = null!;
     private GroundScreen _ground = null!;
@@ -56,6 +66,7 @@ public partial class Hud : CanvasLayer
     private KeyHelp _keyHelp = null!;
     private ProgressScreen _progress = null!;
     private IntelScreen _intel = null!;
+    private BottomBar _bottomBar = null!;
     private BattleStrips _strips = null!;
     private Button _battleView = null!;
     private Label _help = null!;
@@ -166,6 +177,8 @@ public partial class Hud : CanvasLayer
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
+        _bottomBar = new BottomBar(JumpTo) { Visible = false };
+        AddChild(_bottomBar);
 
         _info = Ui.Label("", 14);
         _info.CustomMinimumSize = new Vector2(280, 0);
@@ -352,6 +365,17 @@ public partial class Hud : CanvasLayer
         _ships.Visible = w.Loop && _screen.ShowShips && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible;
         if (_ships.Visible) _ships.Refresh(sim);
         _shipsButton.Modulate = _ships.Visible ? Ui.Player : Colors.White;
+        if (w.Loop) ApplyBadges(w);
+        _bottomBar.UrgentOnly = _screen.Engagement != null;
+        if (w.Loop)
+        {
+            var view = GetViewport().GetVisibleRect().Size;
+            var barWidth = Math.Min(view.X * 0.55f, 900);
+            _bottomBar.Position = new Vector2(16, view.Y - 64);
+            _bottomBar.Size = new Vector2(barWidth, 30);
+            _bottomBar.Refresh(w, barWidth);
+        }
+        else _bottomBar.Visible = false;
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
         _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible && !_ships.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
@@ -509,14 +533,76 @@ public partial class Hud : CanvasLayer
         _toasted.IntersectWith(me.Needs.Select(n => n.Key)); // an item that clears and comes back pops up again
     }
 
+    /// <summary>
+    /// Colour each screen tab by the Needs you items that belong to it (red urgent, amber soon, blue advice), with a
+    /// count and an underline: fleet troubles on Fleets, shortages on Planets, and so on.
+    /// </summary>
+    private void ApplyBadges(World w)
+    {
+        var groups = Economy.Of(w, Side.Player).Needs.GroupBy(n => NeedScreens.For(w, n)).ToDictionary(g => g.Key, g => g.ToList());
+        void Badge(Button b, string screen)
+        {
+            var list = groups.GetValueOrDefault(screen);
+            var baseText = b.Text;
+            var cut = baseText.IndexOf("  ●", StringComparison.Ordinal);
+            if (cut >= 0) baseText = baseText[..cut];
+            if (list is not { Count: > 0 })
+            {
+                b.Text = baseText;
+                foreach (var st in new[] { "normal", "hover" }) b.RemoveThemeStyleboxOverride(st);
+                b.RemoveThemeColorOverride("font_color");
+                return;
+            }
+            var worst = list.Min(n => n.Level);
+            var color = BottomBar.ColorOf(worst);
+            b.Text = $"{baseText}  ● {list.Count}";
+            b.AddThemeColorOverride("font_color", color);
+            foreach (var st in new[] { "normal", "hover" })
+            {
+                var box = new StyleBoxFlat { BgColor = new Color(0.1f, 0.12f, 0.17f, st == "hover" ? 1f : 0.9f), BorderColor = color };
+                box.BorderWidthBottom = 3;
+                box.SetCornerRadiusAll(4);
+                box.SetContentMarginAll(6);
+                b.AddThemeStyleboxOverride(st, box);
+            }
+            b.TooltipText = b.TooltipText.Split("\n\nNeeds you here:")[0] + "\n\nNeeds you here:\n" + string.Join("\n", list.OrderBy(n => n.Level).Take(5).Select(n => $"{n.Level}: {n.Text}"));
+        }
+        Badge(_fleetsButton, NeedScreens.Fleets);
+        Badge(_planetsButton, NeedScreens.Planets);
+        Badge(_shipsButton, NeedScreens.Ships);
+        Badge(_researchButton, NeedScreens.Research);
+        Badge(_empireButton, NeedScreens.Empire);
+    }
+
+    private int _nextNeed;
+
+    /// <summary>The "." key: go to the next thing that needs you, most urgent first, wrapping round.</summary>
+    public void JumpToNextNeed(World w)
+    {
+        var needs = Economy.Of(w, Side.Player).Needs
+            .OrderBy(n => n.Level).ThenBy(n => n.Hour).ThenBy(n => n.Key, StringComparer.Ordinal).ToList();
+        if (needs.Count == 0) { Main.Instance.Toast("Nothing needs you right now"); return; }
+        var i = _nextNeed % needs.Count;
+        _nextNeed = i + 1;
+        var n = needs[i];
+        Main.Instance.Toast($"{i + 1} of {needs.Count}: {n.Text}");
+        JumpTo(n);
+    }
+
     private void JumpTo(NeedItem n)
     {
-        if (n.FleetId is int f && Main.Instance.Sim?.World.FindFleet(f) != null) _screen.PickFleet(f);
-        else if (n.BodyId is int b) _screen.PickBody(b);
+        // Go where the fix is: the research or ships screen, your planet's screen, or the fleet on the map.
+        var w = Main.Instance.Sim?.World;
+        var screen = w == null ? NeedScreens.Empire : NeedScreens.For(w, n);
+        if (screen == NeedScreens.Research && n.FleetId == null && n.BodyId == null) _screen.ShowResearch = true;
+        else if (screen == NeedScreens.Ships && n.FleetId == null) { if (!_screen.ShowShips) _screen.ToggleShips(); }
+        else if (n.FleetId is int f && w?.FindFleet(f) != null) _screen.PickFleet(f);
+        else if (n.BodyId is int b && screen == NeedScreens.Planets && w?.FindBody(b)?.Owner == Side.Player) { _screen.PickBody(b); _screen.OpenPlanet(b); }
+        else if (n.BodyId is int b2) _screen.PickBody(b2);
         else { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Needs); }
     }
 
-    private const int PresetCalm = 1000, PresetWar = 1001, PresetTrade = 1002, PresetDefault = 1003;
+    private const int PresetCalm = 1000, PresetWar = 1001, PresetTrade = 1002, PresetDefault = 1003, PresetBattle = 1004;
 
     private void FillLayersMenu()
     {
@@ -532,6 +618,7 @@ public partial class Hud : CanvasLayer
         popup.AddSeparator("Presets");
         popup.AddItem("Calm: orbits and labels", PresetCalm);
         popup.AddItem("War: sight, lag, old sightings, lanes", PresetWar);
+        popup.AddItem("Battle: sight, lag, where they could be, what they see of you", PresetBattle);
         popup.AddItem("Trade: lanes and supply runs", PresetTrade);
         popup.AddItem("Everything as it was", PresetDefault);
     }
@@ -543,6 +630,7 @@ public partial class Hud : CanvasLayer
             PresetCalm => PlayerInfo.Calm,
             PresetWar => PlayerInfo.War,
             PresetTrade => PlayerInfo.Trade,
+            PresetBattle => PlayerInfo.Battle,
             PresetDefault => PlayerInfo.Default,
             _ => PlayerInfo.Layers ^ (MapLayer)id,
         };

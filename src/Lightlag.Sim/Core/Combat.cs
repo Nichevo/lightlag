@@ -32,7 +32,8 @@ public sealed class BattleSide
     public int MissileHits { get; set; }
     public int ShotDown { get; set; }      // our missiles their point defence stopped
     public int Dodged { get; set; }        // our missiles that missed because the target dodged
-    public int RanDry { get; set; }        // our missiles that ran out of fuel or lost their target
+    public int RanDry { get; set; }        // our missiles that ran out of time and fuel before reaching their target
+    public int TargetGone { get; set; }    // our missiles left with no target (it was destroyed or got away)
     public int Decoyed { get; set; }       // our missiles a heat sink drew off
     public double ShieldSoaked { get; set; } // damage this side's shields took instead of armour
     public double DamageDealt { get; set; }
@@ -631,7 +632,9 @@ public static class Combat
             w.Missiles.Add(new Missile
             {
                 Id = w.NextId++, Side = ship.Side, TargetShipId = target.Id, FromShipId = ship.Id,
-                Position = ship.Position + spread, Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
+                // Game rule: a launched missile starts in its target's frame (the launch boost is not counted against its fuel),
+                // so the fleet's own chase speed is not left for the missile to burn off.
+                Position = ship.Position + spread, Velocity = w.FleetOf(target)?.Velocity ?? fleet.Velocity, DeltaVLeft = m.DeltaV,
                 Brain = brain, Heavy = heavy, ExpiresHour = t1 + m.LifetimeHours,
             });
         }
@@ -664,7 +667,8 @@ public static class Combat
             }
             if (target == null || t1 >= missile.ExpiresHour)
             {
-                stats.RanDry++;
+                if (target == null) stats.TargetGone++;
+                else stats.RanDry++;
                 w.Missiles.Remove(missile);
                 continue;
             }

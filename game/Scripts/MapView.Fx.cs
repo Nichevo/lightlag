@@ -205,6 +205,14 @@ public partial class MapView
                     }
                     break;
                 }
+                case EffectKind.Decoy:
+                {
+                    // A glowing heat sink tumbling away from the ship, the fooled missile's trail bending after it.
+                    var r = 3 + 6 * (1 - fade);
+                    DrawTextureRect(Graphics.SoftDot, new Rect2(from - Vector2.One * r, Vector2.One * r * 2), false, Graphics.Hot(new Color(1f, 0.55f, 0.15f, 0.85f * fade), 2f));
+                    DrawLine(to, from, new Color(1f, 0.7f, 0.3f, 0.35f * fade), 1, true);
+                    break;
+                }
                 case EffectKind.PointDefenceKill:
                 {
                     // Tracer dashes racing out, then a burst of flak: puffs and sparks round the kill.

@@ -121,6 +121,14 @@ public abstract record GameCommand
         if (fleet == null) sim.Log.Warn("fleet", $"{what} for a fleet that does not exist", new { fleetId, Source });
         return fleet;
     }
+
+    /// <summary>Turns the order down: logs why and shows the reason against the fleet for a day ("Can't: ...").</summary>
+    protected void Refuse(World world, Simulation sim, Fleet fleet, string reason, object? data = null)
+    {
+        sim.Log.Warn("fleet", $"{fleet.Name} can't: {reason}", data ?? new { fleetId = fleet.Id, Source });
+        fleet.Refused = reason;
+        fleet.RefusedHour = world.Hour;
+    }
 }
 
 /// <summary>An order to one fleet: under light lag it travels to that fleet.</summary>
@@ -139,8 +147,11 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
         if (!plan.Ok || plan.Flight == null)
         {
             sim.Log.Warn("fleet", $"{fleet.Name} cannot fly that: {plan.Problem}", new { fleetId = fleet.Id, Request, Source });
+            fleet.Refused = plan.Problem ?? "no way to fly that";
+            fleet.RefusedHour = world.Hour;
             return;
         }
+        fleet.Refused = null;
         fleet.Flight = plan.Flight;
         fleet.JoinFleetId = null;
         fleet.Chase = null;
@@ -195,7 +206,7 @@ public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand, 
         if (GetFleet(world, sim, FleetId, "Hold order") is not Fleet fleet) return;
         if (fleet.InFlight && fleet.Flight!.Started)
         {
-            sim.Log.Warn("fleet", $"{fleet.Name} is flying; stop it first", new { fleetId = fleet.Id, Hold, Source });
+            Refuse(world, sim, fleet, "it is flying; stop it first", new { fleetId = fleet.Id, Hold, Source });
             return;
         }
         if (fleet.InFlight) fleet.Flight!.HoldAfter = Hold;
@@ -207,11 +218,11 @@ public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand, 
         }
         if (fleet.Velocity.Length > 1e-9)
         {
-            sim.Log.Warn("fleet", $"{fleet.Name} is still moving; stop it first", new { fleetId = fleet.Id, Source });
+            Refuse(world, sim, fleet, "it is still moving; stop it first");
             return;
         }
         if (Fleets.OrbitableNear(world, fleet.Position) is Body body) Fleets.EnterOrbit(fleet, body);
-        else sim.Log.Warn("fleet", $"Nothing near {fleet.Name} to orbit", new { fleetId = fleet.Id, Source });
+        else Refuse(world, sim, fleet, "nothing near enough to orbit");
     }
 }
 
@@ -224,7 +235,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         var leaving = ShipIds.Distinct().Where(fleet.ShipIds.Contains).Select(id => world.FindShip(id)!).ToList();
         if (leaving.Count == 0 || leaving.Count == fleet.ShipIds.Count)
         {
-            sim.Log.Warn("fleet", $"Split of {fleet.Name} needs some but not all of its ships", new { fleetId = fleet.Id, ShipIds, Source });
+            Refuse(world, sim, fleet, "a split needs some but not all of its ships", new { fleetId = fleet.Id, ShipIds, Source });
             return;
         }
         fleet.ShipIds.RemoveAll(id => leaving.Any(s => s.Id == id));
@@ -263,7 +274,7 @@ public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCom
         if (GetFleet(world, sim, OtherFleetId, "Merge order") is not Fleet other) return;
         if (Fleets.CanMerge(fleet, other) is string problem)
         {
-            sim.Log.Warn("fleet", $"Cannot merge {other.Name} into {fleet.Name}: {problem}", new { FleetId, OtherFleetId, Source });
+            Refuse(world, sim, fleet, $"merge {other.Name}: {problem}", new { FleetId, OtherFleetId, Source });
             return;
         }
         Fleets.Absorb(world, fleet, other);
@@ -282,7 +293,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
         if (GetFleet(world, sim, FleetId, "Send-ahead order") is not Fleet fleet) return;
         if (Request.Arrival != ArrivalStyle.Brake)
         {
-            sim.Log.Warn("fleet", "Fast ships can only go ahead on a flight that brakes at the end", new { FleetId, Source });
+            Refuse(world, sim, fleet, "fast ships can only go ahead on a flight that brakes at the end");
             return;
         }
         var ships = world.ShipsOf(fleet).ToList();
@@ -318,7 +329,7 @@ public sealed record SendAheadCommand(int FleetId, FlightRequest Request) : Game
             // Put things back as they were.
             Fleets.Absorb(world, fleet, ahead);
             world.FleetNumbers[(int)fleet.Side]--;
-            sim.Log.Warn("fleet", $"{fleet.Name} cannot send its fast ships ahead: {slowPlan.Problem ?? fastPlan.Problem}", new { FleetId, Request, Source });
+            Refuse(world, sim, fleet, $"send fast ships ahead: {slowPlan.Problem ?? fastPlan.Problem}", new { FleetId, Request, Source });
             return;
         }
         fleet.Flight = slowPlan.Flight;
@@ -353,7 +364,7 @@ public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, d
             }
             if (Fleets.FlyToJoin(world, other, into, SpeedFraction) is string problem)
             {
-                sim.Log.Warn("fleet", $"{other.Name} cannot reach {into.Name}", new { FleetId, otherFleetId = otherId, problem, Source });
+                Refuse(world, sim, other, $"reach {into.Name}: {problem}", new { FleetId, otherFleetId = otherId, problem, Source });
                 if (problem == Fleets.DriftingProblem) return;
                 continue;
             }

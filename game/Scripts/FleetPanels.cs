@@ -1087,7 +1087,34 @@ public partial class FleetPanel : PanelContainer
         return $"{text} · {enemy.Name} {d * 1000:#,0} km away, {how}";
     }
 
+    /// <summary>What the fleet is doing, plus where any order it can't carry out at once stands (keeps the player from re-trying blind).</summary>
     public static string Doing(World w, Fleet f)
+    {
+        var status = OrderStatus(w, f);
+        var doing = DoingNow(w, f);
+        return status.Count == 0 ? doing : doing + " · " + string.Join(" · ", status);
+    }
+
+    /// <summary>
+    /// Orders in progress or stuck, each with its stage or the reason: supplies on their way to this fleet (or this
+    /// tanker's run), a join that can't catch up, a quarry being looked for or lost.
+    /// </summary>
+    public static List<string> OrderStatus(World w, Fleet f)
+    {
+        var list = new List<string>();
+        if (f.Refused != null && w.Hour - f.RefusedHour < 24) list.Add($"Can't: {f.Refused}");
+        if (f.SupplyRunFor == null && SupplyLines.RunStatus(w, f) is string supply) list.Add(supply);
+        if (f.SupplyRunFor is int servedId && w.FindFleet(servedId) is Fleet served && SupplyLines.RunStatus(w, served) is string run)
+            list.Add($"Supply run for {served.Name}: " + run.Replace($"Tanker {f.Name}", "").TrimStart(':', ' '));
+        if (f.Chase is { Mode: ChaseMode.Join } j && j.Problem != null) list.Add($"Can't join yet: {j.Problem}");
+        if (f.Chase is { Searching: true } sc)
+            list.Add($"Looking for {Sensors.Find(w, f.Side, sc.TargetFleetId, seat: true)?.Name ?? "its quarry"} (last seen {Math.Max(0, w.Hour - sc.LastSeenHour) / 24:0.#} d ago)");
+        if (f.Chase == null && f.LostContact is { } lc && w.Hour - lc.Hour < 48)
+            list.Add($"Lost contact with {lc.Name} (last seen {Math.Max(0, w.Hour - lc.LastSeenHour) / 24:0.#} d ago)");
+        return list;
+    }
+
+    private static string DoingNow(World w, Fleet f)
     {
         string? Name(int? id) => id is int b ? w.FindBody(b)?.Name : null;
         if (f.Retreating && f.Flight != null) return $"Retreating home, arrives {GameTime.Format(f.Flight.ArriveHour)}";
@@ -1637,7 +1664,7 @@ public partial class ReportPanel : PanelContainer
             lines.Add($"  Missiles: {s.MissilesFired} fired, {s.MissileHits} hit, {s.ShotDown} shot down, {s.Dodged} dodged, "
                       + (s.Decoyed > 0 ? $"{s.Decoyed} drawn off by heat sinks, " : "") + (s.Jammed > 0 ? $"{s.Jammed} jammed, " : "")
                       + (s.Spoofed > 0 ? $"{s.Spoofed} spoofed, " : "") + (s.Hijacked > 0 ? $"{s.Hijacked} HIJACKED and turned on you, " : "")
-                      + $"{s.RanDry} ran dry or lost their target");
+                      + $"{s.RanDry} ran dry before reaching it, {s.TargetGone} had no target left");
         if (s.LanceShots > 0) lines.Add($"  Pulse lances: {s.LanceHits} hits from {s.LanceShots} shots");
         if (s.MineHits > 0) lines.Add($"  Mines struck its ships {s.MineHits} time{(s.MineHits == 1 ? "" : "s")}");
         if (s.Sorties > 0) lines.Add($"  Planet squadrons: {s.Sorties} sortie{(s.Sorties == 1 ? "" : "s")}, {s.SquadronsLost} squadron{(s.SquadronsLost == 1 ? "" : "s")} lost");

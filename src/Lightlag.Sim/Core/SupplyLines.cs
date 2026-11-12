@@ -219,8 +219,10 @@ public static class SupplyLines
             if (f.Flight != null && !home) continue;                                                // on its way home
             if (cargo < ReloadBelow) { GoLoad(sim, f, target); continue; }
             if (!Needs(w, target) && home) continue;                                                // nothing wanted yet
+            f.SupplyRunProblem = null;
             if (Fleets.FlyToJoin(w, f, target, Economy.ReinforceSpeed) is string problem)
             {
+                f.SupplyRunProblem = problem;
                 if (w.Tick % (GameTime.TicksPerDay) == 0)
                     sim.Log.Info("supply", $"{f.Name} can't reach {target.Name} yet", new { fleetId = f.Id, target = target.Id, problem });
             }
@@ -230,6 +232,28 @@ public static class SupplyLines
                 Autonomy.Report(sim, f, $"{f.Name} sets out with supplies for {target.Name}", NoteKind.Supply);
             }
         }
+    }
+
+    /// <summary>
+    /// What a fleet's supplies are doing, for its panel and the fleets list: the tanker on a run for it and its
+    /// stage (loading, on its way, alongside, can't reach), or a Send waiting in Needs you. Null: nothing planned.
+    /// </summary>
+    public static string? RunStatus(World w, Fleet target)
+    {
+        var f = w.Fleets.Where(x => x.SupplyRunFor == target.Id && x.Side == target.Side).OrderBy(x => x.Id).FirstOrDefault();
+        if (f == null)
+            return Economy.Of(w, target.Side).Needs.Any(n => n.FleetId == target.Id && n.Act is SetSupplyRunCommand)
+                ? "No tanker yet: Send is waiting in Needs you" : null;
+        var name = $"Tanker {f.Name}";
+        if (Together(w, f, target)) return $"{name}: alongside, topping up";
+        if (f.SupplyRunProblem != null && f.Flight == null) return $"{name} can't reach it: {f.SupplyRunProblem}";
+        if (f.Flight is { } fl && (fl.TargetFleetId == target.Id || f.Chase != null))
+            return $"{name}: on its way, arrives in {Math.Max(0, fl.ArriveHour - w.Hour) / 24:0.#} d";
+        var at = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b ? w.FindBody(b) : null;
+        if (at?.Owner == f.Side && f.Flight == null)
+            return CargoShare(w, f) < 0.95 ? $"{name}: loading at {at.Name} ({CargoShare(w, f):P0})" : $"{name}: loaded at {at.Name}, sets out when needed";
+        if (f.Flight != null) return $"{name}: going to load";
+        return $"{name}: on the run";
     }
 
     private static void GoLoad(Simulation sim, Fleet f, Fleet target)
@@ -274,6 +298,11 @@ public sealed record SetSupplyRunCommand(Side Side, int FleetId, int? TargetFlee
             || TargetFleetId is int t && (t == FleetId || world.FindFleet(t)?.Side != Side))
         {
             sim.Log.Warn("supply", "Bad supply run order", new { side = Side.ToString(), FleetId, TargetFleetId, Source });
+            if (f != null && f.Side == Side)
+            {
+                f.Refused = !world.ShipsOf(f).Any(SupplyLines.IsSupplyShip) ? "no tanker or supply ship in this fleet" : "that fleet can't be supplied";
+                f.RefusedHour = world.Hour;
+            }
             return;
         }
         f.SupplyRunFor = TargetFleetId;

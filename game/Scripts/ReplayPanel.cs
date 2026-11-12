@@ -213,6 +213,9 @@ public partial class ReplayView : Control
                 case EffectKind.PointDefenceKill:
                     DrawCircle(P(s.X1, s.Y1), 3, new Color(1, 1, 1, 0.6f));
                     break;
+                case EffectKind.Decoy:
+                    DrawCircle(P(s.X0, s.Y0), 3, new Color(1, 0.55f, 0.15f, 0.7f));
+                    break;
             }
         }
 

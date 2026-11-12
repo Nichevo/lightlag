@@ -228,9 +228,24 @@ public sealed class Simulation
     /// <summary>Carries out an order that has reached its fleet (or home), now or after its light arrives.</summary>
     public void Carry(GameCommand command)
     {
-        command.Apply(World, this);
+        if (command.Source != "player" || OrderRefused == null)
+        {
+            command.Apply(World, this);
+            Autonomy.Heard(this, command);
+            return;
+        }
+        // The screen hears about the player's orders that were turned down, so a refusal never sits only in the log.
+        string? refused = null;
+        void Watch(LogEntry e) { if (e.Level == LogLevel.Warn) refused = e.Message; }
+        Log.Written += Watch;
+        try { command.Apply(World, this); }
+        finally { Log.Written -= Watch; }
         Autonomy.Heard(this, command);
+        if (refused != null) OrderRefused(command, refused);
     }
+
+    /// <summary>A player's order logged a warning while it was carried out (the screen shows it). Not part of the world.</summary>
+    public event Action<GameCommand, string>? OrderRefused;
 
     /// <summary>How much game time the next step will probably take (for the screen's clock; the step itself decides).</summary>
     public double PeekStepHours() => World.Sub != 0 || Combat.BattlePossible(World) ? GameTime.SubStepHours : GameTime.HoursPerTick;
@@ -346,9 +361,17 @@ public sealed class Simulation
                 if (flight.TargetBodyId == null && flight.TargetFleetId == null) flight.Target += by;
             }
             else if (inward < 0) f.Velocity -= dir * inward;
-            Log.Info("fleet", $"{f.Name} pulls up clear of {b.Name}", new { fleetId = f.Id, bodyId = b.Id });
+            // Logged once a day per fleet and body: in a fight it can happen every 10-second step.
+            if (!_pulledUp.TryGetValue((f.Id, b.Id), out var last) || hour - last >= 24)
+            {
+                _pulledUp[(f.Id, b.Id)] = hour;
+                Log.Info("fleet", $"{f.Name} pulls up clear of {b.Name}", new { fleetId = f.Id, bodyId = b.Id });
+            }
         }
     }
+
+    /// <summary>When each fleet last logged pulling up clear of each body (logging only, not game state).</summary>
+    private readonly Dictionary<(int Fleet, int Body), double> _pulledUp = new();
 
     private void MoveFleets(double t0, double t1)
     {
@@ -485,7 +508,7 @@ public sealed class Simulation
     }
 }
 
-public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley, Beam, MineBlast, Sortie }
+public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley, Beam, MineBlast, Sortie, Decoy }
 
 /// <summary>Something to draw for a moment: a railgun shot (from, to), point defence killing a missile, a missile striking.</summary>
 /// <summary>Something to draw for a moment. Width: how wide a volley's fan is at the target (Mm).</summary>
