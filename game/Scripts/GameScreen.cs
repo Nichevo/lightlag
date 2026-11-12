@@ -159,6 +159,12 @@ public partial class GameScreen : Node2D
 
     /// <summary>The key help overlay (F1), the "How am I doing" chart (N) and the intelligence screen (I).</summary>
     public bool ShowHelp { get; set; }
+
+    /// <summary>Battle view (U): clears the screen to per-ship status strips and shrinks the menus.</summary>
+    public bool BattleView { get; set; }
+
+    /// <summary>Is this fleet drawn for the player (seen, or theirs, or every fleet in debug)?</summary>
+    public bool ShownFleet(Fleet f) => _map.Shown(f);
     public bool ShowProgress { get; set; }
     public bool ShowIntel { get; set; }
 
@@ -501,7 +507,7 @@ public partial class GameScreen : Node2D
     }
 
     /// <summary>The fleets that put the game in battle time: an active battle's, or a pair that could meet this hour.</summary>
-    private List<Fleet> BattleFleets()
+    public List<Fleet> BattleFleets()
     {
         var w = Sim.World;
         if (w.ActiveBattle is Battle b && !Combat.Standoff(w))
@@ -1458,6 +1464,11 @@ public partial class GameScreen : Node2D
             case Key.L: ToggleSide(); break;
             case Key.M: OrderMerge(); break;
             case Key.V: ToggleEngagement(); break;
+            case Key.U:
+                BattleView = !BattleView;
+                _main.Toast(BattleView ? "Battle view: ship status only (U to bring the menus back)" : "Battle view off");
+                break;
+            case Key.Escape when BattleView: BattleView = false; break;
             case Key.Escape when Engagement != null: CloseEngagement(); break;
             case Key.Tab when Engagement != null: CycleEngagement(key.ShiftPressed ? -1 : 1); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;

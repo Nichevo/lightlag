@@ -262,6 +262,7 @@ public partial class MapView : Node2D
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
         if (!Quiet) DrawLag();
         if (fancy) DrawMissileSmoke();
+        DrawMinefields();
         DrawMissiles();
         if (fancy) DrawEffectsFancy();
         else DrawEffects();
@@ -354,7 +355,58 @@ public partial class MapView : Node2D
                 case EffectKind.MissileHit:
                     DrawCircle(to, 4 + 10 * (1 - fade), new Color(1, 0.6f, 0.2f, 0.8f * fade));
                     break;
+                default:
+                    DrawNewEffect(e, from, to, fade);
+                    break;
             }
+        }
+    }
+
+    /// <summary>Pulse lance beams, mine blasts and squadron sorties (simple shapes; the same at every graphics level).</summary>
+    private void DrawNewEffect(CombatEffect e, Vector2 from, Vector2 to, float fade)
+    {
+        var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+        switch (e.Kind)
+        {
+            case EffectKind.Beam:
+                // A straight violet-white beam, gone almost at once.
+                DrawLine(from, to, new Color(0.75f, 0.6f, 1f, 0.25f * fade), 5f, true);
+                DrawLine(from, to, new Color(0.95f, 0.9f, 1f, 0.9f * fade), 1.5f, true);
+                DrawCircle(to, 2 + 4 * fade, new Color(0.9f, 0.8f, 1f, 0.8f * fade));
+                break;
+            case EffectKind.MineBlast:
+                DrawCircle(to, 3 + 12 * (1 - fade), new Color(1f, 0.75f, 0.3f, 0.7f * fade));
+                DrawArc(to, 5 + 20 * (1 - fade), 0, Mathf.Tau, 20, new Color(1f, 0.9f, 0.6f, 0.6f * fade), 1.2f, true);
+                break;
+            case EffectKind.Sortie:
+                // Squadrons streaking out from the planet: a few dotted lines.
+                var dir = (to - from).Normalized();
+                var across = new Vector2(-dir.Y, dir.X);
+                for (var i = -1; i <= 1; i++)
+                    DrawDashedLine(from + across * i * 4, to + across * i * 4, new Color(mine, 0.6f * fade), 1.2f, 5);
+                break;
+        }
+    }
+
+    /// <summary>Minefields known to the player: a dotted ring, warm for theirs, with how many mines are left.</summary>
+    private void DrawMinefields()
+    {
+        foreach (var m in Sim.World.Minefields)
+        {
+            if (!RevealAll && !Mines.Known(m, Side.Player)) continue;
+            var at = Camera.ToScreen(m.Position);
+            var r = Mathf.Max(6f, (float)(m.RadiusMm * Camera.Scale));
+            if (!Camera.OnScreen(at, r + 20)) continue;
+            var c = m.Side == Side.Player ? Ui.Player : Ui.Danger;
+            DrawCircle(at, r, new Color(c, 0.05f));
+            DrawArc(at, r, 0, Mathf.Tau, 48, new Color(c, 0.55f), 1.2f, true);
+            for (var i = 0; i < 8; i++)
+            {
+                var a = i * Mathf.Tau / 8;
+                DrawCircle(at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r * 0.6f, 1.5f, new Color(c, 0.6f));
+            }
+            DrawString(_font, at + new Vector2(r + 4, 4), $"{(m.Side == Side.Player ? "Our" : "Enemy")} mines ({m.Mines:0}{(m.Iff ? ", IFF" : "")})",
+                HorizontalAlignment.Left, -1, 11, new Color(c, 0.8f));
         }
     }
 

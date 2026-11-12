@@ -483,6 +483,8 @@ public partial class EngagementPanel : Control
             : $"  types unknown: come within {Km(Sensors.IdentifyRange(w, Lightlag.Sim.Core.Side.Player))} to tell");
         if (e.TheyHaveRailguns != null || e.TheyHaveMissiles != null)
             shipLines.Add($"  carry: {Carries(e)}");
+        var reach = RivalTech.Guess(w, Lightlag.Sim.Core.Side.Player, e.EnemyId);
+        shipLines.Add($"  reach: railguns {reach.Rail:0} Mm, missiles {reach.Missile:0} Mm{(reach.Lance > 0 ? $", lances {reach.Lance:0} Mm" : "")} ({reach.How}{(reach.Plus > 0 ? $", ±{reach.Plus:P0}" : "")})");
         shipLines.Add($"  moving at {Format.Speed(e.EnemyVelocity.Length)}" + (e.InSight ? "" : " when last seen"));
         shipLines.Add($"  this fleet's top speed: {Format.Speed(e.OurTopSpeed)}");
         shipLines.Add("");
@@ -557,10 +559,15 @@ public static class EngagementRings
         if (e.WeHaveMissiles) list.Add(new Ring("Your missile launch", c.Missile.LaunchRangeMm, true, Missiles, false, 2f));
         list.Add(new Ring("Your point defence", c.PointDefence.RangeMm, true, PointDefence, false, 1.5f));
         list.Add(new Ring(e.Cued ? "You spot them coasting cold, on their track" : "You spot them coasting cold", e.SpotCold, true, Spotting, true, 1.5f));
+        // Their reach is a guess until you have fought that fleet (board 26): what it showed, else other fleets, else your own tech.
+        var guess = Main.Instance.Sim is { } sim ? RivalTech.Guess(sim.World, Lightlag.Sim.Core.Side.Player, e.EnemyId) : null;
+        var tag = guess is { Plus: > 0 } ? " (guess)" : "";
         if (e.TheyHaveRailguns != false)
-            list.Add(new Ring(e.TheyHaveRailguns == true ? "Their railguns" : "Their railguns, if they carry any", c.Railgun.RangeMm, false, TheirRailguns, true, 2f));
+            list.Add(new Ring((e.TheyHaveRailguns == true ? "Their railguns" : "Their railguns, if they carry any") + tag, guess?.Rail ?? c.Railgun.RangeMm, false, TheirRailguns, true, 2f));
         if (e.TheyHaveMissiles != false)
-            list.Add(new Ring(e.TheyHaveMissiles == true ? "Their missile launch" : "Their missile launch, if they carry any", c.Missile.LaunchRangeMm, false, TheirMissiles, true, 1.5f));
+            list.Add(new Ring((e.TheyHaveMissiles == true ? "Their missile launch" : "Their missile launch, if they carry any") + tag, guess?.Missile ?? c.Missile.LaunchRangeMm, false, TheirMissiles, true, 1.5f));
+        if (guess is { Lance: > 0 })
+            list.Add(new Ring("Their pulse lances" + tag, guess.Lance, false, TheirRailguns, true, 1f));
         return list;
     }
 

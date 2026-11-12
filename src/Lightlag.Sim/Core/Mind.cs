@@ -319,6 +319,14 @@ public static class Mind
         return sb.ToString();
     }
 
+    /// <summary>A thought noted from outside the mind's own turn (mines, counters): kept for the F7 overlay.</summary>
+    public static void Think(World w, MindState m, string text)
+    {
+        if (m.Thoughts.Any(t => t.Text == text && w.Hour - t.Hour < 48)) return;
+        m.Thoughts.Add(new Thought(w.Hour, text));
+        if (m.Thoughts.Count > 40) m.Thoughts.RemoveAt(0);
+    }
+
     public static double ThinkHours(Difficulty d) => d == Difficulty.Easy ? A.ThinkHours.Easy : A.ThinkHours.Normal;
 
     /// <summary>Called at each whole hour.</summary>
@@ -1301,8 +1309,9 @@ public static class Mind
         private (string, int?, int?, bool)? Fortify(Body b)
         {
             if (P.Defence < 0.7 || b.Home || b.PopK < 10) return null;
-            foreach (var kind in new[] { Planets.Guns, "pd-grid" })
+            foreach (var kind in new[] { Planets.Guns, "pd-grid", StrikeCraft.Base })
                 if (Planets.Count(b, kind) == 0 && Planets.BuildingKind(kind) is BuildingData d && Colonies.BestSpot(b, d) != null
+                    && (d.Needs == null || Tech.Has(_w, _side, d.Needs))
                     && b.PowerMade - b.PowerWanted >= d.Power)
                     return (kind, null, null, false);
             return null;

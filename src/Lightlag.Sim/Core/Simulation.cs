@@ -144,7 +144,9 @@ public sealed class Simulation
             }
             var t1 = World.Hour;
             using (SectionTimer.Time("combat-steer")) Combat.Steer(this, t0, t1);
+            var before = World.Minefields.Count > 0 ? World.Fleets.Select(f => (f, f.Position)).ToList() : null;
             using (SectionTimer.Time("move")) MoveFleets(t0, t1);
+            if (before != null) using (SectionTimer.Time("mines")) Mines.Update(this, before, t1 - t0);
             using (SectionTimer.Time("drones")) Drones.Move(this, t1 - t0);
             using (SectionTimer.Time("heat")) Heat.Update(this, t1 - t0);
             using (SectionTimer.Time("missiles")) DroppedMissiles.Update(this, t1 - t0);
@@ -159,7 +161,9 @@ public sealed class Simulation
             UpdateBodyPositions(World);
             // Fleets still braking after a fight finish braking (otherwise they would drift on for ever).
             using (SectionTimer.Time("combat-steer")) Combat.Steer(this, t0, World.Hour);
+            var before = World.Minefields.Count > 0 ? World.Fleets.Select(f => (f, f.Position)).ToList() : null;
             using (SectionTimer.Time("move")) MoveFleets(t0, World.Hour);
+            if (before != null) using (SectionTimer.Time("mines")) Mines.Update(this, before, World.Hour - t0);
             using (SectionTimer.Time("drones")) Drones.Move(this, World.Hour - t0);
             using (SectionTimer.Time("heat")) Heat.Update(this, World.Hour - t0);
             using (SectionTimer.Time("missiles")) DroppedMissiles.Update(this, World.Hour - t0);
@@ -182,6 +186,13 @@ public sealed class Simulation
         using (SectionTimer.Time("autonomy")) Autonomy.Update(this);
         using (SectionTimer.Time("lanes")) Lanes.Observe(this);
         using (SectionTimer.Time("intel")) Intel.Update(this);
+        using (SectionTimer.Time("weapons"))
+        {
+            Mines.Hourly(this);
+            StrikeCraft.Hourly(this);
+            Countermeasures.AiHourly(this);
+            RivalTech.Hourly(this);
+        }
         using (SectionTimer.Time("lanes")) Lanes.UpdateZones(this);
         using (SectionTimer.Time("supply")) Supply.Update(this);
         using (SectionTimer.Time("supply-lines")) SupplyLines.Update(this);
@@ -497,7 +508,7 @@ public sealed class Simulation
     }
 }
 
-public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley, Decoy }
+public enum EffectKind { RailHit, RailMiss, PointDefenceKill, MissileHit, Volley, Beam, MineBlast, Sortie, Decoy }
 
 /// <summary>Something to draw for a moment: a railgun shot (from, to), point defence killing a missile, a missile striking.</summary>
 /// <summary>Something to draw for a moment. Width: how wide a volley's fan is at the target (Mm).</summary>

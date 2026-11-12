@@ -67,6 +67,10 @@ public partial class Hud : CanvasLayer
     private ProgressScreen _progress = null!;
     private IntelScreen _intel = null!;
     private BottomBar _bottomBar = null!;
+    private BattleStrips _strips = null!;
+    private Button _battleView = null!;
+    private Label _help = null!;
+    private readonly List<Control> _navButtons = new();
 
     public Hud() : this(null!) { }
     public Hud(GameScreen screen) => _screen = screen;
@@ -92,6 +96,10 @@ public partial class Hud : CanvasLayer
             bar.AddChild(b);
         }
         bar.AddChild(new Control { CustomMinimumSize = new Vector2(12, 0), MouseFilter = Control.MouseFilterEnum.Ignore });
+        _battleView = SmallButton("Battle view (U)", () => _screen.BattleView = !_screen.BattleView,
+            "Clear the screen to each ship's state in the fight: hull, weapons, engines, defence, crew, heat, with Eject heat sink buttons (U)");
+        bar.AddChild(_battleView);
+        var navFrom = bar.GetChildCount();
         bar.AddChild(SmallButton("System", () => _screen.ShowWholeSystem(), "Show the whole system (Home)"));
         bar.AddChild(SmallButton("Zoom in", () => _screen.ZoomToSelected(), "Zoom right in on what is selected and follow it (Z)"));
         _sideButton = SmallButton("Fleets & planets", () => _screen.ToggleSide(), "The list of your fleets, the rival fleets you know of and the planets (L). Tab: next fleet");
@@ -119,6 +127,7 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_fleetsButton);
         _shipsButton = SmallButton("Ships ▸", () => _screen.ToggleShips(), "Ship designs, models in service, crewing and the class tree (J)");
         bar.AddChild(_shipsButton);
+        for (var i = navFrom; i < bar.GetChildCount(); i++) _navButtons.Add(bar.GetChild<Control>(i));
         AddChild(bar);
 
         // Second row: Needs you, the control bar, Map layers, How am I doing and key help.
@@ -164,7 +173,7 @@ public partial class Hud : CanvasLayer
         _scaleBar.Position += new Vector2(0, -60);
         AddChild(_scaleBar);
 
-        var help = Ui.Label("Wheel zoom · WASD pan · click select · right-click route or attack · Space pause · F1 every key", 12, Ui.Dim);
+        var help = _help = Ui.Label("Wheel zoom · WASD pan · click select · right-click route or attack · Space pause · F1 every key", 12, Ui.Dim);
         help.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.KeepSize, 16);
         help.GrowVertical = Control.GrowDirection.Begin;
         AddChild(help);
@@ -263,6 +272,8 @@ public partial class Hud : CanvasLayer
         AddChild(_progress);
         _intel = new IntelScreen(_screen) { Visible = false };
         AddChild(_intel);
+        _strips = new BattleStrips(_screen) { Visible = false };
+        AddChild(_strips);
         _keyHelp = new KeyHelp(_screen) { Visible = false };
         AddChild(_keyHelp);
 
@@ -443,7 +454,32 @@ public partial class Hud : CanvasLayer
         var text = fleet == null && group.Count < 2 && engagement == null && !_planetPanel.Visible ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
+        ApplyBattleView(sim);
     }
+
+    /// <summary>Battle view (U): hide the menus and panels, keep the date and speeds, and show a strip per ship.</summary>
+    private void ApplyBattleView(Simulation sim)
+    {
+        var on = _screen.BattleView;
+        _battleView.Visible = on || _screen.InBattle;
+        _battleView.Text = on ? "Menus back (U)" : "Battle view (U)";
+        _battleView.Modulate = on ? Ui.Player : _screen.InBattle ? Ui.Danger : Colors.White;
+        // Refresh already set the buttons it manages (Empire, Research, Planets, Radio silence); the rest come back with the menus.
+        foreach (var b in _navButtons)
+            if (on) b.Visible = false;
+            else if (!Managed(b)) b.Visible = true;
+        _strips.Visible = on && !_menu.Visible;
+        _help.Visible = !on;
+        _status.Visible = !on;
+        if (!on) return;
+        _row2.Visible = false;
+        foreach (var c in new Control[] { _side, _empire, _contacts, _fleetPanel, _groupPanel, _infoPanel, _planetPanel, _engagement, _mindPanel, _plannerPanel,
+                     _research, _colonies, _ground, _fleets, _ships, _intel, _progress })
+            c.Visible = false;
+        if (_strips.Visible) _strips.Refresh(sim);
+    }
+
+    private bool Managed(Control b) => b == _empireButton || b == _researchButton || b == _planetsButton || b == _silence;
 
     /// <summary>Debug (F7): the rival's temperament, beliefs, jobs and latest thoughts.</summary>
     private static string MindText(World w, MindState m)

@@ -27,7 +27,7 @@ public static class Fitting
     {
         var slots = cls.SlotList;
         if (fit.Count != slots.Count) return cls;
-        int rail = 0, pd = 0, missiles = 0, sinks = 0;
+        int rail = 0, pd = 0, missiles = 0, sinks = 0, lances = 0;
         double shield = 0, armour = 0, sensor = 0, supplies = 0, heatCap = 0, accel = 1, cargo = 0;
         for (var i = 0; i < slots.Count; i++)
         {
@@ -35,14 +35,14 @@ public static class Fitting
             var n = slots[i].Mounts;
             if (GameData.Module(fit[i]) is ModuleData add)
             {
-                rail += add.Railguns * n; pd += add.PointDefence * n; missiles += add.Missiles * n; sinks += add.HeatSinks * n;
+                rail += add.Railguns * n; lances += add.Lances * n; pd += add.PointDefence * n; missiles += add.Missiles * n; sinks += add.HeatSinks * n;
                 shield += add.Shield * n; armour += add.Armour * n; sensor += add.SensorMm * n; supplies += add.Supplies * n; heatCap += add.HeatCapacity * n;
                 cargo += add.Cargo * n;
                 for (var k = 0; k < n; k++) accel *= add.AccelFactor;
             }
             if (GameData.Module(slots[i].Fit) is ModuleData std)
             {
-                rail -= std.Railguns * n; pd -= std.PointDefence * n; missiles -= std.Missiles * n; sinks -= std.HeatSinks * n;
+                rail -= std.Railguns * n; lances -= std.Lances * n; pd -= std.PointDefence * n; missiles -= std.Missiles * n; sinks -= std.HeatSinks * n;
                 shield -= std.Shield * n; armour -= std.Armour * n; sensor -= std.SensorMm * n; supplies -= std.Supplies * n; heatCap -= std.HeatCapacity * n;
                 cargo -= std.Cargo * n;
                 for (var k = 0; k < n; k++) accel /= std.AccelFactor;
@@ -50,7 +50,7 @@ public static class Fitting
         }
         return cls with
         {
-            Railguns = Math.Max(0, cls.Railguns + rail), PointDefence = Math.Max(0, cls.PointDefence + pd),
+            Railguns = Math.Max(0, cls.Railguns + rail), Lances = Math.Max(0, cls.Lances + lances), PointDefence = Math.Max(0, cls.PointDefence + pd),
             Missiles = Math.Max(0, cls.Missiles + missiles), HeatSinks = Math.Max(0, cls.HeatSinks + sinks),
             Shield = Math.Max(0, cls.Shield + shield), Armour = Math.Max(1, cls.Armour + armour),
             SensorMm = Math.Max(1, cls.SensorMm + sensor), Supplies = Math.Max(1, cls.Supplies + supplies),

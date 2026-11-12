@@ -42,7 +42,7 @@ public partial class IntelScreen : PanelContainer
     {
         var w = sim.World;
         var f = Intel.Of(w, Side.Player);
-        var shape = $"{_tab}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{GetViewportRect().Size}";
+        var shape = $"{_tab}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _box.GetChildren()) c.QueueFree();
@@ -207,6 +207,21 @@ public partial class IntelScreen : PanelContainer
             Cell(g, Intel.PartName(part), t != null ? Ui.Text : Ui.Dim);
             Cell(g, t != null ? Intel.LevelName(part, t.Level) : "not seen", t != null ? Fade(Intel.Sure(w, t.Hour, Intel.TechForgetDays)) : Ui.Dim);
             Cell(g, t != null ? $"{t.Source.ToString().ToLowerInvariant()}, {GameTime.Format(t.Hour)}" : $"{f.Habits.GetValueOrDefault("battles")} battles", t != null ? Ui.Text : Ui.Dim);
+        }
+        Section("Their research we are learning");
+        var learning = RivalTech.Learning(w, Side.Player).ToList();
+        if (learning.Count == 0) Line("Nothing yet: battles teach what they show, stripped wrecks and captures the parts aboard, close looks at their colonies the buildings", Ui.Dim, 13);
+        foreach (var l in learning)
+            Line(l.Stage == RivalStage.Seen ? $"Something new in their kit · {l.Progress:P0}" : $"{GameData.Research(l.Id).Name} · {RivalTech.StageName(l.Stage)} · {l.Progress:P0}"
+                 + (l.Stage == RivalStage.Unlocked ? " · queue it without its prerequisites" : ""), l.Stage == RivalStage.Unlocked ? Gold : Ui.Text, 13);
+        Section("Their weapon reach");
+        var fleets = w.Fleets.Where(x => x.Side == Side.Rival && Sensors.Sees(w, Side.Player, x)).OrderBy(x => x.Id).ToList();
+        if (fleets.Count == 0) Line("No rival fleet in sight", Ui.Dim, 13);
+        foreach (var x in fleets)
+        {
+            var guess = RivalTech.Guess(w, Side.Player, x.Id);
+            Line($"{x.Name}: railguns {guess.Rail:0} Mm, missiles {guess.Missile:0} Mm{(guess.Lance > 0 ? $", lances {guess.Lance:0} Mm" : "")} ({guess.How}{(guess.Plus > 0 ? $", ±{guess.Plus:P0}" : "")})",
+                guess.Plus > 0 ? Ui.Dim : Ui.Text, 13, "A fleet that held back may reach further than it showed");
         }
         Section("Research that answers it");
         var counters = Intel.Counters(w, Side.Player).ToList();

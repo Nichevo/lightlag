@@ -441,7 +441,7 @@ public partial class FleetPanel : PanelContainer
     }
 
     private const int MoreRoute = 1, MoreMerge = 2, MoreEngagement = 3, MoreFittings = 4, MoreSinks = 5, MoreDrone = 6, MorePull = 7,
-        MoreSections = 8, MoreDrop = 10, MoreJoin = 1000;
+        MoreSections = 8, MoreMines = 9, MoreSalvo = 20, MoreDrop = 10, MoreJoin = 1000;
 
     private void FillMoreMenu()
     {
@@ -474,6 +474,15 @@ public partial class FleetPanel : PanelContainer
         var canDrop = w.ShipsOf(f).Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
         foreach (var (label, i) in new[] { ("Drop missiles, wake now", 0), ("Drop missiles, wake in 1 hour", 1), ("Drop missiles, wake in 6 hours", 2), ("Drop missiles, wake in a day", 3) })
             Add(label, MoreDrop + i, canDrop, "Each destroyer drops a salvo to drift dark; it goes for the first enemy ship that passes close");
+        if (w.Loop && Tech.Has(w, f.Side, Mines.Idea))
+        {
+            var inOrbit = f.OrbitBodyId is int ob && w.FindBody(ob) is Body orbitBody && Economy.InOrbitAt(f, orbitBody);
+            Add(inOrbit ? "Lay mines round this planet" : "Drop mines here", MoreMines, canDrop,
+                (inOrbit ? "Each missile ship lays 2 mines from its racks in a ring round the planet. " : "Each missile ship drops 2 mines here: they drift and spread. ")
+                + (Tech.Has(w, f.Side, Countermeasures.Iff) ? "IFF codes: your own ships are spared." : "Without IFF codes they hit your own ships too."));
+        }
+        Add(f.DumbSalvos ? "Fire guided salvos" : "Fire dumb salvos", MoreSalvo, true,
+            f.DumbSalvos ? "Back to guided missiles (smarter, but can be jammed or hijacked)" : "Brain 1 missiles: can't be hijacked or jammed, but easier to dodge and shoot down");
         if (w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0) Add("Send orders by drone", MoreDrone, true);
         if (w.Loop) Add("Pull back now", MorePull, !f.Retreating, "Break off at once and head for safety");
         if (PlayerInfo.Detail == DetailLevel.Simple)
@@ -493,6 +502,8 @@ public partial class FleetPanel : PanelContainer
             case MoreDrone: _screen.SendDrone(); break;
             case MorePull: _screen.IssueNow(new PullBackNowCommand(f.Id), "pull back now"); break;
             case MoreSections: _simpleShowSections = !_simpleShowSections; break;
+            case MoreMines: _screen.IssueNow(new LayMinesCommand(f.Id, 2), "lay mines"); break;
+            case MoreSalvo: _screen.IssueNow(new SetSalvoGuidanceCommand(f.Id, !f.DumbSalvos), f.DumbSalvos ? "guided salvos" : "dumb salvos"); break;
             case >= MoreJoin: _screen.OrderJoin(id - MoreJoin); break;
             case >= MoreDrop and < MoreDrop + 4: _screen.DropMissiles((id - MoreDrop) switch { 0 => 0, 1 => 1, 2 => 6, _ => 24 }); break;
         }
@@ -1651,7 +1662,14 @@ public partial class ReportPanel : PanelContainer
         if (s.RailShots > 0) lines.Add($"  Railguns: {s.RailHits} hits from {s.RailShots} shots");
         if (s.MissilesFired > 0)
             lines.Add($"  Missiles: {s.MissilesFired} fired, {s.MissileHits} hit, {s.ShotDown} shot down, {s.Dodged} dodged, "
-                      + (s.Decoyed > 0 ? $"{s.Decoyed} drawn off by heat sinks, " : "") + $"{s.RanDry} ran dry before reaching it, {s.TargetGone} had no target left");
+                      + (s.Decoyed > 0 ? $"{s.Decoyed} drawn off by heat sinks, " : "") + (s.Jammed > 0 ? $"{s.Jammed} jammed, " : "")
+                      + (s.Spoofed > 0 ? $"{s.Spoofed} spoofed, " : "") + (s.Hijacked > 0 ? $"{s.Hijacked} HIJACKED and turned on you, " : "")
+                      + $"{s.RanDry} ran dry before reaching it, {s.TargetGone} had no target left");
+        if (s.LanceShots > 0) lines.Add($"  Pulse lances: {s.LanceHits} hits from {s.LanceShots} shots");
+        if (s.MineHits > 0) lines.Add($"  Mines struck its ships {s.MineHits} time{(s.MineHits == 1 ? "" : "s")}");
+        if (s.Sorties > 0) lines.Add($"  Planet squadrons: {s.Sorties} sortie{(s.Sorties == 1 ? "" : "s")}, {s.SquadronsLost} squadron{(s.SquadronsLost == 1 ? "" : "s")} lost");
+        var held = Secrecy.HeldAllFight(s);
+        if (held.Count > 0) lines.Add($"  Kept secret: {string.Join(", ", held.Select(id => GameData.Research(id).Name))}");
         if (s.ShieldSoaked > 0) lines.Add($"  Shields soaked: {s.ShieldSoaked:0} damage");
         lines.Add($"  Damage done: {s.DamageDealt:0}");
         if (s.Knocked.Count > 0) lines.Add($"  Knocked out: {string.Join(", ", s.Knocked)}");
