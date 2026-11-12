@@ -138,9 +138,9 @@ public partial class ShipCard : PanelContainer
             var fit = Fitting.FitOf(s).Select(id => GameData.Module(id)?.Name).Where(n => n != null).GroupBy(n => n).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key);
             lines.Add("Fit: " + string.Join(", ", fit) + (mine && Refits.Outdated(w, s) ? " (behind the current design)" : ""));
             lines.Add($"Fuel {s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)):P0}"
-                      + (SupplyLines.MaxAmmo(s) > 0 ? $" · ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}" : "")
+                      + (SupplyLines.MaxAmmo(s) > 0 ? $" · railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}" : "")
                       + (SupplyLines.MaxFood(s) > 0 ? $" · food {s.Food:0} d" : "")
-                      + (cls.Missiles > 0 ? $" · {s.Missiles} missiles" : "")
+                      + (cls.Missiles > 0 ? (s.Missiles <= 0 ? " · OUT OF MISSILES" : $" · missiles {s.Missiles}/{Tech.Racks(w, s)}") : "")
                       + (Heat.Capacity(s) > 0 ? $" · heat {s.Heat / Heat.Capacity(s):P0}" : ""));
             var built = s.BuiltHour is double h
                 ? $"Built {GameTime.Format(h)}" + (s.BuiltAtBodyId is int b && w.FindBody(b) is Body yard ? $" at {yard.Name}" : "")

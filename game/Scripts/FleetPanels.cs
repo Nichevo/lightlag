@@ -271,6 +271,17 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id < 0 ? null : (int)id), "supply run");
         });
         box.AddChild(_supplyRun);
+        _getSupplies = new MenuButton { Text = "Get supplies out here ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Have fuel, ammunition, missiles and food brought out to this fleet: send a fleet with tankers or freighters on a supply run to it, or order a new tanker or freighter to join it" };
+        _getSupplies.AddThemeFontSizeOverride("font_size", 15);
+        _getSupplies.AboutToPopup += FillGetSuppliesMenu;
+        _getSupplies.GetPopup().IdPressed += id => Main.Instance.RunGuarded("getting supplies", () =>
+        {
+            if (_screen.SelectedFleet is not Fleet sf) return;
+            if (id == 1 || id == 2) _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Ship, id == 1 ? "tanker" : "freighter", sf.Id), "ordering a supply ship");
+            else if (id >= 1000) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, (int)id - 1000, sf.Id), "supply run");
+        });
+        box.AddChild(_getSupplies);
         _fuel = new MenuButton { Text = "Fuel: Auto ▾", Flat = false, FocusMode = FocusModeEnum.None,
             TooltipText = "The fuel the ships fill up with. Auto picks for the job: far reach for warships, a dim, cool burn for ambushers and running cold, the cheapest for haulers. Each engine burns only its own fuels" };
         _fuel.AddThemeFontSizeOverride("font_size", 15);
@@ -417,8 +428,8 @@ public partial class FleetPanel : PanelContainer
         _secOrders = Make("Orders", "Mission and autonomy, what to do in contact, cover and targeting, heat and weapons",
             _orders, _missionRow, _coverRow, _heatRow, _heat, _fireRow);
         _secRules = Make("Battle rules", "When the fleet pulls back from a fight; Hold on and Pull back now", _rules);
-        _secSupply = Make("Supply", "Fuel and speed left, food and ammunition, cargo, and supply runs", _supplyText, _supplyRun);
-        _secShips = Make("Ships", "Each ship's bars; tick ships to split them off; ⓘ opens a ship's card", _shipList, _barsKey, _fittings);
+        _secSupply = Make("Supply", "Fuel and speed left, food and ammunition, cargo, and supply runs", _supplyText, _supplyRun, _getSupplies);
+        _secShips = Make("Ships", "Each ship's bars; ⓘ opens a ship's card with its full status; ⇱ splits one ship off to give it its own orders; tick several and press Split to make a new fleet", _shipList, _barsKey, _fittings);
         _secRefit = Make("Refit", "Send the fleet to a yard to refit to the current designs", _rules.RefitBox);
         _secZone = Make("Zone", "Hold or draw a raiding zone, or hunt a spotted supply lane", _rules.ZoneBox);
         _secDetails = Make("Details", "Light lag, speed and closing, signature and everything else known", _info);
@@ -503,7 +514,9 @@ public partial class FleetPanel : PanelContainer
                 return ($"{s.Name}'s {part} at {v:P0}: send for repair", null, s.Id, null);
             }
         var armed = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
-        if (armed.Count > 0 && armed.All(s => s.Ammo <= 0)) return ("Out of ammunition: rearm at a yard or call a tanker", null, null, "Supply");
+        if (armed.Count > 0 && armed.All(s => s.Ammo <= 0)) return ("Out of railgun ammunition: rearm at a yard or call a tanker", null, null, "Supply");
+        if (ships.Any(s => Tech.Racks(w, s) > 0) && ships.Where(s => Tech.Racks(w, s) > 0).All(s => s.Missiles <= 0))
+            return ("Out of missiles: reload at a shipyard or dry dock, or send a tanker or supply run", null, null, "Supply");
         if (ships.FirstOrDefault(s => s.Overheated) is Ship hot) return ($"{hot.Name} has overheated: pull the fleet back or eject heat sinks", null, null, "Orders");
         if (need != null && need.Level == NeedLevel.Advice) return (need.Text, need.Act != null ? need.Key : null, null, null);
         return null;
@@ -527,9 +540,10 @@ public partial class FleetPanel : PanelContainer
         var fed = ships.Where(s => SupplyLines.MaxFood(s) > 0).ToList();
         if (fed.Count > 0) parts.Add($"food {fed.Min(s => s.Food):0} d");
         var armed = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
-        if (armed.Count > 0) parts.Add($"ammo {armed.Sum(s => s.Ammo) / armed.Sum(s => SupplyLines.MaxAmmo(s)):P0}");
+        if (armed.Count > 0) parts.Add($"railgun ammo {armed.Sum(s => s.Ammo) / armed.Sum(s => SupplyLines.MaxAmmo(s)):P0}");
+        var racks = ships.Sum(s => Tech.Racks(w, s));
         var missiles = ships.Sum(s => s.Missiles);
-        if (missiles > 0) parts.Add($"{missiles} missiles");
+        if (racks > 0) parts.Add(missiles <= 0 ? "OUT OF MISSILES" : $"missiles {missiles}/{racks}");
         if (w.Light.On)
         {
             var lag = Light.DelayHours(w, Side.Player, f.Position);
@@ -539,7 +553,8 @@ public partial class FleetPanel : PanelContainer
         var tip = $"Fuel {fuel:P0} (lowest ship): {Format.Speed(perf.DeltaVLeft)} of speed change left, top speed {Format.Speed(perf.MaxSpeed)} (slowest ship)"
                   + (kinds.Length > 0 ? $"\nIn the tanks: {kinds}" : "")
                   + (fed.Count > 0 ? $"\nFood for {fed.Min(s => s.Food):0} days (lowest ship)" : "")
-                  + (armed.Count > 0 ? $"\nAmmunition {armed.Sum(s => s.Ammo):0} of {armed.Sum(s => SupplyLines.MaxAmmo(s)):0}" : "")
+                  + (armed.Count > 0 ? $"\nRailgun ammunition {armed.Sum(s => s.Ammo):0} of {armed.Sum(s => SupplyLines.MaxAmmo(s)):0}" : "")
+                  + (racks > 0 ? $"\nMissiles {missiles} of {racks}: reloaded at a shipyard or dry dock, or by a tanker or supply run with ammunition aboard" : "")
                   + (w.Light.On ? "\nLight lag from your flagship each way; live means orders arrive at once" : "");
         return (string.Join(" · ", parts), tip);
     }
@@ -616,6 +631,27 @@ public partial class FleetPanel : PanelContainer
             popup.SetItemTooltip(popup.ItemCount - 1, fuel.Note);
         }
     }
+
+    /// <summary>For a fleet with no supply ships: the supply fleets that could run to it, and new tankers or freighters to join it.</summary>
+    private void FillGetSuppliesMenu()
+    {
+        var popup = _getSupplies.GetPopup();
+        popup.Clear();
+        var w = Main.Instance.Sim!.World;
+        if (_screen.SelectedFleet is not Fleet f) return;
+        foreach (var run in w.Fleets.Where(o => o.Side == Side.Player && o.Id != f.Id && w.ShipsOf(o).Any(SupplyLines.IsSupplyShip)))
+            popup.AddItem(run.SupplyRunFor == f.Id ? $"{run.Name} already keeps this fleet supplied" : $"Send {run.Name} to keep this fleet supplied", 1000 + run.Id);
+        foreach (var (key, id, what) in new[] { ("tanker", 1, "fuel, railgun ammunition and missiles"), ("freighter", 2, "food") })
+        {
+            if (!GameData.ShipClasses.TryGetValue(key, out var cls)) continue;
+            var problem = Economy.CanQueue(w, Side.Player, OrderKind.Ship, key);
+            popup.AddItem($"Build a {cls.Name.ToLowerInvariant()} to join this fleet ({what})" + (problem != null ? $": {problem}" : ""), id);
+            popup.SetItemDisabled(popup.ItemCount - 1, problem != null);
+        }
+        if (popup.ItemCount == 0) popup.AddItem("No supply ships to send: research the Tanker hull first", 0);
+    }
+
+    private MenuButton _getSupplies = null!;
 
     private void FillSupplyRunMenu()
     {
@@ -700,6 +736,10 @@ public partial class FleetPanel : PanelContainer
         var ships = w.ShipsOf(f).ToList();
         var perf = FleetPerformance.Of(w, f);
         _supplyRun.Visible = mine && ships.Any(SupplyLines.IsSupplyShip);
+        _getSupplies.Visible = mine && w.Loop && !ships.Any(SupplyLines.IsSupplyShip);
+        if (_getSupplies.Visible)
+            _getSupplies.Text = w.Fleets.FirstOrDefault(o => o.SupplyRunFor == f.Id && o.Side == f.Side) is Fleet server
+                ? $"Supplied by {server.Name} ▾" : "Get supplies out here ▾";
         RefreshPlanetRow(w, f, mine, ships);
         RefreshBoardRow(w, f, mine);
         _fuel.Visible = mine && w.Rules.FuelTypes;
@@ -819,6 +859,13 @@ public partial class FleetPanel : PanelContainer
                 var card = new Button { Text = "ⓘ", Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "The ship's card: its bars, crew, fit and history" };
                 card.Pressed += () => _screen.ShipCardId = cardId;
                 row.AddChild(card);
+                if (mine && ships.Count > 1)
+                {
+                    var alone = new Button { Text = "⇱", Flat = true, FocusMode = FocusModeEnum.None,
+                        TooltipText = "Split this ship off on its own and select it, to give it its own orders" };
+                    alone.Pressed += () => _screen.SplitOne(cardId);
+                    row.AddChild(alone);
+                }
                 _shipList.AddChild(row);
                 _rows[s.Id] = (check, bars, supplies);
             }
@@ -831,10 +878,10 @@ public partial class FleetPanel : PanelContainer
             var share = s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s));
             var armour = s.Armour / Tech.MaxArmour(w, s);
             var bits = new List<string> { $"armour {armour:P0}", w.Rules.FuelTypes ? $"{Fuels.Of(w, s).Short} {share:P0}" : $"fuel {share:P0}" };
-            if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}");
+            if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}");
             if (mine && SupplyLines.MaxFood(s) > 0) bits.Add(SupplyLines.Hungry(s) ? "HUNGRY" : $"food {s.Food:0} d");
             if (mine && SupplyLines.IsSupplyShip(s)) bits.Add($"cargo {SupplyLines.CargoShare(s):P0}");
-            if (cls.Missiles > 0) bits.Add($"{s.Missiles} missiles");
+            if (cls.Missiles > 0) bits.Add(s.Missiles <= 0 ? "OUT OF MISSILES" : $"missiles {s.Missiles}/{Tech.Racks(w, s)}");
             var heat = Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0;
             if (mine) bits.Add(s.Overheated ? "OVERHEATED" : $"heat {heat:P0}");
             if (mine && Heat.MaxShield(w, s) > 0) bits.Add($"shield {s.Shield / Heat.MaxShield(w, s):P0}");
@@ -861,7 +908,7 @@ public partial class FleetPanel : PanelContainer
             if (Boarders.BeingBoarded(w, s.Id)) alerts.Add("BOARDED");
             if (w.Loop && Crews.Crewed(s) && Crews.RankOf(s) >= Rank.Seasoned) alerts.Add(Crews.RankOf(s).ToString().ToUpperInvariant()[..3]);
             if (s.Disabled is Module dm) alerts.Add($"{Combat.ModuleName(dm)} out");
-            if (cls.Missiles > 0) alerts.Add($"{s.Missiles}m");
+            if (cls.Missiles > 0) alerts.Add(s.Missiles <= 0 ? "NO MISSILES" : $"{s.Missiles}/{Tech.Racks(w, s)}m");
             row.Supplies.Text = string.Join(" ", alerts);
             row.Supplies.TooltipText = tip;
             row.Supplies.MouseFilter = MouseFilterEnum.Pass;
@@ -907,6 +954,7 @@ public partial class FleetPanel : PanelContainer
         _heat.AddThemeColorOverride("font_color", ships.Any(x => x.Overheated) ? Ui.Danger : hazard != null ? Ui.Rival : Ui.Dim);
         _droneButton.Visible = mine && open && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         _supplyRun.Visible &= mine;
+        _getSupplies.Visible &= mine;
         _fuel.Visible &= mine;
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);

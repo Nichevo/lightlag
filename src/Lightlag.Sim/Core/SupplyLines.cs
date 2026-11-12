@@ -133,7 +133,7 @@ public static class SupplyLines
         if (w.Loop) Runs(sim);
     }
 
-    /// <summary>Supply ships pass cargo to ships short of fuel, ammunition or food.</summary>
+    /// <summary>Supply ships pass cargo to ships short of fuel, ammunition, missiles or food.</summary>
     private static void Deliver(World w, List<Ship> from, List<Ship> to)
     {
         foreach (var src in from)
@@ -154,6 +154,8 @@ public static class SupplyLines
                 if (take > 0) { s.Supplies += take; Fuels.TakeCargo(src, Fuels.IdOf(s), take); fuel -= take; }
                 take = Math.Min(ammo, MaxAmmo(s) - s.Ammo);
                 if (take > 0) { s.Ammo += take; src.CargoAmmo -= take; ammo -= take; }
+                // Missiles: one reload an hour per ship, each taking one unit of ammunition from the hold.
+                if (s.Missiles < Tech.Racks(w, s) && src.CargoAmmo >= 1) { s.Missiles++; src.CargoAmmo -= 1; }
                 take = Math.Min(food, MaxFood(s) - s.Food);
                 if (take > 0) { s.Food += take; src.CargoFood -= take; food -= take; }
             }
@@ -162,7 +164,7 @@ public static class SupplyLines
 
     /// <summary>Do the ships of this fleet still need anything a supply ship carries?</summary>
     private static bool Needs(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)
-        && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.95 || s.Ammo < MaxAmmo(s) * 0.95 || s.Food < MaxFood(s) * 0.95));
+        && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.95 || s.Ammo < MaxAmmo(s) * 0.95 || s.Food < MaxFood(s) * 0.95 || s.Missiles < Tech.Racks(w, s)));
 
     private static bool Together(World w, Fleet a, Fleet b) =>
         a.Hold == HoldStyle.Orbit && b.Hold == HoldStyle.Orbit && a.OrbitBodyId != null && a.OrbitBodyId == b.OrbitBodyId

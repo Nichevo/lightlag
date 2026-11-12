@@ -1119,6 +1119,22 @@ public partial class MapView : Node2D
         return best ?? HitTestBody(screen);
     }
 
+    /// <summary>The single ship under a screen point, only when zoomed in far enough that ships are drawn apart.</summary>
+    public int? HitTestShip(Vector2 screen)
+    {
+        if (!ShipsApart) return null;
+        int? best = null;
+        var bestD = 14f;
+        foreach (var s in Sim.World.Ships)
+        {
+            if (Sim.World.FleetOf(s) is not Fleet owner || !Shown(owner)) continue;
+            if (!_drawn.TryGetValue(s.Id, out var sp) || !sp.IsFinite) continue;
+            var d = Camera.ToScreen(sp).DistanceTo(screen);
+            if (d < bestD) { bestD = d; best = s.Id; }
+        }
+        return best;
+    }
+
     /// <summary>The body under a screen point (the smallest, so a moon wins over its planet).</summary>
     public int? HitTestBody(Vector2 screen)
     {

@@ -237,6 +237,7 @@ public partial class GameScreen : Node2D
     {
         if (_main.Sim == null) return;
         _camera.ScreenSize = GetViewportRect().Size;
+        SelectSplitShip();
         if (!_paused)
         {
             // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
@@ -1028,7 +1029,26 @@ public partial class GameScreen : Node2D
 
     public void OrderSplit(IReadOnlyCollection<int> shipIds)
     {
-        if (MyFleet is Fleet f && shipIds.Count > 0) Sim.Issue(new SplitFleetCommand(f.Id, shipIds.ToList()));
+        if (MyFleet is Fleet f && shipIds.Count > 0) IssueNow(new SplitFleetCommand(f.Id, shipIds.ToList()), "splitting a fleet");
+    }
+
+    /// <summary>Split one ship off into a fleet of its own and select it once the order lands, ready for its own orders.</summary>
+    public void SplitOne(int shipId)
+    {
+        if (MyFleet is not Fleet f || f.ShipIds.Count < 2 || !f.ShipIds.Contains(shipId)) return;
+        IssueNow(new SplitFleetCommand(f.Id, new List<int> { shipId }), "splitting a ship off");
+        _selectAfterSplit = (shipId, f.Id);
+    }
+
+    private (int Ship, int From)? _selectAfterSplit;
+
+    /// <summary>Selects the ship split off by SplitOne once it has left its old fleet (light lag may delay it).</summary>
+    private void SelectSplitShip()
+    {
+        if (_selectAfterSplit is not var (shipId, from)) return;
+        var ship = Sim.World.FindShip(shipId);
+        if (ship == null) { _selectAfterSplit = null; return; }
+        if (ship.FleetId != from) { Select(ship.FleetId); _selectAfterSplit = null; }
     }
 
     /// <summary>The nearest fleet of ours that could merge into the selected one.</summary>
@@ -1039,7 +1059,7 @@ public partial class GameScreen : Node2D
     public void OrderMerge()
     {
         if (Group.Count >= 2) { OrderGather(); return; }
-        if (MyFleet is Fleet f && MergeCandidate() is Fleet other) Sim.Issue(new MergeFleetsCommand(f.Id, other.Id));
+        if (MyFleet is Fleet f && MergeCandidate() is Fleet other) IssueNow(new MergeFleetsCommand(f.Id, other.Id), "merging fleets");
     }
 
     /// <summary>Send the selected fleet to join another of ours (merging at once if they are together).</summary>
@@ -1300,7 +1320,12 @@ public partial class GameScreen : Node2D
                     if (_boxing) { SelectGroup(FleetsInBox(BoxFrom(down, left.Position))); break; }
                     var hit = _map.HitTest(down);
                     if (left.ShiftPressed && hit is int fid && Sim.World.FindFleet(fid) != null) ToggleInGroup(fid);
-                    else Select(hit);
+                    else
+                    {
+                        Select(hit);
+                        // Zoomed in with ships drawn apart: clicking one ship also opens its card.
+                        if (_map.HitTestShip(down) is int shipId) ShipCardId = shipId;
+                    }
                 }
                 break;
             case InputEventMouseMotion boxMotion when _leftDown is Vector2 start:

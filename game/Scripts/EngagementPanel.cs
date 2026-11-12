@@ -368,7 +368,7 @@ public partial class EngagementPanel : Control
             $"Supplies {supplies:P0} · fuel for {Format.Speed(FleetPerformance.Of(w, f).DeltaVLeft)} of speed change",
             $"Armour {armour:P0} on average",
             $"Point defence on {pd} of {ships.Count} ships, reach {Km(GameData.Combat.PointDefence.RangeMm)}",
-            $"Missiles left: {ships.Sum(s => s.Missiles)}",
+            ships.Sum(s => s.Missiles) <= 0 ? "Missiles left: NONE (out of missiles)" : $"Missiles left: {ships.Sum(s => s.Missiles)} of {ships.Sum(s => Tech.Racks(w, s))}",
         };
         if (f.Chase is { Problem: string problem }) lines.Add($"Chase trouble: {problem}");
         _defence.Text = string.Join("\n", lines);
@@ -379,8 +379,9 @@ public partial class EngagementPanel : Control
         {
             var cls = Fitting.Spec(s);
             var hurt = s.Disabled is Module m ? $", {Combat.ModuleName(m)} out" : "";
-            shipLines.Add($"  {s.Name} ({s.Code}): armour {s.Armour / cls.Armour:P0}, supplies {s.Supplies / cls.Supplies:P0}" + (cls.Missiles > 0 ? $", {s.Missiles} missiles" : "") + hurt);
+            shipLines.Add($"  {s.Name} ({s.Code}): armour {s.Armour / cls.Armour:P0}, supplies {s.Supplies / cls.Supplies:P0}" + (cls.Missiles > 0 ? $", missiles {s.Missiles}/{Tech.Racks(w, s)}" : "") + hurt);
         }
+        if (ships.Count > 1) shipLines.Add("  (one ship's card or its own orders: fleet panel > Ships, ⓘ or ⇱; or zoom in and click the ship)");
         shipLines.Add("");
         shipLines.Add($"{e.EnemyName}: {e.EnemyShips} ships");
         shipLines.Add(e.EnemyClasses is string kinds
