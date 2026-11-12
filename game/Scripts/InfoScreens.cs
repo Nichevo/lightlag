@@ -143,6 +143,7 @@ public partial class KeyHelp : PanelContainer
             "Ctrl+right-click  add a waypoint", "Enter  go", "C  change route", "O  orbit · G  drift · X  stop", "M  merge or gather", "V  engagement view", "R  last battle report" }),
         ("Screens", new[] { "E  empire (Needs you is a tab)", "T  research", "Y  planets", "I  intelligence", "N  how am I doing", "F1  this list", "Esc  close, or the game menu" }),
         ("Saves and reports", new[] { "F5  quick save", "F9  quick load", "F8  send a report", "F7  debug: show every fleet and the rival's mind" }),
+        ("Display", new[] { "F11 or Alt+Enter  full screen on or off", "Esc  game menu: window size and interface size" }),
     };
 
     public override void _Ready()
