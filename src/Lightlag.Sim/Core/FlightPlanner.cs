@@ -1,3 +1,4 @@
+using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>What the player asks for in the route planner.</summary>
@@ -45,6 +46,7 @@ public static partial class FlightPlanner
 
     public static FlightPlan Plan(World w, Fleet fleet, FlightRequest req)
     {
+        using var timed = SectionTimer.Time("route-planner");
         int? from = fleet.Hold == HoldStyle.Orbit && fleet.Velocity.Length <= 1e-9 ? fleet.OrbitBodyId : null;
         // A fleet redirected while it is still climbing out of, or settling into, a body (a flight between
         // moons skims them) leaves from that body, so it may pass through its surface on the way out.
@@ -410,6 +412,13 @@ public static partial class FlightPlanner
     private static Turn? Redirect(Vec2 p, Vec2 v, double now, double a, double cruise, ArrivalStyle arrival, Func<Vec2, double, Vec2> aimFrom) =>
         Redirect(p, v, now, a, cruise, EndSpeed(arrival), aimFrom);
 
+    /// <summary>Rounds of the damped search for the heading out of a turn (fewer are run once it settles).</summary>
+    private const int TurnRounds = 200;
+
+    /// <summary>The very same heading, bit for bit (so stopping early never changes a plan).</summary>
+    private static bool Same(Vec2 x, Vec2 y) =>
+        BitConverter.DoubleToInt64Bits(x.X) == BitConverter.DoubleToInt64Bits(y.X) && BitConverter.DoubleToInt64Bits(x.Y) == BitConverter.DoubleToInt64Bits(y.Y);
+
     private static Turn? Redirect(Vec2 p, Vec2 v, double now, double a, double cruise, double endSpeed, Func<Vec2, double, Vec2> aimFrom)
     {
         var speed = cruise;
@@ -419,9 +428,10 @@ public static partial class FlightPlanner
             // Pick the direction so that, where the turn ends, the fleet points straight at the aim point.
             var dir = (aim - p).Normalized();
             if (dir == Vec2.Zero) return null;
-            Vec2 p1 = p, vd = dir * speed;
-            double t1 = 0;
-            for (var i = 0; i < 200; i++)
+            Vec2 p1, vd;
+            double t1;
+            var before = dir; // the heading one round back, to spot a settled (or two-way) loop
+            for (var i = 0; i < TurnRounds; i++)
             {
                 vd = dir * speed;
                 t1 = (vd - v).Length / a;
@@ -430,7 +440,20 @@ public static partial class FlightPlanner
                 if (next == Vec2.Zero) return null;
                 // Damped, so a slow turn out of a fast or opposite heading settles instead of see-sawing.
                 var blended = (dir + (next - dir) * 0.5).Normalized();
-                dir = blended == Vec2.Zero ? next : blended;
+                var now1 = blended == Vec2.Zero ? next : blended;
+                // Each round depends only on the heading, so once a heading repeats every later round
+                // repeats too: stop early with the heading the last round would have ended on. This gives
+                // exactly the same answer as running every round, many times faster.
+                if (Same(now1, dir)) { dir = now1; break; }
+                if (Same(now1, before))
+                {
+                    // Flipping between two headings: the last round lands on whichever matches its parity.
+                    if ((TurnRounds - 1 - i) % 2 == 1) now1 = dir;
+                    dir = now1;
+                    break;
+                }
+                before = dir;
+                dir = now1;
             }
             vd = dir * speed;
             t1 = (vd - v).Length / a;
@@ -531,6 +554,7 @@ public static partial class FlightPlanner
     /// </summary>
     public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf)
     {
+        using var timed = SectionTimer.Time("route-planner");
         var plan = PlanChaseDirect(w, fleet, enemy, mode, speedFraction, perf);
         if (plan.Flight == null || Avoidance.FirstHit(w, plan.Flight) is not BodyHit hit) return plan;
         // The chase line runs into a body: first fly past it, then the chase is aimed again from there.

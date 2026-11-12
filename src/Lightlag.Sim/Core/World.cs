@@ -108,9 +108,25 @@ public sealed class World
 
     public Battle? ActiveBattle => Battles.Count > 0 && Battles[^1].EndHour == null ? Battles[^1] : null;
 
-    public Body? FindBody(int id) => Bodies.Find(b => b.Id == id);
-    public Ship? FindShip(int id) => Ships.Find(s => s.Id == id);
-    public Fleet? FindFleet(int id) => Fleets.Find(f => f.Id == id);
+    // Plain loops rather than List.Find with a lambda: these are called all the time (the flight planner
+    // alone asks for bodies thousands of times a plan), and the lambda cost an allocation each call.
+    public Body? FindBody(int id)
+    {
+        foreach (var b in Bodies) if (b.Id == id) return b;
+        return null;
+    }
+
+    public Ship? FindShip(int id)
+    {
+        foreach (var s in Ships) if (s.Id == id) return s;
+        return null;
+    }
+
+    public Fleet? FindFleet(int id)
+    {
+        foreach (var f in Fleets) if (f.Id == id) return f;
+        return null;
+    }
     public IEnumerable<Ship> ShipsOf(Fleet f) => f.ShipIds.Select(FindShip).OfType<Ship>();
     public Fleet? FleetOf(Ship s) => FindFleet(s.FleetId);
 }
