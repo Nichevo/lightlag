@@ -475,7 +475,7 @@ public partial class FleetScreen : PanelContainer
                 if (SupplyLines.IsSupplyShip(x)) bits.Add($"cargo {SupplyLines.CargoShare(x):P0}");
                 return bits.Count > 0 ? string.Join(" · ", bits) : "—";
             }, 12));
-            grid.AddChild(Live(w2 => w2.FindShip(shipId) is Ship x ? (w2.Loop && Crews.Crewed(x) ? $"{Crews.RankOf(x)}" : w2.Loop ? "AI crewed" : "—") : "", 12));
+            grid.AddChild(Live(w2 => w2.FindShip(shipId) is Ship x ? (w2.Loop && Crews.Crewed(x) ? (Crews.Learns(w2, x) ? $"{Crews.RankOf(x)}" : "Drones") : w2.Loop ? "AI crewed" : "—") : "", 12));
         }
         col.AddChild(grid);
 

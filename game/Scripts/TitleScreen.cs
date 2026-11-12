@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Godot;
+using Lightlag.Sim.Core;
 using Lightlag.Sim.Save;
 
 namespace Lightlag.Game;
@@ -42,6 +43,71 @@ public partial class TitleScreen : Control
         decap.Toggled += on => main.DecapitationChoice = on;
         row.AddChild(decap);
         return row;
+    }
+
+    /// <summary>
+    /// Races for the next new game: a portrait card for each race you can play (and Random), the rival's race,
+    /// and what the picked race is good and bad at.
+    /// </summary>
+    private static Control RacePicker(Main main)
+    {
+        var col = new VBoxContainer();
+        col.AddThemeConstantOverride("separation", 8);
+        col.AddChild(Ui.Label("Your race", 15, Ui.Dim));
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 8);
+        col.AddChild(row);
+        var about = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(430, 0) };
+        about.AddThemeFontSizeOverride("font_size", 13);
+        about.AddThemeColorOverride("font_color", Ui.Text);
+        void Describe(string id) => about.Text = About(id);
+        var group = new ButtonGroup();
+        foreach (var (id, name) in Races.Choices())
+        {
+            var random = id == Races.Random;
+            var card = new Button
+            {
+                Text = name, ToggleMode = true, ButtonGroup = group, FocusMode = FocusModeEnum.None,
+                Icon = random ? null : Art.Texture("Races", id, 0.42f),
+                IconAlignment = HorizontalAlignment.Center, VerticalIconAlignment = VerticalAlignment.Top,
+                CustomMinimumSize = new Vector2(random ? 110 : 136, 196), ButtonPressed = main.PlayerRaceChoice == id,
+                TooltipText = random ? "A race picked at random when the game starts" : Races.Get(id).Blurb,
+            };
+            card.AddThemeFontSizeOverride("font_size", 14);
+            // The picked race has a bright frame.
+            var picked = new StyleBoxFlat { BgColor = new Color(0.1f, 0.16f, 0.24f, 0.95f), BorderColor = Ui.Player };
+            picked.SetBorderWidthAll(2);
+            picked.SetCornerRadiusAll(4);
+            picked.SetContentMarginAll(4);
+            card.AddThemeStyleboxOverride("pressed", picked);
+            card.AddThemeStyleboxOverride("hover_pressed", picked);
+            card.Pressed += () => { main.PlayerRaceChoice = id; Describe(id); };
+            row.AddChild(card);
+        }
+        var rivalRow = new HBoxContainer();
+        rivalRow.AddThemeConstantOverride("separation", 8);
+        rivalRow.AddChild(Ui.Label("Rival's race:", 15, Ui.Dim));
+        var rival = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "The rival's race. Random: rolled when the game starts; the Intelligence screen (I) says which it is" };
+        var choices = Races.Choices().ToList();
+        foreach (var (_, name) in choices) rival.AddItem(name);
+        rival.Selected = Math.Max(0, choices.FindIndex(c => c.Id == main.RivalRaceChoice));
+        rival.ItemSelected += i => main.RivalRaceChoice = choices[(int)i].Id;
+        rivalRow.AddChild(rival);
+        col.AddChild(rivalRow);
+        Describe(main.PlayerRaceChoice);
+        col.AddChild(about);
+        return col;
+    }
+
+    /// <summary>A race's play style, strengths and weaknesses in a few lines.</summary>
+    public static string About(string id)
+    {
+        if (id == Races.Random) return "Random: you find out which race you lead when the game starts.";
+        var r = Races.Get(id);
+        var text = $"{r.Name}: {r.Style}";
+        foreach (var p in r.Pros ?? new()) text += $"\n+ {p}";
+        foreach (var c in r.Cons ?? new()) text += $"\n- {c}";
+        return text;
     }
 
     /// <summary>The optional systems for the next new game.</summary>
@@ -110,7 +176,14 @@ public partial class TitleScreen : Control
         col.AddChild(new Control { CustomMinimumSize = new Vector2(0, 16) });
         col.AddChild(Ui.Label(NightlyLine(main), 14, Ui.Dim));
 
-        var center = Ui.Centered(col);
+        // The race picker sits beside the menu, so the menu keeps its height.
+        var both = new HBoxContainer();
+        both.AddThemeConstantOverride("separation", 48);
+        both.AddChild(col);
+        var races = RacePicker(main);
+        races.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        both.AddChild(races);
+        var center = Ui.Centered(both);
         AddChild(center);
         _menu = center;
         _saves = new SavesList(() => ShowPage(_menu)) { Visible = false };

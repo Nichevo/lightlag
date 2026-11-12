@@ -292,6 +292,16 @@ public static class Crews
 
     public static bool Crewed(Ship s) => !s.AiRun && !Fitting.Spec(s).AiCrew;
 
+    /// <summary>Drone crews are bred trained and stay so: they never gain or lose experience.</summary>
+    public const double DroneXp = 1;
+
+    /// <summary>The crew can gain experience (drone crews never do: see Races).</summary>
+    public static bool Learns(World w, Ship s) => Crewed(s) && Races.Of(w, s.Side).CrewRanks;
+
+    /// <summary>People a new crew for this class takes from its yard (AI cores cut it; drone crews take fewer).</summary>
+    public static double CrewPeopleK(World w, Side side, string classId) =>
+        GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, side, "ai-cores") * Races.Of(w, side).CrewPop;
+
     public static Rank RankOf(Ship s) => RankOf(s.Xp);
 
     public static Rank RankOf(double xp)
@@ -316,7 +326,7 @@ public static class Crews
     public static void Strain(World w, Ship s, bool hardBurn, double closeness)
     {
         if (!w.Loop || !Crewed(s)) return;
-        s.Strain = Math.Min(1, s.Strain + C.StrainPerDodge * (hardBurn ? C.HardBurnStrain : 1) * closeness);
+        s.Strain = Math.Min(1, s.Strain + C.StrainPerDodge * (hardBurn ? C.HardBurnStrain : 1) * closeness * Races.Of(w, s.Side).Strain);
     }
 
     public static bool WornOut(Ship s) => Crewed(s) && s.Strain >= C.StrainHigh;
@@ -337,7 +347,7 @@ public static class Crews
         {
             s.AiRun = false;
             Man(w, s, yard);
-            if (yard != null && yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(s.ClassId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, s.Side, "ai-cores"));
+            if (yard != null && yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - CrewPeopleK(w, s.Side, s.ClassId));
             s.Food = SupplyLines.MaxFood(s);
         }
     }
@@ -358,6 +368,7 @@ public static class Crews
     {
         if (!w.Loop) return;
         if (!Crewed(s)) { s.Xp = 0; return; }
+        if (!Learns(w, s)) { s.Xp = DroneXp; return; }
         var reserve = Economy.Of(w, s.Side).ReserveCrews;
         if (reserve.Count > 0)
         {
@@ -382,7 +393,7 @@ public static class Crews
             var won = !mine.Withdrew && (theirs.Withdrew || theirs.ShipsIn > 0 && theirs.ShipsLost.Count >= theirs.ShipsIn);
             foreach (var r in b.Roster.Where(r => r.Side == side).OrderBy(r => r.Id))
             {
-                if (w.FindShip(r.Id) is not Ship s || s.Side != side || !Crewed(s)) continue;
+                if (w.FindShip(r.Id) is not Ship s || s.Side != side || !Learns(w, s)) continue;
                 var before = RankOf(s);
                 s.Xp += C.BattleXp + (won ? C.WinXp : 0);
                 if (RankOf(s) > before)
@@ -406,7 +417,7 @@ public static class Crews
                 foreach (var s in w.ShipsOf(f).Where(s => s.Strain > 0))
                     s.Strain = Math.Max(0, s.Strain - C.StrainRecoverPerHour * (inPort ? C.PortRecover : 1) * GameTime.HoursPerTick);
             if (!patrol && !academy) continue;
-            foreach (var s in w.ShipsOf(f).Where(Crewed))
+            foreach (var s in w.ShipsOf(f).Where(s => Learns(w, s)))
             {
                 if (patrol && s.Xp < C.PatrolCap) s.Xp = Math.Min(C.PatrolCap, s.Xp + C.PatrolXpPerDay / 24);
                 if (academy && s.Xp < C.AcademyCap) s.Xp = Math.Min(C.AcademyCap, s.Xp + C.AcademyXpPerDay / 24);

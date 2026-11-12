@@ -130,7 +130,9 @@ public static class Boarders
         var target = w.FindShip(b.TargetShipId);
         var tech = (Tech.Has(w, b.Side, "boarding-marines") ? D.MarinesTech : 1) * (b.TroopsK > 0 ? Math.Min(1.5, Tech.Factor(w, b.Side, "marines")) : 1);
         var approach = b.Approach == BoardApproach.Dock ? D.DockEdge : 1;
-        var att = b.Marines * Crews.At(War.D.Crews.Boarding, Crews.RankOf(b.MarineRank)) * tech * approach * b.Edge;
+        // Swarm boarding (the Hive): its parties fight harder, but a cyber attack is no swarm.
+        var swarm = b.Approach == BoardApproach.Cyber ? 1 : Races.Of(w, b.Side).Boarding;
+        var att = b.Marines * Crews.At(War.D.Crews.Boarding, Crews.RankOf(b.MarineRank)) * tech * approach * b.Edge * swarm;
         var def = b.Approach == BoardApproach.Cyber ? b.Marines * 0.8 : b.Defenders * (target != null ? Crews.BoardFactor(target) : 1) * b.DefEdge;
         return (att, def);
     }
@@ -310,7 +312,7 @@ public static class Boarders
         target.DesignId = Designer.StandardId;
         target.Strain = 0;
         target.Crew = D.PrizeCrew;
-        target.Xp = Math.Max(0, crewXp);
+        target.Xp = Crews.Learns(w, target) ? Math.Max(0, crewXp) : Crews.DroneXp; // a drone prize crew is always Trained
         target.Protect = null;
         target.CargoTroops = 0;
         target.CargoPeople = 0;

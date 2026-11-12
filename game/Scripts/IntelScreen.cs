@@ -113,6 +113,12 @@ public partial class IntelScreen : PanelContainer
 
     private void Overview(World w, IntelFile f, int level)
     {
+        // Who they are is known from the start (their broadcasts give it away); what that means comes from the race's traits.
+        var race = Races.Of(w, Side.Rival);
+        Section($"Race: {race.Name}");
+        Line(race.Style, Ui.Text, 13);
+        foreach (var p in race.Pros ?? new()) Line($"+ {p}", Ui.Dim, 13);
+        foreach (var c in race.Cons ?? new()) Line($"- {c}", Ui.Dim, 13);
         Section("Intel level");
         for (var i = 0; i < Intel.LevelNames.Length; i++)
             Line($"{(i == level ? "▶" : i < level ? "✓" : "○")} {i} · {Intel.LevelNames[i]}: {Intel.LevelMeaning[i]}", i == level ? Ui.Player : i < level ? Ui.Text : Ui.Dim, 13);

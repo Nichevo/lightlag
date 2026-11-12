@@ -13,7 +13,8 @@ public static class AiTrace
         var every = (int)(opts.GetLong("every") ?? 10);
         var economy = opts.Has("economy"); // also each held planet's buildings and materials
         using var log = GameLog.Memory(Cli.LoadBuild());
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, log, options: GameOptions.AiVsAi(opts.Has("easy") ? Difficulty.Easy : Difficulty.Normal));
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, log, options: GameOptions.AiVsAi(opts.Has("easy") ? Difficulty.Easy : Difficulty.Normal)
+            with { PlayerRace = opts.Get("player-race"), RivalRace = opts.Get("rival-race") });
         var w = sim.World;
         while (w.Tick < days * GameTime.TicksPerDay && w.Winner == null)
         {

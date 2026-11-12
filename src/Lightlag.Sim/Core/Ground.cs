@@ -354,7 +354,8 @@ public static class Ground
             var f = b.Front ??= new GroundFront { Side = side, StartHour = w.Hour, StartTroops = b.LandingTroops, StartGarrison = Math.Max(1e-6, b.Garrison) };
             var plan = (int)f.Plan;
             var bunkers = BunkersHeld(b, f);
-            var defLoss = Math.Max(1 / D.BunkerHold, 1 - 0.25 * bunkers);
+            // Dug-in defenders (the Hive) fight from tunnels and lose fewer.
+            var defLoss = Math.Max(1 / D.BunkerHold, 1 - 0.25 * bunkers) * (b.Owner is Side holder ? Races.Of(w, holder).GroundDefence : 1);
             // Cut off from orbit (enemy warships above and none of ours), the troops fight harder to hold on.
             var cut = w.Fleets.Any(o => o.Side != side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o))
                       && !w.Fleets.Any(o => o.Side == side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o));
@@ -480,7 +481,8 @@ public static class Ground
     public static double WinChance(Body b)
     {
         if (b.Front is not GroundFront f) return 0;
-        var a = b.LandingTroops * D.PlanAttack[(int)f.Plan] * f.Edge;
+        // Dug-in defenders (the Hive) lose fewer to the same attack.
+        var a = b.LandingTroops * D.PlanAttack[(int)f.Plan] * f.Edge * Races.Get(b.PeopleRace).GroundDefence;
         var d = b.Garrison * D.PlanLoss[(int)f.Plan];
         // Square law: the side with more strength squared wins.
         return Math.Clamp(a * a / Math.Max(1e-12, a * a + d * d * 1.2), 0.02, 0.98);

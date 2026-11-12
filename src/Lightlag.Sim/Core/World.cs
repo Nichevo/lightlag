@@ -220,6 +220,9 @@ public sealed class Body
 
     /// <summary>Food stored here, in days of what the people eat. A blockaded planet lives off it.</summary>
     public double FoodStock { get; set; }
+
+    /// <summary>The race of the people here: their holder's, kept in step each hour (see Planets.SyncRaces). Hive people eat more and grow faster.</summary>
+    public string PeopleRace { get; set; } = Races.Human;
     public bool Hungry { get; set; }
     public double HungryHours { get; set; }
 
