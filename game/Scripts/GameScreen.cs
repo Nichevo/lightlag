@@ -135,6 +135,8 @@ public partial class GameScreen : Node2D
 
     /// <summary>The fleets screen (K), and the fleet picked on it.</summary>
     public bool ShowFleets { get; set; }
+    /// <summary>The ships screen (J): designs, models in service and the class tree.</summary>
+    public bool ShowShips { get; set; }
     public int? FleetScreenId { get; set; }
 
     /// <summary>The world now (for screens that need to read it outside a refresh).</summary>
@@ -670,6 +672,20 @@ public partial class GameScreen : Node2D
         FittingFleetId = null;
         if (SelectedFleet is Fleet f && f.Side == Side.Player) FleetScreenId = f.Id;
         ShowFleets = true;
+    }
+
+    /// <summary>The ships screen (J): opens it over anything else; closes it when open.</summary>
+    public void ToggleShips()
+    {
+        if (ShowShips) { ShowShips = false; return; }
+        ShowResearch = false;
+        ShowPlanets = false;
+        PlanetScreenId = null;
+        GroundScreenId = null;
+        ShowEmpire = false;
+        ShowFleets = false;
+        FittingFleetId = null;
+        ShowShips = true;
     }
 
     /// <summary>The planets screen (Y): opens it over anything else (research hid it before); closes it when open.</summary>
@@ -1452,10 +1468,12 @@ public partial class GameScreen : Node2D
                 break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
-            case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
+            case Key.E when Sim.World.Loop: ShowShips = false; ShowEmpire = !ShowEmpire; break;
             case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
-            case Key.Y when Sim.World.Loop: TogglePlanets(); break;
-            case Key.K: ToggleFleets(); break;
+            case Key.Y when Sim.World.Loop: ShowShips = false; TogglePlanets(); break;
+            case Key.K: ShowShips = false; ToggleFleets(); break;
+            case Key.J when Sim.World.Loop: ToggleShips(); break;
+            case Key.Escape when ShowShips && ShipCardId == null: ShowShips = false; break;
             case Key.Escape when ShowFleets && ShipCardId == null: ShowFleets = false; break;
             case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;

@@ -150,23 +150,22 @@ public static class Wounds
         Combat.Destroy(sim, target);
     }
 
-    /// <summary>A destroyed ship leaves a drifting wreck holding part of its materials, and its crew in pods (see AfterBattle).</summary>
+    /// <summary>A destroyed ship leaves a drifting wreck holding part of its materials; its crew get off in pods or a lifeboat (see Lifeboats).</summary>
     public static void LeaveWreck(World w, Ship s)
     {
         if (!w.Loop) return;
         var cls = GameData.ShipClass(s.ClassId);
         var salvage = (cls.Materials ?? new()).Where(m => m.Value * D.WreckShare >= 0.5)
             .ToDictionary(m => m.Key, m => Math.Round(m.Value * D.WreckShare, 1));
-        var crew = War.CrewK(s) * Math.Clamp(s.Crew, 0, 1) * War.D.After.PodShare;
-        if (salvage.Count == 0 && crew <= 1e-6) return;
         var f = w.FleetOf(s);
         var orbit = f is { Hold: HoldStyle.Orbit, Flight: null, OrbitBodyId: int id } ? w.FindBody(id) : null;
+        Lifeboats.Launch(w, s, f, orbit);
+        if (salvage.Count == 0) return;
         w.Wrecks.Add(new Wreck
         {
             Id = w.NextId++, Side = s.Side, ClassId = s.ClassId, Name = s.Name, Position = s.Position,
             Velocity = orbit == null ? f?.Velocity ?? Vec2.Zero : Vec2.Zero, Hour = w.Hour, Salvage = salvage,
             BodyId = orbit?.Id, Offset = orbit == null ? Vec2.Zero : s.Position - orbit.Position,
-            CrewK = crew, CrewXp = s.Xp, PodsUntilHour = w.Hour + War.D.After.PodDays * 24,
         });
     }
 

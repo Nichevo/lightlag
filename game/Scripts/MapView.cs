@@ -256,6 +256,7 @@ public partial class MapView : Node2D
             if (RevealAll) DrawMindJobs();
         }
         DrawWrecks();
+        DrawLifeboats();
         foreach (var f in w.Fleets.Where(Shown)) DrawFleet(f);
         if (!Quiet) DrawLag();
         if (fancy) DrawMissileSmoke();

@@ -21,6 +21,7 @@ public sealed class World
     public List<Fleet> Fleets { get; set; } = new();
     public List<Missile> Missiles { get; set; } = new();
     public List<Wreck> Wrecks { get; set; } = new();
+    public List<Lifeboat> Lifeboats { get; set; } = new();
     public List<Lane> Lanes { get; set; } = new();
     public List<Zone> Zones { get; set; } = new();
     public List<LaneObs> LaneObs { get; set; } = new();
@@ -428,6 +429,18 @@ public sealed class Ship
 
     /// <summary>Crew experience (see Crews): Green under 1, Trained, Seasoned from 3, Veteran from 6, Elite from 10.</summary>
     public double Xp { get; set; } = 1;
+
+    /// <summary>The variant it was built to and refits to (0: the class's Standard; see Designer).</summary>
+    public int DesignId { get; set; }
+
+    /// <summary>Run by an AI core instead of a crew (see Crews): no crew, food, ranks or strain.</summary>
+    public bool AiRun { get; set; }
+
+    /// <summary>Crew strain, 0 to 1 (see Crews): hard dodges wear a crew down; rest brings it back.</summary>
+    public double Strain { get; set; }
+
+    /// <summary>A Q-ship: when its hidden mounts last opened fire (see Designer.Revealed).</summary>
+    public double RevealedHour { get; set; } = -1e9;
 
     /// <summary>History for the ship card: when and where it was built (null: at the start), battles fought, enemy ships lost in them.</summary>
     public double? BuiltHour { get; set; }

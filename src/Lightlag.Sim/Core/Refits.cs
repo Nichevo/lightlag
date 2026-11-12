@@ -29,9 +29,14 @@ public static class Refits
     public const double MaterialShare = 0.3;
 
     /// <summary>The fit a ship of this class gets now (the saved design, with the best engines).</summary>
-    public static List<string> Target(World w, Ship s) => Fitting.AutoFit(w, s.Side, GameData.ShipClass(s.ClassId));
+    /// <summary>The fit a ship refits to: its variant's current fit (see Designer).</summary>
+    public static List<string> Target(World w, Ship s) => Designer.FitFor(w, s.Side, s.ClassId, s.DesignId);
 
-    public static bool Outdated(World w, Ship s) => !Fitting.FitOf(s).SequenceEqual(Target(w, s));
+    /// <summary>Behind its variant's fit, or crewed where its class is now AI-run (or the other way round).</summary>
+    public static bool Outdated(World w, Ship s) => !Fitting.FitOf(s).SequenceEqual(Target(w, s)) || CrewChange(w, s);
+
+    /// <summary>Its class is now run the other way (crewed or AI-run): the change is made at a refit.</summary>
+    public static bool CrewChange(World w, Ship s) => s.AiRun != Designer.AiRun(w, s.Side, s.ClassId) && GameData.ShipClass(s.ClassId).AiRunAllowed;
 
     public static double HoursFor(World w, Ship s, Body yard) =>
         HoursPerShip * Math.Clamp(GameData.ShipClass(s.ClassId).Cost / 100, 0.5, 3) / Math.Max(0.1, Colonies.ShipyardRate(w, yard));
@@ -145,6 +150,7 @@ public static class Refits
                 if (s.RefitHoursLeft > 1e-9) continue;
                 s.RefitHoursLeft = 0;
                 Fitting.Apply(w, s, Target(w, s));
+                if (CrewChange(w, s)) Crews.ChangeOver(w, s, yard);
                 sim.Log.Info("fitting", $"{s.Name} is refitted to the current design", new { side = f.Side.ToString(), shipId = s.Id, yard = yard.Name });
             }
             foreach (var s in w.ShipsOf(f).Where(s => s.RefitHoursLeft <= 0 && Outdated(w, s)).OrderBy(s => s.Id).ToList())

@@ -178,4 +178,35 @@ public partial class MapView
                 DrawString(_font, at + new Vector2(10, 4), "wreck", HorizontalAlignment.Left, -1, 10, new Color(color, 0.5f));
         }
     }
+
+    /// <summary>Escape pods and lifeboats: a small blinking beacon with who they are and how much air is left.
+    /// Yours always show; the rival's only where your ships or planets could see them.</summary>
+    private void DrawLifeboats()
+    {
+        var w = Sim.World;
+        var near = GameData.Combat.ContactRangeMm * 10;
+        foreach (var lb in w.Lifeboats)
+        {
+            var known = RevealAll || lb.Side == Side.Player
+                        || w.Fleets.Any(f => f.Side == Side.Player && Vec2.Distance(f.Position, lb.Position) < near)
+                        || w.Bodies.Any(b => b.Owner == Side.Player && Vec2.Distance(b.Position, lb.Position) < near);
+            if (!known) continue;
+            var at = Camera.ToScreen(lb.BodyId is int bid && _drawn.TryGetValue(bid, out var bp) ? bp + lb.Offset : lb.Position);
+            if (!Camera.OnScreen(at, 100)) continue;
+            var color = lb.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var blink = (Time.GetTicksMsec() / 600 + (ulong)lb.Id) % 2 == 0;
+            var r = lb.Boat ? 3.5f : 2.5f;
+            DrawCircle(at, r, new Color(color, 0.9f));
+            if (blink) DrawArc(at, r + 4, 0, Mathf.Tau, 16, new Color(1f, 0.85f, 0.3f, 0.8f), 1.2f);
+            if (Camera.Scale > 0.01)
+            {
+                var air = Lifeboats.AirLeftHours(w, lb);
+                var airText = air >= 48 ? $"{air / 24:0} days of air" : $"{air:0} h of air";
+                var label = $"{(lb.Boat ? "Lifeboat" : "Pods")} of {lb.ShipName}: {airText}";
+                if (lb.RescuerFleetId is int rid && w.FindFleet(rid) is Fleet rf && rf.Side == Side.Player) label += $", {rf.Name} coming";
+                DrawString(_font, at + new Vector2(8, 4), label, HorizontalAlignment.Left, -1, 10,
+                    new Color(air < 24 ? Ui.Rival : color, 0.75f));
+            }
+        }
+    }
 }

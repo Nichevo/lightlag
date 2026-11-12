@@ -897,8 +897,9 @@ public partial class FleetPanel : PanelContainer
                 (mine ? share : -1, share < 0.2 ? Ui.Danger : new Color("5fb0ff")));
             bits.Add($"weapons {s.Weapons:P0} · engines {s.Engines:P0} · defence {s.Defence:P0} · crew {s.Crew:P0}");
             if (s.Crippled) bits.Insert(0, "CRIPPLED");
-            if (w.Loop && Crews.Crewed(s)) bits.Add($"{Crews.RankOf(s)} crew ({s.Xp:0.#} xp)");
-            else if (w.Loop) bits.Add("AI crewed (no ranks)");
+            if (w.Loop && Crews.Crewed(s)) bits.Add($"{Crews.RankOf(s)} crew ({s.Xp:0.#} xp)" + (s.Strain >= 0.05 ? $", strain {s.Strain:P0}" : ""));
+            else if (w.Loop) bits.Add("AI-run (no crew, no ranks, no strain)");
+            if (w.Loop && Crews.WornOut(s)) bits.Insert(0, "CREW WORN OUT");
             if (Boarders.BeingBoarded(w, s.Id)) bits.Insert(0, "BEING BOARDED");
             var tip = $"{s.Name}: " + string.Join(" · ", bits);
             row.Bars.TooltipText = tip;

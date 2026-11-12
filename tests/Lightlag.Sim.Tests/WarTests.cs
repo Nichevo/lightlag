@@ -340,7 +340,7 @@ public class WarTests
     {
         var sim = NewGame();
         var (mine, target) = BoardingSetPiece(sim);
-        // A wreck of each side with crew in pods, close by.
+        // A wreck of each side, and their crews in escape pods, close by.
         var ourLost = Economy.NewShip(sim.World, Side.Player, "gun-frigate");
         ourLost.Xp = 7;
         var theirLost = Economy.NewShip(sim.World, Side.Rival, "missile-destroyer");
@@ -348,7 +348,7 @@ public class WarTests
         var g2 = Fleets.Create(sim.World, Side.Rival, new[] { theirLost }, mine.Position + new Vec2(20, 0));
         Combat.Destroy(sim, ourLost);
         Combat.Destroy(sim, theirLost);
-        Assert.Equal(2, sim.World.Wrecks.Count(w => w.CrewK > 0));
+        Assert.Equal(2, sim.World.Lifeboats.Count(b => b.CrewK > 0 && !b.Boat));
         _ = (g1, g2);
         var a = AfterBattle.Start(sim, mine, null);
         Assert.Equal("queued", a.Tasks[0].State);
@@ -362,6 +362,7 @@ public class WarTests
         Assert.True(me.Totals.Salvaged > 0);
         Assert.Contains(sim.World.Boardings, b => b.TargetShipId == target.Id);
         Assert.Empty(sim.World.Wrecks.Where(w => Vec2.Distance(w.Position, mine.Position) < 100));
+        Assert.Empty(sim.World.Lifeboats);
     }
 
     [Fact]

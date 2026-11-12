@@ -53,7 +53,10 @@ public class HelpCallTests
         var call = HelpCalls.CallAbout(sim.World, Side.Player, enemy.Id);
         Assert.NotNull(call);
         Assert.True(call!.Reasons.HasFlag(CallReason.EnemyNear));
-        Assert.Equal(home.Id, call.BodyId);
+        // The nearest planet of ours makes the call (the home moon can be nearer than home itself).
+        var nearest = sim.World.Bodies.Where(b => b.Owner == Side.Player).OrderBy(b => Vec2.Distance(b.Position, enemy.Position)).ThenBy(b => b.Id).First();
+        Assert.Equal(nearest.Id, call.BodyId);
+        _ = home;
     }
 
     [Fact]
@@ -221,6 +224,16 @@ public class HelpCallTests
     {
         var w = sim.World;
         var hunters = w.Fleets.First(f => f.Side == Side.Player);
+        // The home fleet starts with a supply tender too: it stays at home out of the way.
+        var support = w.ShipsOf(hunters).Where(s => !Planner.Warship(s)).Select(s => s.Id).ToList();
+        if (support.Count > 0)
+        {
+            new SplitFleetCommand(hunters.Id, support).Apply(w, sim);
+            var tender = w.Fleets.Last(f => f.Side == Side.Player);
+            tender.Position = new Vec2(-900_000, 900_000);
+            tender.Flight = null;
+            Fleets.EnterDrift(tender);
+        }
         Assert.Equal(3, hunters.ShipIds.Count);
         var tankerShip = Economy.NewShip(w, Side.Player, "tanker");
         var tanker = Fleets.Create(w, Side.Player, new[] { tankerShip }, new Vec2(300_000, 300_000));
@@ -269,7 +282,7 @@ public class HelpCallTests
         new MergeFleetsCommand(pirate.Id, pack.Id).Apply(w, sim); // too far: refused
         pack.Position = pirate.Position;
         new MergeFleetsCommand(pirate.Id, pack.Id).Apply(w, sim);
-        Assert.Equal(3, pirate.ShipIds.Count);
+        Assert.Equal(3, w.ShipsOf(pirate).Count(Planner.Warship)); // and the rival's supply tender
         Sensors.Reveal(w, Side.Player, pirate);
         Assert.Null(HelpCalls.HandledBy(w, Side.Player, pirate.Id));
     }

@@ -69,8 +69,24 @@ public sealed class SideState
     public List<string> Cuts { get; set; } = new();
     public List<SurveyFind> Finds { get; set; } = new();
 
-    /// <summary>Saved fits for new ships, per class (see Fitting).</summary>
+    /// <summary>Variants of each class (see Designer): Auto ones and your own. The Standard (id 0) is not stored.</summary>
     public List<Design> Designs { get; set; } = new();
+    public int NextDesignId { get; set; } = 1;
+
+    /// <summary>The variant yards build per class when no other is asked for (missing: the Standard).</summary>
+    public Dictionary<string, int> DefaultDesign { get; set; } = new();
+
+    /// <summary>Each class's Standard as last kept (live on Auto; frozen with Advise or Manual until updated).</summary>
+    public Dictionary<string, List<string>> StandardFits { get; set; } = new();
+
+    /// <summary>Classes whose new ships are AI-run (AI cores): no crew, no food, no strain, no ranks.</summary>
+    public List<string> AiRun { get; set; } = new();
+
+    /// <summary>Where the other side's Q-ships gave themselves away: this side's raiders stay wary there for a while.</summary>
+    public List<QShipWarning> QShipWarnings { get; set; } = new();
+
+    /// <summary>Lifeboats this side lost (air ran out), in k of crew.</summary>
+    public double CrewsLostK { get; set; }
 
     /// <summary>The ship command sits on (see Light); null once none is left.</summary>
     public int? FlagshipId { get; set; }
@@ -164,6 +180,11 @@ public sealed class WorkOrder
 
     /// <summary>Ship orders: the fleet the new ship flies out to join (null: the fleet at the shipyard).</summary>
     public int? JoinFleetId { get; set; }
+
+    /// <summary>Ship orders: the variant to build (null: the class default when it starts; 0: the Standard), and its price when queued (null: the class's).</summary>
+    public int? DesignId { get; set; }
+    public double? FitCost { get; set; }
+    public Dictionary<string, double>? FitMaterials { get; set; }
 
     /// <summary>Settle orders: the planet the settler ship carries people to, the fleet that escorts it, and the planet's name.</summary>
     public int? SettleBodyId { get; set; }
@@ -331,12 +352,23 @@ public static class Economy
     public static double IncomePerDay(World w, Side side) =>
         w.Bodies.Where(b => b.Owner == side).Sum(b => Planets.IndustryPerDay(w, b)) * Tech.Factor(w, side, Tech.Automation);
 
+    /// <summary>A ship order's variant and its price (the bill of its fit, and an AI core if the class is AI-run), set when it is queued.</summary>
+    public static void PriceShip(World w, WorkOrder o, int? designId)
+    {
+        var cls = GameData.ShipClass(o.Key);
+        o.DesignId = Designer.ForBuild(w, o.Side, o.Key, designId);
+        var fit = Designer.FitFor(w, o.Side, o.Key, o.DesignId.Value);
+        var ai = Designer.AiRun(w, o.Side, o.Key);
+        o.FitCost = Math.Round(Designer.Industry(cls, fit, ai));
+        o.FitMaterials = Designer.Materials(cls, fit, ai);
+    }
+
     /// <summary>Industry an order takes when it starts. Research costs none: only scientist time (and a T3+ idea's material).</summary>
-    public static double CostOf(WorkOrder o) => o.Kind == OrderKind.Ship ? GameData.ShipClass(o.Key).Cost : 0;
+    public static double CostOf(WorkOrder o) => o.Kind == OrderKind.Ship ? o.FitCost ?? GameData.ShipClass(o.Key).Cost : 0;
 
     /// <summary>The materials an order takes when it starts: a ship's alloys and electronics, or a T3+ idea's material.</summary>
     public static Dictionary<string, double>? MaterialsOf(WorkOrder o) => o.Kind == OrderKind.Ship
-        ? GameData.ShipClass(o.Key).Materials
+        ? o.FitMaterials ?? GameData.ShipClass(o.Key).Materials
         : GameData.Research(o.Key).Materials;
 
     /// <summary>Where a ship order is built: its dry dock, or the shipyard.</summary>
@@ -518,14 +550,14 @@ public static class Economy
     {
         var w = sim.World;
         var yard = from ?? ShipyardOf(w, side)!;
-        var ship = NewShip(w, side, classId, yard);
+        var ship = NewShip(w, side, classId, yard, order != null ? Designer.ForOrder(w, order) : null);
         ship.BuiltHour = w.Hour;
         ship.BuiltAtBodyId = yard.Id;
         Crews.Man(w, ship, yard);
         Of(w, side).Totals.ShipsBuilt++;
         Choices.Note(w, side, "ship", classId, yard.Name, string.Join(" ", ship.Fit));
         // The crew comes from the shipyard planet's people.
-        if (yard.PopK > 0) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, side, "ai-cores"));
+        if (yard.PopK > 0 && Crews.Crewed(ship)) yard.PopK = Math.Max(1, yard.PopK - GameData.ShipClass(classId).Cost * Planets.D.CrewKPerCost * Tech.Factor(w, side, "ai-cores"));
         // Troop ships leave with their soldiers aboard, raised from the same people.
         if (Planets.IsTroopShip(ship))
         {
@@ -579,16 +611,18 @@ public static class Economy
     public const double ReinforceSpeed = 0.7;
 
     /// <summary>Makes a ship with full supplies and armour, numbered after the side's earlier ships of its class.</summary>
-    public static Ship NewShip(World w, Side side, string classId, Body? yard = null)
+    public static Ship NewShip(World w, Side side, string classId, Body? yard = null, int? designId = null)
     {
         var cls = GameData.ShipClass(classId);
         var key = $"{side}:{cls.Id}";
-        var fit = Fitting.AutoFit(w, side, cls);
+        var design = designId ?? Designer.DefaultFor(w, side, classId);
+        var fit = Designer.FitFor(w, side, classId, design);
         var number = w.ShipNumbers[key] = w.ShipNumbers.GetValueOrDefault(key) + 1;
         var ship = new Ship
         {
             Id = w.NextId++, Side = side, ClassId = cls.Id,
             MaxSpeed = cls.MaxSpeedMmPerHour, Accel = cls.AccelMmPerHour2, Supplies = cls.Supplies, Missiles = cls.Missiles, Fit = fit,
+            DesignId = design, AiRun = Designer.AiRun(w, side, classId),
         };
         var spec = Fitting.Spec(ship);
         ship.MaxSpeed = spec.MaxSpeedMmPerHour;
@@ -827,7 +861,7 @@ public static class Economy
 // ---- Commands -------------------------------------------------------------------------------
 
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
-public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null) : GameCommand
+public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null, int? DesignId = null) : GameCommand
 {
     /// <summary>Home orders take effect at once (no light lag), so they work while paused.</summary>
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
@@ -842,6 +876,7 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
         }
         var order = new WorkOrder { Id = world.NextId++, Side = Side, Kind = Kind, Key = Key, TotalHours = Economy.HoursFor(world, Side, Kind, Key) };
         if (Kind == OrderKind.Ship && JoinFleetId is int j && world.FindFleet(j)?.Side == Side) order.JoinFleetId = j;
+        if (Kind == OrderKind.Ship) Economy.PriceShip(world, order, DesignId);
         if (Kind == OrderKind.Research) order.TeamId = TeamId ?? Research.BestTeamFor(world, Side, Key)?.Id;
         order.HoursLeft = order.TotalHours;
         world.Orders.Add(order);

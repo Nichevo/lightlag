@@ -518,6 +518,7 @@ public static class Combat
         fleet.LastVolleyHour = t1;
         var fan = (spread == null ? 0.6 : mode == FireMode.Spread ? spread.FanMm : spread.FocusFanMm);
         sim.AddEffect(new CombatEffect(t1, EffectKind.Volley, ship.Position, target.Position, ship.Side, fan));
+        if (Designer.Hidden(ship)) Designer.Revealed(sim, ship, target.Side);
         var side = (target.Position - ship.Position).Normalized();
         side = new Vec2(-side.Y, side.X);
         for (var i = 0; i < slugs; i++)
@@ -538,14 +539,18 @@ public static class Combat
             chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryAccuracy : 1);
             if (Dodging(w, targetFleet))
             {
-                chance = longShot ? 0 : chance * Flagships.DodgeFactor(targetFleet, DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet)));
+                chance = longShot ? 0 : chance * Crews.StrainedDodge(w, target, Flagships.DodgeFactor(targetFleet, DodgeFactor(targetFleet.Dodge, mode, SlugSeconds(d, fleet, targetFleet))));
                 sim.BurnFuel(targetFleet, C.DodgeDeltaV * (targetFleet.Dodge == DodgeMode.HardBurn && spread != null ? spread.HardCost : 1));
                 // The closer the shooter, the harder (and hotter) the jink that clears a slug.
                 Heat.Add(target, Heat.D.PerDodge * Math.Clamp(railRange / Math.Max(d, 1e-6), 1, Heat.D.DodgeCloseMax));
                 targetFleet.LastBurnHour = t1;
             }
             var hit = sim.Rng.NextDouble() < chance;
-            if (!hit && w.Loop && Dodging(w, targetFleet)) Economy.Of(w, ship.Side).Totals.SlugsDodged++;
+            if (!hit && Dodging(w, targetFleet))
+            {
+                if (w.Loop) Economy.Of(w, ship.Side).Totals.SlugsDodged++;
+                Crews.Strain(w, target, targetFleet.Dodge == DodgeMode.HardBurn, Math.Clamp(railRange / Math.Max(d, 1e-6), 1, Heat.D.DodgeCloseMax));
+            }
             // Misses are drawn landing a little off the target, on a fixed pattern (no extra dice).
             var off = side * (fan * 0.5 * DetMath.Sin(i * 2.1 + t1 * 977));
             sim.AddEffect(new CombatEffect(t1, hit ? EffectKind.RailHit : EffectKind.RailMiss, ship.Position, target.Position + (hit ? Vec2.Zero : off), ship.Side));
@@ -574,6 +579,7 @@ public static class Combat
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
         battle.For(ship.Side).MissilesFired += count;
+        if (Designer.Hidden(ship)) Designer.Revealed(sim, ship, target.Side);
         for (var i = 0; i < count; i++)
         {
             // Spread the launch a little so the salvo does not fly as one point.

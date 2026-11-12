@@ -14,7 +14,7 @@ public static class Works
     {
         var w = sim.World;
         using (SectionTimer.Time("works")) { Tech.Refresh(w); Academies(sim); MassDrivers(sim); Skimmers(w); Mend(w); }
-        using (SectionTimer.Time("wrecks")) Wounds.UpdateWrecks(sim);
+        using (SectionTimer.Time("wrecks")) { Wounds.UpdateWrecks(sim); Lifeboats.Update(sim); }
         using (SectionTimer.Time("war")) War.Update(sim);
         using (SectionTimer.Time("hazards")) Hazards.Hourly(sim);
         using (SectionTimer.Time("events")) { Events.Update(sim); Events.Lasting(sim); }
