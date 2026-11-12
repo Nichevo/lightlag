@@ -11,7 +11,7 @@ namespace Lightlag.Game;
 /// It never changes the world directly; fleet orders go through commands.
 ///
 ///   Wheel              zoom at the cursor             Left click      select a fleet or body
-///   Middle/right drag  pan (also WASD / arrows)       Double-click    follow it (F follows the selection)
+///   Middle/right drag  pan (also WASD / arrows)       Double-click    open your planet, or follow it (F follows the selection)
 ///   Left drag          box: pick several fleets       Shift+click     add or remove a fleet from the pick
 ///   Tab                next fleet of yours            M               merge, or gather the picked fleets
 ///   Right click        plan a route there             Shift+right     go there now with the last settings
@@ -237,6 +237,7 @@ public partial class GameScreen : Node2D
     {
         if (_main.Sim == null) return;
         _camera.ScreenSize = GetViewportRect().Size;
+        SelectSplitShip();
         if (!_paused)
         {
             // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
@@ -293,6 +294,7 @@ public partial class GameScreen : Node2D
         _map.UpdatePositions();
         if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
         _camera.Update(delta, FollowPoint());
+        _map.SyncSprites(); // after the camera moves, so planet pictures sit on their orbits
         if (_selected is int sel && Sim.World.FindBody(sel) == null && Sim.World.FindFleet(sel) == null) _selected = null;
         UpdatePlanner(delta);
         UpdateEngagement(delta);
@@ -628,6 +630,32 @@ public partial class GameScreen : Node2D
     }
 
     public void ShowBodyMenu(bool open) => _hud.ShowBodyMenu(open);
+
+    /// <summary>
+    /// Fleets and planets list (L): shows it, closing whatever screen covers it (empire, research, planets,
+    /// fitting, the engagement view); hides it when it is already showing.
+    /// </summary>
+    public void ToggleSide()
+    {
+        if (_hud.SideVisible) { ShowSide = false; return; }
+        ShowSide = true;
+        ShowEmpire = false;
+        ShowResearch = false;
+        ShowPlanets = false;
+        PlanetScreenId = null;
+        GroundScreenId = null;
+        FittingFleetId = null;
+        if (Engagement != null) CloseEngagement();
+    }
+
+    /// <summary>The planets screen (Y): opens it over anything else (research hid it before); closes it when open.</summary>
+    public void TogglePlanets()
+    {
+        if (PlanetScreenId != null || ShowPlanets) { PlanetScreenId = null; ShowPlanets = false; return; }
+        ShowResearch = false;
+        GroundScreenId = null;
+        ShowPlanets = true;
+    }
 
     /// <summary>Pick a planet or moon from the list: select it, fly the view there and keep following it (pan to stop).</summary>
     public void PickBody(int bodyId)
@@ -1001,7 +1029,26 @@ public partial class GameScreen : Node2D
 
     public void OrderSplit(IReadOnlyCollection<int> shipIds)
     {
-        if (MyFleet is Fleet f && shipIds.Count > 0) Sim.Issue(new SplitFleetCommand(f.Id, shipIds.ToList()));
+        if (MyFleet is Fleet f && shipIds.Count > 0) IssueNow(new SplitFleetCommand(f.Id, shipIds.ToList()), "splitting a fleet");
+    }
+
+    /// <summary>Split one ship off into a fleet of its own and select it once the order lands, ready for its own orders.</summary>
+    public void SplitOne(int shipId)
+    {
+        if (MyFleet is not Fleet f || f.ShipIds.Count < 2 || !f.ShipIds.Contains(shipId)) return;
+        IssueNow(new SplitFleetCommand(f.Id, new List<int> { shipId }), "splitting a ship off");
+        _selectAfterSplit = (shipId, f.Id);
+    }
+
+    private (int Ship, int From)? _selectAfterSplit;
+
+    /// <summary>Selects the ship split off by SplitOne once it has left its old fleet (light lag may delay it).</summary>
+    private void SelectSplitShip()
+    {
+        if (_selectAfterSplit is not var (shipId, from)) return;
+        var ship = Sim.World.FindShip(shipId);
+        if (ship == null) { _selectAfterSplit = null; return; }
+        if (ship.FleetId != from) { Select(ship.FleetId); _selectAfterSplit = null; }
     }
 
     /// <summary>The nearest fleet of ours that could merge into the selected one.</summary>
@@ -1012,7 +1059,7 @@ public partial class GameScreen : Node2D
     public void OrderMerge()
     {
         if (Group.Count >= 2) { OrderGather(); return; }
-        if (MyFleet is Fleet f && MergeCandidate() is Fleet other) Sim.Issue(new MergeFleetsCommand(f.Id, other.Id));
+        if (MyFleet is Fleet f && MergeCandidate() is Fleet other) IssueNow(new MergeFleetsCommand(f.Id, other.Id), "merging fleets");
     }
 
     /// <summary>Send the selected fleet to join another of ours (merging at once if they are together).</summary>
@@ -1255,7 +1302,14 @@ public partial class GameScreen : Node2D
                 if (left.Pressed)
                 {
                     var hit = _map.HitTest(left.Position);
-                    if (left.DoubleClick && hit is int id) { Follow(id, zoom: true); _leftDown = null; break; }
+                    if (left.DoubleClick && hit is int id)
+                    {
+                        // A planet of yours opens its planet screen; anything else is followed close up.
+                        if (Sim.World.FindBody(id) is { Owner: Side.Player, Board: not null } && Sim.World.Loop) PlanetScreenId = id;
+                        else Follow(id, zoom: true);
+                        _leftDown = null;
+                        break;
+                    }
                     _leftDown = left.Position;
                     _boxing = false;
                 }
@@ -1266,7 +1320,12 @@ public partial class GameScreen : Node2D
                     if (_boxing) { SelectGroup(FleetsInBox(BoxFrom(down, left.Position))); break; }
                     var hit = _map.HitTest(down);
                     if (left.ShiftPressed && hit is int fid && Sim.World.FindFleet(fid) != null) ToggleInGroup(fid);
-                    else Select(hit);
+                    else
+                    {
+                        Select(hit);
+                        // Zoomed in with ships drawn apart: clicking one ship also opens its card.
+                        if (_map.HitTestShip(down) is int shipId) ShipCardId = shipId;
+                    }
                 }
                 break;
             case InputEventMouseMotion boxMotion when _leftDown is Vector2 start:
@@ -1328,7 +1387,7 @@ public partial class GameScreen : Node2D
             case Key.G: OrderHold(HoldStyle.Drift); break;
             case Key.X: OrderStop(); break;
             case Key.C when Planner == null: EditRoute(); break;
-            case Key.L: ShowSide = !ShowSide; break;
+            case Key.L: ToggleSide(); break;
             case Key.M: OrderMerge(); break;
             case Key.V: ToggleEngagement(); break;
             case Key.Escape when Engagement != null: CloseEngagement(); break;
@@ -1361,10 +1420,7 @@ public partial class GameScreen : Node2D
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
             case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
-            case Key.Y when Sim.World.Loop:
-                if (PlanetScreenId != null || ShowPlanets) { PlanetScreenId = null; ShowPlanets = false; }
-                else ShowPlanets = true;
-                break;
+            case Key.Y when Sim.World.Loop: TogglePlanets(); break;
             case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;
             case Key.Escape when PlanetScreenId != null: PlanetScreenId = null; break;

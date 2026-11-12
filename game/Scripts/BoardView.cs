@@ -135,7 +135,7 @@ public partial class BoardView : Control
         if (Placing != null && _hover is var (hx, hy))
         {
             var (pw, ph) = Turned ? (Placing.H, Placing.W) : (Placing.W, Placing.H);
-            Problem = Colonies.CanPlace(World, Side.Player, Body.Id, Placing.Id, hx, hy, Turned);
+            Problem = Colonies.CanPlace(World, Side.Player, Body.Id, Placing.Id, hx, hy, Turned, queue: true);
             var ok = Problem == null;
             var rect = new Rect2(hx * c + 2, hy * c + 2, pw * c - 4, ph * c - 4);
             DrawRect(rect, new Color(ok ? new Color("7dffb0") : Ui.Danger, 0.3f));
@@ -225,7 +225,8 @@ public partial class BoardView : Control
 
         // The name, always: a dark strip along the top with the name (and its state) in small text.
         var name = data?.Name ?? p.Kind;
-        var sub = !p.Built ? $"building, {p.HoursLeft / 24:0.#} d"
+        var sub = p.Waiting ? "queued"
+            : !p.Built ? $"building, {p.HoursLeft / 24:0.#} d"
             : p.RefitHoursLeft > 0 ? $"refit, {p.RefitHoursLeft / 24:0.#} d"
             : !p.Powered ? "NO POWER"
             : p.Staff < 0.999 ? $"staff {p.Staff:P0}"

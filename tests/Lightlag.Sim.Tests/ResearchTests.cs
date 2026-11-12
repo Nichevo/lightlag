@@ -31,6 +31,21 @@ public class ResearchTests
     }
 
     [Fact]
+    public void Research_costs_scientist_time_not_Industry()
+    {
+        var sim = NewGame();
+        var idea = GameData.ResearchById.Values.OrderBy(r => r.Id, StringComparer.Ordinal).First(r => !r.Later && Economy.CanQueue(sim.World, Side.Player, OrderKind.Research, r.Id) == null && r.Needs is not { Count: > 0 } && r.Materials is not { Count: > 0 });
+        Economy.Of(sim.World, Side.Player).Industry = 0;
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, idea.Id));
+        Hour(sim);
+        Hour(sim);
+        var order = sim.World.Orders.Single(o => o.Key == idea.Id);
+        Assert.True(order.Paid);
+        Assert.Null(order.Waiting);
+        Assert.True(order.HoursLeft < order.TotalHours);
+    }
+
+    [Fact]
     public void Twice_the_scientists_is_about_one_and_two_thirds_the_speed()
     {
         Assert.Equal(1, Research.SizeFactor(Research.T.BaseScientists), 9);
@@ -48,7 +63,7 @@ public class ResearchTests
         team.Skill[Research.FieldIndex("weapons")] = 1.5;           // learned earlier
         sim.Issue(new SetTeamKeptCommand(Side.Player, team.Id, new List<string> { "drives" }));
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.EfficientDrives));
-        Days(sim, GameData.Research(Tech.EfficientDrives).Days + 1);
+        Days(sim, Research.BaseHours(sim.World, Side.Player, Tech.EfficientDrives) / 24 + 1);
         Assert.Contains(Tech.EfficientDrives, Player(sim).Researched);
         Assert.Equal(1 + Research.T.SkillPerIdea, team.Skill[Research.FieldIndex("drives")], 6);
         Assert.True(team.Skill[Research.FieldIndex("weapons")] < 1.5, "a field the team doesn't keep fades");
@@ -64,7 +79,7 @@ public class ResearchTests
         var team = Player(sim).Teams[0];
         team.Skill[Research.FieldIndex("drives")] = 2;
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.EfficientDrives));
-        Days(sim, GameData.Research(Tech.EfficientDrives).Days / 2 + 0.5);
+        Days(sim, Research.BaseHours(sim.World, Side.Player, Tech.EfficientDrives) / 24 / 2 + 0.5);
         Assert.Contains(Tech.EfficientDrives, Player(sim).Researched);
     }
 
@@ -148,7 +163,7 @@ public class ResearchTests
         Assert.True(home.Surveyed[(int)Side.Player], "the start fleet sits at home, so home gets surveyed");
         var find = Assert.Single(Player(sim).Finds, f => f.BodyId == home.Id);
         Assert.Contains(find.Idea, Player(sim).Cuts);
-        Assert.Equal(GameData.Research(find.Idea).Days * 24 * (1 - Research.T.SurveyCut), Research.BaseHours(sim.World, Side.Player, find.Idea), 6);
+        Assert.Equal(GameData.Research(find.Idea).Days * Research.Pace(GameData.Research(find.Idea).Tier) * 24 * (1 - Research.T.SurveyCut), Research.BaseHours(sim.World, Side.Player, find.Idea), 6);
     }
 
     [Fact]

@@ -148,7 +148,7 @@ public class EconomyTests
         var before = Tech.SuppliesPerDeltaV(sim.World, ship);
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.EfficientDrives));
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.EfficientDrives)); // a second one is refused
-        Days(sim, GameData.Research(Tech.EfficientDrives).Days + 0.1);
+        Days(sim, Research.BaseHours(sim.World, Side.Player, Tech.EfficientDrives) / 24 + 0.1);
         Assert.Contains(Tech.EfficientDrives, Player(sim).Researched);
         Assert.Equal(before * GameData.Research(Tech.EfficientDrives).Factor, Tech.SuppliesPerDeltaV(sim.World, ship), 9);
         Assert.Null(Economy.CanQueue(sim.World, Side.Player, OrderKind.Research, Tech.QuietDrives));
@@ -161,7 +161,7 @@ public class EconomyTests
         var sim = NewGame();
         Player(sim).Industry = 1000;
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, Tech.MissileBrain2));
-        Days(sim, GameData.Research(Tech.MissileBrain2).Days + 0.1);
+        Days(sim, Research.BaseHours(sim.World, Side.Player, Tech.MissileBrain2) / 24 + 0.1);
         Assert.Equal(2, sim.World.MissileBrain[(int)Side.Player]);
         Assert.Equal(1, sim.World.MissileBrain[(int)Side.Rival]);
     }

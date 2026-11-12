@@ -80,6 +80,49 @@ public class ColonyTests
     }
 
     [Fact]
+    public void Buildings_queue_behind_each_other_and_wait_for_their_Industry()
+    {
+        var sim = NewGame();
+        var verdant = sim.World.Bodies.First(b => b.Key == "verdant");
+        var me = Economy.Of(sim.World, Side.Player);
+        var mine = Planets.BuildingKind(Planets.Mine)!;
+        var farm = Planets.BuildingKind(Planets.Farm)!;
+        me.Industry = mine.Cost + 1; // enough for the first only
+        sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Mine, Queue: true));
+        sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Farm, Queue: true));
+        sim.ApplyPending(); // no step: home orders take effect at once, even while paused
+        var first = verdant.Pieces.Single(p => !p.Built && p.Kind == Planets.Mine);
+        var second = verdant.Pieces.Single(p => !p.Built && p.Kind == Planets.Farm);
+        Assert.False(first.Waiting);
+        Assert.True(second.Waiting);
+        Assert.Equal(1, me.Industry, 6); // the queued farm is not paid for yet
+        Assert.Equal("queued behind the building under way", Colonies.QueuedWhy(sim.World, verdant, second));
+        Days(sim, mine.Days + 0.5);
+        Assert.True(first.Built);
+        Assert.True(second.Waiting || me.Industry >= 0); // it starts once the Industry is there
+        Days(sim, farm.Cost / Math.Max(0.1, Economy.IncomePerDay(sim.World, Side.Player)) + farm.Days + 2);
+        Assert.True(second.Built);
+        Assert.Empty(sim.CheckRules());
+    }
+
+    [Fact]
+    public void A_queued_building_can_be_taken_out_of_the_queue_for_nothing()
+    {
+        var sim = NewGame();
+        var verdant = sim.World.Bodies.First(b => b.Key == "verdant");
+        var me = Economy.Of(sim.World, Side.Player);
+        me.Industry = 0;
+        sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Farm, Queue: true));
+        sim.ApplyPending();
+        var queued = verdant.Pieces.Single(p => p.Waiting);
+        Assert.StartsWith("waiting for", Colonies.QueuedWhy(sim.World, verdant, queued));
+        sim.Issue(new DemolishCommand(Side.Player, verdant.Id, Planets.Farm, queued.Id));
+        sim.ApplyPending();
+        Assert.DoesNotContain(queued, verdant.Pieces);
+        Assert.Equal(0, me.Industry, 6);
+    }
+
+    [Fact]
     public void Short_of_power_the_lowest_priority_building_stops_first()
     {
         var sim = NewGame();

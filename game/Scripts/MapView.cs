@@ -138,6 +138,12 @@ public partial class MapView : Node2D
         SyncPlanets();
     }
 
+    /// <summary>
+    /// Puts the planet sprites where the camera now shows their bodies. Call after the camera has moved this
+    /// frame: placed before it, a followed planet's picture lagged a frame behind its orbit line and label.
+    /// </summary>
+    public void SyncSprites() => SyncPlanets();
+
     private readonly Dictionary<int, PlanetSprite> _planets = new();
 
     /// <summary>Move each planet and moon sprite to where its body is drawn this frame.</summary>
@@ -185,6 +191,7 @@ public partial class MapView : Node2D
         if (!fancy) foreach (var belt in w.Belts.Where(b => b.Kind != BeltKind.Radiation)) DrawBelt(belt);
         if (!Quiet && PlayerInfo.Has(MapLayer.Hazards)) DrawHazards();
         if (fancy && (Quiet || PlayerInfo.Has(MapLayer.Wells))) DrawWells();
+        if (fancy && !Quiet) DrawRocks();
 
         foreach (var b in w.Bodies)
         {
@@ -217,6 +224,8 @@ public partial class MapView : Node2D
             var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
             var name = b.Name + (b.Shipyard ? " · shipyard" : "");
             if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
+            if (w.Loop && w.Fleets.FirstOrDefault(f => f.Side == Side.Player && f.PeopleRun is { OneTrip: true } run && run.ToBodyId == b.Id) is { Flight: { } settling })
+                name += $" · settlers land in {Format.Hours(Math.Max(0, settling.ArriveHour - w.Hour))}";
             if (b.ClaimSide is Side claimer)
             {
                 var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
@@ -1111,6 +1120,22 @@ public partial class MapView : Node2D
             if (d < bestD) { bestD = d; best = sight.FleetId; }
         }
         return best ?? HitTestBody(screen);
+    }
+
+    /// <summary>The single ship under a screen point, only when zoomed in far enough that ships are drawn apart.</summary>
+    public int? HitTestShip(Vector2 screen)
+    {
+        if (!ShipsApart) return null;
+        int? best = null;
+        var bestD = 14f;
+        foreach (var s in Sim.World.Ships)
+        {
+            if (Sim.World.FleetOf(s) is not Fleet owner || !Shown(owner)) continue;
+            if (!_drawn.TryGetValue(s.Id, out var sp) || !sp.IsFinite) continue;
+            var d = Camera.ToScreen(sp).DistanceTo(screen);
+            if (d < bestD) { bestD = d; best = s.Id; }
+        }
+        return best;
     }
 
     /// <summary>The body under a screen point (the smallest, so a moon wins over its planet).</summary>

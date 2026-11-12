@@ -216,7 +216,7 @@ public partial class ZonePanel : VBoxContainer
         }
         // Rebuild only when the rows change.
         var key = string.Join("|", rows.Select(r => $"{r.Name}{r.Pill}{r.Right}"));
-        if (_lanes.HasMeta("key") && (string)_lanes.GetMeta("key") == key) return;
+        if ((_lanes.HasMeta("key") && (string)_lanes.GetMeta("key") == key) || Ui.MouseHeld) return;
         _lanes.SetMeta("key", key);
         foreach (var c in _lanes.GetChildren()) c.QueueFree();
         foreach (var (name, pill, right, color, tip) in rows)

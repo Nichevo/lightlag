@@ -138,9 +138,9 @@ public partial class ShipCard : PanelContainer
             var fit = Fitting.FitOf(s).Select(id => GameData.Module(id)?.Name).Where(n => n != null).GroupBy(n => n).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key);
             lines.Add("Fit: " + string.Join(", ", fit) + (mine && Refits.Outdated(w, s) ? " (behind the current design)" : ""));
             lines.Add($"Fuel {s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)):P0}"
-                      + (SupplyLines.MaxAmmo(s) > 0 ? $" · ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}" : "")
+                      + (SupplyLines.MaxAmmo(s) > 0 ? $" · railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}" : "")
                       + (SupplyLines.MaxFood(s) > 0 ? $" · food {s.Food:0} d" : "")
-                      + (cls.Missiles > 0 ? $" · {s.Missiles} missiles" : "")
+                      + (cls.Missiles > 0 ? (s.Missiles <= 0 ? " · OUT OF MISSILES" : $" · missiles {s.Missiles}/{Tech.Racks(w, s)}") : "")
                       + (Heat.Capacity(s) > 0 ? $" · heat {s.Heat / Heat.Capacity(s):P0}" : ""));
             var built = s.BuiltHour is double h
                 ? $"Built {GameTime.Format(h)}" + (s.BuiltAtBodyId is int b && w.FindBody(b) is Body yard ? $" at {yard.Name}" : "")
@@ -167,7 +167,7 @@ public partial class KeyHelp : PanelContainer
     {
         ("Time", new[] { "Space  pause", "1-4  speed", "+ / -  faster, slower", "P  pause when enemies are spotted" }),
         ("Map", new[] { "Wheel  zoom", "WASD, arrows or right-drag  pan", "H or Home  whole system", "Z  zoom in on what is selected", "F  follow (Shift+F: without zooming)",
-            "Double-click  follow", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
+            "Double-click  open your planet, follow anything else", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
         ("Fleets", new[] { "Click  select · drag a box or Shift+click  several", "Tab / Shift+Tab  next fleet", "Right-click  route or attack (Shift: go now)",
             "Ctrl+right-click  add a waypoint", "Enter  go", "C  change route", "O  orbit · G  drift · X  stop", "M  merge or gather", "V  engagement view", "R  last battle report" }),
         ("Screens", new[] { "E  empire (Needs you is a tab)", "T  research", "Y  planets", "I  intelligence", "N  how am I doing", "F1  this list", "Esc  close, or the game menu" }),

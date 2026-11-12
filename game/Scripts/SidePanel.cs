@@ -74,7 +74,7 @@ public partial class SidePanel : PanelContainer
         var rows = _planets ? BodyRows(w) : FleetRows(w);
         var selected = _screen.SelectedId;
         var shape = string.Join("|", rows.Select(r => $"{r.Group}{r.Id}{r.Title}{r.Badge}{r.Line}")) + "#" + selected;
-        if (shape == _shape) return;
+        if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _rows.GetChildren()) c.QueueFree();
         string? group = null;
@@ -198,6 +198,7 @@ public partial class SidePanel : PanelContainer
             else if (w.Loop && b.Kind != BodyKind.Star) tags.Add("can't be claimed");
             if (w.Loop && b.Owner != null && Economy.Blockaded(w, b)) tags.Add("BLOCKADED");
             if (w.Loop && b.LandingSide != null) tags.Add("ground fight");
+            if (w.Loop && Planets.SettlerStatus(w, Side.Player, b.Id) is string settlers) tags.Add("settlers: " + settlers);
             var (badge, color) = b.Owner switch
             {
                 Side.Player => ("yours", Ui.Player),

@@ -93,6 +93,33 @@ public class SupplyLineTests
     }
 
     [Fact]
+    public void A_tanker_in_a_fleet_reloads_spent_missiles_from_its_ammunition()
+    {
+        var sim = NewGame();
+        var f = Home(sim);
+        PlaceInOrbit(sim, f, BodyNamed(sim, "pale"));
+        var launcher = sim.World.ShipsOf(f).FirstOrDefault(s => Tech.Racks(sim.World, s) > 0);
+        if (launcher == null)
+        {
+            launcher = Economy.NewShip(sim.World, Side.Player, "destroyer");
+            f.ShipIds.Add(launcher.Id);
+            launcher.FleetId = f.Id;
+        }
+        var tanker = Economy.NewShip(sim.World, Side.Player, "tanker");
+        f.ShipIds.Add(tanker.Id);
+        tanker.FleetId = f.Id;
+        Fleets.Arrange(sim.World, f);
+        foreach (var s in sim.World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+        launcher.Missiles = 0;
+        var cargo = tanker.CargoAmmo;
+        Assert.True(cargo >= 2);
+        Days(sim, 1);
+        Assert.True(launcher.Missiles > 0);
+        Assert.True(launcher.Missiles <= Tech.Racks(sim.World, launcher));
+        Assert.True(tanker.CargoAmmo < cargo);
+    }
+
+    [Fact]
     public void A_supply_run_flies_out_and_delivers()
     {
         var sim = NewGame();

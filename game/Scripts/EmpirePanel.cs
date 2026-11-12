@@ -57,7 +57,7 @@ public partial class EmpirePanel : PanelContainer
     {
         var w = sim.World;
         var shape = Shape(w) + (_tab == Tab.Supply ? SupplyView.Shape(sim) : "");
-        if (shape != _shape)
+        if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
             if (_tab == Tab.Supply) RebuildSupply(sim);
@@ -247,7 +247,14 @@ public partial class EmpirePanel : PanelContainer
         research.CustomMinimumSize = new Vector2(0, 28);
         research.AddThemeFontSizeOverride("font_size", 13);
         row.AddChild(research);
+        row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        var close = Ui.SmallButton("✕", () => _screen.ShowEmpire = false, "Close (E, or click the Needs you badge again)");
+        close.CustomMinimumSize = new Vector2(28, 28);
+        row.AddChild(close);
     }
+
+    /// <summary>The tab showing now.</summary>
+    public Tab Current => _tab;
 
     private static string TabTip(Tab tab) => tab switch
     {

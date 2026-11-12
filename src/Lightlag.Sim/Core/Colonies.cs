@@ -53,6 +53,12 @@ public sealed class Piece
     public bool Powered { get; set; } = true;
     public double SparesShare { get; set; } = 1;
 
+    /// <summary>
+    /// Queued by the player behind other work or before the Industry was there: not paid for or started yet.
+    /// It holds its tiles and starts (paying its Industry then) once nothing else is being built on the planet.
+    /// </summary>
+    public bool Waiting { get; set; }
+
     /// <summary>Materials still to come out of the planet's store before building can go on (null: none).</summary>
     public Dictionary<string, double>? MaterialsLeft { get; set; }
 
@@ -435,6 +441,11 @@ public static class Colonies
         if (Economy.Blockaded(sim.World, b)) return;
         foreach (var p in b.Pieces.Where(p => !p.Built || p.RefitHoursLeft > 0))
         {
+            if (p.Waiting)
+            {
+                StartQueued(sim, b, p);
+                continue;
+            }
             if (!p.Built)
             {
                 // Big buildings wait for their materials (alloys) to come out of the planet's store.
@@ -453,6 +464,34 @@ public static class Colonies
                 sim.Log.Info("planets", $"{data.Name} at {b.Name} is refitted", new { bodyId = b.Id, kind = p.Kind, p.Level });
             }
         }
+    }
+
+    /// <summary>
+    /// A queued building starts when it is first in line (nothing else under way on the planet) and its
+    /// Industry is there: it is paid for then and building begins the next hour.
+    /// </summary>
+    private static void StartQueued(Simulation sim, Body b, Piece p)
+    {
+        if (b.Owner is not Side side || Planets.BuildingKind(p.Kind) is not BuildingData data) return;
+        if (b.Pieces.Any(o => !o.Built && !o.Waiting)) return; // one at a time: the one under way finishes first
+        if (b.Pieces.First(o => o.Waiting) != p) return;         // and the queue goes in the order it was placed
+        var state = Economy.Of(sim.World, side);
+        if (state.Industry < data.Cost) return;
+        state.Industry -= data.Cost;
+        state.Totals.IndustrySpent += data.Cost;
+        p.Waiting = false;
+        sim.Log.Info("planets", $"{side} starts a queued {data.Name.ToLowerInvariant()} at {b.Name}", new { side = side.ToString(), bodyId = b.Id, kind = p.Kind, cost = data.Cost });
+    }
+
+    /// <summary>Why a building can't start now, for the screens: under way behind another, or short of Industry (null: it can).</summary>
+    public static string? QueuedWhy(World w, Body b, Piece p)
+    {
+        if (!p.Waiting) return null;
+        if (b.Pieces.Any(o => !o.Built && !o.Waiting)) return "queued behind the building under way";
+        if (b.Pieces.First(o => o.Waiting) != p) return "queued behind another";
+        var cost = Planets.BuildingKind(p.Kind)?.Cost ?? 0;
+        var have = b.Owner is Side s ? Economy.Of(w, s).Industry : 0;
+        return have < cost ? $"waiting for {cost - have:0} more Industry" : "starts next hour";
     }
 
     /// <summary>Takes what it can of a piece's materials from the planet's store; true once none are left to come.</summary>
@@ -1149,7 +1188,8 @@ public static class Colonies
     // ---- Orders -------------------------------------------------------------------------------
 
     /// <summary>Why this building can't be ordered at (x, y) (or at its best spot, with no spot given), or null if it can.</summary>
-    public static string? CanPlace(World w, Side side, int bodyId, string kind, int? x, int? y, bool turned)
+    /// <summary>Why this building can't be placed (null: it can). With queue, a lack of Industry is no bar: it waits in line.</summary>
+    public static string? CanPlace(World w, Side side, int bodyId, string kind, int? x, int? y, bool turned, bool queue = false)
     {
         if (!w.Loop) return "There is no economy in the battle sandbox";
         if (w.Winner != null) return "The game is over";
@@ -1159,7 +1199,7 @@ public static class Colonies
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
         if (data.Food > 0 && !data.AnyAir && data.Terrain != "ocean" && Planets.TypeOf(b).Farm <= 0 && !b.Home) return "Nothing grows here without a dome";
         if (data.Hot && !Hot(b)) return "Only on volcanic worlds and planets close to the sun";
-        if (Economy.Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
+        if (!queue && Economy.Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
         if (x is int px && y is int py) return FitProblem(b, data, px, py, turned);
         return BestSpot(b, data) == null ? $"No room for a {data.Name.ToLowerInvariant()} on {b.Name}" : null;
     }

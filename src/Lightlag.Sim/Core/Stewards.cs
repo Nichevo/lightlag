@@ -708,7 +708,7 @@ public static class Stewards
             {
                 if (Planner.NextIdea(_w, _side, t) is not string idea) continue;
                 var r = GameData.Research(idea);
-                Offer(AutoArea.Research, $"research:{t.Id}", $"{t.Name}: research {r.Name} ({r.Cost:0} Industry)",
+                Offer(AutoArea.Research, $"research:{t.Id}", $"{t.Name}: research {r.Name} ({r.Days * Research.Pace(r.Tier):0} days of scientist time)",
                     new QueueOrderCommand(_side, OrderKind.Research, idea, TeamId: t.Id), "Queue it");
             }
         }

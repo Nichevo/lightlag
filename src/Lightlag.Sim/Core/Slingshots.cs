@@ -19,8 +19,8 @@ public static partial class FlightPlanner
     /// <summary>Planets light enough that a flyby does nothing worth planning are skipped (Earth masses).</summary>
     public const double MinFlybyMassEarth = 0.5;
 
-    /// <summary>Closest pass, in planet radii (at least the orbit height).</summary>
-    public const double FlybyRadii = 2;
+    /// <summary>Closest pass, in planet radii (at least the orbit height): wide enough that the swing reads as a curve round the planet, not a graze.</summary>
+    public const double FlybyRadii = 4;
 
     public static double FlybyRadius(Body b) => Math.Max(b.Radius * FlybyRadii, Fleets.OrbitRadiusFor(b));
 
@@ -46,9 +46,9 @@ public static partial class FlightPlanner
             if (plan is not { Ok: true, Flight: not null }) continue;
             any = true;
             if (!Beats(plan, direct)) continue;
-            // Time and fuel saved, each as a share of the direct route's.
+            // Time and fuel saved, each as a share of the direct route's; time counts double, since a slingshot is flown to get there sooner.
             var score = direct.Flight == null ? -plan.Flight.ArriveHour
-                : (direct.Flight.ArriveHour - plan.Flight.ArriveHour) / Math.Max(1, direct.Flight.ArriveHour - direct.Flight.DepartHour)
+                : 2 * (direct.Flight.ArriveHour - plan.Flight.ArriveHour) / Math.Max(1, direct.Flight.ArriveHour - direct.Flight.DepartHour)
                   + (direct.DeltaV - plan.DeltaV) / Math.Max(1e-9, direct.DeltaV);
             if (score > bestScore) { bestScore = score; best = plan; via = b; }
         }
