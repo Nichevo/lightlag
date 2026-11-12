@@ -87,6 +87,7 @@ public partial class Backdrop : ColorRect
     public override void _Process(double delta)
     {
         Size = GetViewportRect().Size;
+        _material.SetShaderParameter("ui_scale", Display.Scale);
         if (!Visible || _camera == null) return;
         var center = _camera.Center;
         var scale = _camera.Scale;

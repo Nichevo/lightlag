@@ -52,6 +52,8 @@ public partial class Main : Node
         _overlay = new CanvasLayer { Layer = 100 };
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
+        var args = OS.GetCmdlineUserArgs();
+        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=")));
         PlayerInfo.Load(Paths.Root);
         if (OS.GetCmdlineUserArgs().Contains("--smoke-test"))
         {
@@ -145,6 +147,14 @@ public partial class Main : Node
 
     public override void _Input(InputEvent e)
     {
+        // F11 or Alt+Enter: full screen on or off, on every screen.
+        if (e is InputEventKey { Pressed: true, Echo: false } k && !k.CtrlPressed && !k.ShiftPressed
+            && ((k.Keycode == Key.F11 && !k.AltPressed) || (k.AltPressed && k.Keycode is Key.Enter or Key.KpEnter)))
+        {
+            GetViewport().SetInputAsHandled();
+            RunGuarded("full screen toggle", Display.ToggleFullscreen);
+            return;
+        }
         if (e is InputEventKey { Pressed: true, Echo: false, Keycode: Key.F8 } && _report == null)
         {
             GetViewport().SetInputAsHandled();

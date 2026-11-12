@@ -16,6 +16,7 @@ uniform vec3 neb1_color : source_color = vec3(0.25, 0.45, 0.6);
 uniform vec3 neb2_color : source_color = vec3(0.55, 0.25, 0.45);
 uniform float neb1_size = 420.0;
 uniform float neb2_size = 360.0;
+uniform float ui_scale = 1.0;              // the interface size: screen pixels per sky pixel
 uniform float brightness = 1.0;             // above 1 on High, so the brightest stars bloom a little
 uniform vec3 base = vec3(0.02, 0.03, 0.05); // the plain background colour underneath
 
@@ -66,13 +67,13 @@ vec3 stars(vec2 p, float cell, float chance, float size, float bright) {
 }
 
 void fragment() {
-	vec2 px = FRAGCOORD.xy;
+	vec2 px = FRAGCOORD.xy / ui_scale;
 	vec3 col = vec3(0.0);
 
 	// Galaxy band: brightest along a line, broken up by dust.
 	vec2 bp = px + pan_far * 0.6;
 	vec2 n = vec2(-band_dir.y, band_dir.x);
-	float across = dot(bp - 0.5 / SCREEN_PIXEL_SIZE, n) - band_offset;
+	float across = dot(bp - 0.5 / SCREEN_PIXEL_SIZE / ui_scale, n) - band_offset;
 	float along = dot(bp, band_dir);
 	float band = exp(-across * across / (2.0 * 170.0 * 170.0));
 	float glow = fbm(vec2(along, across) * 0.004 + seed);

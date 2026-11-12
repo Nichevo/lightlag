@@ -100,6 +100,7 @@ public partial class TitleScreen : Control
         col.AddChild(LightPicker(main));
         col.AddChild(SystemsPicker(main));
         col.AddChild(Graphics.Picker(main));
+        col.AddChild(Display.Picker());
         col.AddChild(PlayerInfo.Picker());
         col.AddChild(Ui.Button("Load game", () => ShowPage(_saves), 16));
         col.AddChild(Ui.Button("How to play", () => ShowPage(_help), 16));
