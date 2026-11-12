@@ -8,7 +8,9 @@ namespace Lightlag.Game;
 /// The fleets and planets list down the left of the map, in place of the old drop-downs. Fleets come in
 /// three groups: those that need you (in a fight, low on fuel, hungry or out of ammunition), the rest of
 /// yours, and the rival fleets you know of. Planets are listed outward from the star with their moons.
-/// Click a row to select it and centre the map; double-click to zoom in and follow. « folds it away (L).
+/// Click a row to select it and centre the map; double-click opens it (your planet's screen, your fleet on the
+/// fleets screen) or, for others, zooms in and follows. Show (all, mine, rival) and sort (as listed, name,
+/// distance from home, needs attention) are kept in ui.cfg. « folds it away (L).
 /// </summary>
 public partial class SidePanel : PanelContainer
 {
@@ -41,6 +43,13 @@ public partial class SidePanel : PanelContainer
         tabs.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         tabs.AddChild(Ui.SmallButton("«", () => _screen.ShowSide = false, "Fold the list away (L)"));
         box.AddChild(tabs);
+        var filters = new HBoxContainer();
+        filters.AddThemeConstantOverride("separation", 4);
+        filters.AddChild(Choice(new[] { ("all", "All"), ("mine", "Mine only"), ("rival", "Rival known") }, PlayerInfo.SideShow,
+            k => PlayerInfo.SetSide(k, PlayerInfo.SideSort), "Which rows to show"));
+        filters.AddChild(Choice(new[] { ("order", "As listed"), ("name", "By name"), ("distance", "By distance"), ("attention", "Needs attention") }, PlayerInfo.SideSort,
+            k => PlayerInfo.SetSide(PlayerInfo.SideShow, k), "Order of the rows (distance from your home world)"));
+        box.AddChild(filters);
         var scroll = new ScrollContainer
         {
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
@@ -51,13 +60,45 @@ public partial class SidePanel : PanelContainer
         _rows.AddThemeConstantOverride("separation", 4);
         scroll.AddChild(_rows);
         box.AddChild(scroll);
-        var hint = Ui.Label("Click a row to centre the map on it · double-click to follow", 11, Ui.Dim);
+        var hint = Ui.Label("Click a row to centre the map on it · double-click to open yours (or follow others)", 11, Ui.Dim);
         hint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         hint.CustomMinimumSize = new Vector2(Width, 0);
         box.AddChild(hint);
     }
 
-    private sealed record Row(string Group, int Id, bool IsBody, string Title, string? Badge, Color BadgeColor, string Line, Color TitleColor);
+    private sealed record Row(string Group, int Id, bool IsBody, string Title, string? Badge, Color BadgeColor, string Line, Color TitleColor,
+        Side? Owner = null, double DistanceMm = 0, int Attention = 0, string Name = "");
+
+    private OptionButton Choice((string Key, string Label)[] items, string current, Action<string> picked, string tip)
+    {
+        var o = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = tip, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        o.AddThemeFontSizeOverride("font_size", 12);
+        for (var i = 0; i < items.Length; i++) o.AddItem(items[i].Label, i);
+        o.Selected = Math.Max(0, Array.FindIndex(items, x => x.Key == current));
+        o.ItemSelected += i => Main.Instance.RunGuarded("side list filter", () => { picked(items[(int)i].Key); _shape = ""; });
+        return o;
+    }
+
+    /// <summary>The show filter and the sort from ui.cfg; "As listed" keeps the groups and the orbit tree.</summary>
+    private static List<Row> Arrange(List<Row> rows)
+    {
+        IEnumerable<Row> r = PlayerInfo.SideShow switch
+        {
+            "mine" => rows.Where(x => x.Owner == Side.Player),
+            "rival" => rows.Where(x => x.Owner == Side.Rival),
+            _ => rows,
+        };
+        r = PlayerInfo.SideSort switch
+        {
+            "name" => r.Select(x => x with { Title = x.Title.TrimStart() }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase),
+            "distance" => r.Select(x => x with { Title = x.Title.TrimStart() }).OrderBy(x => x.DistanceMm).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase),
+            "attention" => r.Select(x => x with { Title = x.Title.TrimStart() }).OrderByDescending(x => x.Attention).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase),
+            _ => r,
+        };
+        var list = r.ToList();
+        if (PlayerInfo.SideSort != "order") list = list.Select(x => x with { Group = x.Attention > 0 && PlayerInfo.SideSort == "attention" ? "Needs attention" : "" }).ToList();
+        return list;
+    }
 
     public void Refresh(Simulation sim, float height)
     {
@@ -71,7 +112,7 @@ public partial class SidePanel : PanelContainer
         _fleetTab.Modulate = _planets ? new Color(1, 1, 1, 0.6f) : Ui.Player;
         _planetTab.Modulate = _planets ? Ui.Player : new Color(1, 1, 1, 0.6f);
 
-        var rows = _planets ? BodyRows(w) : FleetRows(w);
+        var rows = Arrange(_planets ? BodyRows(w) : FleetRows(w));
         var selected = _screen.SelectedId;
         var shape = string.Join("|", rows.Select(r => $"{r.Group}{r.Id}{r.Title}{r.Badge}{r.Line}")) + "#" + selected;
         if (shape == _shape || Ui.MouseHeld) return;
@@ -83,11 +124,11 @@ public partial class SidePanel : PanelContainer
             if (r.Group != group)
             {
                 group = r.Group;
-                _rows.AddChild(Ui.Label(group, 12, Ui.Dim));
+                if (group != "") _rows.AddChild(Ui.Label(group, 12, Ui.Dim));
             }
             _rows.AddChild(RowControl(r, r.Id == selected));
         }
-        if (rows.Count == 0) _rows.AddChild(Ui.Label(_planets ? "No planets" : "No fleets", 13, Ui.Dim));
+        if (rows.Count == 0) _rows.AddChild(Ui.Label(_planets ? "No planets to show" : "No fleets to show", 13, Ui.Dim));
     }
 
     private Control RowControl(Row r, bool selected)
@@ -127,7 +168,10 @@ public partial class SidePanel : PanelContainer
             if (e is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click) return;
             Main.Instance.RunGuarded("side list", () =>
             {
-                if (r.IsBody) _screen.PickBody(r.Id);
+                var w = _screen.World;
+                if (click.DoubleClick && r.IsBody && w.Loop && w.FindBody(r.Id) is { Owner: Side.Player, Board: not null }) _screen.OpenPlanet(r.Id);
+                else if (click.DoubleClick && !r.IsBody && r.Owner == Side.Player) _screen.OpenFleet(r.Id);
+                else if (r.IsBody) _screen.PickBody(r.Id);
                 else if (click.DoubleClick) { _screen.Select(r.Id); _screen.ZoomToSelected(); }
                 else _screen.PickFleet(r.Id);
             });
@@ -151,8 +195,11 @@ public partial class SidePanel : PanelContainer
         return null;
     }
 
+    private static Vec2 Home(World w) => Economy.HomeOf(w, Side.Player)?.Position ?? Vec2.Zero;
+
     private static List<Row> FleetRows(World w)
     {
+        var home = Home(w);
         var rows = new List<Row>();
         var later = new List<Row>();
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => f.Id))
@@ -165,10 +212,11 @@ public partial class SidePanel : PanelContainer
                 line += $" · slingshot at {swing.Name}";
             if (f.SupplyRunFor is int runFor && w.FindFleet(runFor) is Fleet served) line = $"Supply run (Auto) for {served.Name} · " + line;
             if (lag > 1.0 / 60) line += $" · {Format.Hours(lag)} of light";
+            var dist = Vec2.Distance(f.Position, home);
             if (Trouble(w, f) is var (badge, color))
-                rows.Add(new Row("Needs you", f.Id, false, title, badge, color, line, Ui.Player));
+                rows.Add(new Row("Needs you", f.Id, false, title, badge, color, line, Ui.Player, Side.Player, dist, color == Ui.Danger ? 2 : 1, f.Name));
             else
-                later.Add(new Row("On their orders", f.Id, false, title, null, Ui.Dim, line, Ui.Player));
+                later.Add(new Row("On their orders", f.Id, false, title, null, Ui.Dim, line, Ui.Player, Side.Player, dist, 0, f.Name));
         }
         rows.AddRange(later);
         foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && w.FindFleet(s.FleetId) != null)
@@ -177,13 +225,14 @@ public partial class SidePanel : PanelContainer
             var near = w.Bodies.Where(b => b.Kind != BodyKind.Star).OrderBy(b => Vec2.Distance(b.Position, s.Guess(w.Hour))).FirstOrDefault();
             rows.Add(new Row("Enemy (last seen)", s.FleetId, false, $"{s.Name} · {s.Ships} ship{(s.Ships == 1 ? "" : "s")}",
                 s.Visible ? "seen now" : $"{Format.Hours(w.Hour - s.Hour)} ago", s.Visible ? Ui.Danger : Ui.Dim,
-                near != null ? $"Near {near.Name}" : "", Ui.Rival));
+                near != null ? $"Near {near.Name}" : "", Ui.Rival, Side.Rival, Vec2.Distance(s.Guess(w.Hour), home), s.Visible ? 1 : 0, s.Name));
         }
         return rows;
     }
 
     private static List<Row> BodyRows(World w)
     {
+        var home = Home(w);
         var rows = new List<Row>();
         void Add(Body b, int depth)
         {
@@ -205,8 +254,10 @@ public partial class SidePanel : PanelContainer
                 Side.Rival => ("rival", Ui.Rival),
                 _ => ((string?)null, Ui.Dim),
             };
+            var attention = b.Owner != Side.Player || !w.Loop ? 0
+                : (b.Hungry || b.LandingSide != null ? 2 : 0) + (Economy.Blockaded(w, b) ? 2 : 0) + (b.PowerWanted > b.PowerMade + 1e-6 ? 1 : 0);
             rows.Add(new Row("Outward from the star", b.Id, true, new string(' ', depth * 4) + b.Name, badge, color, string.Join(" · ", tags),
-                b.Owner == Side.Player ? Ui.Player : b.Owner == Side.Rival ? Ui.Rival : Ui.Text));
+                b.Owner == Side.Player ? Ui.Player : b.Owner == Side.Rival ? Ui.Rival : Ui.Text, b.Owner, Vec2.Distance(b.Position, home), attention, b.Name));
             foreach (var child in w.Bodies.Where(c => c.ParentId == b.Id).OrderBy(c => c.OrbitRadius)) Add(child, depth + 1);
         }
         foreach (var root in w.Bodies.Where(b => b.ParentId == null || w.FindBody(b.ParentId.Value) == null)) Add(root, 0);

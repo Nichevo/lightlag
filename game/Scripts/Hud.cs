@@ -35,6 +35,16 @@ public partial class Hud : CanvasLayer
     private ColonyScreen _colonies = null!;
     private FleetScreen _fleets = null!;
     private ShipsScreen _ships = null!;
+
+    /// <summary>[ and ]: step the open planet, fleets or ships screen to the previous or next entry. False when none is open.</summary>
+    public bool Step(World w, int dir)
+    {
+        if (_ground.Visible) return false;
+        if (_colonies.Visible && _screen.PlanetScreenId != null) { _colonies.Step(w, dir); return true; }
+        if (_fleets.Visible) { _fleets.Step(w, dir); return true; }
+        if (_ships.Visible) { _ships.Step(w, dir); return true; }
+        return false;
+    }
     private Button _shipsButton = null!;
     private Button _fleetsButton = null!;
     private GroundScreen _ground = null!;

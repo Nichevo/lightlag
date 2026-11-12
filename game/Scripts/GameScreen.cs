@@ -688,6 +688,24 @@ public partial class GameScreen : Node2D
         ShowShips = true;
     }
 
+    /// <summary>Open one of your planets' screens (as a double-click on the map does).</summary>
+    public void OpenPlanet(int bodyId)
+    {
+        ShowResearch = false;
+        GroundScreenId = null;
+        ShowFleets = false;
+        ShowShips = false;
+        PlanetScreenId = bodyId;
+    }
+
+    /// <summary>Open the fleets screen (K) on one of your fleets.</summary>
+    public void OpenFleet(int fleetId)
+    {
+        if (!ShowFleets) ToggleFleets();
+        ShowShips = false;
+        FleetScreenId = fleetId;
+    }
+
     /// <summary>The planets screen (Y): opens it over anything else (research hid it before); closes it when open.</summary>
     public void TogglePlanets()
     {
@@ -1473,6 +1491,8 @@ public partial class GameScreen : Node2D
             case Key.Y when Sim.World.Loop: ShowShips = false; TogglePlanets(); break;
             case Key.K: ShowShips = false; ToggleFleets(); break;
             case Key.J when Sim.World.Loop: ToggleShips(); break;
+            case Key.Bracketleft: _hud.Step(Sim.World, -1); break;
+            case Key.Bracketright: _hud.Step(Sim.World, 1); break;
             case Key.Escape when ShowShips && ShipCardId == null: ShowShips = false; break;
             case Key.Escape when ShowFleets && ShipCardId == null: ShowFleets = false; break;
             case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;

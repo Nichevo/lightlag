@@ -49,6 +49,18 @@ public static class PlayerInfo
         (MapLayer.Hazards, "Hazards", "Radiation belts (green), the hot zone close to the sun (orange), battle debris (grey) and the names of rock belts and rings"),
     };
 
+    /// <summary>The side list (L): which rows show ("all", "mine", "rival") and their order ("order", "name", "distance", "attention").</summary>
+    public static string SideShow { get; private set; } = "all";
+    public static string SideSort { get; private set; } = "order";
+
+    public static void SetSide(string show, string sort)
+    {
+        if (show == SideShow && sort == SideSort) return;
+        SideShow = show;
+        SideSort = sort;
+        Save();
+    }
+
     /// <summary>Fleet panel sections kept open (by name).</summary>
     public static readonly HashSet<string> OpenSections = new();
 
@@ -68,6 +80,8 @@ public static class PlayerInfo
         Layers = (MapLayer)(int)cfg.GetValue("ui", "layers", (int)Default);
         // Settings saved before the Hazards layer existed: switch it on once.
         if (!cfg.HasSectionKey("ui", "hazardsLayer")) Layers |= MapLayer.Hazards;
+        SideShow = (string)cfg.GetValue("ui", "sideShow", "all");
+        SideSort = (string)cfg.GetValue("ui", "sideSort", "order");
         foreach (var s in ((string)cfg.GetValue("ui", "open", "")).Split(',', StringSplitOptions.RemoveEmptyEntries)) OpenSections.Add(s);
     }
 
@@ -78,6 +92,8 @@ public static class PlayerInfo
         cfg.SetValue("ui", "detail", Detail.ToString());
         cfg.SetValue("ui", "layers", (int)Layers);
         cfg.SetValue("ui", "hazardsLayer", true);
+        cfg.SetValue("ui", "sideShow", SideShow);
+        cfg.SetValue("ui", "sideSort", SideSort);
         cfg.SetValue("ui", "open", string.Join(",", OpenSections.OrderBy(s => s, StringComparer.Ordinal)));
         cfg.Save(_file);
         Changed?.Invoke();
