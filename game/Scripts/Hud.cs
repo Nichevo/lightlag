@@ -548,7 +548,9 @@ public partial class Hud : CanvasLayer
             else if (b.Shipyard && b.Owner == Side.Rival && Economy.BombardStatus(w, b, Side.Player) is string attack)
                 lines.Add("Shipyards can't be claimed, only destroyed. " + attack);
             if (_screen.SelectedFleet == null && sim.World.Fleets.Any(f => f.Side == Side.Player)) lines.Add("Select a fleet, then right-click here to fly");
-            lines.Add(_screen.IsFollowing(b.Id) ? "Following" : "Double-click or F to follow");
+            lines.Add(b.Owner == Side.Player && b.Board != null && w.Loop
+                ? (_screen.IsFollowing(b.Id) ? "Following · double-click to open the planet" : "Double-click to open the planet · F to follow")
+                : _screen.IsFollowing(b.Id) ? "Following" : "Double-click or F to follow");
             return string.Join("\n", lines);
         }
         return null;

@@ -208,7 +208,7 @@ public partial class ColonyScreen : PanelContainer
     {
         var top = Row(16);
         top.AddChild(Ui.Label("Planets", 26, new Color("f2f5fa")));
-        var note = Ui.Label("Double-click a planet of yours to open it", 13, Ui.Dim);
+        var note = Ui.Label("Double-click a planet of yours to open it, any other to go to it on the map", 13, Ui.Dim);
         note.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         top.AddChild(note);
         top.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
@@ -250,7 +250,7 @@ public partial class ColonyScreen : PanelContainer
         var rival = b.Owner == Side.Rival;
         var colour = mine ? Ui.Player : rival ? Ui.Rival : Ui.Text;
         var cells = new List<Control>();
-        cells.Add(new Dot(new Color(b.Color)));
+        cells.Add(new PlanetPicture(b));
         cells.Add(Ui.Label($"{b.Name}\n{Format.Title(b.Kind.ToString().ToLowerInvariant())} · {b.Type}{(b.Home ? " · home" : "")}", 14, colour));
         cells.Add(Ui.Label(mine ? "Yours" : rival ? "Rival" : "Nobody's", 14, colour));
         var cap = Planets.Cap(b);
@@ -272,16 +272,17 @@ public partial class ColonyScreen : PanelContainer
         foreach (var cell in cells)
         {
             cell.MouseFilter = MouseFilterEnum.Pass;
-            if (mine && b.Board != null)
+            cell.MouseFilter = MouseFilterEnum.Stop;
+            cell.TooltipText = mine && b.Board != null ? $"Double-click to open {b.Name}" : $"Double-click to go to {b.Name} on the map";
+            cell.GuiInput += e =>
             {
-                cell.MouseFilter = MouseFilterEnum.Stop;
-                cell.TooltipText = $"Double-click to open {b.Name}";
-                cell.GuiInput += e =>
+                if (e is not InputEventMouseButton { DoubleClick: true, ButtonIndex: MouseButton.Left }) return;
+                Main.Instance.RunGuarded("open planet", () =>
                 {
-                    if (e is InputEventMouseButton { DoubleClick: true, ButtonIndex: MouseButton.Left })
-                        Main.Instance.RunGuarded("open planet", () => _screen.PlanetScreenId = b.Id);
-                };
-            }
+                    if (mine && b.Board != null) _screen.PlanetScreenId = b.Id;
+                    else { _screen.ShowPlanets = false; _screen.PickBody(b.Id); }
+                });
+            };
             grid.AddChild(cell);
         }
     }
@@ -315,6 +316,25 @@ public partial class ColonyScreen : PanelContainer
     }
 
     /// <summary>A small coloured disc: the planet's picture in the list.</summary>
+    /// <summary>The planet as it looks on the map (same drawing), big enough to tell the worlds apart.</summary>
+    private partial class PlanetPicture : Control
+    {
+        private readonly Body? _body;
+        public PlanetPicture() { }
+        public PlanetPicture(Body b) { _body = b; CustomMinimumSize = new Vector2(96, 96); MouseFilter = MouseFilterEnum.Pass; }
+
+        public override void _Ready()
+        {
+            if (_body == null) return;
+            var sprite = PlanetSprite.For(_body);
+            sprite.ShowBehindParent = false;
+            AddChild(sprite);
+            // Rough sizes by kind, so a giant still looks bigger than a moon, a moon than a rock.
+            var r = _body.Type is "gas" or "ice-giant" ? 30f : _body.Kind == BodyKind.Planet ? 40f : _body.Type == "asteroid" || _body.Radius < 0.1 ? 26f : 32f;
+            sprite.Set(new Vector2(48, 48), r, new Vector2(-1, -0.35f), (float)(_body.Id * 1.3), 0);
+        }
+    }
+
     private partial class Dot : Control
     {
         private readonly Color _colour;

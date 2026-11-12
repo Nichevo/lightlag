@@ -10,7 +10,7 @@ namespace Lightlag.Game;
 public sealed class MapCamera
 {
     public const double MinScale = 1e-4;   // pixels per Mm: the whole system and then some
-    public const double MaxScale = 5000;   // pixels per Mm: a 10 km moon is 50 px across
+    public const double MaxScale = 250;    // pixels per Mm: a fleet close up still fits on screen, a home world fills it (further in, ships ran off screen and planets broke up)
 
     public Vec2 Center;                    // world point at the middle of the screen
     public Vector2 ScreenSize = new(1600, 900);

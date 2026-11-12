@@ -138,6 +138,12 @@ public partial class MapView : Node2D
         SyncPlanets();
     }
 
+    /// <summary>
+    /// Puts the planet sprites where the camera now shows their bodies. Call after the camera has moved this
+    /// frame: placed before it, a followed planet's picture lagged a frame behind its orbit line and label.
+    /// </summary>
+    public void SyncSprites() => SyncPlanets();
+
     private readonly Dictionary<int, PlanetSprite> _planets = new();
 
     /// <summary>Move each planet and moon sprite to where its body is drawn this frame.</summary>

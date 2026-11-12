@@ -167,7 +167,7 @@ public partial class KeyHelp : PanelContainer
     {
         ("Time", new[] { "Space  pause", "1-4  speed", "+ / -  faster, slower", "P  pause when enemies are spotted" }),
         ("Map", new[] { "Wheel  zoom", "WASD, arrows or right-drag  pan", "H or Home  whole system", "Z  zoom in on what is selected", "F  follow (Shift+F: without zooming)",
-            "Double-click  follow", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
+            "Double-click  open your planet, follow anything else", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
         ("Fleets", new[] { "Click  select · drag a box or Shift+click  several", "Tab / Shift+Tab  next fleet", "Right-click  route or attack (Shift: go now)",
             "Ctrl+right-click  add a waypoint", "Enter  go", "C  change route", "O  orbit · G  drift · X  stop", "M  merge or gather", "V  engagement view", "R  last battle report" }),
         ("Screens", new[] { "E  empire (Needs you is a tab)", "T  research", "Y  planets", "I  intelligence", "N  how am I doing", "F1  this list", "Esc  close, or the game menu" }),

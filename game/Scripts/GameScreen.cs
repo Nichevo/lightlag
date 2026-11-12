@@ -11,7 +11,7 @@ namespace Lightlag.Game;
 /// It never changes the world directly; fleet orders go through commands.
 ///
 ///   Wheel              zoom at the cursor             Left click      select a fleet or body
-///   Middle/right drag  pan (also WASD / arrows)       Double-click    follow it (F follows the selection)
+///   Middle/right drag  pan (also WASD / arrows)       Double-click    open your planet, or follow it (F follows the selection)
 ///   Left drag          box: pick several fleets       Shift+click     add or remove a fleet from the pick
 ///   Tab                next fleet of yours            M               merge, or gather the picked fleets
 ///   Right click        plan a route there             Shift+right     go there now with the last settings
@@ -293,6 +293,7 @@ public partial class GameScreen : Node2D
         _map.UpdatePositions();
         if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
         _camera.Update(delta, FollowPoint());
+        _map.SyncSprites(); // after the camera moves, so planet pictures sit on their orbits
         if (_selected is int sel && Sim.World.FindBody(sel) == null && Sim.World.FindFleet(sel) == null) _selected = null;
         UpdatePlanner(delta);
         UpdateEngagement(delta);
@@ -1281,7 +1282,14 @@ public partial class GameScreen : Node2D
                 if (left.Pressed)
                 {
                     var hit = _map.HitTest(left.Position);
-                    if (left.DoubleClick && hit is int id) { Follow(id, zoom: true); _leftDown = null; break; }
+                    if (left.DoubleClick && hit is int id)
+                    {
+                        // A planet of yours opens its planet screen; anything else is followed close up.
+                        if (Sim.World.FindBody(id) is { Owner: Side.Player, Board: not null } && Sim.World.Loop) PlanetScreenId = id;
+                        else Follow(id, zoom: true);
+                        _leftDown = null;
+                        break;
+                    }
                     _leftDown = left.Position;
                     _boxing = false;
                 }
