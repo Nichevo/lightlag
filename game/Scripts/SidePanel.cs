@@ -74,7 +74,7 @@ public partial class SidePanel : PanelContainer
         var rows = _planets ? BodyRows(w) : FleetRows(w);
         var selected = _screen.SelectedId;
         var shape = string.Join("|", rows.Select(r => $"{r.Group}{r.Id}{r.Title}{r.Badge}{r.Line}")) + "#" + selected;
-        if (shape == _shape) return;
+        if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _rows.GetChildren()) c.QueueFree();
         string? group = null;

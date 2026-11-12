@@ -629,6 +629,32 @@ public partial class GameScreen : Node2D
 
     public void ShowBodyMenu(bool open) => _hud.ShowBodyMenu(open);
 
+    /// <summary>
+    /// Fleets and planets list (L): shows it, closing whatever screen covers it (empire, research, planets,
+    /// fitting, the engagement view); hides it when it is already showing.
+    /// </summary>
+    public void ToggleSide()
+    {
+        if (_hud.SideVisible) { ShowSide = false; return; }
+        ShowSide = true;
+        ShowEmpire = false;
+        ShowResearch = false;
+        ShowPlanets = false;
+        PlanetScreenId = null;
+        GroundScreenId = null;
+        FittingFleetId = null;
+        if (Engagement != null) CloseEngagement();
+    }
+
+    /// <summary>The planets screen (Y): opens it over anything else (research hid it before); closes it when open.</summary>
+    public void TogglePlanets()
+    {
+        if (PlanetScreenId != null || ShowPlanets) { PlanetScreenId = null; ShowPlanets = false; return; }
+        ShowResearch = false;
+        GroundScreenId = null;
+        ShowPlanets = true;
+    }
+
     /// <summary>Pick a planet or moon from the list: select it, fly the view there and keep following it (pan to stop).</summary>
     public void PickBody(int bodyId)
     {
@@ -1328,7 +1354,7 @@ public partial class GameScreen : Node2D
             case Key.G: OrderHold(HoldStyle.Drift); break;
             case Key.X: OrderStop(); break;
             case Key.C when Planner == null: EditRoute(); break;
-            case Key.L: ShowSide = !ShowSide; break;
+            case Key.L: ToggleSide(); break;
             case Key.M: OrderMerge(); break;
             case Key.V: ToggleEngagement(); break;
             case Key.Escape when Engagement != null: CloseEngagement(); break;
@@ -1361,10 +1387,7 @@ public partial class GameScreen : Node2D
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: ShowEmpire = !ShowEmpire; break;
             case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
-            case Key.Y when Sim.World.Loop:
-                if (PlanetScreenId != null || ShowPlanets) { PlanetScreenId = null; ShowPlanets = false; }
-                else ShowPlanets = true;
-                break;
+            case Key.Y when Sim.World.Loop: TogglePlanets(); break;
             case Key.Escape when GroundScreenId != null: GroundScreenId = null; break;
             case Key.Escape when ShowResearch: ShowResearch = false; break;
             case Key.Escape when PlanetScreenId != null: PlanetScreenId = null; break;

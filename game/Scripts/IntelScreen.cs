@@ -42,8 +42,8 @@ public partial class IntelScreen : PanelContainer
     {
         var w = sim.World;
         var f = Intel.Of(w, Side.Player);
-        var shape = $"{_tab}|{w.Tick}|{f.Points:0.0}|{f.Fleets.Count}|{f.Tech.Count}|{GetViewportRect().Size}";
-        if (shape == _shape) return;
+        var shape = $"{_tab}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{GetViewportRect().Size}";
+        if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _box.GetChildren()) c.QueueFree();
         var head = new HBoxContainer();

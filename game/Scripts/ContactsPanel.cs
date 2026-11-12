@@ -33,7 +33,7 @@ public partial class ContactsPanel : PanelContainer
         Visible = list.Count > 0;
         if (!Visible) return;
         var key = string.Join(";", list.Select(p => $"{p.Mine}:{p.Enemy}"));
-        if (key != _key)
+        if (key != _key && !Ui.MouseHeld)
         {
             _key = key;
             _live.Clear();

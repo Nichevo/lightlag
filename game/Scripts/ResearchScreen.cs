@@ -51,7 +51,7 @@ public partial class ResearchScreen : PanelContainer
         var view = GetViewportRect().Size;
         if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
         var shape = Shape(w);
-        if (shape != _shape)
+        if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
             Rebuild(w);

@@ -5,6 +5,13 @@ namespace Lightlag.Game;
 /// <summary>Shared colours and small helpers. Cyan is the player, amber the rival.</summary>
 public static class Ui
 {
+    /// <summary>
+    /// True while a mouse button is held down. Screens that rebuild their buttons when the game moves on put
+    /// the rebuild off until the button is let go: a button only fires on release, so a rebuild between press
+    /// and release (easy at high speed) swallowed the click.
+    /// </summary>
+    public static bool MouseHeld => Input.IsMouseButtonPressed(MouseButton.Left) || Input.IsMouseButtonPressed(MouseButton.Right);
+
     public static readonly Color Player = new("3fd0ff");
     public static readonly Color Rival = new("ffb347");
     public static readonly Color Text = new("d8e2f0");

@@ -789,7 +789,7 @@ public partial class FleetPanel : PanelContainer
 
         // Rebuild the ship rows only when the fleet's ships change.
         var key = string.Join(",", f.ShipIds) + (mine ? "m" : "r");
-        if (key != _shipKey)
+        if (key != _shipKey && !Ui.MouseHeld)
         {
             _shipKey = key;
             foreach (var c in _shipList.GetChildren()) c.QueueFree();

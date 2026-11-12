@@ -79,7 +79,7 @@ public partial class Hud : CanvasLayer
         bar.AddChild(new Control { CustomMinimumSize = new Vector2(12, 0), MouseFilter = Control.MouseFilterEnum.Ignore });
         bar.AddChild(SmallButton("System", () => _screen.ShowWholeSystem(), "Show the whole system (Home)"));
         bar.AddChild(SmallButton("Zoom in", () => _screen.ZoomToSelected(), "Zoom right in on what is selected and follow it (Z)"));
-        _sideButton = SmallButton("Fleets & planets", () => _screen.ShowSide = !_screen.ShowSide, "The list of your fleets, the rival fleets you know of and the planets (L). Tab: next fleet");
+        _sideButton = SmallButton("Fleets & planets", () => _screen.ToggleSide(), "The list of your fleets, the rival fleets you know of and the planets (L). Tab: next fleet");
         bar.AddChild(_sideButton);
         _news = new MenuButton { Text = "News ▾", TooltipText = "The latest messages; click one to go there", FocusMode = Control.FocusModeEnum.None, Flat = false };
         _news.CustomMinimumSize = new Vector2(80, 32);
@@ -98,7 +98,7 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_empireButton);
         _researchButton = SmallButton("Research", () => _screen.ShowResearch = !_screen.ShowResearch, "Research teams, ideas and the discovery web (T)");
         bar.AddChild(_researchButton);
-        _planetsButton = SmallButton("Planets ▸", () => _screen.ShowPlanets = !_screen.ShowPlanets, "Your planets and every other world: people, goods, status (Y)");
+        _planetsButton = SmallButton("Planets ▸", () => _screen.TogglePlanets(), "Your planets and every other world: people, goods, status (Y)");
         bar.AddChild(_planetsButton);
         AddChild(bar);
 
@@ -106,7 +106,7 @@ public partial class Hud : CanvasLayer
         var row2 = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         row2.AddThemeConstantOverride("separation", 8);
         row2.Position = new Vector2(16, 48);
-        _needsBadge = SmallButton("", () => { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Needs); }, "What wants your look: click for the Needs you list (Empire)");
+        _needsBadge = SmallButton("", ToggleNeeds, "What wants your look: click for the Needs you list (Empire), click again to close it");
         row2.AddChild(_needsBadge);
         _control = new ControlBar();
         row2.AddChild(_control);
@@ -424,6 +424,16 @@ public partial class Hud : CanvasLayer
     }
 
     public void TickShip(int shipId) => _fleetPanel.TickOnly(shipId);
+
+    /// <summary>The Needs you badge opens the list, and closes it again when it is already showing.</summary>
+    public bool SideVisible => _side.Visible;
+
+    private void ToggleNeeds()
+    {
+        if (_empire.Visible && _empire.Current == EmpirePanel.Tab.Needs) { _screen.ShowEmpire = false; return; }
+        _screen.ShowEmpire = true;
+        _empire.Show(EmpirePanel.Tab.Needs);
+    }
 
     /// <summary>The Needs you badge, and a toast once for each new Urgent item.</summary>
     private void RefreshNeeds(World w, SideState me)

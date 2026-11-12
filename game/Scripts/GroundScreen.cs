@@ -42,7 +42,7 @@ public partial class GroundScreen : PanelContainer
         if (body?.Board == null) { _screen.GroundScreenId = null; return; }
         var f = body.Front;
         var shape = $"{body.Id}|{f != null}|{f?.Plan}|{f?.PlanByHand}|{string.Join(",", f?.Calls.Select(c => $"{c.Id}{c.Picked}") ?? Array.Empty<string>())}|{f?.Notes.Count}|{body.Pieces.Count}";
-        if (shape != _shape)
+        if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
             foreach (var c in _root.GetChildren()) c.QueueFree();

@@ -61,7 +61,7 @@ public partial class ColonyScreen : PanelContainer
         var body = _screen.PlanetScreenId is int id ? w.FindBody(id) : null;
         if (body != null && (body.Owner != Side.Player || body.Board == null)) body = null;
         var shape = body != null ? PlanetShape(w, body) : ListShape(w);
-        if (shape != _shape)
+        if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
             foreach (var c in _root.GetChildren()) c.QueueFree();

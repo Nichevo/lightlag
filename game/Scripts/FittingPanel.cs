@@ -35,7 +35,7 @@ public partial class FittingPanel : PanelContainer
         var shape = string.Join(";", ships.Select(s => $"{s.Id}:{string.Join(",", Fitting.FitOf(s))}:{s.Disabled}"))
                     + "|" + Economy.Of(w, Side.Player).Researched.Count + "|" + Fitting.CanRefit(w, Side.Player, ships.FirstOrDefault() ?? new Ship())
                     + "|" + (int)(Economy.Of(w, Side.Player).Industry / 10);
-        if (shape == _shape) return;
+        if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _box.GetChildren()) c.QueueFree();
 

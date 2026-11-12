@@ -186,7 +186,7 @@ public partial class EngagementPanel : Control
     {
         var list = _screen.Engagements.Take(8).ToList();
         var key = string.Join(";", list.Select(p => $"{p.Mine}:{p.Enemy}")) + $"|{e.Mine.Id}:{e.EnemyId}";
-        if (key != _tabsKey)
+        if (key != _tabsKey && !Ui.MouseHeld)
         {
             _tabsKey = key;
             foreach (var c in _tabs.GetChildren()) c.QueueFree();
@@ -242,7 +242,7 @@ public partial class EngagementPanel : Control
             rows.Add((ring.Color, $"{ring.Label} {Km(ring.Mm)}{(ring.Dashed ? " (dashed)" : "")}{where}", where == ""));
         }
         var key = string.Join("\n", rows.Select(x => $"{x.Color}{x.Text}"));
-        if (key == _legendKey) return;
+        if (key == _legendKey || Ui.MouseHeld) return;
         _legendKey = key;
         foreach (var c in _legend.GetChildren()) c.QueueFree();
         _legend.AddChild(Ui.Label("Rings on the map", 13, Ui.Text));
