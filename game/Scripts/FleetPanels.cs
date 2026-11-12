@@ -1083,11 +1083,13 @@ public partial class FleetPanel : PanelContainer
                 : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
         if (f.Chase is ChaseOrder c)
         {
-            var who = Sensors.Find(w, f.Side, c.TargetFleetId, seat: true)?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
+            var seen = Sensors.Find(w, f.Side, c.TargetFleetId, seat: true);
+            var who = seen?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
             var how = FlightPlanner.ChaseName(c.Mode);
+            var orbiting = seen?.OrbitBodyId is int ob && w.FindBody(ob) is Body ob2 ? $" (orbiting {ob2.Name}{(seen.Visible ? "" : ", out of sight: looked for there")})" : "";
             var text = f.Flight is Flight cf
-                ? $"Chasing {who} ({how}), there {GameTime.Format(cf.ArriveHour)}"
-                : $"Keeping pace with {who} ({how})";
+                ? $"Chasing {who}{orbiting} ({how}), there {GameTime.Format(cf.ArriveHour)}"
+                : $"Keeping pace with {who}{orbiting} ({how})";
             return c.Problem != null ? $"{text}. Can't keep up: {c.Problem}" : text;
         }
         if (f.Flight is Flight fl)

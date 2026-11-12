@@ -171,7 +171,8 @@ public static class Combat
         {
             var enemy = NearestEnemyFleet(w, f, C.ContactRangeMm);
             BattleRules.Check(sim, f, enemy);
-            if (!f.Retreating && !GoingHome(w, f))
+            // A fleet sent after this enemy was ordered to fight it: its Avoid or Return home stance waits.
+            if (!f.Retreating && !GoingHome(w, f) && !(enemy != null && BattleRules.SentAfter(w, f, enemy)))
             {
                 if (f.Stance == Stance.ReturnHome && enemy != null)
                 { Retreat(sim, f, $"meets {enemy.Name} and breaks off for home"); StandingNote(sim, f, $"{f.Name} met {enemy.Name} and breaks off for home (standing order: Return home)"); }

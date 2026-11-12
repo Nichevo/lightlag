@@ -324,6 +324,30 @@ public class FleetTests
     }
 
     [Fact]
+    public void A_fleet_chasing_to_join_one_that_settles_into_orbit_goes_to_the_planet_and_merges()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0] }));
+        sim.Step();
+        var other = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        // The fleet to join is drifting away when the order is given, so the joiner chases it...
+        fleet.Flight = null;
+        Fleets.EnterDrift(fleet);
+        fleet.Velocity = new Vec2(0, 20);
+        sim.Issue(new GatherFleetsCommand(fleet.Id, new List<int> { other.Id }, 1));
+        sim.Step();
+        Assert.Equal(ChaseMode.Join, other.Chase?.Mode);
+        // ...and then it is sent to orbit Vela, where it keeps circling.
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(vela)));
+        for (var h = 0; h < 120 * 24 && sim.World.FindFleet(other.Id) != null; h++) sim.Step();
+        Assert.Null(sim.World.FindFleet(other.Id));
+        Assert.Equal(3, fleet.ShipIds.Count);
+        Assert.Equal(vela.Id, fleet.OrbitBodyId);
+    }
+
+    [Fact]
     public void A_join_that_cannot_be_flown_is_refused_up_front_and_changes_nothing()
     {
         var sim = NewGame();
