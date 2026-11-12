@@ -881,10 +881,10 @@ public partial class FleetPanel : PanelContainer
             var share = s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s));
             var armour = s.Armour / Tech.MaxArmour(w, s);
             var bits = new List<string> { $"armour {armour:P0}", w.Rules.FuelTypes ? $"{Fuels.Of(w, s).Short} {share:P0}" : $"fuel {share:P0}" };
-            if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}");
+            if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}{(s.RailGrade >= 2 ? " (Mk III slugs)" : "")}");
             if (mine && SupplyLines.MaxFood(s) > 0) bits.Add(SupplyLines.Hungry(s) ? "HUNGRY" : $"food {s.Food:0} d");
             if (mine && SupplyLines.IsSupplyShip(s)) bits.Add($"cargo {SupplyLines.CargoShare(s):P0}");
-            if (cls.Missiles > 0) bits.Add(s.Missiles <= 0 ? "OUT OF MISSILES" : $"missiles {s.Missiles}/{Tech.Racks(w, s)}");
+            if (cls.Missiles > 0) bits.Add(s.Missiles <= 0 ? "OUT OF MISSILES" : $"missiles {s.Missiles}/{Tech.Racks(w, s)} (brain {Munitions.Brain(w, s)}{(mine && Munitions.Brain(w, s) < w.MissileBrain[(int)s.Side] ? $", {w.MissileBrain[(int)s.Side]} researched" : "")})");
             var heat = Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0;
             if (mine) bits.Add(s.Overheated ? "OVERHEATED" : $"heat {heat:P0}");
             if (mine && Heat.MaxShield(w, s) > 0) bits.Add($"shield {s.Shield / Heat.MaxShield(w, s):P0}");

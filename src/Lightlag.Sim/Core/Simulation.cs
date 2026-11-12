@@ -187,6 +187,7 @@ public sealed class Simulation
         using (SectionTimer.Time("supply-lines")) SupplyLines.Update(this);
         using (SectionTimer.Time("combat-orbit")) Combat.ReturnToOrbit(this);
         using (SectionTimer.Time("flagships")) Flagships.Update(this);
+        using (SectionTimer.Time("planets")) Planets.Rehouse(this);
         if (World.Tick % GameTime.TicksPerDay == 0) using (SectionTimer.Time("stats")) Stats.RecordDay(World);
         // The hour's work above draws from the random stream too (hazards, events, spoils): keep the saved state current.
         World.Random = Rng.Save();

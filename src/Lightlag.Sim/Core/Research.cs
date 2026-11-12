@@ -281,6 +281,7 @@ public static class Research
         team.Ideas++;
         Tech.OnLearn(sim, side, id);
         Colonies.OnResearched(sim, side, id);
+        Munitions.OnResearched(sim, side);
         sim.Log.Info("economy", $"{side} finishes research: {data.Name}", new { side = side.ToString(), id, team = team.Id });
     }
 

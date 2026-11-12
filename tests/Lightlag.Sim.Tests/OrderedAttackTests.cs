@@ -9,7 +9,7 @@ public class OrderedAttackTests
 {
     private static (Simulation Sim, Fleet Lone, Fleet Enemy) Setup()
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory()));
         var w = sim.World;
         var home = w.Fleets.First(f => f.Side == Side.Player);
         new SplitFleetCommand(home.Id, new List<int> { home.ShipIds[0] }).Apply(w, sim);

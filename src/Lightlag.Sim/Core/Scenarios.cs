@@ -68,11 +68,13 @@ public static class Scenarios
 
     /// <summary>
     /// Random starts: each side's start ships (and so its home and shipyard) move to a different planet
-    /// that can hold a home's people (a planet, not a moon or giant, of a type that holds at least 30k).
+    /// that can hold a home's people (a planet, not a moon or giant, of a type that holds at least 30k)
+    /// and has a moon to start a mining outpost on (see Planets.EnsureStarted).
     /// </summary>
     public static SystemData RandomHomes(SystemData data, SimRandom rng)
     {
-        var homes = data.Bodies.Where(b => b.Kind == BodyKind.Planet && HomeTypes.Contains(b.Type)).Select(b => b.Id).ToList();
+        var homes = data.Bodies.Where(b => b.Kind == BodyKind.Planet && HomeTypes.Contains(b.Type)
+                                           && data.Bodies.Any(m => m.Parent == b.Id && m.Kind == BodyKind.Moon)).Select(b => b.Id).ToList();
         var sides = (data.Ships ?? new()).Select(s => s.Side).Distinct().ToList();
         if (homes.Count < sides.Count) return data;
         var picked = new Dictionary<Side, string>();
@@ -146,10 +148,11 @@ public static class Scenarios
         Simulation.UpdateBodyPositions(w);
 
         // Each side's ships start as one fleet per start body, in orbit, and that body is their home with a shipyard.
-        foreach (var start in (data.Ships ?? new()).GroupBy(g => (g.Side, g.Near)))
+        // Ships given a fleet name (the home transport) make a fleet of their own there.
+        foreach (var start in (data.Ships ?? new()).OrderBy(g => g.Fleet != null).GroupBy(g => (g.Side, g.Near, g.Fleet)))
         {
             var near = ids[start.Key.Near];
-            if (!near.Shipyard) Economy.AddShipyard(near, start.Key.Side);
+            if (!near.Shipyard && start.Key.Fleet == null) Economy.AddShipyard(near, start.Key.Side);
             var ships = new List<Ship>();
             foreach (var group in start)
                 for (var i = 0; i < group.Count; i++) ships.Add(Economy.NewShip(w, group.Side, group.Class));

@@ -133,6 +133,8 @@ public static class Planner
                 if (Fits("power-plant") && fuelled) return ("power-plant", null, null, true);
                 if (Fits("solar-field")) return ("solar-field", null, null, true);
             }
+        // Better ammunition researched but nowhere to make it: the first munitions plant, at home.
+        if (b.Home && Munitions.WantPlant(w, side) && Staffed(Munitions.Plant) && Pick(Munitions.Plant) is string plantKind) return (plantKind, null, null, false);
         foreach (var good in new[] { "copper", "rare-earths", "uranium", "water" })
             if ((Short(good) || Colonies.Want(b, good) > Colonies.Held(b, good)) && Powered(Planets.Mine) && DepositFor(b, good) is var (gx, gy))
                 return (Planets.Mine, gx, gy, true);
@@ -366,7 +368,7 @@ public static class Stewards
         AutoArea.Research => "The next idea for each team when its queue runs dry",
         AutoArea.Shipyard => "Support ships only (tankers, freighters): warships are always your call",
         AutoArea.Supply => "Tankers sent to fleets low on fuel, food or ammunition",
-        AutoArea.Refits => "Idle fleets sent to refit to the current designs when a bay is free",
+        AutoArea.Refits => "Idle fleets sent to refit to the current designs when a bay is free; munitions plants upgraded to the latest missiles and slugs when the enemy pulls ahead",
         AutoArea.Battle => "Pull-back rules chosen by each fleet's job, place and odds",
         AutoArea.Crews => "Veteran crews spread over new ships in port; the best crew on the flagship",
         AutoArea.Boarding => "The calls during a boarding (Advise or Manual: ask me, Auto decides if I don't answer in time)",
@@ -438,6 +440,10 @@ public static class Stewards
             Supply();
             Shipyard();
             Refits.Steward(_sim, _side, Offer);
+            Munitions.Steward(_sim, _side, Offer);
+            if (Munitions.Pressed(_w, _side) && LevelFor(_w, _side, AutoArea.Refits) == AutoLevel.Manual)
+                Need(NeedLevel.Soon, "munitions:pressed", "The enemy has been seen with defences our ammunition is not made for: set a munitions plant to Best on its planet screen",
+                    area: AutoArea.Refits);
             BattleRules.Steward(_sim, _side, Offer);
             Crews.Steward(_sim, _side, Offer);
             Events.Needs(_w, _side, (key, text, bodyId, fleetId, act, label) => Need(NeedLevel.Urgent, key, text, bodyId, fleetId, act, label, AutoArea.Events));

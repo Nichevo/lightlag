@@ -9,7 +9,7 @@ public class FleetTests
 {
     private static Simulation NewGame(ulong seed = 8)
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory()));
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         return sim;
@@ -193,7 +193,7 @@ public class FleetTests
         Assert.Equal(new[] { leaving }, created.ShipIds);
         Assert.Equal(2, fleet.ShipIds.Count);
         Assert.Equal(HoldStyle.Orbit, created.Hold);
-        Assert.Equal("Fleet 2", created.Name);
+        Assert.StartsWith("Fleet ", created.Name);
 
         sim.Issue(new MergeFleetsCommand(fleet.Id, created.Id));
         sim.Step();
@@ -371,7 +371,7 @@ public class FleetTests
     }
 
     [Fact]
-    public void Losing_housing_sends_away_the_people_it_held()
+    public void Losing_housing_moves_away_the_people_it_held()
     {
         var sim = NewGame();
         var home = sim.World.Bodies.First(b => b.Owner == Side.Player && b.Home);
@@ -381,8 +381,12 @@ public class FleetTests
         Colonies.AddPiece(sim.World, home, data, spot!.Value.Item1, spot.Value.Item2, spot.Value.Item3, built: true);
         Colonies.SyncBuildings(home);
         home.PopK = Planets.Cap(home);
+        var before = sim.World.Bodies.Where(b => b.Owner == Side.Player).Sum(b => b.PopK);
         Colonies.RemoveOne(home, p => p.Kind == data.Id);
+        sim.Step();
         Assert.True(home.PopK <= Planets.Cap(home) + 1e-9);
+        // Those who no longer fit moved to the side's other worlds with room (here: the moon outpost), or were lost.
+        Assert.True(sim.World.Bodies.Where(b => b.Owner == Side.Player).Sum(b => b.PopK) <= before);
         Assert.Empty(sim.CheckRules());
     }
 
@@ -539,7 +543,7 @@ public class FleetTests
     public void Through_waypoints_at_sharp_corners_turn_tightly_instead_of_overshooting()
     {
         // A zig-zag like a playtest report: points tens of thousands of km apart, sharp turns.
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup());
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup()));
         var fleet = sim.World.Fleets.First(f => f.Side == Side.Player);
         var o = fleet.Position;
         var pts = new[] { o + new Vec2(47, -33), o + new Vec2(54, 10), o + new Vec2(62, -23) };
@@ -566,7 +570,7 @@ public class FleetTests
     public void A_flying_route_can_be_reopened_with_the_waypoints_still_ahead()
     {
         // Holding, so the rival (in sight thanks to the sandbox's known track) does not pull it into a fight.
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup(PlayerStance: Stance.Hold));
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, 36345455, GameLog.Memory(), sandbox: new SandboxSetup(PlayerStance: Stance.Hold)));
         var fleet = sim.World.Fleets.First(f => f.Side == Side.Player);
         var o = fleet.Position;
         var first = o + new Vec2(40, -30);

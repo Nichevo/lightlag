@@ -41,7 +41,11 @@
   "ships": [
     { "class": "gun-frigate", "side": "player", "near": "verdant", "count": 2 },
     { "class": "missile-destroyer", "side": "player", "near": "verdant", "count": 1 },
+    { "class": "supply-tender", "side": "player", "near": "verdant", "count": 1 },
+    { "class": "supply-tender", "side": "player", "near": "verdant", "count": 1, "fleet": "transport" },
     { "class": "gun-frigate", "side": "rival", "near": "rust", "count": 2 },
-    { "class": "missile-destroyer", "side": "rival", "near": "rust", "count": 1 }
+    { "class": "missile-destroyer", "side": "rival", "near": "rust", "count": 1 },
+    { "class": "supply-tender", "side": "rival", "near": "rust", "count": 1 },
+    { "class": "supply-tender", "side": "rival", "near": "rust", "count": 1, "fleet": "transport" }
   ]
 }

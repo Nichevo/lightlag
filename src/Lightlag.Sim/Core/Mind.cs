@@ -1235,6 +1235,13 @@ public static class Mind
             }
             if (!Easy) Stations(orders);
             if (!Easy) RefitAtHome(orders);
+            // Munitions plants: eager rivals tool up for the latest at once, the rest when the enemy pulls ahead.
+            if (!Easy) Munitions.Steward(_sim, _side, (area, key, text, act, label, bodyId, fleetId, advice) =>
+            {
+                if (!Do(act)) return false;
+                Note(text);
+                return true;
+            }, Munitions.Eager(_p));
             if (!Easy) Teams(orders);
             Build(orders);
         }

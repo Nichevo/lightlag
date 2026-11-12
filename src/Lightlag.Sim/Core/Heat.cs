@@ -320,7 +320,7 @@ public sealed record DropMissilesCommand(int FleetId, double WaitHours) : GameCo
                 {
                     Id = world.NextId++, Side = ship.Side, FromShipId = ship.Id, TargetShipId = 0,
                     Position = ship.Position + new Vec2(0.3 * i, -0.3 * i), Velocity = fleet.Velocity, DeltaVLeft = m.DeltaV,
-                    Brain = Math.Clamp(world.MissileBrain[(int)ship.Side], 1, 4),
+                    Brain = Munitions.Brain(world, ship, 4),
                     WakeHour = world.Hour + wait, ExpiresHour = world.Hour + wait + d.DropWaitHoursMax,
                 });
                 count++;

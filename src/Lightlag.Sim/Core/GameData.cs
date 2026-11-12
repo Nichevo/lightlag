@@ -48,7 +48,8 @@ public sealed record BodyData(
 public sealed record BeltData(string Id, string Name, string Parent, double InnerAu = 0, double OuterAu = 0, string Color = "888888",
     BeltKind Kind = BeltKind.Belt, double Density = 1, double InnerRadii = 0, double OuterRadii = 0);
 
-public sealed record StartShipsData([property: JsonPropertyName("class")] string Class, Side Side, string Near, int Count);
+/// <summary>Start ships near a body. Ships with a Fleet name form a fleet of their own there (and do not make the body a home).</summary>
+public sealed record StartShipsData([property: JsonPropertyName("class")] string Class, Side Side, string Near, int Count, string? Fleet = null);
 
 /// <summary>
 /// A ship class. Speed in Mm per hour, acceleration in Mm per hour per hour. Supplies are the one stock

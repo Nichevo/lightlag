@@ -157,7 +157,7 @@ public class SupplySharingTests
     [Fact]
     public void Ships_in_a_fleet_share_supplies_and_keep_the_total()
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 4, GameLog.Memory());
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, 4, GameLog.Memory()));
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         var f = sim.World.Fleets.First(x => x.Side == Side.Player && x.ShipIds.Count >= 2);
