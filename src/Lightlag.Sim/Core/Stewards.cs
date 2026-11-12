@@ -151,6 +151,7 @@ public static class Planner
         {
             if (Planets.Count(b, Planets.Guns) == 0 && Pick(Planets.Guns) is string guns) return (guns, null, null, false);
             if (Planets.Count(b, "pd-grid") == 0 && Pick("pd-grid") is string pd) return (pd, null, null, false);
+            if (Planets.Count(b, StrikeCraft.Base) == 0 && Tech.Has(w, side, StrikeCraft.Idea) && Staffed(StrikeCraft.Base) && Pick(StrikeCraft.Base) is string fb) return (fb, null, null, false);
             if (Planets.Count(b, "research-lab") < (easy ? 1 : 2) && Staffed("research-lab") && Pick("research-lab") is string lab) return (lab, null, null, false);
         }
         if (Colonies.Held(b, Colonies.Fuel) < 40 && b.Home && Pick("fuel-plant", "ice-mine") is string fuel) return (fuel, null, null, false);

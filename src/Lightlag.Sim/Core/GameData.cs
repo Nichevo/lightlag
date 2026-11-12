@@ -62,7 +62,7 @@ public sealed record ShipClass(
     double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
     string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null,
     double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false,
-    bool Lifeboats = false, bool AiRunAllowed = true)
+    bool Lifeboats = false, bool AiRunAllowed = true, int Lances = 0)
 {
     /// <summary>The class's slots (none for old data).</summary>
     public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();
@@ -113,7 +113,7 @@ public sealed record SlotData(string Type, bool Pair = false, string Fit = "")
 public sealed record ModuleData(string Id, string Name, string Slot, double Power, double Heat, double Cost,
     int Railguns = 0, int PointDefence = 0, int Missiles = 0, double Shield = 0, double Armour = 0, double SensorMm = 0,
     double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "",
-    List<string>? Fuels = null, double Cargo = 0, bool Hidden = false, Dictionary<string, double>? Materials = null);
+    List<string>? Fuels = null, double Cargo = 0, bool Hidden = false, Dictionary<string, double>? Materials = null, int Lances = 0);
 
 /// <summary>A fuel type (ship-classes.json, "fuels"): its good and how it burns. See the comment there.</summary>
 public sealed record FuelData(string Id, string Name, string Short, double Thrust = 1, double Reach = 1, double BurnHeat = 1, double Signature = 1,
@@ -140,7 +140,7 @@ public sealed record SlingshotData(double AssistStrength = 250, double MinTimeGa
     public IReadOnlyList<double> Departs => DepartShares is { Count: > 0 } d ? d : new[] { 1.0, 0.75, 0.55 };
 }
 
-public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null, FormationData? Formations = null, List<FuelData>? Fuels = null);
+public sealed record ShipClassFile(List<ShipClass> Classes, CombatData Combat, SensorData Sensors, LightData? Light = null, FlagshipData? Flagships = null, DroneData? Drones = null, BattleRecordData? Recording = null, HeatData? Heat = null, List<ModuleData>? Modules = null, SlingshotData? Slingshots = null, FormationData? Formations = null, List<FuelData>? Fuels = null, WeaponsData? Weapons = null);
 
 /// <summary>
 /// Reads the game data files (Data/*.json, built into the simulation) and checks them, so a typo in
@@ -167,6 +167,7 @@ public static class GameData
     public static DroneData Drones => _file.Value.Drones ?? new DroneData();
     public static SlingshotData Slingshots => _file.Value.Slingshots ?? new SlingshotData();
     public static HeatData Heat => _file.Value.Heat ?? new HeatData();
+    public static WeaponsData Weapons => _file.Value.Weapons ?? new WeaponsData();
     private static readonly Lazy<IReadOnlyList<FuelData>> _fuels = new(() => _file.Value.Fuels is { Count: > 0 } f ? f : new List<FuelData> { new("fuel", "Fuel", "Fuel") });
     public static IReadOnlyList<FuelData> Fuels => _fuels.Value;
     public static BattleRecordData Recording => _file.Value.Recording ?? new BattleRecordData();

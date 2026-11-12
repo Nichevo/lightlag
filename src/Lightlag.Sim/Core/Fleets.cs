@@ -204,6 +204,15 @@ public sealed class Fleet
     public bool LongShots { get; set; }
     public MissileLaunch MissileLaunch { get; set; }
 
+    /// <summary>Fire dumb (brain 1) salvos: they can't be hijacked or jammed, but are easier to dodge and shoot down.</summary>
+    public bool DumbSalvos { get; set; }
+
+    /// <summary>Keeping tech secret (see Secrecy): the rule, when advanced weapons come out, whether they are out in this fight, and enemy fleets when it began.</summary>
+    public WeaponsShown Shown { get; set; }
+    public SecrecyRules Secrecy { get; set; } = new();
+    public bool AdvancedOut { get; set; }
+    public int FightEnemyFleets { get; set; }
+
     /// <summary>Supplies: the fuel (speed change) a slow coast to the nearest planet its side holds would take, and whether it is on its way there to refill (see Supply).</summary>
     public double ReserveDeltaV { get; set; }
     public bool Resupplying { get; set; }

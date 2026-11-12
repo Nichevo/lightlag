@@ -120,7 +120,7 @@ public static class Research
     public static double BaseHours(World w, Side side, string id)
     {
         var r = GameData.Research(id);
-        return r.Days * Pace(r.Tier) * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1);
+        return r.Days * Pace(r.Tier) * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1) * RivalTech.TimeFactor(w, side, id);
     }
 
     /// <summary>Days until this order is done, counting the orders ahead of it in its team's queue.</summary>
@@ -161,6 +161,7 @@ public static class Research
         var state = Economy.Of(w, side);
         var needs = GameData.Research(id).Needs;
         if (needs is not { Count: > 0 } || state.Researched.Contains(id) || state.Sparked.Contains(id)) return true;
+        if (RivalTech.StageOf(w, side, id) >= RivalStage.Studied) return true;
         if (needs.Any(state.Researched.Contains)) return true;
         return needs.All(n => state.Researched.Contains(n) || w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == n));
     }
@@ -170,13 +171,14 @@ public static class Research
     {
         var r = GameData.Research(id);
         var state = Economy.Of(w, side);
-        return !r.Later && !state.Researched.Contains(id) && (r.Needs ?? new List<string>()).All(state.Researched.Contains);
+        return !r.Later && !state.Researched.Contains(id) && ((r.Needs ?? new List<string>()).All(state.Researched.Contains) || RivalTech.Unlocked(w, side, id));
     }
 
     /// <summary>Why this idea can't be researched yet (a missing idea it needs), or null.</summary>
     public static string? Missing(World w, Side side, string id)
     {
         var state = Economy.Of(w, side);
+        if (RivalTech.Unlocked(w, side, id)) return null;
         foreach (var need in GameData.Research(id).Needs ?? new List<string>())
             if (!state.Researched.Contains(need) && !w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == need))
                 return $"Needs {GameData.Research(need).Name}";

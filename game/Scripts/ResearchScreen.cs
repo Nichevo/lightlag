@@ -79,6 +79,7 @@ public partial class ResearchScreen : PanelContainer
                + "|" + string.Join(",", me.Researched) + "|" + string.Join(",", me.Cuts)
                + "|" + string.Join(",", me.Teams.Select(t => $"{t.Id}:{string.Join("+", t.Kept)}:{t.TrainingUntilHour != null}:{Research.Ready(w, t)}:{t.Scientists}:{string.Join("/", Research.KeptFields(t))}"))
                + "|" + string.Join(",", Intel.Counters(w, Side.Player).Select(c => c.Idea))
+               + "|" + string.Join(",", RivalTech.Learning(w, Side.Player).Select(l => $"{l.Id}:{l.Stage}"))
                + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{GetViewportRect().Size}|{w.Winner}";
     }
 
@@ -370,6 +371,10 @@ public partial class ResearchScreen : PanelContainer
         var counters = Intel.Counters(w, Side.Player).GroupBy(c => c.Idea).Select(g => g.First()).Take(3).ToList();
         if (counters.Count > 0)
             v.AddChild(Ui.Label("Intel: " + string.Join(" · ", counters.Select(c => $"{c.Why} → {GameData.Research(c.Idea).Name}")), 12, new Color("ffd27a")));
+        var learning = RivalTech.Learning(w, Side.Player).Take(4).ToList();
+        if (learning.Count > 0)
+            v.AddChild(Ui.Label("Their research we are learning: " + string.Join(" · ", learning.Select(l =>
+                l.Stage == RivalStage.Seen ? $"something unknown ({l.Progress:P0})" : $"{GameData.Research(l.Id).Name} ({RivalTech.StageName(l.Stage)})")), 12, Ui.Rival));
 
         // Filters: search, field, sort; then status and what an idea unlocks.
         var row1 = new HBoxContainer();
@@ -490,6 +495,17 @@ public partial class ResearchScreen : PanelContainer
             hint.TooltipText = $"Intel: {counter.Why}. This idea answers it";
             hint.MouseFilter = MouseFilterEnum.Pass;
             pic.AddChild(hint);
+        }
+        if (RivalTech.StageOf(w, Side.Player, r.Id) is var stage and not RivalStage.None)
+        {
+            // Learned from the rival (board 26): Studied shows its name; Unlocked skips its prerequisites and is quicker.
+            var theirs = Ui.Label($"◆ theirs: {RivalTech.StageName(stage)}", 11, Ui.Rival);
+            theirs.Position = new Vector2(width - 130, width * 12 / 35 - 20);
+            theirs.TooltipText = stage == RivalStage.Unlocked
+                ? $"Learned from the rival: queue it without its prerequisites, {GameData.Weapons.R.UnlockedCut:P0} quicker"
+                : $"Learning it from the rival: {RivalTech.Progress(w, Side.Player, r.Id):P0} (unlocked at 100 %). Battles, wrecks, captures and looks at their colonies teach it";
+            theirs.MouseFilter = MouseFilterEnum.Pass;
+            pic.AddChild(theirs);
         }
         v.AddChild(pic);
 

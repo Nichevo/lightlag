@@ -251,6 +251,9 @@ public partial class MapView
                     DrawShieldShimmer(e, fade, key);
                     break;
                 }
+                default:
+                    DrawNewEffect(e, from, to, fade);
+                    break;
             }
         }
         DrawDebris();

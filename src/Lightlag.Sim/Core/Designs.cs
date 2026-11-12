@@ -49,6 +49,7 @@ public static class Designer
     public const int StandardId = 0;
     public const string QShip = "q-ship";
     public const string LongRange = "long-range";
+    public const string Lancer = "lancer";
     public const string ConcealedMounts = "concealed-mounts";
 
     /// <summary>Days a raider side stays wary of convoys near where a Q-ship opened fire.</summary>
@@ -111,7 +112,7 @@ public static class Designer
     public static string Family(ModuleData m)
     {
         if (m.Slot == "E") return "engine";
-        var kind = m.Railguns > 0 ? "railgun" : m.Missiles > 0 ? "missile" : m.PointDefence > 0 ? "pd" : m.Shield > 0 ? "shield" : m.Armour > 0 ? "armour"
+        var kind = m.Lances > 0 ? "lance" : m.Railguns > 0 ? "railgun" : m.Missiles > 0 ? "missile" : m.PointDefence > 0 ? "pd" : m.Shield > 0 ? "shield" : m.Armour > 0 ? "armour"
             : m.SensorMm > 0 ? "sensor" : m.Supplies > 0 ? "tank" : m.HeatSinks > 0 ? "sinks" : m.Id;
         return (m.Hidden ? "hidden-" : "") + kind;
     }
@@ -123,6 +124,7 @@ public static class Designer
         var f when f.EndsWith("railgun", StringComparison.Ordinal) => m.Railguns,
         var f when f.EndsWith("missile", StringComparison.Ordinal) => m.Missiles,
         "pd" => m.PointDefence,
+        "lance" => m.Lances,
         "shield" => m.Shield,
         "armour" => m.Armour,
         "sensor" => m.SensorMm,
@@ -278,6 +280,7 @@ public static class Designer
     {
         QShip => "Q-ship",
         LongRange => "long range",
+        Lancer => "lancer",
         "" => "own fit",
         _ => role,
     };
@@ -297,14 +300,20 @@ public static class Designer
                 if (!Planner.WarshipClass(cls.Id) || utility.Count == 0 || utility.Any(i => fit[i].Length > 0)) return null;
                 fit[utility[0]] = "fuel-tank";
                 break;
+            case Lancer:
+                // Pulse lances in place of the railgun pair: no dodging them, but they run hot.
+                var guns = Enumerable.Range(0, fit.Count).Where(i => cls.SlotList[i].Type == "W" && fit[i] == "railgun").ToList();
+                if (!Planner.WarshipClass(cls.Id) || guns.Count == 0 || !Tech.Has(w, side, Beams.LanceIdea)) return null;
+                foreach (var i in guns) fit[i] = Beams.LanceModule;
+                break;
             default:
                 return null;
         }
         fit = Best(w, side, cls, fit);
-        return Fitting.CanFit(w, side, cls, fit) == null ? (role == QShip ? "Q-ship" : "Long range", role, fit) : null;
+        return Fitting.CanFit(w, side, cls, fit) == null ? (role switch { QShip => "Q-ship", Lancer => "Lancer", _ => "Long range" }, role, fit) : null;
     }
 
-    public static readonly string[] Roles = { QShip, LongRange };
+    public static readonly string[] Roles = { QShip, LongRange, Lancer };
 
     // ---- Each day ----------------------------------------------------------------------------
 

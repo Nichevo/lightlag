@@ -144,6 +144,12 @@ public sealed class SideState
     public string Race { get; set; } = ShipNames.DefaultRace;
     public Dictionary<string, List<string>> Variants { get; set; } = new();
 
+    /// <summary>Weapons this side keeps secret (see Secrecy); null: Auto, its two newest.</summary>
+    public List<string>? Advanced { get; set; }
+
+    /// <summary>Rival ideas being learned from what was seen of them, 0 to 1 (see RivalTech): Seen, Studied, then Unlocked.</summary>
+    public Dictionary<string, double> RivalIdeas { get; set; } = new();
+
     /// <summary>What this side has learned about its rival (see Intel).</summary>
     public IntelFile Intel { get; set; } = new();
 
@@ -312,11 +318,11 @@ public static class Tech
 
     /// <summary>
     /// Point defence kill chance factor for a side against a missile of this brain: Mk II and III, counter-missiles,
-    /// fleet data links, predictive fire control (brain 3 and up) and capacitor banks (faster recharge).
+    /// fleet data links, predictive fire control (brain 3 and up), capacitor banks (faster recharge) and free-electron lasers.
     /// </summary>
     public static double PointDefence(World w, Side side, int brain) =>
         Factor(w, side, PointDefence2) * Factor(w, side, PointDefence3) * Factor(w, side, CounterMissiles) * Factor(w, side, "fleet-data-links")
-        * (brain >= 3 ? Factor(w, side, "predictive-fire-control") : 1) * (Has(w, side, "capacitor-banks") ? 1.1 : 1);
+        * (brain >= 3 ? Factor(w, side, "predictive-fire-control") : 1) * (Has(w, side, "capacitor-banks") ? 1.1 : 1) * Factor(w, side, "free-electron-lasers");
 
     /// <summary>Signature factor from research for a fleet seen by the enemy: Jamming (seen from 30 % closer) and Stealth coatings when cold.</summary>
     public static double SignatureFactor(World w, Side side, bool burning)

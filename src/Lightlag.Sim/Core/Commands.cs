@@ -94,6 +94,11 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(RenameShipCommand), "renameShip")]
 [JsonDerivedType(typeof(SetFleetRoleCommand), "setFleetRole")]
 [JsonDerivedType(typeof(MoveShipsCommand), "moveShips")]
+[JsonDerivedType(typeof(SetSecrecyCommand), "setSecrecy")]
+[JsonDerivedType(typeof(SetAdvancedCommand), "setAdvanced")]
+[JsonDerivedType(typeof(SetSalvoGuidanceCommand), "setSalvoGuidance")]
+[JsonDerivedType(typeof(EjectShipSinkCommand), "ejectShipSink")]
+[JsonDerivedType(typeof(LayMinesCommand), "layMines")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

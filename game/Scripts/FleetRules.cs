@@ -25,6 +25,11 @@ public partial class FleetRules : VBoxContainer
     private ZonePanel _zonePanel = null!;
     private OptionButton _formation = null!;
     private Label _formationLine = null!;
+    private OptionButton _shown = null!;
+    private MenuButton _when = null!;
+    private Label _shownLine = null!;
+
+    private static readonly WeaponsShown[] Modes = { WeaponsShown.HoldBack, WeaponsShown.ShowAll, WeaponsShown.NeverShow };
 
     private static readonly Formation[] Shapes = { Formation.Auto, Formation.Staggered, Formation.Wall, Formation.Line, Formation.Column };
 
@@ -78,6 +83,23 @@ public partial class FleetRules : VBoxContainer
         shape.AddChild(_formation);
         _formationLine = Line();
 
+        var secret = Row();
+        secret.AddChild(Caption("Weapons shown"));
+        _shown = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "Keep your newest weapons secret: hold them back until needed, always fire your best, or never show them (what the rival never sees, it can't learn)" };
+        _shown.AddThemeFontSizeOverride("font_size", 13);
+        for (var i = 0; i < Modes.Length; i++) _shown.AddItem(Secrecy.ModeName(Modes[i]), i);
+        _shown.SetItemTooltip(0, "Fight with common weapons and open fire short of true reach; bring the advanced ones out when the rules below say so");
+        _shown.SetItemTooltip(1, "Always fire everything at full reach");
+        _shown.SetItemTooltip(2, "Never use the advanced weapons, even when losing");
+        _shown.ItemSelected += i => Do(f => new SetSecrecyCommand(f.Id, Modes[i], f.Secrecy), "weapons shown");
+        secret.AddChild(_shown);
+        _when = new MenuButton { Text = "When ▾", Flat = false, FocusMode = FocusModeEnum.None, TooltipText = "When a fleet holding back brings its advanced weapons out, and whether it hides its range" };
+        _when.AddThemeFontSizeOverride("font_size", 12);
+        _when.AboutToPopup += FillWhenMenu;
+        _when.GetPopup().IdPressed += id => Main.Instance.RunGuarded("weapons shown", () => PickWhen((int)id));
+        secret.AddChild(_when);
+        _shownLine = Line();
+
         RefitBox.AddThemeConstantOverride("separation", 4);
         ZoneBox.AddThemeConstantOverride("separation", 4);
         var refit = Row(RefitBox);
@@ -116,6 +138,11 @@ public partial class FleetRules : VBoxContainer
         _formationLine.Text = FormationText(w, f);
         _formationLine.AddThemeColorOverride("font_color", Formations.BlockedShips(w, f) > 0 ? Ui.Rival : Ui.Dim);
 
+        var mode = Array.IndexOf(Modes, f.Shown);
+        if (mode >= 0 && _shown.Selected != mode) _shown.Select(mode);
+        _when.Disabled = f.Shown != WeaponsShown.HoldBack;
+        _shownLine.Text = ShownText(w, f);
+
         var why = Refits.CanSend(w, f);
         _refit.Visible = f.Refit == null;
         _refit.Disabled = why != null;
@@ -153,6 +180,50 @@ public partial class FleetRules : VBoxContainer
         var blocked = Formations.BlockedShips(w, f);
         if (blocked > 0) text += $" · {blocked} of {f.ShipIds.Count} ships blocked by their own fleet";
         return text;
+    }
+
+    private static string ShownText(World w, Fleet f)
+    {
+        var adv = Secrecy.Advanced(w, f.Side);
+        if (adv.Count == 0) return "No advanced weapons yet: nothing to hold back";
+        var names = string.Join(", ", adv.Select(id => GameData.Research(id).Name));
+        if (f.Shown == WeaponsShown.ShowAll) return $"Advanced ({names}) always used";
+        if (f.AdvancedOut) return $"Advanced weapons OUT in this fight: {names}";
+        return $"Holding back {names}{(f.Secrecy.HideRange ? $" · opens fire at {GameData.Weapons.K.HideRangeShare:P0} of reach" : "")}";
+    }
+
+    private const int WhenHurt = 1, WhenJoined = 2, WhenLosing = 3, HideRange = 4;
+
+    private void FillWhenMenu()
+    {
+        var menu = _when.GetPopup();
+        menu.Clear();
+        if (_fleet == null) return;
+        var r = _fleet.Secrecy;
+        menu.AddCheckItem($"Bring out when a ship falls below {GameData.Weapons.K.BelowHull:P0} hull", WhenHurt);
+        menu.SetItemChecked(menu.GetItemIndex(WhenHurt), r.WhenHurt);
+        menu.AddCheckItem("Bring out when more enemy fleets join", WhenJoined);
+        menu.SetItemChecked(menu.GetItemIndex(WhenJoined), r.WhenJoined);
+        menu.AddCheckItem("Bring out when the odds turn against us", WhenLosing);
+        menu.SetItemChecked(menu.GetItemIndex(WhenLosing), r.WhenLosing);
+        menu.AddSeparator();
+        menu.AddCheckItem("Hide range (open fire short of true reach)", HideRange);
+        menu.SetItemChecked(menu.GetItemIndex(HideRange), r.HideRange);
+    }
+
+    private void PickWhen(int id)
+    {
+        if (_fleet == null) return;
+        var r = _fleet.Secrecy.Copy();
+        switch (id)
+        {
+            case WhenHurt: r.WhenHurt = !r.WhenHurt; break;
+            case WhenJoined: r.WhenJoined = !r.WhenJoined; break;
+            case WhenLosing: r.WhenLosing = !r.WhenLosing; break;
+            case HideRange: r.HideRange = !r.HideRange; break;
+            default: return;
+        }
+        Do(f => new SetSecrecyCommand(f.Id, f.Shown, r), "weapons shown");
     }
 
     private static string ShapeTip(Formation f) => f switch
