@@ -32,6 +32,9 @@ public sealed class Deposit
     public bool Rich { get; set; }
 }
 
+/// <summary>Who gets power first when there is not enough: High, then Normal, then Low; Off is switched off (no power, no staff).</summary>
+public enum PowerUse { Normal, High, Low, Off }
+
 /// <summary>A building on the board. Built when HoursLeft reaches 0; Condition wears without spare parts.</summary>
 public sealed class Piece
 {
@@ -52,6 +55,12 @@ public sealed class Piece
     public double Staff { get; set; } = 1;
     public bool Powered { get; set; } = true;
     public double SparesShare { get; set; } = 1;
+
+    /// <summary>The player's (or the rival AI's) say on power: High is powered first, Low cut first, Off never runs.</summary>
+    public PowerUse PowerUse { get; set; }
+
+    /// <summary>Power plants: ran this hour without their fuel (at reduced power).</summary>
+    public bool NoFuel { get; set; }
 
     /// <summary>
     /// Queued by the player behind other work or before the Industry was there: not paid for or started yet.
@@ -160,6 +169,37 @@ public static class Colonies
     }
 
     public static IEnumerable<Piece> Built(Body b) => b.Pieces.Where(p => p.Built);
+
+    /// <summary>A building that uses power and was switched off: it takes no power and no staff.</summary>
+    public static bool SwitchedOff(Piece p, BuildingData data) => p.PowerUse == PowerUse.Off && data.Power > 0;
+
+    private static int PowerTier(PowerUse use) => use switch { PowerUse.High => 0, PowerUse.Low => 2, PowerUse.Off => 3, _ => 1 };
+
+    public static string PowerUseName(PowerUse use) => use switch
+    {
+        PowerUse.High => "High", PowerUse.Low => "Low", PowerUse.Off => "Off", _ => "Normal",
+    };
+
+    /// <summary>
+    /// Why the planet is short of power, which buildings went dark and what would fix it; null when nothing
+    /// is short. For the planet panel and planet screen.
+    /// </summary>
+    public static string? PowerNote(World w, Body b)
+    {
+        var dark = Built(b).Where(p => !p.Powered && p.PowerUse != PowerUse.Off && Planets.BuildingKind(p.Kind) is { Power: > 0 }).ToList();
+        if (dark.Count == 0 && b.PowerWanted <= b.PowerMade + 1e-6) return null;
+        var names = dark.GroupBy(p => Planets.BuildingKind(p.Kind)!.Name).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key).ToList();
+        var note = $"Short {b.PowerWanted - b.PowerUsed:0} power" + (names.Count > 0 ? $": {string.Join(", ", names)} off" : "");
+        var fixes = new List<string>();
+        if (b.PopK <= 0) fixes.Add("nobody lives here, so there is no base power: settle people or build a solar field");
+        if (Built(b).Any(p => p.NoFuel && p.Kind == "power-plant")) fixes.Add("the fission plant has no uranium and runs at 30 %: bring uranium");
+        if (Built(b).Any(p => p.NoFuel && p.Kind == "fusion-plant")) fixes.Add("the fusion plant has no water or helium-3");
+        if (Events.PowerCut(w, b) > 0) fixes.Add($"an event cuts power by {Events.PowerCut(w, b):P0}");
+        fixes.Add("build a solar field or fission plant, or set less important buildings to Low or Off");
+        return note + ". " + Format(string.Join("; ", fixes)) + ".";
+
+        static string Format(string text) => text.Length > 0 ? char.ToUpperInvariant(text[0]) + text[1..] : text;
+    }
 
     // ---- The board ------------------------------------------------------------------------
 
@@ -408,7 +448,15 @@ public static class Colonies
     }
 
     /// <summary>Keeps Body.Buildings (the kinds standing, used by food, guns and bombing) in step with the board.</summary>
-    public static void SyncBuildings(Body b) => b.Buildings = Built(b).Select(p => p.Kind).ToList();
+    /// <summary>
+    /// After the board changes: the building list is brought up to date, and if housing was lost (bombed,
+    /// wrecked in a ground fight or pulled down) the people it held have to go.
+    /// </summary>
+    public static void SyncBuildings(Body b)
+    {
+        b.Buildings = Built(b).Select(p => p.Kind).ToList();
+        b.PopK = Math.Min(b.PopK, Math.Max(0, Planets.Cap(b)));
+    }
 
     /// <summary>Takes one built piece of this kind off the board (bombed, failed or pulled down). Returns it.</summary>
     public static Piece? RemoveOne(Body b, Func<Piece, bool> which)
@@ -432,6 +480,12 @@ public static class Colonies
             if (b.Owner == null) { b.Pieces.RemoveAll(p => !p.Built); continue; }
             Construction(sim, b);
             Work(w, b);
+            // Habitats short of water hold only half as many: those who no longer fit move out (or die).
+            if (b.PopK > Planets.Cap(b))
+            {
+                sim.Log.Info("planets", "Short of room: people leave", new { body = b.Name, popK = b.PopK, cap = Planets.Cap(b), b.Thirsty });
+                b.PopK = Math.Max(0, Planets.Cap(b));
+            }
         }
         Transport(sim);
     }
@@ -618,27 +672,30 @@ public static class Colonies
                 baseTaken = true;
             }
             var need = StaffKOf(w, b, data!);
+            if (SwitchedOff(p, data!)) { p.Staff = 0; continue; }
             p.Staff = need <= 0 ? 1 : Math.Clamp(people / need, 0, 1);
             people -= need * p.Staff;
         }
         if (!baseTaken) baseGot = Math.Min(Math.Max(0, people), baseStaff);
         b.BaseStaff = baseStaff <= 0 ? 1 : Math.Clamp(baseGot / baseStaff, 0, 1);
         // An empty world you hold still works its buildings at the unsettled share, with nobody to staff them.
-        if (b.PopK <= 0) foreach (var (p, data) in built) p.Staff = StaffKOf(w, b, data!) <= 0 ? 1 : D.UnsettledShare;
+        if (b.PopK <= 0) foreach (var (p, data) in built) p.Staff = SwitchedOff(p, data!) ? 0 : StaffKOf(w, b, data!) <= 0 ? 1 : D.UnsettledShare;
 
         // Power.
         // Every settled world has a little power of its own (small generators), enough for a first building or two.
         var made = (b.PopK > 0 ? C.BasePower : 0) + built.Where(x => x.Data!.Power < 0).Sum(x => PowerOf(w, b, x.Piece, x.Data!, consume: true)) * (1 - Events.PowerCut(w, b));
         b.PowerMade = made;
         var used = 0.0;
-        foreach (var (p, data) in built)
+        // High first, then Normal, then Low; within each, the planet's area order. Off gets nothing.
+        foreach (var (p, data) in built.OrderBy(x => PowerTier(x.Piece.PowerUse)))
         {
             if (data!.Power <= 0) { p.Powered = true; continue; }
+            if (p.PowerUse == PowerUse.Off) { p.Powered = false; continue; }
             p.Powered = used + data.Power <= made + 1e-9;
             if (p.Powered) used += data.Power;
         }
         b.PowerUsed = used;
-        b.PowerWanted = built.Where(x => x.Data!.Power > 0).Sum(x => x.Data!.Power);
+        b.PowerWanted = built.Where(x => x.Data!.Power > 0 && x.Piece.PowerUse != PowerUse.Off).Sum(x => x.Data!.Power);
 
         // Goods: inputs first, then what each piece makes, then upkeep in spare parts.
         var cap = StoreDaysOf(b);
@@ -767,6 +824,14 @@ public static class Colonies
     /// <summary>Power a plant or solar field makes this hour, using its fuel if asked.</summary>
     private static double PowerOf(World w, Body b, Piece p, BuildingData data, bool consume)
     {
+        var made = PowerMade(w, b, p, data, consume, out var noFuel);
+        if (consume) p.NoFuel = noFuel;
+        return made;
+    }
+
+    private static double PowerMade(World w, Body b, Piece p, BuildingData data, bool consume, out bool noFuel)
+    {
+        noFuel = false;
         var basePower = -data.Power * Output(w, b, p, data, powered: false);
         if (data.Solar)
         {
@@ -791,6 +856,7 @@ public static class Colonies
                 if (consume) { b.Stock["water"] = Held(b, "water") - water; Ledger.Out(w, side, "water", water, "power"); }
                 return basePower;
             }
+            noFuel = true;
             return basePower * 0.2;
         }
         var factor = 0.3;
@@ -805,6 +871,7 @@ public static class Colonies
             if (consume) { b.Stock["uranium"] = Held(b, "uranium") - want; Ledger.Out(w, side, "uranium", want, "power"); }
             factor = 1;
         }
+        noFuel = factor < 1;
         return basePower * factor;
     }
 
@@ -1232,6 +1299,22 @@ public sealed record SetPriorityCommand(Side Side, int BodyId, string Preset, Li
         }
         b.Preset = Order != null ? "custom" : Colonies.PresetNames.Contains(Preset) ? Preset : "balanced";
         b.Priority = Order != null ? new List<string>(Order) : null;
+    }
+}
+
+/// <summary>Set one building's power setting: High is powered first, Low cut first, Off switched off.</summary>
+public sealed record SetPowerUseCommand(Side Side, int BodyId, int PieceId, PowerUse Use) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (world.FindBody(BodyId) is not Body b || b.Owner != Side || b.Pieces.Find(p => p.Id == PieceId) is not Piece piece)
+        {
+            sim.Log.Warn("planets", "Power setting for a building that is not ours", new { side = Side.ToString(), BodyId, PieceId, Source });
+            return;
+        }
+        piece.PowerUse = Use;
     }
 }
 

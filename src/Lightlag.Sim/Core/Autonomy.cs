@@ -13,8 +13,8 @@ public static class Autonomy
     /// <summary>A fleet makes no choices of its own for this long after an order reaches it (hours).</summary>
     public const double OrderRespectHours = 12;
 
-    /// <summary>An enemy this much stronger (by sighting) is one to run from.</summary>
-    public const double RunFromRatio = 1.25;
+    /// <summary>An enemy this much stronger (by sighting) is one to run from: about 2 to 1, so even-ish fights happen.</summary>
+    public const double RunFromRatio = 2.0;
 
     /// <summary>A Free fleet goes after an enemy it outguns this much, within this range (AU).</summary>
     public const double AttackRatio = 1.5;
@@ -64,9 +64,11 @@ public static class Autonomy
         if (command is not IFleetCommand fc || command.Source.StartsWith("ai:", StringComparison.Ordinal) || command.Source == "auto") return;
         if (sim.World.FindFleet(fc.FleetId) is not Fleet f) return;
         f.LastOrderHour = sim.World.Hour;
-        if (f.Mission != Mission.None && command is PlanFlightCommand or StopFleetCommand or SetHoldCommand or GatherFleetsCommand or SendAheadCommand)
+        if ((f.Mission != Mission.None || f.ZoneId != null) && command is PlanFlightCommand or StopFleetCommand or SetHoldCommand or GatherFleetsCommand or SendAheadCommand)
         {
+            // A direct move also takes it off its zone, or the zone would pull it straight back once it got there.
             f.Mission = Mission.None;
+            f.ZoneId = null;
             sim.Log.Info("fleet", $"{f.Name} mission ends: new orders", new { fleetId = f.Id });
         }
     }
@@ -98,6 +100,8 @@ public static class Autonomy
         foreach (var s in seen.OrderBy(s => Vec2.Distance(s.Guess(w.Hour), f.Position)).ThenBy(s => s.FleetId))
         {
             if (PowerOf(s) < own * RunFromRatio) continue;
+            // Never run from the very fleet command sent it after: that fight was ordered.
+            if (f.Chase?.TargetFleetId == s.FleetId || f.Flight?.TargetFleetId == s.FleetId) continue;
             var gap = Vec2.Distance(s.Guess(w.Hour), f.Position);
             var eta = gap <= GameData.Combat.ContactRangeMm * 2 ? 0 : s.Visible ? Sensors.HeadingFor(s, f, w.Hour, Sensors.MotionOf(w, f)) : null;
             if (eta is not double hours || hours > ThreatHours) continue;
@@ -105,7 +109,8 @@ public static class Autonomy
             if (Combat.GoingHome(w, f)) return false;
             Combat.Retreat(sim, f, $"runs from {s.Name} and heads home");
             Report(sim, f, $"{f.Name} saw {s.Name} ({s.Ships} ships) coming"
-                + (hours > 0 ? $", about {hours:0} h out" : " close by") + $"; outgunned, it is heading home.");
+                + (hours > 0 ? $", about {hours:0} h out" : " close by") + $"; outgunned about {PowerOf(s) / Math.Max(1e-9, own):0.#} to 1 and out of touch with command, "
+                + $"it is heading home ({f.Autonomy} standing orders: set Strict to stop this).");
             return true;
         }
 

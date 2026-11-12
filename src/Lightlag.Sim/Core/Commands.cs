@@ -51,6 +51,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(LandTroopsCommand), "landTroops")]
 [JsonDerivedType(typeof(BoardSlipwayCommand), "boardSlipway")]
 [JsonDerivedType(typeof(SetPriorityCommand), "setPriority")]
+[JsonDerivedType(typeof(SetPowerUseCommand), "setPowerUse")]
 [JsonDerivedType(typeof(SetSiegeStockCommand), "setSiegeStock")]
 [JsonDerivedType(typeof(SetAutoTransportCommand), "setAutoTransport")]
 [JsonDerivedType(typeof(FixedRunCommand), "fixedRun")]

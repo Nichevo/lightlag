@@ -324,6 +324,69 @@ public class FleetTests
     }
 
     [Fact]
+    public void A_fleet_chasing_to_join_one_that_settles_into_orbit_goes_to_the_planet_and_merges()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        var vela = BodyNamed(sim, "vela");
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0] }));
+        sim.Step();
+        var other = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        // The fleet to join is drifting away when the order is given, so the joiner chases it...
+        fleet.Flight = null;
+        Fleets.EnterDrift(fleet);
+        fleet.Velocity = new Vec2(0, 20);
+        sim.Issue(new GatherFleetsCommand(fleet.Id, new List<int> { other.Id }, 1));
+        sim.Step();
+        Assert.Equal(ChaseMode.Join, other.Chase?.Mode);
+        // ...and then it is sent to orbit Vela, where it keeps circling.
+        sim.Issue(new PlanFlightCommand(fleet.Id, To(vela)));
+        for (var h = 0; h < 120 * 24 && sim.World.FindFleet(other.Id) != null; h++) sim.Step();
+        Assert.Null(sim.World.FindFleet(other.Id));
+        Assert.Equal(3, fleet.ShipIds.Count);
+        Assert.Equal(vela.Id, fleet.OrbitBodyId);
+    }
+
+    [Fact]
+    public void A_join_chase_that_can_never_catch_up_gives_up_after_a_day_and_says_why()
+    {
+        var sim = NewGame();
+        var fleet = PlayerFleet(sim);
+        sim.Issue(new SplitFleetCommand(fleet.Id, new List<int> { fleet.ShipIds[0] }));
+        sim.Step();
+        var other = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != fleet.Id);
+        fleet.Flight = null;
+        Fleets.EnterDrift(fleet);
+        fleet.Velocity = new Vec2(0, 20);
+        sim.Issue(new GatherFleetsCommand(fleet.Id, new List<int> { other.Id }, 0.5));
+        sim.Step();
+        Assert.Equal(ChaseMode.Join, other.Chase?.Mode);
+        // The fleet to join now flies far faster than the joiner ever could.
+        fleet.Velocity = new Vec2(0, 50000);
+        for (var h = 0; h < 4 * 24 && other.Chase != null; h++) sim.Step();
+        Assert.Null(other.Chase);
+        Assert.Null(other.JoinFleetId);
+        Assert.Contains(sim.World.Light.Notes, n => n.FleetId == other.Id && n.Text.Contains("stops trying"));
+        Assert.True(sim.Log.Tail().Count(l => l.Contains("cannot catch up with")) <= 2);
+    }
+
+    [Fact]
+    public void Losing_housing_sends_away_the_people_it_held()
+    {
+        var sim = NewGame();
+        var home = sim.World.Bodies.First(b => b.Owner == Side.Player && b.Home);
+        var data = Colonies.Kinds.First(k => k.HousingK > 0);
+        var spot = Colonies.BestSpot(home, data);
+        Assert.NotNull(spot);
+        Colonies.AddPiece(sim.World, home, data, spot!.Value.Item1, spot.Value.Item2, spot.Value.Item3, built: true);
+        Colonies.SyncBuildings(home);
+        home.PopK = Planets.Cap(home);
+        Colonies.RemoveOne(home, p => p.Kind == data.Id);
+        Assert.True(home.PopK <= Planets.Cap(home) + 1e-9);
+        Assert.Empty(sim.CheckRules());
+    }
+
+    [Fact]
     public void A_join_that_cannot_be_flown_is_refused_up_front_and_changes_nothing()
     {
         var sim = NewGame();

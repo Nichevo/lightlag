@@ -38,6 +38,34 @@ public class ChaseTests
     }
 
     [Fact]
+    public void A_quarry_last_seen_in_orbit_is_looked_for_at_its_planet_not_on_a_straight_line()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var w = sim.World;
+        var mine = w.Fleets.First(f => f.Side == Side.Player);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        var rust = w.FindBody(theirs.OrbitBodyId!.Value)!;
+        Sensors.Reveal(w, Side.Player, theirs);
+        Assert.Equal(rust.Id, Sensors.Find(w, Side.Player, theirs.Id)!.OrbitBodyId);
+        // Out of sight, the guess stays with the planet (a straight line along the orbit would leave it behind).
+        sim.StepMany(24);
+        var guess = Sensors.Predict(w, Side.Player, theirs.Id, w.Hour + 24 * 20)!.Value;
+        Assert.True(Vec2.Distance(guess, FlightPlanner.PredictBody(w, rust, w.Hour + 24 * 20)) < Fleets.OrbitRadiusFor(rust) * 3);
+
+        sim.Issue(new PlanFlightCommand(mine.Id, new FlightRequest(null, theirs.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick,
+            TargetFleetId: theirs.Id, Chase: ChaseMode.GunRange)));
+        // Still closing in after ten days: the chase goes on.
+        sim.StepMany(11 * 24);
+        Assert.NotNull(mine.Chase);
+        // The month-old sighting is forgotten: the fleet goes on to the planet and says so.
+        while (mine.Chase != null && w.Hour < 40 * 24) sim.Step();
+        Assert.Null(mine.Chase);
+        Assert.Equal(rust.Id, mine.Flight?.TargetBodyId);
+        Assert.Equal(HoldStyle.Orbit, mine.Flight!.HoldAfter);
+        Assert.Contains(w.Light.Notes, n => n.FleetId == mine.Id && n.Text.Contains("last seen in orbit at"));
+    }
+
+    [Fact]
     public void Chase_reaims_when_the_enemy_is_seen_to_change_course()
     {
         var (sim, mine, theirs) = Setup(2, 0, new Vec2(0, 120));

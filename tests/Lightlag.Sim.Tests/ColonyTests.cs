@@ -141,6 +141,34 @@ public class ColonyTests
     }
 
     [Fact]
+    public void A_buildings_own_power_setting_beats_the_area_order_and_off_frees_its_power()
+    {
+        var sim = NewGame();
+        var kesh = Colony(sim, "kesh", 8);
+        var mine = Put(sim, kesh, Planets.Mine);
+        var guns = Put(sim, kesh, Planets.Guns);
+        Hours(sim, 1);
+        Assert.True(guns.Powered);
+        Assert.False(mine.Powered);
+        Assert.Contains("Mine off", Colonies.PowerNote(sim.World, kesh));
+        // High on the mine puts it ahead of the guns (works while paused: a home order applies at once).
+        sim.Issue(new SetPowerUseCommand(Side.Player, kesh.Id, mine.Id, PowerUse.High));
+        sim.ApplyPending();
+        Assert.Equal(PowerUse.High, mine.PowerUse);
+        Hours(sim, 1);
+        Assert.True(mine.Powered);
+        Assert.False(guns.Powered);
+        // Off on the mine: it takes no power or staff, so the guns run and nothing is short.
+        sim.Issue(new SetPowerUseCommand(Side.Player, kesh.Id, mine.Id, PowerUse.Off));
+        Hours(sim, 1);
+        Assert.False(mine.Powered);
+        Assert.Equal(0, mine.Staff);
+        Assert.True(guns.Powered);
+        Assert.Null(Colonies.PowerNote(sim.World, kesh));
+        Assert.Empty(sim.CheckRules());
+    }
+
+    [Fact]
     public void Without_spare_parts_buildings_wear_and_work_less()
     {
         var sim = NewGame();

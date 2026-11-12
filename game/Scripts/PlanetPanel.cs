@@ -130,6 +130,7 @@ public partial class PlanetPanel : PanelContainer
             lines.Add($"Power {b.PowerUsed:0}/{b.PowerMade:0}" + (b.PowerWanted > b.PowerMade + 1e-6 ? $" (SHORT: wants {b.PowerWanted:0})" : "")
                       + $" · priorities: {Colonies.PresetName(b.Preset)}"
                       + (Colonies.HoldsOutDays(b) is double days ? $" · holds out {days:0} days if cut off" : ""));
+            if (Colonies.PowerNote(w, b) is string powerNote) lines.Add("POWER: " + powerNote);
             var held = Colonies.Goods.Where(g => Colonies.Held(b, g.Id) >= 0.5).Select(g => $"{g.Short} {Colonies.Held(b, g.Id):0}");
             lines.Add("Goods: " + (held.Any() ? string.Join(" · ", held) : "none"));
         }

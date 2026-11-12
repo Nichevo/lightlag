@@ -47,6 +47,12 @@ public sealed class Sighting
     public double FlagScore { get; set; }
     public int? FlagShipId { get; set; }
 
+    /// <summary>
+    /// The body it was last seen holding orbit at, or null. Its Velocity is then the body's, so a straight-line
+    /// guess stays with the planet instead of flying off along the orbit when it slips out of sight.
+    /// </summary>
+    public int? OrbitBodyId { get; set; }
+
     /// <summary>Where it would be at this hour if it kept going as last seen.</summary>
     public Vec2 Guess(double hour) => Position + Velocity * Math.Max(0, hour - Hour);
 
@@ -188,10 +194,31 @@ public static class Sensors
         if (w.FindFleet(fleetId) is Fleet f && f.Side == side) return Combat.PredictFleet(w, f, hour);
         var s = Find(w, side, fleetId, seat);
         if (s == null) return null;
+        // Last seen in orbit and now out of sight (behind the planet, say): it is taken to be circling there still.
+        if (!s.Visible && s.OrbitBodyId is int ob && w.FindBody(ob) is Body body) return GuessInOrbit(w, s, body, hour);
         if (s.Visible && s.State == SignatureState.Orbit && (!seat || !w.Light.On) && w.FindFleet(fleetId) is { Hold: HoldStyle.Orbit } orbiting)
             return FlightPlanner.PredictHoldPosition(w, orbiting, hour);
         return s.Guess(hour);
     }
+
+    /// <summary>Records how a seen fleet moves: in orbit, the body it circles and that body's velocity.</summary>
+    private static void SetMotion(World w, Sighting s, Fleet enemy)
+    {
+        if (enemy.Hold == HoldStyle.Orbit && enemy.Flight is not { Started: true } && enemy.OrbitBodyId is int ob && w.FindBody(ob) is Body body)
+        {
+            s.OrbitBodyId = ob;
+            s.Velocity = FlightPlanner.PredictBody(w, body, w.Hour + 0.5) - FlightPlanner.PredictBody(w, body, w.Hour - 0.5);
+        }
+        else
+        {
+            s.OrbitBodyId = null;
+            s.Velocity = enemy.Velocity;
+        }
+    }
+
+    /// <summary>Where a fleet last seen in orbit of this body is taken to be: the same distance out from it, moving with it.</summary>
+    public static Vec2 GuessInOrbit(World w, Sighting s, Body body, double hour) =>
+        FlightPlanner.PredictBody(w, body, hour) + (s.Position - FlightPlanner.PredictBody(w, body, s.Hour));
 
     /// <summary>How far a body the side holds sees: full range at the shipyard or with a sensor station, else like a ship.</summary>
     public static double PlanetSensorOf(World w, Side side, Body b)
@@ -277,7 +304,7 @@ public static class Sensors
                 sighting.Name = enemy.Name;
                 sighting.Ships = enemy.ShipIds.Count;
                 sighting.Position = enemy.Position;
-                sighting.Velocity = enemy.Velocity;
+                SetMotion(w, sighting, enemy);
                 sighting.State = StateOf(enemy);
                 sighting.Hour = now;
                 if (nearest <= IdentifyRange(w, side))
@@ -290,7 +317,7 @@ public static class Sensors
             // A track that points somewhere your sensors watch clearly, with nothing there, is wrong: the
             // fleet turned, stopped or merged out of sight. Drop it rather than show a ghost to fight.
             foreach (var lost in w.Sightings.Where(s => s.SeenBy == side && !s.Visible && now - s.Hour >= LostTrackAfterHours
-                                                          && LookedAndNotThere(w, observers, s.Guess(now))).ToList())
+                                                          && LookedAndNotThere(w, observers, s.OrbitBodyId is int ob && w.FindBody(ob) is Body orbited ? GuessInOrbit(w, s, orbited, now) : s.Guess(now))).ToList())
             {
                 w.Sightings.Remove(lost);
                 sim.Log.Info("sensors", $"{side} loses track of {lost.Name}", new { side = side.ToString(), fleetId = lost.FleetId, lastSeenHour = lost.Hour });
@@ -323,7 +350,7 @@ public static class Sensors
         s.Name = enemy.Name;
         s.Ships = enemy.ShipIds.Count;
         s.Position = enemy.Position;
-        s.Velocity = enemy.Velocity;
+        SetMotion(w, s, enemy);
         s.State = StateOf(enemy);
         s.Hour = w.Hour;
         s.SpottedHour = w.Hour;

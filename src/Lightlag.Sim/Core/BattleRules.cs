@@ -80,7 +80,7 @@ public static class BattleRules
 {
     /// <summary>Called for every fleet before it steers (see Combat.Steer).</summary>
     /// <summary>How much stronger the enemy must be before a small group (see Combat.SmallGroup) slips away on contact.</summary>
-    public const double OutgunnedRatio = 1.5;
+    public const double OutgunnedRatio = 2.0;
 
     public static void Check(Simulation sim, Fleet f, Fleet? enemy)
     {
@@ -109,6 +109,14 @@ public static class BattleRules
             PullBack(sim, f, ships.Count == 1 ? "is crippled and limps home" : "is crippled to the last ship and limps home", toYard: true);
             return;
         }
+        // Every gun off with heat, no missiles left, and so close to the sun that it cannot cool while it
+        // manoeuvres: it cannot fight, so it pulls out (otherwise the fight goes on for weeks with nobody shooting).
+        if (enemy != null && !f.HoldOn && ships.All(s => s.Overheated && s.Missiles == 0)
+            && Heat.D.IdlePerHour + Hazards.SunHeat(w, f.Position) + Heat.D.BurnPerHour >= Heat.D.RadiateOutPerHour)
+        {
+            PullBack(sim, f, "is overheated this close to the sun and pulls out to cool");
+            return;
+        }
         var rule = Effective(f);
         if (rule.ShipRule && ships.Count > 1) ShipRule(sim, f, rule);
         else if (rule.ShipRule && ships.Count == 1 && ShipShouldLeave(w, ships[0], rule) && !f.HoldOn)
@@ -124,8 +132,10 @@ public static class BattleRules
         // Already in orbit where it would pull back to (its yard): there is nowhere further to go, so it stays.
         if (NearestYard(w, f.Side, f.Position) is Body yard && Economy.InOrbitAt(f, yard) && f.Flight == null) return;
         // A lone ship or a pair met by a much stronger enemy slips away at once (small groups get away more easily);
-        // one guarding home or set to fight to the last stays.
+        // one guarding home or set to fight to the last stays, and so does one sent after this enemy: it was
+        // ordered to fight, so it gets its shots in and the usual rules (losses, ammunition) decide when it goes.
         if (w.Loop && enemy != null && f.ShipIds.Count <= Combat.SmallGroup && rule.Preset != PullPreset.ToTheLast && !f.Retreating
+            && !SentAfter(w, f, enemy)
             && w.Fleets.Where(e => e.Side == enemy.Side && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm).Sum(e => Strength(w, e))
                > OutgunnedRatio * Math.Max(1e-9, Strength(w, f)))
         {
@@ -133,6 +143,14 @@ public static class BattleRules
             return;
         }
         if (Trigger(w, f, rule) is string why) PullBack(sim, f, why);
+    }
+
+    /// <summary>Was this fleet sent after that enemy (chasing it or flying to it), or after a fleet of its side close by?</summary>
+    public static bool SentAfter(World w, Fleet f, Fleet enemy)
+    {
+        var target = f.Chase?.TargetFleetId ?? f.Flight?.TargetFleetId;
+        return target is int id && (id == enemy.Id || w.FindFleet(id) is { } t && t.Side == enemy.Side
+                                    && Vec2.Distance(t.Position, f.Position) <= GameData.Combat.ContactRangeMm);
     }
 
     /// <summary>The rule in force (the old "don't retreat" standing order means To the last).</summary>
