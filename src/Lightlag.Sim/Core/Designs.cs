@@ -283,6 +283,11 @@ public static class Designer
         QShip => "Q-ship",
         LongRange => "long range",
         Lancer => "lancer",
+        GunFort => "gun fort",
+        MissileFort => "missile fort",
+        FleetBase => "fleet base",
+        Watchtower => "watchtower",
+        YardGuard => "yard guard",
         "" => "own fit",
         _ => role,
     };
@@ -317,6 +322,81 @@ public static class Designer
 
     public static readonly string[] Roles = { QShip, LongRange, Lancer };
 
+    // ---- Station loadouts ----------------------------------------------------------------------
+
+    public const string GunFort = "gun-fort";
+    public const string MissileFort = "missile-fort";
+    public const string FleetBase = "fleet-base";
+    public const string Watchtower = "watchtower";
+    public const string YardGuard = "yard-guard";
+
+    /// <summary>The loadouts every station tier comes with (variants of the tier, kept current like Auto variants).</summary>
+    public static readonly string[] StationRoles = { GunFort, MissileFort, FleetBase, Watchtower, YardGuard };
+
+    /// <summary>
+    /// A station loadout for this tier: Gun fort (railguns, a magazine), Missile fort (missile racks, magazine,
+    /// depot, watch), Fleet base (repairs, magazine, slipway, depot; few guns), Watchtower (watch and relay bays,
+    /// point defence) or Yard guard (slipway or dock, repairs, railguns). Null when the tier can't carry it or it
+    /// would be the Standard.
+    /// </summary>
+    public static (string Name, string Role, List<string> Fit)? StationVariant(World w, Side side, ShipClass cls, string role)
+    {
+        if (!cls.Station) return null;
+        var std = Fitting.StandardFit(cls);
+        var fit = std.ToList();
+        var slots = cls.SlotList;
+        string BayOf(int i) => GameData.Module(fit[i])?.Bay ?? "";
+        void KeepBays(params string[] keep)
+        {
+            for (var i = 0; i < fit.Count; i++)
+                if (slots[i].Type == "B" && !keep.Contains(BayOf(i))) fit[i] = "";
+        }
+        void PutBay(string module)
+        {
+            var bay = GameData.Module(module)!.Bay;
+            if (Enumerable.Range(0, fit.Count).Any(i => slots[i].Type == "B" && BayOf(i) == bay)) return;
+            var free = Enumerable.Range(0, fit.Count).FirstOrDefault(i => slots[i].Type == "B" && fit[i].Length == 0, -1);
+            if (free >= 0 && Fitting.CanUse(w, side, cls, free, module) == null) fit[free] = module;
+        }
+        var weapons = Enumerable.Range(0, fit.Count).Where(i => slots[i].Type == "W").ToList();
+        switch (role)
+        {
+            case GunFort:
+                if (weapons.Count == 0) return null;
+                foreach (var i in weapons) fit[i] = "railgun";
+                KeepBays("magazine");
+                break;
+            case MissileFort:
+                if (weapons.Count == 0) return null;
+                foreach (var i in weapons) fit[i] = "missile-rack";
+                KeepBays("magazine", "fuel-depot", "watch");
+                break;
+            case FleetBase:
+                foreach (var i in weapons.Skip(1)) fit[i] = "";
+                KeepBays("hangar", "dock", "magazine", "slipway", "fuel-depot");
+                if (!fit.Any(m => GameData.Module(m)?.Bay is "hangar" or "dock")) PutBay("dock-bay");
+                break;
+            case Watchtower:
+                foreach (var i in weapons) fit[i] = "";
+                KeepBays();
+                PutBay("watch-bay");
+                PutBay("relay-bay");
+                for (var i = 0; i < fit.Count; i++)
+                    if (slots[i].Type == "D" && GameData.Module(fit[i])?.PointDefence is not > 0) fit[i] = "";
+                break;
+            case YardGuard:
+                foreach (var i in weapons) fit[i] = "railgun";
+                KeepBays("hangar", "slipway", "dock");
+                if (!fit.Any(m => GameData.Module(m)?.Bay is "slipway" or "dock")) PutBay("dock-bay");
+                break;
+            default:
+                return null;
+        }
+        fit = Best(w, side, cls, fit);
+        if (fit.SequenceEqual(Best(w, side, cls, std)) || Fitting.CanFit(w, side, cls, fit) != null) return null;
+        return (RoleName(role) is var n ? char.ToUpperInvariant(n[0]) + n[1..] : role, role, fit);
+    }
+
     // ---- Each day ----------------------------------------------------------------------------
 
     /// <summary>
@@ -349,6 +429,15 @@ public static class Designer
                     if (!Of(w, side, cls.Id).Any(d => d.Role == role) && RoleVariant(w, side, cls, role) is { } v)
                         Add(sim, side, cls.Id, v.Name, v.Role, v.Fit, auto: true, "auto");
             }
+            // Stations: each tier's Standard, and its loadouts once the tier is researched (for every side).
+            foreach (var cls in GameData.StationClasses.Values.OrderBy(c => c.Id, StringComparer.Ordinal))
+            {
+                if (auto || !state.StandardFits.ContainsKey(cls.Id)) state.StandardFits[cls.Id] = Best(w, side, cls, Fitting.StandardFit(cls));
+                if (Starbases.Researched(w, side, cls.Id) != null || !w.Starbases.Any(st => st.Side == side) && Starbases.TopTier(w, side) < 2) continue;
+                foreach (var role in StationRoles)
+                    if (!Of(w, side, cls.Id).Any(d => d.Role == role) && StationVariant(w, side, cls, role) is { } v)
+                        Add(sim, side, cls.Id, v.Name, v.Role, v.Fit, auto: true, "stations");
+            }
             if (Mind.Of(w, side) != null) RivalCrewing(sim, side);
         }
     }
@@ -371,7 +460,7 @@ public static class Designer
         var state = S(sim.World, side);
         var d = new Design { Id = state.NextDesignId++, ClassId = classId, Name = name, Role = role, Fit = fit.ToList(), Auto = auto, SavedHour = sim.World.Hour };
         state.Designs.Add(d);
-        sim.Log.Info("designs", $"{side} adds a {GameData.ShipClass(classId).Name} variant", new { side = side.ToString(), classId, d.Id, name, role, auto, fit = string.Join(",", fit), source });
+        sim.Log.Info("designs", $"{side} adds a variant of the {GameData.ShipClass(classId).Name.ToLowerInvariant()}", new { side = side.ToString(), classId, d.Id, name, role, auto, fit = string.Join(",", fit), source });
         return d;
     }
 
@@ -454,7 +543,7 @@ public sealed record SaveVariantCommand(Side Side, string ClassId, int? DesignId
     public override void Apply(World world, Simulation sim)
     {
         var name = (Name ?? "").Trim();
-        string? problem = !GameData.ShipClasses.TryGetValue(ClassId, out var cls) ? $"Unknown class '{ClassId}'"
+        string? problem = !GameData.TryClass(ClassId, out var cls) ? $"Unknown class '{ClassId}'"
             : Fitting.CanFit(world, Side, cls, Fit) is string p ? p
             : name.Length == 0 ? "A variant needs a name" : name.Length > 24 ? "At most 24 letters"
             : DesignId is int id && Designer.Find(world, Side, id)?.ClassId != ClassId ? "No such variant"
@@ -539,7 +628,7 @@ public sealed record UpdateStandardCommand(Side Side, string ClassId) : GameComm
 
     public override void Apply(World world, Simulation sim)
     {
-        if (!GameData.ShipClasses.TryGetValue(ClassId, out var cls))
+        if (!GameData.TryClass(ClassId, out var cls))
         {
             sim.Log.Warn("designs", "No such class", new { side = Side.ToString(), ClassId, Source });
             return;

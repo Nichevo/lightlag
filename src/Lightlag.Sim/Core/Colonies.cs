@@ -1071,7 +1071,7 @@ public static class Colonies
 
     /// <summary>Does this body have a working repair yard of this side's (the shipyard, or a built dry dock)?</summary>
     public static bool RepairsHere(World w, Body b, Side side) =>
-        b.Owner == side && (b.Shipyard || Built(b).Any(p => p.Kind == DryDock && p.Powered));
+        b.Owner == side && (b.Shipyard || Built(b).Any(p => p.Kind == DryDock && p.Powered)) || Starbases.Repairs(w, b, side);
 
     /// <summary>A body whose dry dock can build ships (Colony shipyards researched).</summary>
     public static bool DockBuilds(World w, Body b, Side side) =>

@@ -411,7 +411,8 @@ public static class SupplyLines
 
     public static double UpkeepPerDay(World w, Side side) =>
         (w.Ships.Where(s => s.Side == side).Sum(s => GameData.ShipClass(s.ClassId).Cost)
-         + w.Stations.Where(st => st.Side == side).Sum(st => Economy.StationKind(st.Kind)?.Cost ?? 0))
+         + w.Stations.Where(st => st.Side == side).Sum(st => Economy.StationKind(st.Kind)?.Cost ?? 0)
+         + w.Starbases.Where(st => st.Side == side).Sum(st => Starbases.ClassOf(st).Cost))
         * UpkeepShare * Tech.Factor(w, side, Tech.EfficientUpkeep);
 }
 

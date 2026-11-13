@@ -83,6 +83,9 @@ public sealed class World
     /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
     public List<Station> Stations { get; set; } = new();
 
+    /// <summary>The station line over bodies: platforms up to orbital rings, one per body (see Starbases).</summary>
+    public List<Starbase> Starbases { get; set; } = new();
+
     /// <summary>Sensor and relay satellites, on their way, in place and lately lost (see Satellites).</summary>
     public List<Satellite> Satellites { get; set; } = new();
 
@@ -182,6 +185,9 @@ public enum BodyKind { Star, Planet, Moon, Station, Asteroid }
 /// <summary>A sun, planet or moon on a circular orbit around its parent (or fixed, if no parent).</summary>
 public sealed class Body
 {
+    /// <summary>A fortress or ring over it: troops landing must beat this many times its garrison (set hourly, see Starbases).</summary>
+    public double LandingFactor { get; set; } = 1;
+
     public int Id { get; set; }
     public string Key { get; set; } = "";        // the id in the data file, e.g. "verdant"
     public string Name { get; set; } = "";

@@ -231,7 +231,7 @@ public static class Sensors
     /// <summary>How far a body the side holds sees: full range at the shipyard or with a sensor station, else like a ship.</summary>
     public static double PlanetSensorOf(World w, Side side, Body b)
     {
-        var station = Economy.Stations(w, side, Economy.SensorStation).Any(x => x.Body.Id == b.Id)
+        var station = Economy.StationBodies(w, side, Economy.SensorStation).Any(x => x.Id == b.Id)
                       || Colonies.Built(b).Any(p => Planets.BuildingKind(p.Kind)?.Sees == true && p.Powered);
         var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || station;
         // Deep-space telescopes: stations and arrays see half again as far.

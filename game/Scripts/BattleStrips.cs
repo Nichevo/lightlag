@@ -27,7 +27,12 @@ public partial class BattleStrips : Control
         (_oursPanel, _ours) = Column("Your ships");
         (_theirsPanel, _theirs) = Column("Enemy ships you can see");
         BuildInfo();
+        _siege = new SiegePanel(_screen) { Visible = false };
+        AddChild(_siege);
     }
+
+    // A planet attack: the orbit shells, the planet's fighters and the siege orders, bottom centre.
+    private SiegePanel _siege = null!;
 
     // The right-hand panel under the enemy ships: missiles in flight, quick orders for one of your fleets, and the score.
     private PanelContainer _infoPanel = null!;
@@ -157,6 +162,15 @@ public partial class BattleStrips : Control
         foreach (var update in _live) update(w);
         RefreshInfo(w, fleets);
         PlaceInfo();
+        if (SiegePanel.Siege(w, fleets, _screen.SelectedFleet) is var (body, mine))
+        {
+            _siege.Visible = true;
+            _siege.Refresh(w, body, mine);
+            var view = GetViewportRect().Size;
+            _siege.ResetSize();
+            _siege.Position = new Vector2((view.X - _siege.Size.X) / 2, view.Y - _siege.Size.Y - 110);
+        }
+        else _siege.Visible = false;
     }
 
     private void PlaceInfo()

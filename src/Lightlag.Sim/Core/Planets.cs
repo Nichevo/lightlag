@@ -136,7 +136,7 @@ public static class Planets
     {
         if (b.Owner is not Side owner || Contested(w, b)) return null;
         foreach (var f in w.Fleets)
-            if (f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)) return f.Side;
+            if (f.Side != owner && Starbases.Besieging(f, b) && Combat.Armed(w, f)) return f.Side;
         return null;
     }
 
@@ -629,9 +629,9 @@ public static class Planets
         if (f.Bombing == BombTarget.None) return null;
         if (f.OrbitBodyId is not int id || w.FindBody(id) is not Body b || !Economy.InOrbitAt(f, b)) return "Bombing: waiting to reach orbit";
         if (b.Owner == null || b.Owner == f.Side) return "Bombing: only enemy planets";
-        if (f.OrbitHeight != OrbitHeight.Low) return "Bombing: needs low orbit";
+        if (f.OrbitHeight == OrbitHeight.Far) return "Bombing: nothing reaches from far orbit (go high or low)";
         if (Defended(w, b)) return "Bombing: held off, a defending fleet is near";
-        return $"Bombing {f.Bombing.ToString().ToLowerInvariant()} at {b.Name}";
+        return $"Bombing {f.Bombing.ToString().ToLowerInvariant()} at {b.Name}{(f.OrbitHeight == OrbitHeight.High ? " from high orbit (slower)" : "")}";
     }
 
     /// <summary>Fleets told to bomb hit the people or a kind of building of the enemy planet they hold low orbit over.</summary>
@@ -641,7 +641,7 @@ public static class Planets
         foreach (var f in w.Fleets.Where(f => f.Bombing != BombTarget.None).ToList())
         {
             if (f.OrbitBodyId is not int id || w.FindBody(id) is not Body b || !Economy.InOrbitAt(f, b)) continue;
-            if (b.Owner is not Side owner || owner == f.Side || f.OrbitHeight != OrbitHeight.Low || Defended(w, b)) continue;
+            if (b.Owner is not Side owner || owner == f.Side || f.OrbitHeight == OrbitHeight.Far || Defended(w, b)) continue;
             if (f.Bombing == BombTarget.People ? b.PopK <= 0 : Targets(b, f.Bombing) == 0)
             {
                 Autonomy.Report(sim, f, $"{f.Name} stops bombing {b.Name}: nothing left to hit", NoteKind.OwnDecision);
@@ -649,6 +649,7 @@ public static class Planets
                 continue;
             }
             var damage = w.ShipsOf(f).Sum(s => Economy.HourlyDamage(w, s, consume: true)) * BombShare(b)
+                         * (f.OrbitHeight == OrbitHeight.High ? Starbases.D.HighOrbitBombShare : 1)
                          * (b.Owner is Side held ? Tech.Factor(w, held, "hardened-bunkers") : 1);
             if (damage <= 0) continue;
             if (f.Bombing == BombTarget.People)
@@ -670,31 +671,43 @@ public static class Planets
         }
     }
 
-    /// <summary>Rail batteries fire on enemy ships holding low orbit; missile silos reach high orbit too.</summary>
+    /// <summary>
+    /// Rail batteries fire on enemy ships holding low orbit (and at a share high orbit), missile silos reach high orbit in
+    /// full; neither reaches far orbit. Fleets over a moon inside the guns' reach (rails 40 Mm, silos 60) are shot at too.
+    /// The station over the planet fights on its own (see Starbases.Fight); what is left of the low-orbit fire hits an
+    /// enemy station that has taken the orbit.
+    /// </summary>
     private static void PlanetGuns(Simulation sim)
     {
         var w = sim.World;
-        Forts(sim);
-        foreach (var b in w.Bodies.Where(b => b.Owner != null && (Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0) || Economy.Fort(w, b) != null)).ToList())
+        Starbases.Fight(sim);
+        foreach (var b in w.Bodies.Where(b => b.Owner != null && Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0)).ToList())
         {
-            // Rail batteries reach high orbit too, at a share; missile silos and defence stations reach both in full.
-            var fort = Economy.Fort(w, b) is Station st ? Economy.StationKind(st.Kind)!.GunDamage : 0;
-            var low = Colonies.Sum(w, b, k => k.GunDamage) + fort;
-            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : k.GunDamage * D.GunHighOrbitShare) + fort;
+            var low = Colonies.Sum(w, b, k => k.GunDamage);
+            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : k.GunDamage * D.GunHighOrbitShare);
+            var silos = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : 0) > 0;
+            // Targets: enemy fleets in low or high orbit here, and over moons in reach (rails reach the low pool's
+            // moons, silos the high pool's).
+            var targets = w.Fleets.Where(f => f.Side != b.Owner && Starbases.Besieging(f, b)).Select(f => (Fleet: f, Low: f.OrbitHeight == OrbitHeight.Low)).ToList();
+            foreach (var moon in Starbases.MoonsWithin(w, b, silos ? Starbases.D.SiloReachMm : Starbases.D.RailReachMm))
+                targets.AddRange(w.Fleets.Where(f => f.Side != b.Owner && Starbases.Besieging(f, moon))
+                    .Select(f => (Fleet: f, Low: moon.OrbitRadius <= Starbases.D.RailReachMm && f.OrbitHeight == OrbitHeight.Low)));
+            var enemyStation = Starbases.At(w, b.Id) is Starbase es && es.Side != b.Owner && Starbases.Working(w, es);
             // Guns fire ammunition: with none in store they fire half as hard.
-            if (w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)))
+            if (targets.Count > 0 || enemyStation)
             {
                 var ammo = Colonies.Sum(w, b, k => k.GunDamage > 0 ? k.Ammo : 0) / 24;
                 if (Colonies.Held(b, "ammunition") >= ammo) { b.Stock["ammunition"] = Colonies.Held(b, "ammunition") - ammo; Ledger.Out(w, b.Owner, "ammunition", ammo, "planet guns"); }
                 else { low *= 0.5; high *= 0.5; }
             }
-            foreach (var f in w.Fleets.Where(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)).OrderBy(f => f.OrbitHeight).ThenBy(f => f.Id).ToList())
+            foreach (var (f, isLow) in targets.OrderBy(t => t.Fleet.OrbitHeight).ThenBy(t => t.Fleet.Id).ToList())
             {
-                var damage = f.OrbitHeight == OrbitHeight.Low ? low : high;
+                var damage = isLow ? low : high;
                 if (damage <= 0) continue;
-                var ship = w.ShipsOf(f).OrderBy(s => s.Armour).ThenBy(s => s.Id).First();
+                var ship = w.ShipsOf(f).OrderBy(s => s.Armour).ThenBy(s => s.Id).FirstOrDefault();
+                if (ship == null) continue;
                 var hit = Math.Min(damage, ship.Armour);
-                if (f.OrbitHeight == OrbitHeight.Low) low -= hit;
+                if (isLow) low -= hit;
                 high -= hit;
                 ship.Armour -= hit;
                 if (ship.Armour > 1e-9) continue;
@@ -703,35 +716,7 @@ public static class Planets
                 sim.Log.Info("planets", $"{b.Name}'s guns destroy {ship.Name}", new { bodyId = b.Id, shipId = ship.Id, side = ship.Side.ToString() });
                 Combat.Destroy(sim, ship);
             }
-        }
-    }
-
-    /// <summary>
-    /// Defence stations: enemy warships in orbit shoot at the station first (it is the biggest gun over the planet),
-    /// as they would a shipyard. At no armour it is wrecked. Not under fire, it mends RepairPerDay a day.
-    /// </summary>
-    private static void Forts(Simulation sim)
-    {
-        var w = sim.World;
-        foreach (var st in w.Stations.Where(st => w.Hour >= st.ReadyHour && Economy.StationKind(st.Kind)?.Armour > 0).ToList())
-        {
-            var data = Economy.StationKind(st.Kind)!;
-            if (w.FindBody(st.BodyId) is not Body b) continue;
-            var attackers = w.Fleets.Where(f => f.Side != st.Side && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).ToList();
-            var damage = attackers.SelectMany(w.ShipsOf).Sum(s => Economy.HourlyDamage(w, s, consume: true));
-            if (damage <= 0)
-            {
-                if (st.LastHitHour == null || w.Hour - st.LastHitHour > 24) st.Armour = Math.Min(data.Armour, st.Armour + data.Armour * data.RepairPerDay / 24);
-                continue;
-            }
-            if (st.LastHitHour == null || w.Hour - st.LastHitHour > 24)
-                sim.Log.Info("planets", $"{b.Name}'s defence station is under fire", new { bodyId = b.Id, side = st.Side.ToString(), attacker = attackers[0].Side.ToString() });
-            st.LastHitHour = w.Hour;
-            st.Armour -= damage;
-            if (st.Armour > 0) continue;
-            w.Stations.Remove(st);
-            Economy.Of(w, attackers[0].Side).Totals.FortsWrecked++;
-            sim.Log.Info("planets", $"{b.Name}'s defence station is wrecked", new { bodyId = b.Id, side = st.Side.ToString(), by = attackers[0].Side.ToString() });
+            if (enemyStation) Starbases.TakeGroundFire(sim, b, Math.Max(0, low));
         }
     }
 
@@ -739,7 +724,7 @@ public static class Planets
     public static double GarrisonOf(Body b) =>
         (b.PopK * D.GarrisonPerK * (0.5 + b.Happiness / 100)
          + Colonies.Built(b).Sum(p => (BuildingKind(p.Kind)?.GarrisonK ?? 0) * (p.Kind == "bunker" ? b.BunkerFactor : 1))
-         + Core.Ground.MilitiaOf(b)) * Core.Ground.BlockadeFactor(b);
+         + Core.Ground.MilitiaOf(b)) * Core.Ground.BlockadeFactor(b) * b.LandingFactor;
 
     /// <summary>The line below which a blockaded planet gives up to this side.</summary>
     public static double SurrenderLine(World w, Side to) => Tipped(w, to) ? D.SurrenderBelowTipped : D.SurrenderBelow;
@@ -1122,8 +1107,9 @@ public static class Planets
         if (!Economy.InOrbitAt(f, b)) return $"Hold orbit at {b.Name} first";
         if (f.OrbitHeight != OrbitHeight.Low) return "Troops land from low orbit";
         if (b.Owner == f.Side) return "It is already yours";
+        if (Starbases.CoverProblem(w, b, f.Side) is string covered) return covered;
         if (b.PopK <= 0 && b.Owner == null) return "Nobody there to fight: claim or settle it instead";
-        if (w.Fleets.Any(o => o.Side != f.Side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o))) return "Enemy warships hold orbit here";
+        if (w.Fleets.Any(o => o.Side != f.Side && Starbases.Besieging(o, b) && Combat.Armed(w, o))) return "Enemy warships hold orbit here";
         // A held world must first be cut off for a while (its holder gets time to send relief); more troops may
         // join a landing already fighting there.
         if (b.Owner != null && b.LandingSide != f.Side && LandWaitDays(w, f.Side, b) is double wait and > 0)

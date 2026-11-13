@@ -20,6 +20,9 @@ public sealed class Boarding
     public Side Side { get; set; }
     public int FleetId { get; set; }
     public int TargetShipId { get; set; }
+
+    /// <summary>Boarding a station (see Starbases) rather than a ship: its id (TargetShipId is then 0).</summary>
+    public int? StationId { get; set; }
     public string TargetName { get; set; } = "";
     public string TargetClass { get; set; } = "";
     public BoardApproach Approach { get; set; }
@@ -135,6 +138,7 @@ public static class Boarders
         var att = b.Marines * Crews.At(War.D.Crews.Boarding, Crews.RankOf(b.MarineRank)) * tech * approach * b.Edge * swarm;
         // Machine minds (the Lattice) are open to cyber attack: they hold out less against one.
         var def = b.Approach == BoardApproach.Cyber ? b.Marines * 0.8 / (target != null ? Races.Of(w, target.Side).Cyber : 1) : b.Defenders * (target != null ? Crews.BoardFactor(target) : 1) * b.DefEdge;
+        if (b.StationId != null) def = b.Defenders * b.DefEdge;
         return (att, def);
     }
 
@@ -179,6 +183,44 @@ public static class Boarders
         b.Notes.Add($"{marines * 1000:0} boarders cross to {target.Name} ({Approach(approach)}, making for the {Goal(goal)})");
         Choices.Note(w, f.Side, "boarding", target.ClassId, f.Name, approach.ToString());
         sim.Log.Info("boarding", $"{f.Name} boards {target.Name}", new { boardingId = b.Id, fleetId = f.Id, shipId = target.Id, marines = Math.Round(marines, 3),
+            defenders = Math.Round(b.Defenders, 3), chance = Math.Round(WinChance(w, b), 2), hours = Math.Round(b.Hours, 1), calls = b.CallKinds });
+        return b;
+    }
+
+    /// <summary>Send boarders across to an enemy station: its garrison defends it (fewer as its armour goes).</summary>
+    public static Boarding StartOnStation(Simulation sim, Fleet f, Starbase st, BoardApproach approach)
+    {
+        var w = sim.World;
+        var (troops, parties) = Available(w, f);
+        var crewRank = parties.Count > 0 ? parties.Average(p => w.FindShip(p.ShipId)!.Xp) : 1;
+        foreach (var p in parties) w.FindShip(p.ShipId)!.Crew -= p.Share * w.FindShip(p.ShipId)!.Crew;
+        var taken = Planets.TakeTroops(w, f, troops);
+        var marines = taken + parties.Sum(p => p.CrewK);
+        var name = Starbases.DisplayName(w, st);
+        var b = new Boarding
+        {
+            Id = w.NextId++, Side = f.Side, FleetId = f.Id, StationId = st.Id, TargetName = name, TargetClass = st.ClassId,
+            Approach = approach, Goal = BoardGoal.Bridge, Marines = marines, TroopsK = taken, Parties = parties,
+            MarineRank = marines > 0 ? (taken * Math.Max(1, crewRank) + parties.Sum(p => p.CrewK) * crewRank) / marines : 1,
+            Defenders = Starbases.GarrisonK(w, st), StartHour = w.Hour,
+        };
+        var (a, d) = Strength(w, b);
+        b.Hours = (approach == BoardApproach.Dock ? D.DockHours : D.BreachHours) * 2 * (1 + 0.5 * d / Math.Max(1e-9, a));
+        var kinds = new List<string> { "seal", "hostages", "scuttle" };
+        var n = Math.Min(kinds.Count, 1 + sim.Rng.Range(0, 3));
+        for (var i = 0; i < n; i++)
+        {
+            var k = kinds[sim.Rng.Range(0, kinds.Count)];
+            kinds.Remove(k);
+            b.CallKinds.Add(k);
+            b.CallsAt.Add(Math.Round((i + 1.0) / (n + 1), 3));
+        }
+        w.Boardings.Add(b);
+        while (w.Boardings.Count > 30 && w.Boardings.FindIndex(x => x.Outcome != null) is int old and >= 0) w.Boardings.RemoveAt(old);
+        Economy.Of(w, f.Side).Totals.Boardings++;
+        b.Notes.Add($"{marines * 1000:0} boarders cross to {name} ({Approach(approach)}), against about {b.Defenders * 1000:0} defenders");
+        Choices.Note(w, f.Side, "boarding", st.ClassId, f.Name, approach.ToString());
+        sim.Log.Info("boarding", $"{f.Name} boards a station", new { boardingId = b.Id, fleetId = f.Id, stationId = st.Id, marines = Math.Round(marines, 3),
             defenders = Math.Round(b.Defenders, 3), chance = Math.Round(WinChance(w, b), 2), hours = Math.Round(b.Hours, 1), calls = b.CallKinds });
         return b;
     }
@@ -230,6 +272,11 @@ public static class Boarders
         foreach (var b in w.Boardings.Where(b => b.Outcome == null).ToList())
         {
             var f = w.FindFleet(b.FleetId);
+            if (b.StationId is int sid)
+            {
+                StationHour(sim, b, f, sid);
+                continue;
+            }
             var target = w.FindShip(b.TargetShipId);
             if (target == null || target.Side == b.Side) { End(sim, b, "lost touch", "The target is gone"); continue; }
             if (f == null || f.Side != b.Side || Vec2.Distance(f.Position, target.Position) > D.RangeMm * 1.5)
@@ -254,6 +301,55 @@ public static class Boarders
             if (b.Outcome != null || b.Progress < 1 || b.Calls.Any(c => c.Open) || b.Calls.Count < b.CallKinds.Count) continue;
             Resolve(sim, b, f, target);
         }
+    }
+
+    /// <summary>An hour of boarding a station: as for a ship, but the fleet must stay in low orbit over it.</summary>
+    private static void StationHour(Simulation sim, Boarding b, Fleet? f, int stationId)
+    {
+        var w = sim.World;
+        var st = w.Starbases.Find(s => s.Id == stationId);
+        if (st == null || st.Side == b.Side) { End(sim, b, "lost touch", "The station is gone"); return; }
+        if (f == null || f.Side != b.Side || w.FindBody(st.BodyId) is not Body body || !Economy.InOrbitAt(f, body) || f.OrbitHeight != OrbitHeight.Low)
+        {
+            End(sim, b, "lost touch", "The fleet left low orbit: the boarders come back");
+            return;
+        }
+        b.Progress = Math.Min(1, b.Progress + 1 / Math.Max(1, b.Hours));
+        for (var i = 0; i < b.CallKinds.Count; i++)
+            if (b.Calls.Count == i && b.Progress >= b.CallsAt[i])
+            {
+                var call = MakeCall(w, b, b.CallKinds[i]);
+                b.Calls.Add(call);
+                sim.Log.Info("boarding", "Boarding call comes up", new { boardingId = b.Id, kind = call.Kind, auto = call.DueHour <= w.Hour });
+            }
+        foreach (var c in War.Due(w, b.Calls))
+        {
+            Apply(sim, b, c);
+            if (b.Outcome != null) break;
+        }
+        if (b.Outcome != null || b.Progress < 1 || b.Calls.Any(c => c.Open) || b.Calls.Count < b.CallKinds.Count) return;
+        var (a, d) = Strength(w, b);
+        if (sim.Rng.NextDouble() >= WinChance(w, b))
+        {
+            b.Marines *= 0.3;
+            Economy.Of(w, b.Side).Totals.BoardingsFailed++;
+            End(sim, b, "beaten off", $"The garrison of {b.TargetName} beats the boarders off");
+            return;
+        }
+        b.Marines *= 1 - 0.5 * d / Math.Max(1e-9, a + d);
+        var loser = st.Side;
+        if (st.ScuttleIfTaken)
+        {
+            w.Starbases.Remove(st);
+            Economy.Of(w, loser).Totals.Scuttled++;
+            End(sim, b, "scuttled", $"The garrison blows {b.TargetName} up rather than give it up");
+            return;
+        }
+        Spoils.TakePrisoners(sim, b.Side, b.Defenders * D.PrisonerShare * b.PrisonerFactor, b.TargetName, loser);
+        Spoils.Scrap(sim, b.Side, $"the fittings of {b.TargetName}", IntelSource.Capture, Intel.BattlePoints, part: true, from: loser);
+        Contact.Learn(w, b.Side, loser, Contact.D.CapturePoints, "captured station");
+        Starbases.Capture(sim, st, f);
+        End(sim, b, "taken", $"{b.TargetName} is taken: its stores and bays are ours, its guns at half until our ammunition reaches it");
     }
 
     /// <summary>The player (or anyone) makes a waiting call.</summary>
@@ -355,7 +451,7 @@ public static class Boarders
                     s.Crew = Math.Min(1, s.Crew + p.CrewK * back / War.CrewK(s));
         }
         Economy.Of(w, b.Side).Totals.TroopsLostK += start * (1 - back);
-        if (outcome == "scuttled" && w.FindShip(b.TargetShipId) is Ship t) { Economy.Of(w, t.Side).Totals.Scuttled++; Combat.Destroy(sim, t); }
+        if (outcome == "scuttled" && b.StationId == null && w.FindShip(b.TargetShipId) is Ship t) { Economy.Of(w, t.Side).Totals.Scuttled++; Combat.Destroy(sim, t); }
         sim.Log.Info("boarding", $"Boarding of {b.TargetName}: {outcome}", new { boardingId = b.Id, outcome, back = Math.Round(back, 2) });
     }
 }

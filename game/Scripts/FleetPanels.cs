@@ -319,8 +319,9 @@ public partial class FleetPanel : PanelContainer
         _height = Ui.SmallButton("Low orbit", () =>
         {
             if (_screen.SelectedFleet is Fleet sf)
-                _screen.IssueNow(new SetOrbitHeightCommand(sf.Id, sf.OrbitHeight == OrbitHeight.Low ? OrbitHeight.High : OrbitHeight.Low), "orbit height");
-        }, "Low orbit: can bomb and land troops, but planet guns reach it. High orbit: out of their reach, still blockades and claims");
+                _screen.IssueNow(new SetOrbitHeightCommand(sf.Id, sf.OrbitHeight switch { OrbitHeight.Low => OrbitHeight.High, OrbitHeight.High => OrbitHeight.Far, _ => OrbitHeight.Low }), "orbit height");
+        }, "Click to move out a shell. Low orbit: blockade, bombing and landings, in reach of every gun (and under your own station's umbrella, where it rearms and mends). "
+           + "High orbit: blockades and bombs slower; only silos and station missiles reach it. Far orbit: out of reach (bar an orbital ring) but it does nothing: no blockade, bombing or claim");
         _planetRow.AddChild(_height);
         _bomb = new MenuButton { Text = "Bomb ▾", Flat = false, FocusMode = FocusModeEnum.None,
             TooltipText = "From low orbit over an enemy planet with no defenders near. Farms starve it towards surrender; bombing its people leaves a grudge: it will never surrender to you" };
@@ -349,6 +350,12 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new BoardSlipwayCommand(sf.Id), "boarding");
         }, $"Send {Planets.D.BoardTroopsK:0.#}k troops to take the ship being built on the blockaded enemy slipway");
         _planetRow.AddChild(_board);
+        _boardStation = Ui.SmallButton("Board station", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf && sf.OrbitBodyId is int ob && Starbases.At(Main.Instance.Sim!.World, ob) is Starbase st)
+                _screen.IssueNow(new BoardStationCommand(sf.Id, st.Id), "boarding a station");
+        }, "Send troops and boarding parties to take the enemy station: its hull, stores and slipway become yours");
+        _planetRow.AddChild(_boardStation);
         box.AddChild(_planetRow);
 
         // Boarding crippled enemy ships nearby (the menu lists them when opened).
@@ -630,7 +637,7 @@ public partial class FleetPanel : PanelContainer
     }
 
     private HBoxContainer _planetRow = null!;
-    private Button _height = null!, _board = null!;
+    private Button _height = null!, _board = null!, _boardStation = null!;
     private MenuButton _land = null!;
     private MenuButton _bomb = null!;
 
@@ -756,7 +763,8 @@ public partial class FleetPanel : PanelContainer
         var troops = ships.Any(Planets.IsTroopShip);
         _planetRow.Visible = mine && w.Loop && (orbiting != null || troops);
         if (!_planetRow.Visible) return;
-        _height.Text = f.OrbitHeight == OrbitHeight.Low ? "Low orbit" : "High orbit";
+        _height.Text = f.OrbitHeight switch { OrbitHeight.Low => "Low orbit", OrbitHeight.High => "High orbit", _ => "Far orbit" }
+                       + (Starbases.StationedAt(w, f) != null ? (f.Docked ? " · docked" : " · under station") : "");
         _height.Visible = orbiting != null || troops;
         _bomb.Visible = Combat.Armed(w, f) && (enemyPlanet || f.Bombing != BombTarget.None);
         _bomb.Text = f.Bombing == BombTarget.None ? "Bomb ▾" : $"Bombing {f.Bombing.ToString().ToLowerInvariant()} ▾";
@@ -774,6 +782,14 @@ public partial class FleetPanel : PanelContainer
             var why = Planets.CanBoard(w, f, orbiting!);
             _board.Disabled = why != null;
             _board.TooltipText = why ?? "Take the ship on the slipway: it joins this fleet";
+        }
+        var enemyStation = orbiting != null ? Starbases.At(w, orbiting.Id) : null;
+        _boardStation.Visible = enemyStation != null && enemyStation.Side != f.Side;
+        if (_boardStation.Visible)
+        {
+            var why = Starbases.CanBoard(w, f, enemyStation);
+            _boardStation.Disabled = why != null;
+            _boardStation.TooltipText = why ?? $"Board the {Starbases.ClassOf(enemyStation!).Name.ToLowerInvariant()}: {Starbases.GarrisonK(w, enemyStation!):0.#}k hold it, you have {Planets.TroopsAboard(w, f):0.#}k troops aboard (and crew parties). Taken, its hull, stores and slipway are yours; the planet is not";
         }
     }
 

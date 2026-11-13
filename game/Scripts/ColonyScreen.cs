@@ -454,7 +454,7 @@ public partial class ColonyScreen : PanelContainer
         $"planet|{b.Id}|{string.Join(",", b.Pieces.Select(p => $"{p.Id}:{p.Built}"))}|{b.Preset}|{string.Join(",", Colonies.Priority(b))}|{b.SiegeDays}"
         + $"|{Economy.Of(w, Side.Player).AutoTransport}|{string.Join(",", w.FixedRuns.Where(r => r.Side == Side.Player).Select(r => r.Id))}"
         + $"|{Economy.Of(w, Side.Player).Researched.Count}|{_area}|{_onlyHere}|{_buildSort}|{_placing}|{_selectedPiece}"
-        + $"|{_runTo}|{_runGood}|{_runEvery}|{_runEscort}|{GetViewportRect().Size}|{(int)(Economy.Of(w, Side.Player).Industry / 20)}";
+        + $"|{_runTo}|{_runGood}|{_runEvery}|{_runEscort}|{GetViewportRect().Size}|{(int)(Economy.Of(w, Side.Player).Industry / 20)}|{StationPanel.Shape(w, b)}";
 
     private void BuildPlanet(World w, Body b)
     {
@@ -537,6 +537,8 @@ public partial class ColonyScreen : PanelContainer
         right.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         rightScroll.AddChild(right);
         main.AddChild(rightScroll);
+        right.AddChild(Box(StationPanel.Build(w, b, (text, size, color) => LiveWrap(text, size, color),
+            (command, what) => _screen.IssueNow(command, what)), 10));
         right.AddChild(Storage(w, b));
         right.AddChild(Transport(w, b));
     }
@@ -816,7 +818,7 @@ public partial class ColonyScreen : PanelContainer
         col.AddChild(Ui.Label("Defence", 16));
         col.AddChild(LiveWrap(_ => $"Garrison {b.Garrison:0.#}k" + (Economy.Blockaded(w, b) ? " · BLOCKADED: no building or refits, nothing comes in"
             : Planets.Contested(w, b) && w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f))
-                ? " · CONTESTED: its guns" + (Economy.Fort(w, b) is Station fort ? $" and defence station ({100 * fort.Armour / Math.Max(1, Economy.StationKind(fort.Kind)!.Armour):0} % armour)" : "")
+                ? " · CONTESTED: its guns" + (Economy.Fort(w, b) is Starbase fort ? $" and {Starbases.ClassOf(fort).Name.ToLowerInvariant()} ({100 * fort.Armour / Math.Max(1, Starbases.MaxArmour(fort)):0} % armour)" : "")
                   + " are firing on the enemy ships above; no blockade until they are knocked out" : "")
             + (Ground.HelpComing(w, b) is var (helper, days) && (Economy.Blockaded(w, b) || b.LandingSide != null)
                 ? $"\nHELP IS COMING: {helper.Name} arrives in about {days:0.#} days. Happiness rises and the defenders hold on harder." : ""), 13));

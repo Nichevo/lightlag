@@ -70,6 +70,13 @@ public sealed class RuleBook
         // A defence station's armour stays between nothing and full (a wrecked one is removed).
         .Add("forts-sane", w => w.Stations.Where(st => Economy.StationKind(st.Kind) is { Armour: > 0 } d && !(st.Armour > 0 && st.Armour <= d.Armour + 1e-6))
             .Select(st => $"station {st.Id} {st.Kind} at body {st.BodyId} has armour {st.Armour}"))
+        // The station line: a known tier, one station a body, armour between nothing and full, stores within their room.
+        .Add("starbases-sane", w => w.Starbases.Select(st =>
+            !GameData.StationClasses.ContainsKey(st.ClassId) ? $"station {st.Id} has unknown class {st.ClassId}"
+            : w.Starbases.Count(o => o.BodyId == st.BodyId) > 1 ? $"body {st.BodyId} has {w.Starbases.Count(o => o.BodyId == st.BodyId)} stations"
+            : !(st.Armour > 0 && st.Armour <= Lightlag.Sim.Core.Starbases.MaxArmour(st) + 1e-6) ? $"station {st.Id} ({st.ClassId}) has armour {st.Armour} of {Lightlag.Sim.Core.Starbases.MaxArmour(st)}"
+            : st.Ammo < -1e-6 || st.Ammo > Lightlag.Sim.Core.Starbases.AmmoCap(st) + 1e-6 || st.Fuel < -1e-6 || st.Fuel > Lightlag.Sim.Core.Starbases.FuelCap(st) + 1e-6
+                ? $"station {st.Id} ({st.ClassId}) store out of range: ammo {st.Ammo}, fuel {st.Fuel}" : null).OfType<string>())
         // A queued building is not paid for or started: it has made no progress and is not standing.
         .Add("queued-buildings-unstarted", w => w.Bodies.SelectMany(b => b.Pieces.Where(p => p.Waiting
                 && (p.Built || Lightlag.Sim.Core.Planets.BuildingKind(p.Kind) is not { } d
@@ -240,7 +247,7 @@ public sealed class RuleBook
             foreach (var d in state.Designs.Where(d => d.Id > 0))
             {
                 if (d.Id >= state.NextDesignId) yield return $"{side} variant {d.Id} is not below the next id {state.NextDesignId}";
-                if (!GameData.ShipClasses.TryGetValue(d.ClassId, out var cls)) { yield return $"{side} variant {d.Id} has unknown class '{d.ClassId}'"; continue; }
+                if (!GameData.TryClass(d.ClassId, out var cls)) { yield return $"{side} variant {d.Id} has unknown class '{d.ClassId}'"; continue; }
                 if (d.Fit.Count != cls.SlotList.Count) yield return $"{side} variant {d.Id} ({d.Name}) has {d.Fit.Count} parts for {cls.SlotList.Count} slots";
             }
             foreach (var (classId, id) in state.DefaultDesign)

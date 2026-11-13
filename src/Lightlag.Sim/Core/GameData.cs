@@ -64,6 +64,9 @@ public sealed record ShipClass(
     double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false,
     bool Lifeboats = false, bool AiRunAllowed = true, int Lances = 0, bool Sail = false)
 {
+    /// <summary>A station hull (stations.json): no engine, never flies, listed apart in the Designs screen.</summary>
+    [JsonIgnore] public bool Station => MaxSpeedMmPerHour <= 0;
+
     /// <summary>The class's slots (none for old data).</summary>
     public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();
 
@@ -113,7 +116,8 @@ public sealed record SlotData(string Type, bool Pair = false, string Fit = "")
 public sealed record ModuleData(string Id, string Name, string Slot, double Power, double Heat, double Cost,
     int Railguns = 0, int PointDefence = 0, int Missiles = 0, double Shield = 0, double Armour = 0, double SensorMm = 0,
     double Supplies = 0, int HeatSinks = 0, double HeatCapacity = 0, double AccelFactor = 1, double BurnHeatFactor = 1, string Needs = "",
-    List<string>? Fuels = null, double Cargo = 0, bool Hidden = false, Dictionary<string, double>? Materials = null, int Lances = 0);
+    List<string>? Fuels = null, double Cargo = 0, bool Hidden = false, Dictionary<string, double>? Materials = null, int Lances = 0,
+    string Bay = "", double YardM = 0, int MinTier = 0, double Store = 0);
 
 /// <summary>A fuel type (ship-classes.json, "fuels"): its good and how it burns. See the comment there.</summary>
 public sealed record FuelData(string Id, string Name, string Short, double Thrust = 1, double Reach = 1, double BurnHeat = 1, double Signature = 1,
@@ -186,7 +190,50 @@ public static class GameData
         ResearchById.TryGetValue(id, out var r) ? r : throw new InvalidDataException($"Unknown research '{id}'");
 
     public static ShipClass ShipClass(string id) =>
-        ShipClasses.TryGetValue(id, out var c) ? c : throw new InvalidDataException($"Unknown ship class '{id}'");
+        ShipClasses.TryGetValue(id, out var c) ? c : StationClasses.TryGetValue(id, out var st) ? st : throw new InvalidDataException($"Unknown ship class '{id}'");
+
+    /// <summary>A ship class or a station hull by id.</summary>
+    public static bool TryClass(string id, out ShipClass cls)
+    {
+        if (ShipClasses.TryGetValue(id, out cls!)) return true;
+        return StationClasses.TryGetValue(id, out cls!);
+    }
+
+    private static readonly Lazy<StationsData> _stations = new(LoadStations);
+
+    /// <summary>The station line: tiers, yards and reaches (Data/stations.json).</summary>
+    public static StationsData Stations => _stations.Value;
+    private static readonly Lazy<IReadOnlyDictionary<string, ShipClass>> _stationClasses = new(() => _stations.Value.Classes.ToDictionary(c => c.Id));
+
+    /// <summary>Station hulls by id (not among ShipClasses: they never fly).</summary>
+    public static IReadOnlyDictionary<string, ShipClass> StationClasses => _stationClasses.Value;
+
+    private static StationsData LoadStations()
+    {
+        var d = Json.Deserialize<StationsData>(ReadText("stations.json"));
+        var modules = Modules;
+        var tier = 0;
+        foreach (var t in d.Tiers)
+        {
+            if (t.Tier != ++tier) throw new InvalidDataException("stations.json: tiers must run 1, 2, 3... in order");
+            if (d.Classes.Find(c => c.Id == t.ClassId) is not ShipClass c) throw new InvalidDataException($"stations.json: tier {t.Tier} names unknown class '{t.ClassId}'");
+            if (c.MaxSpeedMmPerHour > 0) throw new InvalidDataException($"stations.json: '{c.Id}' must have speed 0 (stations never fly)");
+            if (!(c.Armour > 0 && c.Cost > 0 && t.Days > 0)) throw new InvalidDataException($"stations.json: '{c.Id}' needs armour, cost and days above 0");
+            foreach (var n in t.Needs ?? new()) if (!ResearchById.ContainsKey(n)) throw new InvalidDataException($"stations.json: '{c.Id}' needs unknown research '{n}'");
+            foreach (var slot in c.SlotList)
+            {
+                if (slot.Type is not ("W" or "D" or "U" or "B")) throw new InvalidDataException($"stations.json: '{c.Id}' has a slot of type '{slot.Type}' (stations take W, D, U and B)");
+                if (slot.Fit.Length > 0 && (!modules.TryGetValue(slot.Fit, out var m) || m.Slot != slot.Type || m.MinTier > t.Tier))
+                    throw new InvalidDataException($"stations.json: '{c.Id}' fits '{slot.Fit}' in a {slot.Type} slot");
+            }
+            var std = c.SlotList.Select(x => x.Fit).ToList();
+            if (Fitting.PowerUsed(c, std) > c.Power || Fitting.HeatUsed(c, std) > c.HeatBudget)
+                throw new InvalidDataException($"stations.json: '{c.Id}' standard fit is over its power or heat budget");
+        }
+        if (d.Classes.Count != d.Tiers.Count) throw new InvalidDataException("stations.json: every station class needs a tier");
+        if (d.Yards.Count == 0) throw new InvalidDataException("stations.json: no yards");
+        return d;
+    }
 
     public static string ReadText(string fileName)
     {

@@ -389,6 +389,7 @@ public sealed class Simulation
                 if (!flight.Started)
                 {
                     flight.Started = true;
+                    f.Docked = false;
                     Fleets.EnterDrift(f);
                     f.Maneuvering = false;
                     Log.Info("fleet", $"{f.Name} departs", new { fleetId = f.Id, flight.TargetBodyId });
@@ -405,12 +406,16 @@ public sealed class Simulation
                 if (f.OrbitAngle >= Math.PI * 2) f.OrbitAngle -= Math.PI * 2;
                 f.Position = FlightPlanner.PredictBody(World, body, t1) + new Vec2(DetMath.Cos(f.OrbitAngle), DetMath.Sin(f.OrbitAngle)) * f.OrbitRadius;
                 f.Velocity = Vec2.Zero;
-                if (body.Owner == f.Side && World.ActiveBattle == null)
+                if ((body.Owner == f.Side || World.Starbases.Count > 0 && Starbases.WorkingAt(World, body.Id, f.Side) != null) && World.ActiveBattle == null)
                 {
-                    // Any planet you hold refuels; only the shipyard and dry docks repair and rearm.
-                    Refill(f, dt, body);
-                    if (Colonies.RepairsHere(World, body, f.Side)) Combat.RepairAtHome(World, f, dt, body);
+                    // Any planet you hold refuels; only the shipyard, dry docks and station repair bays repair and rearm.
+                    // A station of yours over a planet you do not hold (one you took) serves from its own store.
+                    var held = body.Owner == f.Side;
+                    if (held) Refill(f, dt, body);
+                    if (Colonies.RepairsHere(World, body, f.Side)) Combat.RepairAtHome(World, f, dt, held ? body : null);
+                    Starbases.Serve(World, f, dt, body);
                 }
+                else f.Docked = false;
             }
             else
             {

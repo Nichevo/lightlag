@@ -817,7 +817,8 @@ public static class Combat
         // Point defence: every working mount in the target's fleet gets shots while the missile crosses its range.
         // Point defence covers fleet-mates close by fully, those further out of the formation less.
         var mounts = w.ShipsOf(targetFleet).Where(s => !s.Out(Module.PointDefence))
-            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1) * Wounds.DefenceFactor(s) * Formations.PdCover(s, target));
+            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1) * Wounds.DefenceFactor(s) * Formations.PdCover(s, target))
+            + Starbases.Umbrella(w, targetFleet); // a friendly station's point defence covers fleets in its orbit
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)

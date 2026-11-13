@@ -1302,7 +1302,7 @@ public static class Mind
             {
                 if (b.Owner != _enemy || b.Shipyard || _m.Jobs.Any(j => j.BodyId == b.Id)) continue;
                 var local = EnemyNear(b.Position, A.DangerRadiusAu * _au, 10 * 24);
-                var guess = local + Planets.Count(b, Planets.Guns) * A.GunValue + (Economy.Fort(_w, b) is Station st ? A.GunValue * 2 * st.Armour / Math.Max(1, Economy.StationKind(st.Kind)!.Armour) : 0)
+                var guess = local + Planets.Count(b, Planets.Guns) * A.GunValue + (Economy.Fort(_w, b) is Starbase st ? A.GunValue * 2 * Starbases.Guns(st) / 6 * st.Armour / Math.Max(1, Starbases.MaxArmour(st)) : 0)
                             + unseen * A.CampaignRelief;
                 if (free < guess * Fight * CampaignOdds) continue;
                 var days = TravelDays(from, b, ClaimSpeed);
@@ -1807,6 +1807,17 @@ public static class Mind
                 var inOrbit = !f.Maneuvering && f.Flight == null && f.OrbitBodyId is int id && _w.FindBody(id) is Body there && Economy.InOrbitAt(f, there);
                 var targetId = inOrbit ? f.OrbitBodyId : f.Flight != null && !f.Maneuvering ? _m.JobOf(f.Id)!.BodyId : null;
                 if (targetId is not int tid || _w.FindBody(tid) is not Body b || b.Owner != _enemy || b.PopK <= 0) continue;
+                // An enemy station over the planet with troops enough aboard: board it and take it (a third way in).
+                if (inOrbit && Starbases.At(_w, b.Id) is Starbase est && est.Side == _enemy && Planets.TroopsAboard(_w, f) >= Starbases.GarrisonK(_w, est) * 1.5)
+                {
+                    if (f.OrbitHeight != OrbitHeight.Low) Do(new SetOrbitHeightCommand(f.Id, OrbitHeight.Low));
+                    else if (Starbases.CanBoard(_w, f, est) == null)
+                    {
+                        Do(new BoardStationCommand(f.Id, est.Id));
+                        Note($"{f.Name} boards {b.Name}'s {Starbases.ClassOf(est).Name.ToLowerInvariant()}");
+                        continue;
+                    }
+                }
                 // How long the blockade will take on its own: happiness falls BlockadedHappinessPerDay a day to the
                 // surrender line (never, with a grudge). Troops are sent when that is longer than a week or two.
                 var raider = _m.Personality == Personality.Raider;
@@ -1886,35 +1897,16 @@ public static class Mind
         }
 
         /// <summary>
-        /// With Industry to spare after the next ship: a sensor station on the held planet nearest the
-        /// enemy that lacks one; under light lag, a relay on the held body farthest from home.
+        /// With Industry to spare after the next ship: the station line at home (platform first, then a tier at a time as
+        /// research allows: a starbase's slipway is what lets it build cruisers) and at its most contested colony (the
+        /// peopled one nearest the enemy; up to a fortress), nowhere else, so a player who scouts finds the soft worlds.
+        /// Then a helium-3 skimmer, and the transport ladder.
         /// </summary>
         private void Stations(List<WorkOrder> orders)
         {
             var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
             var spare = Economy.Of(_w, _side).Industry - shipWaiting;
-            var held = _w.Bodies.Where(b => b.Owner == _side && !b.Shipyard).ToList();
-            var toward = _enemyYard?.Position ?? Vec2.Zero;
-            // A defence station on its most valuable colony with people that has none, farthest from home first
-            // (relief takes longest there): enemy ships must wreck it before they can blockade.
-            if (!Easy && Economy.StationKind(Economy.DefenceStation) is StationData fort && spare >= fort.Cost * 1.5 && _home != null
-                && held.Where(b => b.PopK >= 10 && !Economy.HasStation(_w, _side, b.Id, Economy.DefenceStation))
-                    .OrderByDescending(b => Vec2.Distance(b.Position, _home.Position) * (1 + b.Industry)).ThenBy(b => b.Id).FirstOrDefault() is Body guard
-                && Economy.CanBuildStation(_w, _side, guard.Id, Economy.DefenceStation) == null)
-            {
-                Do(new BuildStationCommand(_side, guard.Id, Economy.DefenceStation));
-                Note($"Builds a defence station at {guard.Name}");
-                return;
-            }
-            var sensor = Economy.StationKind(Economy.SensorStation);
-            if (sensor != null && spare >= sensor.Cost * 2
-                && held.Where(b => b.Industry >= 2 && !Economy.HasStation(_w, _side, b.Id, Economy.SensorStation))
-                    .OrderBy(b => Vec2.Distance(b.Position, toward)).ThenBy(b => b.Id).FirstOrDefault() is Body watch)
-            {
-                Do(new BuildStationCommand(_side, watch.Id, Economy.SensorStation));
-                Note($"Builds a sensor station at {watch.Name}");
-                return;
-            }
+            if (Line(spare)) return;
             // Helium-3: a skimmer over a gas giant it holds, once its engines or reactors want helium-3.
             var skimmer = Economy.StationKind(Works.Skimmer);
             if (skimmer != null && spare >= skimmer.Cost * 1.5 && (skimmer.Needs == null || Tech.Has(_w, _side, skimmer.Needs))
@@ -1926,16 +1918,51 @@ public static class Mind
                 Note($"Builds a helium-3 skimmer at {giant.Name}");
                 return;
             }
-            if (_home != null && Transport(spare)) return;
-            var relay = Economy.StationKind(Economy.Relay);
-            if (!_w.Light.On || relay == null || spare < relay.Cost * 2 || _home == null) return;
-            if (_w.Stations.Any(st => st.Side == _side && st.Kind == Economy.Relay)) return;
-            if (held.OrderByDescending(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault() is Body far
-                && Vec2.Distance(far.Position, _home.Position) > 0.5 * _au)
+            if (_home != null) Transport(spare);
+        }
+
+        /// <summary>The planets the rival puts the station line over: home, and its most contested colony.</summary>
+        public List<Body> LineWorlds()
+        {
+            var worlds = new List<Body>();
+            if (_home == null) return worlds;
+            worlds.Add(_home);
+            var toward = _enemyYard?.Position ?? Vec2.Zero;
+            if (_w.Bodies.Where(b => b.Owner == _side && !b.Shipyard && b.PopK >= 10 && b.Kind != BodyKind.Star)
+                    .OrderBy(b => Vec2.Distance(b.Position, toward)).ThenBy(b => b.Id).FirstOrDefault() is Body front)
+                worlds.Add(front);
+            return worlds;
+        }
+
+        private bool Line(double spare)
+        {
+            var top = Starbases.TopTier(_w, _side);
+            if (top == 0) return false;
+            foreach (var b in LineWorlds())
             {
-                Do(new BuildStationCommand(_side, far.Id, Economy.Relay));
-                Note($"Builds a relay at {far.Name}");
+                var home = b == _home;
+                var cap = home ? top : Math.Min(top, 4);
+                var st = Starbases.Of(_w, b.Id, _side);
+                if (st == null)
+                {
+                    // A colony gets guns at once when it can; home starts with a platform and grows.
+                    var tier = home || top < 2 ? Starbases.TierAt(1)! : Starbases.TierAt(2)!;
+                    var cls = GameData.ShipClass(tier.ClassId);
+                    if (spare < cls.Cost * 1.5 || Starbases.CanBuild(_w, _side, b.Id, tier.ClassId) != null) continue;
+                    Do(new BuildStarbaseCommand(_side, b.Id, tier.ClassId));
+                    Note($"Builds a {cls.Name.ToLowerInvariant()} over {b.Name}");
+                    return true;
+                }
+                if (st.Refit != null || !Starbases.Working(_w, st) || Starbases.NextTier(st) is not StationTier up || up.Tier > cap) continue;
+                var design = Starbases.SameVariant(_w, _side, st, up.ClassId);
+                // The slipway tier at home comes first of all (it is what lets the yard build cruisers): cheaper threshold.
+                var want = home && up.Tier == 3 ? 1.1 : 1.6;
+                if (spare < Starbases.UpgradeCost(st, up.ClassId) * want || Starbases.CanRefit(_w, _side, st, up.ClassId, design) != null) continue;
+                Do(new RefitStarbaseCommand(_side, st.Id, up.ClassId, design));
+                Note($"Upgrades the station over {b.Name} to a {GameData.ShipClass(up.ClassId).Name.ToLowerInvariant()}");
+                return true;
             }
+            return false;
         }
 
         /// <summary>

@@ -270,6 +270,9 @@ public sealed class Fleet
     /// <summary>High orbit is out of reach of planet guns, but only low orbit can bomb or land troops.</summary>
     public OrbitHeight OrbitHeight { get; set; }
 
+    /// <summary>Mending in a station's repair hangar: ordered off, it takes Starbases.D.UndockHours to get away.</summary>
+    public bool Docked { get; set; }
+
     /// <summary>What the fleet bombs when it holds low orbit over an enemy planet (None: it only blockades).</summary>
     public BombTarget Bombing { get; set; }
 
@@ -772,7 +775,11 @@ public static class Fleets
     }
 }
 
-public enum OrbitHeight { Low, High }
+/// <summary>
+/// Orbit shells over a planet. Low: blockade, bombing and landings, in reach of everything. High: slower bombing,
+/// only missile silos and station missiles reach. Far: out of reach (bar an orbital ring), but it does nothing.
+/// </summary>
+public enum OrbitHeight { Low, High, Far }
 
 public enum BombTarget { None, Farms, Mines, Guns, People }
 
