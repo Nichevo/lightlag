@@ -67,6 +67,7 @@ public partial class Hud : CanvasLayer
     private ProgressScreen _progress = null!;
     private IntelScreen _intel = null!;
     private BottomBar _bottomBar = null!;
+    private EventBanner _eventBanner = null!;
     private BattleStrips _strips = null!;
     private Button _battleView = null!;
     private Label _help = null!;
@@ -179,6 +180,8 @@ public partial class Hud : CanvasLayer
         AddChild(help);
         _bottomBar = new BottomBar(JumpTo) { Visible = false };
         AddChild(_bottomBar);
+        _eventBanner = new EventBanner(_screen) { Visible = false };
+        AddChild(_eventBanner);
 
         _info = Ui.Label("", 14);
         _info.CustomMinimumSize = new Vector2(280, 0);
@@ -374,8 +377,12 @@ public partial class Hud : CanvasLayer
             _bottomBar.Position = new Vector2(16, view.Y - 64);
             _bottomBar.Size = new Vector2(barWidth, 30);
             _bottomBar.Refresh(w, barWidth);
+            // Wide events (a flare, a comet pass): a banner centred under the top bar, below the battle line if there is one.
+            _eventBanner.Refresh(w);
+            var under = _battle.Text.Length > 0 ? _battle.Position.Y + _battle.Size.Y + 4 : 48;
+            _eventBanner.Position = new Vector2(Mathf.Max(16, (view.X - _eventBanner.Size.X) / 2), under);
         }
-        else _bottomBar.Visible = false;
+        else { _bottomBar.Visible = false; _eventBanner.Visible = false; }
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
         _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible && !_ships.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
