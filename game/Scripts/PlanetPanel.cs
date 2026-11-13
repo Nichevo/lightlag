@@ -82,11 +82,14 @@ public partial class PlanetPanel : PanelContainer
         {
             popup.AddItem($"From {src.From.Name} (your shipyard): about {src.PeopleK:0.#}k people, {Format.Distance(src.DistanceMm)} away", Ui.MenuNone - 1);
             popup.SetItemDisabled(popup.ItemCount - 1, true);
+            popup.AddItem($"Trip risk: {src.Risk} ({src.RiskWhy})", Ui.MenuNone - 2);
+            popup.SetItemDisabled(popup.ItemCount - 1, true);
             popup.AddSeparator();
         }
-        popup.AddItem("Send settlers (no escort)", Ui.MenuNone);
+        var src2 = Planets.SettleSource(w, Side.Player, _bodyId);
+        popup.AddItem("Send settlers (no escort)" + (src2 != null ? $" · risk {src2.Risk}" : ""), Ui.MenuNone);
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player && f.PeopleRun == null && Combat.Armed(w, f)).OrderBy(f => f.Id))
-            popup.AddItem($"Send settlers, escorted by {f.Name} ({f.ShipIds.Count} ships)", f.Id);
+            popup.AddItem($"Send settlers, escorted by {f.Name} ({f.ShipIds.Count} ships)" + (src2 != null ? $" · risk {src2.EscortedRisk}" : ""), f.Id);
     }
 
     /// <summary>Menu ids: kind index times 3 plus the spot.</summary>
@@ -173,6 +176,11 @@ public partial class PlanetPanel : PanelContainer
             var line = "Buildings: " + (b.Buildings.Count > 0 ? string.Join(", ", built) : "none");
             if (b.Building != null) line += $" · building a {Planets.BuildingKind(b.Building)?.Name.ToLowerInvariant()}, {b.BuildingHoursLeft / 24:0.#} days left";
             lines.Add(line);
+            // Say plainly which buildings can't start or go on, and what they need.
+            var stuck = Colonies.HeldUp(w, b);
+            if (stuck.Count > 0) lines.Add("WAITING: " + string.Join(" · ", stuck.Select(x => $"{x.Name} ({x.Why})")));
+            var queued = b.Pieces.Count(p => p.Waiting);
+            if (queued > 0) lines.Add($"Queued to build: {queued} (one at a time, in order)");
         }
         if (mine && b.Board != null)
         {

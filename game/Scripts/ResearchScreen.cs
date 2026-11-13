@@ -25,6 +25,7 @@ public partial class ResearchScreen : PanelContainer
     private string? _selected;                 // idea lit up in the discovery web
     private ScrollContainer? _ideaScroll, _webScroll;
     private (int Ideas, int WebV, int WebH)? _keepScroll; // scroll places to put back after a rebuild
+    private static bool _allSkills;            // team cards show every field's skill, not only the kept ones (folded by default)
 
     public enum IdeaState { Available, Queued, Researching, Done, Locked }
     private enum Sort { Quickest, Cheapest, Name }
@@ -80,7 +81,7 @@ public partial class ResearchScreen : PanelContainer
                + "|" + string.Join(",", me.Teams.Select(t => $"{t.Id}:{string.Join("+", t.Kept)}:{t.TrainingUntilHour != null}:{Research.Ready(w, t)}:{t.Scientists}:{string.Join("/", Research.KeptFields(t))}"))
                + "|" + string.Join(",", Intel.Counters(w, Side.Player).Select(c => c.Idea))
                + "|" + string.Join(",", RivalTech.Learning(w, Side.Player).Select(l => $"{l.Id}:{l.Stage}"))
-               + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{GetViewportRect().Size}|{w.Winner}";
+               + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{_allSkills}|{GetViewportRect().Size}|{w.Winner}";
     }
 
     // ---- Layout --------------------------------------------------------------------------------
@@ -170,10 +171,19 @@ public partial class ResearchScreen : PanelContainer
         head.AddChild(size);
         v.AddChild(head);
 
-        v.AddChild(Ui.Label("SKILL  (★ kept · ↓ fading · click ★ to keep a field)", 11, Ui.Dim));
+        // Folded by default to the kept (primary) fields, so the Ideas below get the room; one click shows them all.
         var kept = Research.KeptFields(team).ToList();
+        var skillHead = new HBoxContainer();
+        skillHead.AddChild(Ui.Label(_allSkills ? "SKILL  (★ kept · ↓ fading · click ★ to keep a field)" : "SKILL", 11, Ui.Dim));
+        skillHead.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        var hidden = Research.Fields.Length - kept.Count;
+        var fadingCount = Enumerable.Range(0, Research.Fields.Length).Count(i => !kept.Contains(i) && team.Skill[i] > 1.0001);
+        skillHead.AddChild(Ui.SmallButton(_allSkills ? "▴ Kept only" : $"▸ All fields ({hidden} more{(fadingCount > 0 ? $", {fadingCount} fading" : "")})",
+            () => _allSkills = !_allSkills, _allSkills ? "Show only the kept fields" : "Show every field's skill, and pick which to keep"));
+        v.AddChild(skillHead);
         for (var i = 0; i < Research.Fields.Length; i++)
         {
+            if (!_allSkills && !kept.Contains(i)) continue;
             var fi = i;
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 8);

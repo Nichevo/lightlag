@@ -1268,6 +1268,25 @@ public static class Colonies
         return true;
     }
 
+    /// <summary>
+    /// Buildings on the planet held up by something they need, with why (Industry, materials, a blockade), for the
+    /// planet page. Ones simply queued behind another are left out; QueuedCount says how many there are.
+    /// </summary>
+    public static List<(string Name, string Why)> HeldUp(World w, Body b)
+    {
+        var list = new List<(string, string)>();
+        var blockaded = b.Owner != null && Economy.Blockaded(w, b);
+        foreach (var p in b.Pieces.Where(p => !p.Built))
+        {
+            var name = Planets.BuildingKind(p.Kind)?.Name ?? p.Kind;
+            if (blockaded) { list.Add((name, "blockaded")); continue; }
+            var why = p.Waiting ? QueuedWhy(w, b, p) : MaterialShort(b, p);
+            if (why == null || why.StartsWith("queued behind", StringComparison.Ordinal) || why == "starts next hour") continue;
+            list.Add((name, why));
+        }
+        return list;
+    }
+
     /// <summary>What a piece under construction still waits for (null: nothing it can't have).</summary>
     public static string? MaterialShort(Body b, Piece p)
     {
