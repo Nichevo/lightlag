@@ -26,6 +26,10 @@ public sealed class NeedItem
     public GameCommand? Act { get; set; }
     public string? ActLabel { get; set; }
     public double Hour { get; set; }
+
+    /// <summary>A second order worth offering beside the act button (null: see NeedKinds for one worked out from the kind).</summary>
+    public GameCommand? Alt { get; set; }
+    public string? AltLabel { get; set; }
 }
 
 /// <summary>Which screen a Needs you item belongs to, for the tab badges: fleets, planets, ships, research or empire.</summary>
@@ -48,8 +52,8 @@ public static class NeedScreens
 /// <summary>A different automation level for one planet or fleet in one area.</summary>
 public sealed record AutoOverride(AutoArea Area, int? BodyId, int? FleetId, AutoLevel Level);
 
-/// <summary>Something automation did (shown under "Auto handled").</summary>
-public sealed record AutoNote(double Hour, AutoArea Area, string Text);
+/// <summary>Something automation did (shown under "Auto handled"), with the planet or fleet it was for.</summary>
+public sealed record AutoNote(double Hour, AutoArea Area, string Text, int? BodyId = null, int? FleetId = null, string? Key = null);
 
 /// <summary>How an area outside Stewards offers what it would do (see Stewards: Auto does it, Advise lists it).</summary>
 public delegate bool OfferFn(AutoArea area, string key, string text, GameCommand act, string label, int? bodyId = null, int? fleetId = null, NeedLevel advice = NeedLevel.Advice);
@@ -478,7 +482,11 @@ public static class Stewards
             Events.Needs(_w, _side, (key, text, bodyId, fleetId, act, label) => Need(NeedLevel.Urgent, key, text, bodyId, fleetId, act, label, AutoArea.Events));
             LostContacts();
             AfterBattle.Needs(_w, _side, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.AfterBattle));
-            _state.Needs = _needs.Where(n => !_state.Dismissed.ContainsKey(n.Key))
+            // Snoozed until it changes: back as soon as its text does.
+            foreach (var key in _state.SnoozedText.Keys.ToList())
+                if (_needs.Find(n => n.Key == key) is not { } still || still.Text != _state.SnoozedText[key]) _state.SnoozedText.Remove(key);
+            _state.Needs = _needs.Where(n => !_state.Dismissed.ContainsKey(n.Key) && !_state.SnoozedText.ContainsKey(n.Key)
+                                             && !_state.MutedKinds.Contains(NeedKinds.KindOf(n.Key)))
                 .OrderBy(n => n.Level).ThenBy(n => n.Hour).ThenBy(n => n.Key, StringComparer.Ordinal).ToList();
         }
 
@@ -499,15 +507,17 @@ public static class Stewards
             }
         }
 
-        private void Need(NeedLevel level, string key, string text, int? bodyId = null, int? fleetId = null, GameCommand? act = null, string? label = null, AutoArea? area = null)
+        private NeedItem? Need(NeedLevel level, string key, string text, int? bodyId = null, int? fleetId = null, GameCommand? act = null, string? label = null, AutoArea? area = null)
         {
-            if (_needs.Any(n => n.Key == key)) return;
+            if (_needs.Any(n => n.Key == key)) return null;
             var old = _state.Needs.Find(n => n.Key == key);
-            _needs.Add(new NeedItem
+            var item = new NeedItem
             {
                 Key = key, Level = level, Area = area, Text = text, BodyId = bodyId, FleetId = fleetId,
                 Act = act, ActLabel = act == null ? null : label ?? "Do it", Hour = old?.Hour ?? _w.Hour,
-            });
+            };
+            _needs.Add(item);
+            return item;
         }
 
         /// <summary>
@@ -523,7 +533,7 @@ public static class Stewards
                     Track(area, key, act);
                     _state.AutoHandledToday++;
                     _state.AutoHandled++;
-                    _state.AutoNotes.Add(new AutoNote(_w.Hour, area, text));
+                    _state.AutoNotes.Add(new AutoNote(_w.Hour, area, text, bodyId, fleetId, key));
                     if (_state.AutoNotes.Count > KeepNotes) _state.AutoNotes.RemoveAt(0);
                     _sim.Log.Info("auto", $"Auto: {text}", new { side = _side.ToString(), area = area.ToString(), key });
                     return true;
@@ -702,7 +712,13 @@ public static class Stewards
                     _ => NeedLevel.Advice,
                 };
                 var area = p.Kind switch { ProblemKind.Short or ProblemKind.Stock => AutoArea.Transport, _ => AutoArea.Supply };
-                Need(level, p.Key, $"{p.Title}. {p.Cause}", p.BodyId, p.FleetId, fix?.Command, fix?.Label, area);
+                var item = Need(level, p.Key, $"{p.Title}. {p.Cause}", p.BodyId, p.FleetId, fix?.Command, fix?.Label, area);
+                // The next fix with an order is the second choice beside the act button.
+                if (item != null && p.Fixes.FirstOrDefault(f => f != fix && f.Command != null && f.Command is not DismissNeedCommand) is { } alt)
+                {
+                    item.Alt = alt.Command;
+                    item.AltLabel = alt.Label;
+                }
             }
         }
 
@@ -908,6 +924,48 @@ public sealed record AcceptNeedCommand(Side Side, string Key) : GameCommand
         if (world.Light.On && c.Destination(world) is (_, Vec2 at) && Light.DelayHours(world, Side, at) > 0) Light.Send(sim, c);
         else c.Apply(world, sim);
     }
+}
+
+/// <summary>How long a Needs you item is snoozed: an hour, a day, until its text changes, or never again for its kind.</summary>
+public enum NeedSnooze { Hour, Day, UntilChanged, NeverThisKind }
+
+/// <summary>Snooze a Needs you item (the tray's Snooze menu, which replaces the flat three-day dismiss).</summary>
+public sealed record SnoozeNeedCommand(Side Side, string Key, NeedSnooze How, bool Quiet = false) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim)
+    {
+        var state = Economy.Of(world, Side);
+        var need = state.Needs.Find(n => n.Key == Key);
+        switch (How)
+        {
+            case NeedSnooze.Hour: state.Dismissed[Key] = world.Hour + 1; break;
+            case NeedSnooze.Day: state.Dismissed[Key] = world.Hour + 24; break;
+            case NeedSnooze.UntilChanged:
+                if (need == null) return;
+                state.SnoozedText[Key] = need.Text;
+                break;
+            default:
+                var kind = NeedKinds.KindOf(Key);
+                if (!state.MutedKinds.Contains(kind)) state.MutedKinds.Add(kind);
+                state.Needs.RemoveAll(n => NeedKinds.KindOf(n.Key) == kind);
+                break;
+        }
+        // Quiet: put aside after another choice was taken (not a turn-down, so automation doesn't learn from it).
+        if (!Quiet && need is { Area: AutoArea area, Act: not null } && !Key.StartsWith("learn-", StringComparison.Ordinal))
+            state.Habits[$"dismiss:{area}"] = state.Habits.GetValueOrDefault($"dismiss:{area}") + 1;
+        state.Needs.RemoveAll(n => n.Key == Key);
+        if (!Quiet) sim.Log.Info("needs", "Snoozed", new { side = Side.ToString(), Key, How = How.ToString() });
+    }
+}
+
+/// <summary>Let a muted kind of Needs you item through again.</summary>
+public sealed record UnmuteNeedKindCommand(Side Side, string Kind) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim) => Economy.Of(world, Side).MutedKinds.Remove(Kind);
 }
 
 /// <summary>Dismiss a Needs you item for a few days.</summary>

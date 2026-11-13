@@ -41,7 +41,9 @@ public partial class FleetScreen : PanelContainer
     {
         var w = sim.World;
         var view = GetViewportRect().Size;
-        if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
+        // Under the top bar, so the menu bar stays in view.
+        var under = new Vector2(0, Hud.ContentTop);
+        if (Position != under || Size != view - under) { Position = under; Size = view - under; }
         var fleets = Mine(w);
         var picked = _screen.FleetScreenId is int id ? w.FindFleet(id) : null;
         if (picked == null || picked.Side != Side.Player) picked = fleets.FirstOrDefault();

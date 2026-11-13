@@ -171,7 +171,7 @@ public partial class KeyHelp : PanelContainer
             "Double-click  open your planet, follow anything else", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
         ("Fleets", new[] { "Click  select · drag a box or Shift+click  several", "Tab / Shift+Tab  next fleet", "Right-click  route or attack (Shift: go now)",
             "Ctrl+right-click  add a waypoint", "Enter  go", "C  change route", "O  orbit · G  drift · X  stop", "M  merge or gather", "V  engagement view", "U  battle view: ship status only", "R  last battle report" }),
-        ("Screens", new[] { "E  empire (Needs you is a tab)", "T  research", "Y  planets", "K  fleets: roles, ships, supplies, calls for help", "J  ships: designs, crewing, class tree", "[ and ]  previous or next planet, fleet or ship class on those screens", ". (full stop)  go to the next thing that needs you", "I  intelligence", "N  how am I doing", "F1  this list", "Esc  close, or the game menu" }),
+        ("Screens", new[] { "E  empire", "Y  planets", "K  fleets: roles, ships, supplies, calls for help", "J  ships: designs, crewing, class tree", "G  supply (with no fleet selected)", "T  research", "[ and ]  previous or next planet, fleet or ship class on those screens", ". (full stop)  the next thing that needs you (opens the tray)", "Enter  do the selected tray row", "I  intel", "N  progress", "F1  this list", "Esc  close, or the game menu" }),
         ("Saves and reports", new[] { "F5  quick save", "F9  quick load", "F8  send a report", "F7  debug: show every fleet and the rival's mind" }),
         ("Display", new[] { "F11 or Alt+Enter  full screen on or off", "Esc  game menu: window size and interface size" }),
     };
@@ -233,7 +233,7 @@ public partial class ProgressScreen : PanelContainer
         var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 8);
         var head = new HBoxContainer();
-        var title = Ui.Label("How am I doing?", 22, Ui.Player);
+        var title = Ui.Label("Progress", 22, Ui.Player);
         title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         head.AddChild(title);
         head.AddChild(Ui.SmallButton("✕", () => _screen.ShowProgress = false, "Close (N or Esc)"));

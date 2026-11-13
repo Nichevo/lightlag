@@ -70,7 +70,7 @@ public partial class Main : Node
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
         var args = OS.GetCmdlineUserArgs();
-        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=")));
+        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=")));
         PlayerInfo.Load(Paths.Root);
         PauseSettings.Load(Paths.Root);
         RivalAdvisor.Load(Paths.Root);
@@ -80,6 +80,12 @@ public partial class Main : Node
             return;
         }
         if (OS.GetCmdlineUserArgs().Contains("--panel-bench")) { _ = RunBench(); return; }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--bar-shots=")) is string barShots)
+        {
+            // Only the top bar and Needs you pictures (quicker than the whole set while working on them).
+            _ = TakeBarShots(barShots["--bar-shots=".Length..].Trim('"'));
+            return;
+        }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--screenshots=")) is string shots)
         {
             _ = TakeScreenshots(shots["--screenshots=".Length..].Trim('"'));
@@ -399,6 +405,59 @@ public partial class Main : Node
         Quit(0);
     }
 
+    /// <summary>The top bar and the Needs you tray: bar, tray, strips and automation menu, cards, pins, a full screen under the bar.</summary>
+    private async Task ShootTopBar(Func<string, Task> shoot)
+    {
+        StartNewGame(9);
+        var game = (GameScreen)_screen!;
+        var me = Lightlag.Sim.Core.Side.Player;
+        Sim!.Issue(new SetAutoLevelCommand(me, AutoArea.Building, AutoLevel.Auto));
+        Sim.Issue(new SetAutoLevelCommand(me, AutoArea.Research, AutoLevel.Manual));
+        Sim.ApplyPending();
+        Sim.StepMany(6 * GameTime.TicksPerDay);
+        Sim.StepMany(14); // into the day, so "Automation handled today" has lines
+        game.TogglePause();
+        game.ShowWholeSystem();
+        game.Camera.SetScale(game.Camera.TargetScale, instant: true);
+        await shoot("60-top-bar");
+        game.Hud.TrayOpen = true;
+        game.Hud.SelectedNeed = Economy.Of(Sim.World, me).Needs.FirstOrDefault(n => n.Level != NeedLevel.Advice)?.Key;
+        await shoot("61-needs-tray");
+        game.Hud.UnfoldTray();
+        game.Hud.AutomationOpen = true;
+        await shoot("62-tray-strips-automation");
+        game.Hud.AutomationOpen = false;
+        game.Hud.TrayOpen = false;
+        PlayerInfo.SetLayers(PlayerInfo.Layers | MapLayer.AdvicePins | MapLayer.AutoPins);
+        game.Follow(Sim.World.Bodies.First(b => b.Key == "verdant").Id, true);
+        game.Camera.SetScale(game.Camera.TargetScale, instant: true);
+        await shoot("63-pins-close");
+        PlayerInfo.SetLayers(PlayerInfo.Layers & ~(MapLayer.AdvicePins | MapLayer.AutoPins));
+        game.Hud.OpenCards();
+        await shoot("64-work-through-them");
+        game.Hud.CardKey(new Godot.InputEventKey { Keycode = Godot.Key.Escape, Pressed = true });
+        game.TogglePlanets();
+        await shoot("65-full-screen-under-bar");
+        game.TogglePlanets();
+        game.OpenMenu("display");
+        await shoot("66-display-options");
+        game.CloseMenu();
+    }
+
+    private async Task TakeBarShots(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        RandomStartsChoice = false;
+        async Task Shoot(string name)
+        {
+            for (var i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            GetViewport().GetTexture().GetImage().SavePng(System.IO.Path.Combine(dir, name + ".png"));
+        }
+        try { await ShootTopBar(Shoot); }
+        catch (Exception e) { Log.Error("game", "Bar screenshots failed", new { error = e.ToString() }); }
+        GetTree().Quit();
+    }
+
     private async Task TakeScreenshots(string dir)
     {
         var ok = true;
@@ -466,6 +525,9 @@ public partial class Main : Node
             game.OpenMenu();
             await Shoot("28-game-menu");
             game.CloseMenu();
+
+            await ShootTopBar(Shoot);
+            game = (GameScreen)_screen!;
 
             await ShootLightLag(Shoot);
             game = (GameScreen)_screen!;

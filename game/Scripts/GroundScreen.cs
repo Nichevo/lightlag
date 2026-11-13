@@ -37,7 +37,9 @@ public partial class GroundScreen : PanelContainer
     {
         var w = sim.World;
         var view = GetViewportRect().Size;
-        if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
+        // Under the top bar, so the menu bar stays in view.
+        var under = new Vector2(0, Hud.ContentTop);
+        if (Position != under || Size != view - under) { Position = under; Size = view - under; }
         var body = _screen.GroundScreenId is int id ? w.FindBody(id) : null;
         if (body?.Board == null) { _screen.GroundScreenId = null; return; }
         var f = body.Front;

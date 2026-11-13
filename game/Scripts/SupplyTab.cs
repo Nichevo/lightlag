@@ -96,7 +96,7 @@ public sealed class SupplyTab
 
     private void Chain(VBoxContainer box)
     {
-        Heading(box, "Supply chain", "Where every good comes from and where it goes");
+        Heading(box, "Supply", "Where every good comes from and where it goes");
         var row = Row(box);
         foreach (var f in SupplyChain.Filters.Concat(_filter.StartsWith("good:", StringComparison.Ordinal) ? new[] { _filter } : Array.Empty<string>()))
         {

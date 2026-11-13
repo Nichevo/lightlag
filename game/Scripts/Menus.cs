@@ -15,6 +15,7 @@ public partial class GameMenu : Control
     private SavesList _saves = null!;
     private HowToPlay _help = null!;
     private PauseSettingsPage _pause = null!;
+    private DisplayOptionsPage _display = null!;
 
     public GameMenu() : this(null!) { }
     public GameMenu(GameScreen screen) => _screen = screen;
@@ -34,6 +35,7 @@ public partial class GameMenu : Control
         if (Main.Instance.Sim?.World.Rules.Ironman != true) col.AddChild(Ui.Button("Load game", () => Show(_saves)));
         col.AddChild(Ui.Button("How to play", () => Show(_help)));
         col.AddChild(Ui.Button("Pause settings", () => Show(_pause)));
+        col.AddChild(Ui.Button("Display options", () => Show(_display)));
         col.AddChild(Ui.Button("Quit to title screen", () => _screen.QuitToTitle()));
         col.AddChild(Graphics.Picker(this));
         col.AddChild(Display.Picker());
@@ -52,13 +54,21 @@ public partial class GameMenu : Control
         AddChild(_help);
         _pause = new PauseSettingsPage(() => Show(_main)) { Visible = false };
         AddChild(_pause);
+        _display = new DisplayOptionsPage(() => Show(_main)) { Visible = false };
+        AddChild(_display);
     }
 
-    /// <summary>Opens on the main page, or straight on the pause settings ("pause").</summary>
+    /// <summary>Opens on the main page, or straight on the pause settings ("pause"), display options ("display") or saves ("load").</summary>
     public void Open(string? page = null)
     {
         Visible = true;
-        Show(page == "pause" ? _pause : _main);
+        Show(page switch
+        {
+            "pause" => _pause,
+            "display" => _display,
+            "load" when Main.Instance.Sim?.World.Rules.Ironman != true => _saves,
+            _ => _main,
+        });
     }
 
     private void Show(Control page)
@@ -67,8 +77,80 @@ public partial class GameMenu : Control
         _saves.Visible = page == _saves;
         _help.Visible = page == _help;
         _pause.Visible = page == _pause;
+        _display.Visible = page == _display;
+        if (page == _display) _display.Refresh();
         if (page == _saves) _saves.Refresh();
         if (page == _pause) _pause.Refresh();
+    }
+}
+
+/// <summary>
+/// Display options: window and interface size, detail, and how the top bar and the Needs you tray behave
+/// (menu bar, icons, strength bar, tray, pins, advice, pausing while you work through). Kept in ui.cfg.
+/// </summary>
+public partial class DisplayOptionsPage : CenterContainer
+{
+    private readonly Action _back;
+    private VBoxContainer _rows = null!;
+
+    public DisplayOptionsPage() : this(() => { }) { }
+    public DisplayOptionsPage(Action back) => _back = back;
+
+    public override void _Ready()
+    {
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var col = new VBoxContainer { CustomMinimumSize = new Vector2(760, 0) };
+        col.AddThemeConstantOverride("separation", 10);
+        col.AddChild(Ui.Label("Display options", 26, Ui.Player));
+        col.AddChild(Graphics.Picker(this));
+        col.AddChild(Display.Picker());
+        col.AddChild(PlayerInfo.Picker());
+        _rows = new VBoxContainer();
+        _rows.AddThemeConstantOverride("separation", 8);
+        col.AddChild(_rows);
+        col.AddChild(Ui.Button("Back", _back, 16));
+        AddChild(Ui.Panel(col, 24));
+    }
+
+    public void Refresh()
+    {
+        foreach (var c in _rows.GetChildren()) c.QueueFree();
+        _rows.AddChild(Ui.Label("Top bar", 17, Ui.Player));
+        Choice("Menu bar", new[] { "Always shown", "Hide when idle", "Off (keys only)" }, (int)PlayerInfo.MenuBar,
+            i => PlayerInfo.SetMenuBar((MenuBarMode)i), "Hide when idle slides it away after 5 s; move the mouse to the bottom edge of row one, or press any screen key, to bring it back");
+        Choice("Icons in the menu bar", new[] { "On", "Off" }, PlayerInfo.MenuIcons ? 0 : 1, i => PlayerInfo.SetMenuIcons(i == 0),
+            "Falls back to Off on its own when the window is narrower than about 1300 px");
+        Choice("Strength bar", new[] { "Always shown" }, 0, _ => { }, "The control share (yours against the rival's estimate) stays on screen, even in Battle view");
+        _rows.AddChild(Ui.Label("Needs you", 17, Ui.Player));
+        Choice("Needs you tray", new[] { "Opens on the badge", "Off (keys only)" }, (int)PlayerInfo.Tray,
+            i => PlayerInfo.SetTray((TrayMode)i), "It never opens by itself: a new urgent item flashes the badge until you look. Off still leaves the badge count and the \".\" key (the badge then opens the Empire screen's Needs you tab)");
+        Choice("Pins on the map", new[] { "On", "Urgent and soon", "Off" }, PlayerInfo.PinMode, PlayerInfo.SetPinMode,
+            "Also a tick in Map layers, so you can flick it without opening options");
+        Choice("Advice from automation", new[] { "In the tray, folded", "Its own list", "Off" }, (int)PlayerInfo.Advice,
+            i => PlayerInfo.SetAdvice((AdviceMode)i), "Off means only trouble reaches you; what automation does is still listed under Automation handled");
+        Choice("Pause while you work through", new[] { "On", "Off" }, PlayerInfo.PauseWhileWorking ? 0 : 1, i => PlayerInfo.SetPauseWhileWorking(i == 0),
+            "Applies to Work through them (the one-at-a-time cards), not the tray");
+    }
+
+    private void Choice(string name, string[] options, int selected, Action<int> pick, string tip)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 6);
+        var label = Ui.Label(name, 15, Ui.Text);
+        label.CustomMinimumSize = new Vector2(230, 0);
+        label.TooltipText = tip;
+        label.MouseFilter = MouseFilterEnum.Pass;
+        row.AddChild(label);
+        for (var i = 0; i < options.Length; i++)
+        {
+            var index = i;
+            var b = Ui.SmallButton(options[i], () => { pick(index); Refresh(); }, tip);
+            b.AddThemeFontSizeOverride("font_size", 14);
+            if (i == selected) b.Modulate = Ui.Player;
+            else b.Modulate = new Color(1, 1, 1, 0.6f);
+            row.AddChild(b);
+        }
+        _rows.AddChild(row);
     }
 }
 
@@ -139,7 +221,9 @@ public partial class HowToPlay : CenterContainer
         "• Second rival: pick one on the title screen for a three-race game. Each rival picks whom to go after (and switches now and then); losing your shipyard puts a side out, and the last side standing, or the first to win on control, wins. With two rivals the Intelligence screen keeps a file on each.\n\n" +
         "• Contact: the Intelligence screen's Contact tab shows how well you know each rival's tongue (Noise, Patterns, Words, Language, Fluent). Listening while in contact, Signals research, prisoners, captures and wrecks raise it; the Lattice needs a captured core or Decode alien signals. Each stage adds intel. In a three-race game, from Words you can send a one-way offer: a gift (an idea, food, alloys or your map) and an ask (go after the other rival, or leave a planet alone, for 60 days), by drone (private, 9 days) or broadcast (2 hours, overheard). The gift goes either way; the odds show at Language.\n\n" +
         "THE BASICS\n" +
-        "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts. Pauses… (top bar, or the Esc menu) sets what happens for each kind of event: pause, slow to 1x, a pop-up or only a News line, with Watchful, Standard and Hands off presets.\n" +
+        "• The top bar: the time box on the left (date, pause, speeds and what will pause the game next), Needs you and your control share in the middle, map tools on the right. Under it the menu bar of screens: Empire E, Planets Y, Fleets K, Ships J, Supply G, Research T, Intel I, Progress N, each with a badge for what needs you there; Battle view U and the game menu at the right end. Display options (Esc menu) can hide the menu bar or its icons.\n" +
+        "• Needs you: click the badge for the tray. Each row says where, when it bites, and gives the obvious order, an alternative and ⋯ for more, with Go, ⟳ Auto (hand this kind, here, to automation) and Snooze. Pins on the map mark each item with a place. Advice and what automation did today sit in folded strips at the bottom; Take it back sets that area to Advise there. Work through them shows one item at a time. The . key steps through, Enter does the selected row.\n" +
+        "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts. Pause settings (☰ Game, or the Esc menu) sets what happens for each kind of event: pause, slow to 1x, a pop-up or only a News line, with Watchful, Standard and Hands off presets.\n" +
         "• Ironman (title screen): one save for the whole game, written over as you play. No loading back.\n" +
         "• Click a fleet to select it. Right-click a planet or a point to plan a route, then Enter to go. Shift+right-click goes at once.\n" +
         "• Empty planets with Industry can be claimed: park a fleet in orbit and keep the enemy away for 10 days (30 if the rival holds it). A held planet makes half its Industry until settlers arrive.\n" +
@@ -157,7 +241,7 @@ public partial class HowToPlay : CenterContainer
         "• The engagement screen shows the order deadline: the last moment an order still arrives before contact. Lose the flagship and command passes to the nearest destroyer.\n\n" +
         "KEYS\n" +
         "Wheel zoom · WASD or right-drag pan · Z zoom to the selection · H whole system · Tab next fleet · M merge or gather · " +
-        "O orbit · G drift · X stop · C change route · R last combat report · F5 quick save · F9 quick load · F8 report a problem · Esc menu";
+        "O orbit · G drift (with a fleet selected; otherwise the Supply screen) · X stop · C change route · R last combat report · F5 quick save · F9 quick load · F8 report a problem · Esc menu";
 
     public override void _Ready()
     {
