@@ -255,8 +255,11 @@ public partial class EmpirePanel : PanelContainer
     /// <summary>The tab row along the top; the Needs you tab shows how many items wait (red with urgent ones).</summary>
     private void Tabs(World w)
     {
-        var row = Row();
-        row.AddThemeConstantOverride("separation", 3);
+        // Wraps onto a second line rather than pushing tabs off a scaled screen.
+        var row = new HFlowContainer { CustomMinimumSize = new Vector2(Width, 0) };
+        row.AddThemeConstantOverride("h_separation", 3);
+        row.AddThemeConstantOverride("v_separation", 3);
+        _box.AddChild(row);
         foreach (var tab in Enum.GetValues<Tab>())
         {
             var t = tab;
@@ -277,7 +280,6 @@ public partial class EmpirePanel : PanelContainer
         research.CustomMinimumSize = new Vector2(0, 28);
         research.AddThemeFontSizeOverride("font_size", 13);
         row.AddChild(research);
-        row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var close = Ui.SmallButton("✕", () => _screen.ShowEmpire = false, "Close (E, or click the Needs you badge again)");
         close.CustomMinimumSize = new Vector2(28, 28);
         row.AddChild(close);

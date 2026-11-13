@@ -28,7 +28,7 @@ public partial class Hud : CanvasLayer
     private GroupPanel _groupPanel = null!;
     private Button _pauseOnContact = null!;
     private Button _silence = null!;
-    private Button _empireButton = null!;
+    private Button _empireButton = null!, _supplyButton = null!;
     private EmpirePanel _empire = null!;
     private Button _researchButton = null!;
     private ResearchScreen _research = null!;
@@ -121,6 +121,14 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_silence);
         _empireButton = SmallButton("Empire", () => { _screen.ShowShips = false; _screen.ShowEmpire = !_screen.ShowEmpire; }, "Industry, shipyard, research and claims (E)");
         bar.AddChild(_empireButton);
+        _supplyButton = SmallButton("Supply chain", () =>
+        {
+            var open = _screen.ShowEmpire && _empire.Current == EmpirePanel.Tab.Supply;
+            _screen.ShowShips = false;
+            _screen.ShowEmpire = !open;
+            if (!open) _screen.EmpireTabWanted = EmpirePanel.Tab.Supply;
+        }, "Where goods come from and go, routes and their risk (the Empire screen's Supply tab)");
+        bar.AddChild(_supplyButton);
         _researchButton = SmallButton("Research", () => _screen.ShowResearch = !_screen.ShowResearch, "Research teams, ideas and the discovery web (T)");
         bar.AddChild(_researchButton);
         _planetsButton = SmallButton("Planets ▸", () => _screen.TogglePlanets(), "Your planets and every other world: people, goods, status (Y)");
@@ -335,6 +343,7 @@ public partial class Hud : CanvasLayer
 
         var w = sim.World;
         _empireButton.Visible = w.Loop;
+        _supplyButton.Visible = w.Loop;
         if (w.Loop)
         {
             var me = Economy.Of(w, Side.Player);
