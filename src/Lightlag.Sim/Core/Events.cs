@@ -130,6 +130,40 @@ public static class Events
     /// <summary>A reactor fault's power cut at a body now (0 if none).</summary>
     public static double PowerCut(World w, Body b) => w.Hour < b.FaultUntilHour ? b.FaultShare : 0;
 
+    /// <summary>
+    /// An event or hazard with wide impact, for the banner under the top bar: what it is, what it does, until when
+    /// (Coming: the hour it hits). Local trouble (one planet, one ship) stays in Needs you.
+    /// </summary>
+    public sealed record WideEvent(string Key, string Title, string Effect, double UntilHour, bool Coming, int? BodyId, int? EventId);
+
+    /// <summary>The wide events this side knows of now, soonest ending first. Read-only.</summary>
+    public static List<WideEvent> Wide(World w, Side side)
+    {
+        var list = new List<WideEvent>();
+        if (!w.Loop) return list;
+        var state = Economy.Of(w, side);
+        foreach (var e in w.Events.Where(e => e.Side == side && !e.Done && !e.Hit && e.Kind == "flare").OrderBy(e => e.HitsHour))
+            list.Add(new WideEvent($"flare-coming:{e.Id}", "Solar flare coming",
+                $"ships out of a planet's shadow take crew strain; all sensors dazzled for {E.FlareHours:0} h", e.HitsHour, true, null, e.Id));
+        if (w.Hour < w.FlareUntilHour)
+        {
+            var effect = $"every side's sensors see {E.FlareBlind:P0} as far";
+            if (w.Hour < state.BlindUntilHour) effect += $"; yours are sheltered: {E.FlareShelterBlind:P0} as far";
+            if (w.Hour < state.HiddenUntilHour) effect += $"; your fleets hide in the glare ({E.FlareHideSignature:P0} signature)";
+            list.Add(new WideEvent("flare", "Solar flare", effect, w.FlareUntilHour, false, null, null));
+        }
+        foreach (var e in w.Events.Where(e => e.Side == side && !e.Done && e.Kind == "comet").OrderBy(e => e.HitsHour))
+        {
+            var where = e.BodyId is int id ? w.FindBody(id)?.Name : null;
+            var mining = e.Hit && e.Call.Picked == 0;
+            list.Add(new WideEvent($"comet:{e.Id}", e.Title,
+                !e.Hit ? $"arrives near {where ?? "your world"}: water and fuel to mine if you send miners"
+                    : mining ? $"miners at {where} bring in water and fuel while it lasts" : "passing; not being mined",
+                e.Hit ? e.UntilHour : e.HitsHour, !e.Hit, e.BodyId, e.Id));
+        }
+        return list.OrderBy(x => x.UntilHour).ToList();
+    }
+
     public static IEnumerable<GameEvent> Open(World w, Side side) => w.Events.Where(e => e.Side == side && e.Call.Open && !e.Done);
 
     // ---- Every hour --------------------------------------------------------------------------------
