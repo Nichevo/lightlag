@@ -248,6 +248,9 @@ public sealed class Fleet
 
     public int? SupplyRunFor { get; set; }
 
+    /// <summary>Fired on by an enemy it had not seen: caught unawares until this hour (Combat.SurpriseHours).</summary>
+    public double? SurprisedUntilHour { get; set; }
+
     /// <summary>The supply run was taken up by the Supply role (it ends when that fleet wants nothing more).</summary>
     public bool SupplyRunByRole { get; set; }
 

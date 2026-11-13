@@ -54,6 +54,46 @@ public class CombatTests
     }
 
     [Fact]
+    public void Missile_ships_unseen_by_their_target_get_the_first_shots_and_catch_it_unawares()
+    {
+        // Cold, quiet fleets 55,000 km apart: neither ship's own sensors see that far. The player is told where
+        // the rival is (as a planet's sensors might), so its missiles reach out first; the rival sees nothing.
+        var sim = Sandbox(new SandboxSetup(PlayerFrigates: 0, PlayerDestroyers: 2, RivalFrigates: 2, RivalDestroyers: 0,
+            PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 55, RivalKnowsWhere: false));
+        var w = sim.World;
+        var rival = FleetOf(sim, Side.Rival);
+        var player = FleetOf(sim, Side.Player);
+        for (var i = 0; i < 4 && rival.SurprisedUntilHour == null; i++)
+        {
+            Sensors.Reveal(w, Side.Player, rival);
+            sim.Step();
+        }
+        Assert.NotNull(rival.SurprisedUntilHour);
+        Assert.True(w.Battles.Single().For(Side.Player).Ambushes > 0);
+        Assert.Null(player.SurprisedUntilHour);
+    }
+
+    [Fact]
+    public void A_fleet_caught_unawares_neither_fires_nor_dodges_for_a_while()
+    {
+        var sim = Sandbox(new SandboxSetup(PlayerFrigates: 0, PlayerDestroyers: 2, RivalFrigates: 2, RivalDestroyers: 0,
+            PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 30));
+        var rival = FleetOf(sim, Side.Rival);
+        Assert.False(Combat.Unseen(sim.World, rival));
+        while (sim.World.ActiveBattle == null && sim.World.Tick < 5) sim.Step();
+        rival.SurprisedUntilHour = sim.World.Hour + Combat.SurpriseHours;
+        Assert.True(Combat.Surprised(sim.World, rival));
+        while (sim.World.Hour < rival.SurprisedUntilHour - 0.01) sim.Step();
+        var battle = sim.World.Battles.Single();
+        Assert.Equal(0, battle.For(Side.Rival).RailShots);
+        Assert.Equal(0, battle.For(Side.Rival).MissilesFired);
+        Assert.True(battle.For(Side.Player).RailShots + battle.For(Side.Player).MissilesFired > 0, $"{battle.StartHour} {sim.World.Hour}");
+        // Then it is itself again.
+        sim.StepMany(2);
+        Assert.False(Combat.Surprised(sim.World, rival));
+    }
+
+    [Fact]
     public void Fleets_out_of_contact_run_whole_hours()
     {
         var sim = Sandbox(new SandboxSetup(DistanceMm: 5000));

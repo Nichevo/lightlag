@@ -29,6 +29,9 @@ public sealed class BattleSide
     public int RailShots { get; set; }
     public int RailHits { get; set; }
     public int MissilesFired { get; set; }
+
+    /// <summary>Times this side opened fire on a fleet that had not seen it (Combat.Ambush).</summary>
+    public int Ambushes { get; set; }
     public int MissileHits { get; set; }
     public int ShotDown { get; set; }      // our missiles their point defence stopped
     public int Dodged { get; set; }        // our missiles that missed because the target dodged
@@ -493,6 +496,33 @@ public static class Combat
         }
     }
 
+    // ---- Surprise ------------------------------------------------------------------------
+
+    /// <summary>
+    /// How long (hours) a fleet fired on by an enemy it had not seen is caught unawares: its ships don't fire or
+    /// dodge, and its point defence works at SurprisePdFactor. An unseen fleet (cold, quiet, behind a planet) so
+    /// gets the first shots of a fight: missile ships at launch range, gun ships at railgun range.
+    /// </summary>
+    public const double SurpriseHours = 0.25;
+    public const double SurprisePdFactor = 0.5;
+
+    /// <summary>No enemy fleet in contact has this fleet in sight.</summary>
+    public static bool Unseen(World w, Fleet f) =>
+        !w.Fleets.Any(o => o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= C.ContactRangeMm && Sensors.Sees(w, o.Side, f));
+
+    public static bool Surprised(World w, Fleet? f) => f?.SurprisedUntilHour is double until && w.Hour < until;
+
+    /// <summary>The first shot from a fleet its target had not seen: the target is caught unawares (once a battle).</summary>
+    private static void Ambush(Simulation sim, Fleet shooter, Fleet target, double t1)
+    {
+        var w = sim.World;
+        if (target.SurprisedUntilHour is double before && t1 - before < 24) return; // already caught once lately
+        if (Sensors.Sees(w, target.Side, shooter)) return;
+        target.SurprisedUntilHour = t1 + SurpriseHours;
+        if (w.ActiveBattle is Battle b) b.For(shooter.Side).Ambushes++;
+        sim.Log.Info("combat", $"{target.Name} is caught unawares", new { fleetId = target.Id, by = shooter.Id, minutes = SurpriseHours * 60 });
+    }
+
     // ---- Firing (after fleets move) ------------------------------------------------------
 
     public static void Fire(Simulation sim, double t0, double t1)
@@ -507,6 +537,7 @@ public static class Combat
         foreach (var ship in w.Ships.ToList())
         {
             if (w.FleetOf(ship) is not Fleet fleet) continue;
+            if (Surprised(w, fleet)) continue; // caught unawares: the crews are still scrambling
             var cls = Fitting.Spec(ship);
             if (cls.Railguns > 0 && !ship.Out(Module.Railguns) && !ship.Overheated && !fleet.Resupplying && t1 >= ship.RailsReadyHour)
                 FireRailguns(sim, battle, ship, fleet, cls, t1);
@@ -524,7 +555,8 @@ public static class Combat
         var w = sim.World;
         var rail = C.Railgun;
         var railRange = Secrecy.RailRange(w, fleet);
-        var reach = fleet.LongShots || AiLongShots(w, fleet) ? Math.Max(railRange, Heat.D.LongRangeMm) : railRange;
+        // Unseen, no long shots: they would give the fleet away before the enemy is in good reach.
+        var reach = (fleet.LongShots || AiLongShots(w, fleet)) && !Unseen(w, fleet) ? Math.Max(railRange, Heat.D.LongRangeMm) : railRange;
         var target = FireControl.Pick(sim, ship, fleet, railRange) ?? (reach > railRange ? NearestEnemyShip(w, ship, reach, fleet) : null);
         if (target == null) return;
         // Railguns need a clear line: with a fleet-mate in the way, try another target in reach, else hold fire a little.
@@ -551,6 +583,7 @@ public static class Combat
         var targetFleet = w.FleetOf(target)!;
         var stats = battle.For(ship.Side);
         battle.Action(t1);
+        Ambush(sim, fleet, targetFleet, t1);
         fleet.LastBurnHour = t1; // firing heats the ships up: they stay easier to see for a while
         AutoTactics(w, fleet, targetFleet);
         var spread = C.Spread;
@@ -575,7 +608,7 @@ public static class Combat
             stats.RailShots++;
             var d = Vec2.Distance(ship.Position, target.Position);
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
-            var evasion = Fitting.Spec(target).Evasion * (SupplyLines.Hungry(target) ? SupplyLines.HungryEvasion : 1);
+            var evasion = Fitting.Spec(target).Evasion * (SupplyLines.Hungry(target) ? SupplyLines.HungryEvasion : 1) * (Surprised(w, w.FleetOf(target)) ? 0 : 1);
             // Beyond normal reach a slug flies so long that only a ship holding its course gets hit.
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - railRange) / Math.Max(1e-9, Heat.D.LongRangeMm - railRange)) * (1 - evasion)
@@ -628,6 +661,7 @@ public static class Combat
         }
         target.LastTargetedHour = t1;
         battle.Action(t1);
+        if (w.FleetOf(target) is Fleet hitFleet) Ambush(sim, fleet, hitFleet, t1);
         fleet.LastBurnHour = t1;
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
@@ -739,7 +773,8 @@ public static class Combat
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)
                    * Tech.PointDefence(w, targetFleet.Side, missile.Brain)
                    * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target)
-                   * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)); // fuel to weave on the way in
+                   * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)) // fuel to weave on the way in
+                   * (Surprised(w, targetFleet) ? SurprisePdFactor : 1);
         var survive = PowSurvive(1 - kill, shots);
         if (sim.Rng.NextDouble() >= survive)
         {
@@ -756,7 +791,7 @@ public static class Combat
         }
         // A missile launched close still has most of its fuel at the end: it follows a dodge.
         var fuelShare = Heat.FuelShare(missile);
-        var dodge = Fitting.Spec(target).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
+        var dodge = (Surprised(w, targetFleet) ? 0 : 1) * Fitting.Spec(target).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
                     * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
         {

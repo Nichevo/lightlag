@@ -483,6 +483,10 @@ public partial class EngagementPanel : Control
             ships.Sum(s => s.Missiles) <= 0 ? "Missiles left: NONE (out of missiles)" : $"Missiles left: {ships.Sum(s => s.Missiles)} of {ships.Sum(s => Tech.Racks(w, s))}",
         };
         if (f.Chase is { Problem: string problem }) lines.Add($"Chase trouble: {problem}");
+        if (Combat.Surprised(w, f)) lines.Add($"CAUGHT UNAWARES: no return fire or dodging for {(f.SurprisedUntilHour!.Value - w.Hour) * 60:0} more minutes");
+        else if (Combat.Unseen(w, f))
+            lines.Add($"Unseen: they haven't spotted you. Your first shots catch them unawares for {Combat.SurpriseHours * 60:0} minutes "
+                      + $"(missiles from {Km(Heat.LaunchRange(f))}, guns from {Km(GameData.Combat.Railgun.RangeMm)}). Burns and orbit make you easier to see");
         _defence.Text = string.Join("\n", lines);
 
         // Ships: your fleet as rows with heat and quick buttons, then the enemy and spotting as text.
