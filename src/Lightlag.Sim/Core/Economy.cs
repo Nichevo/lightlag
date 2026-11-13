@@ -23,7 +23,7 @@ public sealed record ResearchData(string Id, string Name, string Effect, double 
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
-    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null);
+    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null, BudgetData? Budget = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 /// LiftCut: the share of the lift to orbit still paid at its body (skyhook, space elevator; see Lift). Ground: only over
@@ -58,6 +58,9 @@ public sealed class SideState
 {
     public Side Side { get; set; }
     public double Industry { get; set; }
+
+    /// <summary>The Industry budget: pots that are claims on Industry (see Budget); null until first used.</summary>
+    public BudgetState? Budget { get; set; }
 
     /// <summary>Free freighters carry goods where planets ask for them (see Colonies), and freighters lost with cargo.</summary>
     public bool AutoTransport { get; set; } = true;
@@ -525,7 +528,7 @@ public static class Economy
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
         if (data.OnTypes is { Count: > 0 } types && !types.Contains(b.Type)) return types.All(x => x is "gas" or "ice-giant") ? "Only over a gas giant" : $"Only over a {string.Join(" or ", types)} world";
         if (data.Ground && b.Board == null) return $"Only on a world with ground to anchor it ({b.Name} has none)";
-        if (Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
+        if (Core.Budget.Problem(w, side, Pot.Stations, data.Cost, $"station:{bodyId}:{kind}") is string tooLow) return tooLow;
         return null;
     }
 
@@ -552,11 +555,12 @@ public static class Economy
         foreach (var side in Sides.InPlay(w))
         {
             var earned = IncomePerDay(w, side) / 24;
-            Of(w, side).Industry += earned;
+            Budget.Earn(w, side, earned);
             Of(w, side).Totals.IndustryEarned += earned;
             using (SectionTimer.Time("yards")) Work(sim, side);
             using (SectionTimer.Time("research")) Research.Work(sim, side);
             using (SectionTimer.Time("upkeep")) SupplyLines.Upkeep(sim, side);
+            Budget.Update(sim, side);
         }
         Research.Surveys(sim);
         Sparks.Check(sim);
@@ -583,10 +587,10 @@ public static class Economy
             // The shipyard works on the first order that fits it; ones too long for any yard wait (and say why).
             foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && !o.Paid && !Starbases.Fits(w, side, main, o.Key)))
                 o.Waiting = GameData.ShipClasses.TryGetValue(o.Key, out var cls) ? Starbases.NeedsYard(cls) : "No yard takes it";
-            Work(sim, side, main, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && (o.Paid || Starbases.Fits(w, side, main, o.Key))));
+            Work(sim, side, main, Budget.NextOrder(w, side, w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && (o.Paid || Starbases.Fits(w, side, main, o.Key))), main));
         }
         foreach (var yard in w.Bodies.Where(b => Starbases.Builds(w, b, side)).ToList())
-            Work(sim, side, yard, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == yard.Id));
+            Work(sim, side, yard, Budget.NextOrder(w, side, w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == yard.Id), yard));
     }
 
     private static void Work(Simulation sim, Side side, Body yard, WorkOrder? order)
@@ -615,7 +619,9 @@ public static class Economy
             var cost = CostOf(order);
             var mats = Races.Materials(w, side, MaterialsOf(order));
             var shortOf = MaterialShort(yard, mats) ?? Races.GrowStatus(w, side, yard, biomass, started: false);
-            var wait = state.Industry < cost ? $"needs {cost - state.Industry:0} more Industry" : shortOf;
+            var pot = Budget.PotOf(order);
+            var urgent = Budget.ShortOf(w, side, pot, cost, "order:" + order.Id) != null && Budget.UrgentCover(w, side, pot, cost, "order:" + order.Id);
+            var wait = (urgent ? null : Budget.ShortOf(w, side, pot, cost, "order:" + order.Id)) ?? shortOf;
             if (wait != null)
             {
                 if (order.Waiting == null && shortOf != null)
@@ -626,7 +632,7 @@ public static class Economy
                 return;
             }
             order.Waiting = null;
-            state.Industry -= cost;
+            Budget.Pay(w, side, pot, cost, "order:" + order.Id, yard.Id, urgent, sim.Log);
             state.Totals.IndustrySpent += cost;
             TakeMaterials(w, yard, mats, "ships");
             if (biomass > 0)
@@ -1050,7 +1056,8 @@ public sealed record BuildStationCommand(Side Side, int BodyId, string Kind) : G
             return;
         }
         var data = Economy.StationKind(Kind)!;
-        Economy.Of(world, Side).Industry -= data.Cost;
+        Budget.Pay(world, Side, Pot.Stations, data.Cost, $"station:{BodyId}:{Kind}", BodyId, log: sim.Log);
+        Economy.Of(world, Side).Totals.IndustrySpent += data.Cost;
         world.Stations.Add(new Station { Id = world.NextId++, Side = Side, Kind = Kind, BodyId = BodyId, ReadyHour = world.Hour + data.Days * 24, Armour = data.Armour });
         sim.Log.Info("economy", $"{Side} builds a {data.Name.ToLowerInvariant()} at {world.FindBody(BodyId)!.Name}", new { side = Side.ToString(), BodyId, Kind, days = data.Days, Source });
     }
@@ -1097,7 +1104,7 @@ public sealed record CancelOrderCommand(Side Side, int OrderId) : GameCommand
         world.Orders.Remove(order);
         if (order.Paid)
         {
-            Economy.Of(world, Side).Industry += Economy.CostOf(order);
+            Budget.Refund(world, Side, Budget.PotOf(order), Economy.CostOf(order));
             Economy.Of(world, Side).Totals.IndustrySpent -= Economy.CostOf(order);
         }
         sim.Log.Info("economy", $"{Side} cancels {Economy.NameOf(order)}", new { side = Side.ToString(), OrderId, refunded = order.Paid, Source });

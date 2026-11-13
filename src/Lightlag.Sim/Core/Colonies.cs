@@ -590,10 +590,11 @@ public static class Colonies
     {
         if (b.Owner is not Side side || Planets.BuildingKind(p.Kind) is not BuildingData data) return;
         if (b.Pieces.Any(o => !o.Built && !o.Waiting)) return; // one at a time: the one under way finishes first
-        if (b.Pieces.First(o => o.Waiting) != p) return;         // and the queue goes in the order it was placed
+        if (Budget.NextPiece(sim.World, b) != p) return;         // and the queue goes in its budget order (the order placed, unless moved)
         var state = Economy.Of(sim.World, side);
-        if (state.Industry < data.Cost) return;
-        state.Industry -= data.Cost;
+        var key = Budget.PieceKey(b, p);
+        if (Budget.ShortOf(sim.World, side, Pot.Buildings, data.Cost, key) != null) return;
+        Budget.Pay(sim.World, side, Pot.Buildings, data.Cost, key, b.Id, log: sim.Log);
         state.Totals.IndustrySpent += data.Cost;
         p.Waiting = false;
         sim.Log.Info("planets", $"{side} starts a queued {data.Name.ToLowerInvariant()} at {b.Name}", new { side = side.ToString(), bodyId = b.Id, kind = p.Kind, cost = data.Cost });
@@ -604,10 +605,11 @@ public static class Colonies
     {
         if (!p.Waiting) return null;
         if (b.Pieces.Any(o => !o.Built && !o.Waiting)) return "queued behind the building under way";
-        if (b.Pieces.First(o => o.Waiting) != p) return "queued behind another";
+        if (b.Owner is Side owner && Budget.Paused(w, owner, Budget.PieceKey(b, p))) return "paused in the Industry budget";
+        if (Budget.NextPiece(w, b) != p) return "queued behind another";
         var cost = Planets.BuildingKind(p.Kind)?.Cost ?? 0;
-        var have = b.Owner is Side s ? Economy.Of(w, s).Industry : 0;
-        return have < cost ? $"waiting for {cost - have:0} more Industry" : "starts next hour";
+        if (b.Owner is not Side s) return "waiting";
+        return Budget.ShortOf(w, s, Pot.Buildings, cost, Budget.PieceKey(b, p)) is string why ? (why.StartsWith("needs ", StringComparison.Ordinal) ? "waiting for " + why[6..] : "waiting: " + why) : "starts next hour";
     }
 
     /// <summary>Takes what it can of a piece's materials from the planet's store; true once none are left to come.</summary>
@@ -1444,7 +1446,7 @@ public static class Colonies
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
         if (data.Food > 0 && !data.AnyAir && data.Terrain != "ocean" && Planets.TypeOf(b).Farm <= 0 && !b.Home) return "Nothing grows here without a dome";
         if (data.Hot && !Hot(b)) return "Only on volcanic worlds and planets close to the sun";
-        if (!queue && Economy.Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
+        if (!queue && Budget.Problem(w, side, Pot.Buildings, data.Cost) is string tooLow) return tooLow;
         if (x is int px && y is int py) return FitProblem(b, data, px, py, turned);
         return BestSpot(b, data) == null ? $"No room for a {data.Name.ToLowerInvariant()} on {b.Name}" : null;
     }

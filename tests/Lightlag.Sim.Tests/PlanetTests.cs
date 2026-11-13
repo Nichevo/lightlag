@@ -9,7 +9,7 @@ public class PlanetTests
 {
     private static Simulation NewGame(ulong seed = 8, GameOptions? options = null)
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: options);
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: (options ?? new GameOptions()) with { Budget = false }); // one pool: these tests predate the Industry budget (see BudgetTests)
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         return sim;

@@ -1188,7 +1188,7 @@ public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, in
         var b = world.FindBody(BodyId)!;
         var (x, y, turned) = X is int px && Y is int py ? (px, py, Turned) : Colonies.BestSpot(b, data)!.Value;
         var state = Economy.Of(world, Side);
-        if (Queue && (state.Industry < data.Cost || b.Pieces.Any(p => !p.Built)))
+        if (Queue && (!Budget.Afford(world, Side, Pot.Buildings, data.Cost) || b.Pieces.Any(p => !p.Built)))
         {
             var queued = Colonies.AddPiece(world, b, data, x, y, turned, built: false);
             queued.Waiting = true;
@@ -1196,7 +1196,7 @@ public sealed record BuildOnPlanetCommand(Side Side, int BodyId, string Kind, in
             sim.Log.Info("planets", $"{Side} queues a {data.Name.ToLowerInvariant()} at {b.Name}", new { side = Side.ToString(), BodyId, Kind, x, y, Source });
             return;
         }
-        state.Industry -= data.Cost;
+        Budget.Pay(world, Side, Pot.Buildings, data.Cost, null, b.Id, log: sim.Log);
         state.Totals.IndustrySpent += data.Cost;
         Colonies.AddPiece(world, b, data, x, y, turned, built: false);
         Choices.Note(world, Side, "building", Kind, b.Name);

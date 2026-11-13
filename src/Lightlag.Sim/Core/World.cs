@@ -176,6 +176,9 @@ public sealed class GameRules
 
     /// <summary>Contact offers between races (only with three or more; see Contact). The language track runs either way.</summary>
     public bool ContactOffers { get; set; } = true;
+
+    /// <summary>The Industry budget: pots with shares, goals and an order inside each pot (off: one pool, first come first served).</summary>
+    public bool Budget { get; set; } = true;
 }
 
 public enum EventRate { Off, Rare, Normal, Lively }

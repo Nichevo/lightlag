@@ -60,6 +60,8 @@ public static class Batch
         _rules = (opts.Has("random-starts"), opts.Has("spread"), opts.Has("no-happiness"), opts.Has("no-supply-lines"), opts.Has("single-fuel"));
         // --no-hazards: no rocks, radiation or sun heat; --events off|rare|normal|lively (default normal).
         _noHazards = opts.Has("no-hazards");
+        // --no-budget: one Industry pool, first come first served (to compare with the budget).
+        _noBudget = opts.Has("no-budget");
         _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
         // --player-race / --rival-race human|hive|random: each side's race (batch: human; nightly: random, so both races get played).
         _races = (opts.Get("player-race") ?? (nightly ? Races.Random : null), opts.Get("rival-race") ?? (nightly ? Races.Random : null));
@@ -78,6 +80,7 @@ public static class Batch
         var results = new List<GameResult>();
         WhatMatters.Rows.Clear();
         ResearchReport.Rows.Clear();
+        BudgetReport.Rows.Clear();
         _report = null;
         Overnight.Fights.Clear();
         Audit.Clear();
@@ -142,17 +145,18 @@ public static class Batch
     private static (string? Player, string? Rival) _races;
 
     private static GameOptions? OptionsForRules(string pilot) =>
-        _light == null && _autonomy == null && _rules == default && !_noHazards && _events == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
+        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && _events == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
                 ChoiceSpread = HeadlessSpread,
                 Light = _light, Autonomy = _autonomy,
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
-                Hazards = _noHazards ? false : null, Events = _events,
+                Hazards = _noHazards ? false : null, Events = _events, Budget = _noBudget ? false : null,
             };
 
     private static bool _noHazards;
+    private static bool _noBudget;
     private static EventRate? _events;
 
     private static (bool Random, bool Spread, bool NoHappiness, bool NoSupply, bool SingleFuel) _rules;
@@ -217,6 +221,7 @@ public static class Batch
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
                     ResearchReport.Rows.Add(ResearchReport.Of(w, side));
                     WarReport.Rows.Add(WarReport.Row.Of(w, side));
+                    if (BudgetReport.Row.Of(w, side) is BudgetReport.Row budgetRow) BudgetReport.Rows.Add(budgetRow);
                 }
             Overnight.Collect(w);
             Audit.Collect(w);
@@ -386,6 +391,7 @@ public static class Batch
         _report = Overnight.Html(report, "Lightlag overnight report", html.ToString());
         AppendFights(md, ai);
         WarReport.Append(md);
+        BudgetReport.Append(md);
         WhatMatters.Append(md);
         ResearchReport.Append(md);
         md.AppendLine();

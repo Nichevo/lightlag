@@ -183,6 +183,10 @@ public sealed class RuleBook
             .Select(s => $"ship {s.Id} {s.Name} has max speed {s.MaxSpeed}"))
         .Add("industry-sane", w => w.Sides.Where(s => !(double.IsFinite(s.Industry) && s.Industry >= -1e-6))
             .Select(s => $"{s.Side} has {s.Industry} Industry"))
+        .Add("budget-sane", w => w.Sides.Where(s => Budget.On(w) && s.Budget is { Pots.Count: Budget.Count } bs
+                && (bs.Pots.Any(p => !(double.IsFinite(p.Saved) && p.Saved >= -1e-6 && p.Share >= 0)) || Math.Abs(bs.Pots.Sum(p => p.Share) - 100) > 0.51
+                    || bs.Earmarks.Any(e => e.Amount < -1e-6 || e.Amount > bs.Pots[(int)e.Pot].Saved + 1e-6)))
+            .Select(s => $"{s.Side} budget is off: shares {string.Join("/", s.Budget!.Pots.Select(p => p.Share))}, saved {string.Join("/", s.Budget.Pots.Select(p => Math.Round(p.Saved, 2)))}"))
         .Add("orders-sane", w => w.Orders.Where(o => !double.IsFinite(o.HoursLeft) || o.HoursLeft > o.TotalHours + 1e-6
                 || (o.Kind == OrderKind.Ship ? !GameData.ShipClasses.ContainsKey(o.Key) : !GameData.ResearchById.ContainsKey(o.Key)))
             .Select(o => $"order {o.Id} ({o.Kind} {o.Key}) has {o.HoursLeft} of {o.TotalHours} hours left"))

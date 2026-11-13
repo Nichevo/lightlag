@@ -9,7 +9,7 @@ public class EconomyTests
 {
     private static Simulation NewGame(ulong seed = 8, bool classic = true)
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: new GameOptions(Budget: false)); // one pool: these tests predate the Industry budget (see BudgetTests)
         if (classic) Starts.Classic(sim);
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;

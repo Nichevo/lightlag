@@ -124,3 +124,13 @@ page, `summary.html`, in the run folder. Targets take one hour of play as about 
 
 The balance table has one row per personality (Raider, Expander, Turtle, Trader, Hunter, Opportunist;
 profiles in `ai.json`).
+
+## The Industry budget section
+
+Each side's Industry is split into six pots (Ships, Buildings, Stations and defences, Refits and repairs,
+Transport and supply, Reserve; see `Budget.cs`). The rival starts from its personality's shares (`budget`
+in `ai.json`) and moves them with its queue and the war. The summary's "Industry budget" table gives, per
+personality, the starting shares, the shares at the end, the share of Industry actually spent from each
+pot, how much overflowed from full pots and how much Reserve went to urgent defence. A personality whose
+spend does not look like its shares is not playing to type. `--no-budget` plays a batch with one Industry
+pool, first come first served, to compare.

@@ -428,13 +428,13 @@ public static class Events
                 e.UntilHour = body.FaultUntilHour;
                 break;
             case "rock-strike" when option == 0 && body != null && !HasDriver(w, body):
-                if (state.Industry < E.RockPushIndustry) { e.Call.Picked = 1; e.Outcome = "Not enough Industry for the tugs: evacuating instead"; break; }
-                state.Industry -= E.RockPushIndustry;
+                if (!Budget.Afford(w, e.Side, Pot.Reserve, E.RockPushIndustry) && state.Industry < E.RockPushIndustry) { e.Call.Picked = 1; e.Outcome = "Not enough Industry for the tugs: evacuating instead"; break; }
+                Budget.Pay(w, e.Side, Pot.Reserve, E.RockPushIndustry, urgent: true, bodyId: body.Id, log: sim.Log);
                 state.Totals.IndustrySpent += E.RockPushIndustry;
                 break;
             case "comet" when option == 0:
-                if (state.Industry < E.CometIndustry) { e.Call.Picked = 1; e.Outcome = "Not enough Industry to send miners"; break; }
-                state.Industry -= E.CometIndustry;
+                if (!Budget.Afford(w, e.Side, Pot.Reserve, E.CometIndustry)) { e.Call.Picked = 1; e.Outcome = "Not enough Industry in Reserve to send miners"; break; }
+                Budget.Pay(w, e.Side, Pot.Reserve, E.CometIndustry);
                 state.Totals.IndustrySpent += E.CometIndustry;
                 break;
         }

@@ -70,7 +70,7 @@ public partial class Main : Node
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
         var args = OS.GetCmdlineUserArgs();
-        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=")));
+        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=")));
         PlayerInfo.Load(Paths.Root);
         PauseSettings.Load(Paths.Root);
         RivalAdvisor.Load(Paths.Root);
@@ -84,6 +84,11 @@ public partial class Main : Node
         {
             // Only the top bar and Needs you pictures (quicker than the whole set while working on them).
             _ = TakeBarShots(barShots["--bar-shots=".Length..].Trim('"'));
+            return;
+        }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--budget-shots=")) is string budgetShots)
+        {
+            _ = TakeBudgetShots(budgetShots["--budget-shots=".Length..].Trim('"'));
             return;
         }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--screenshots=")) is string shots)
@@ -118,6 +123,7 @@ public partial class Main : Node
     public bool RandomStartsChoice { get; set; } = true;
     public bool IronmanChoice { get; set; }
     public bool ContactOffersChoice { get; set; } = true;
+    public bool BudgetChoice { get; set; } = true;
 
     /// <summary>Races for the next new game: yours, and the rival's (human, hive or random; see Races).</summary>
     public string PlayerRaceChoice { get; set; } = Races.Human;
@@ -136,7 +142,7 @@ public partial class Main : Node
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
-                Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
+                Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());
@@ -442,6 +448,50 @@ public partial class Main : Node
         game.OpenMenu("display");
         await shoot("66-display-options");
         game.CloseMenu();
+    }
+
+    /// <summary>The Budget tab pictures: by pot with one pot open and a goal, by place, by project.</summary>
+    private async Task ShootBudget(Func<string, Task> shoot)
+    {
+        StartNewGame(9);
+        var game = (GameScreen)_screen!;
+        var me = Lightlag.Sim.Core.Side.Player;
+        var w = Sim!.World;
+        var verdant = w.Bodies.First(b => b.Key == "verdant");
+        Sim.Issue(new SetAutoLevelCommand(me, AutoArea.Building, AutoLevel.Manual));
+        Sim.ApplyPending();
+        Sim.StepMany(20 * GameTime.TicksPerDay);
+        Sim.Issue(new QueueOrderCommand(me, OrderKind.Ship, "missile-destroyer"));
+        Sim.Issue(new BuildOnPlanetCommand(me, verdant.Id, Planets.Farm, Queue: true));
+        Sim.Issue(new BuildOnPlanetCommand(me, verdant.Id, Planets.Mine, Queue: true));
+        Sim.ApplyPending();
+        if (Budget.Projects(w, me).FirstOrDefault(p => p.Pot == Pot.Stations) is var (pot, key, name, cost, body) && key != null)
+            Sim.Issue(new SetGoalCommand(me, pot, key, name, cost, body));
+        Sim.ApplyPending();
+        Sim.StepMany(2 * GameTime.TicksPerDay);
+        game.TogglePause();
+        game.ShowEmpire = true;
+        game.EmpireTabWanted = EmpirePanel.Tab.Budget;
+        BudgetTab.Show(BudgetTab.View.ByPot, Pot.Buildings);
+        await shoot("70-budget-by-pot");
+        BudgetTab.Show(BudgetTab.View.ByPlace, null);
+        await shoot("71-budget-by-place");
+        BudgetTab.Show(BudgetTab.View.ByProject, null);
+        await shoot("72-budget-by-project");
+    }
+
+    private async Task TakeBudgetShots(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        RandomStartsChoice = false;
+        async Task Shoot(string name)
+        {
+            for (var i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            GetViewport().GetTexture().GetImage().SavePng(System.IO.Path.Combine(dir, name + ".png"));
+        }
+        try { await ShootBudget(Shoot); }
+        catch (Exception e) { Log.Error("game", "Budget screenshots failed", new { error = e.ToString() }); }
+        GetTree().Quit();
     }
 
     private async Task TakeBarShots(string dir)

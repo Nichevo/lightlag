@@ -158,9 +158,9 @@ public static class Refits
                 if (FreeBays(w, yard, f.Side) <= 0) { plan.Waiting ??= "all bays busy"; break; }
                 var cost = CostOf(s);
                 var mats = MaterialsOf(s);
-                var shortOf = state.Industry < cost ? $"needs {cost - state.Industry:0} more Industry" : Economy.MaterialShort(yard, mats);
+                var shortOf = Budget.ShortOf(w, f.Side, Pot.Refits, cost, "refit:" + f.Id) ?? Economy.MaterialShort(yard, mats);
                 if (shortOf != null) { plan.Waiting = shortOf; break; }
-                state.Industry -= cost;
+                Budget.Pay(w, f.Side, Pot.Refits, cost, "refit:" + f.Id, yard.Id, log: sim.Log);
                 state.Totals.IndustrySpent += cost;
                 Economy.TakeMaterials(w, yard, mats, "ship refits");
                 s.RefitHoursLeft = HoursFor(w, s, yard);
@@ -230,7 +230,7 @@ public static class Refits
         var outdated = w.ShipsOf(f).Where(s => Outdated(w, s)).ToList();
         if (outdated.Count == 0 || CanSend(w, f) != null) return false;
         var yard = NearestYard(w, f.Side, f.Position);
-        return yard != null && FreeBays(w, yard, f.Side) > 0 && Economy.Of(w, f.Side).Industry - reserve >= outdated.Sum(CostOf);
+        return yard != null && FreeBays(w, yard, f.Side) > 0 && (Budget.On(w) ? Budget.Free(w, f.Side, Pot.Refits) : Economy.Of(w, f.Side).Industry - reserve) >= outdated.Sum(CostOf);
     }
 
     /// <summary>The Refits area: idle fleets at home or holding orbit over their own planets, when worth it.</summary>

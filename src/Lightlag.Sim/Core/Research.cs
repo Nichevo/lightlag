@@ -331,7 +331,7 @@ public static class Research
         if (FieldIndex(field) < 0) return $"Unknown field '{field}'";
         var state = Economy.Of(w, side);
         if (state.Teams.Count >= T.Slots) return "All team slots are full";
-        if (state.Industry < T.FoundCost) return $"Needs {T.FoundCost:0} Industry";
+        if (Budget.Problem(w, side, Pot.Buildings, T.FoundCost) is string tooLow) return tooLow;
         return null;
     }
 
@@ -343,7 +343,7 @@ public static class Research
         if (!w.Loop) return "There is no research in the battle sandbox";
         if (Team(w, side, teamId) is not ResearchTeam team) return "No such team";
         if (team.TrainingUntilHour != null) return "Already training";
-        if (Economy.Of(w, side).Industry < TrainCost(w, side)) return $"Needs {TrainCost(w, side):0} Industry";
+        if (Budget.Problem(w, side, Pot.Buildings, TrainCost(w, side)) is string tooLow) return tooLow;
         return null;
     }
 
@@ -360,7 +360,7 @@ public static class Research
     internal static void Found(Simulation sim, Side side, string field)
     {
         var w = sim.World;
-        Economy.Of(w, side).Industry -= T.FoundCost;
+        Budget.Pay(w, side, Pot.Buildings, T.FoundCost, log: sim.Log);
         Economy.Of(w, side).Totals.IndustrySpent += T.FoundCost;
         var team = NewTeam(w, side, T.FoundScientists);
         team.ReadyHour = w.Hour + T.FoundDays * 24;
@@ -373,7 +373,7 @@ public static class Research
     {
         var w = sim.World;
         var team = Team(w, side, teamId)!;
-        Economy.Of(w, side).Industry -= TrainCost(w, side);
+        Budget.Pay(w, side, Pot.Buildings, TrainCost(w, side), log: sim.Log);
         Economy.Of(w, side).Totals.IndustrySpent += TrainCost(w, side);
         team.TrainingUntilHour = w.Hour + T.TrainDays * 24 * Tech.Factor(w, side, "scientist-training");
         team.TrainingScientists = T.TrainScientists;
