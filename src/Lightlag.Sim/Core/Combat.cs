@@ -455,6 +455,13 @@ public static class Combat
     private static bool CouldLaunch(World w, Fleet f, Fleet enemy) =>
         !f.Retreating && f.Stance is Stance.Engage or Stance.EngageIfStronger && HasWorking(w, f, Module.Missiles) && Sensors.Sees(w, f.Side, enemy);
 
+    /// <summary>
+    /// A fleet holding orbit (blockading, guarding) and not manoeuvring follows its orbit: it can't jink much, so
+    /// it dodges slugs and missiles at OrbitDodgeFactor. A fast pass makes the most of this.
+    /// </summary>
+    public static bool HeldInOrbit(World w, Fleet f) =>
+        !f.Maneuvering && f.Flight == null && f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int id && w.FindBody(id) is Body b && Economy.InOrbitAt(f, b);
+
     /// <summary>A ship with working railguns still has slugs for a shot: a fleet out of them has nothing to close in for.</summary>
     public static bool HasRailAmmo(World w, Fleet f) =>
         w.ShipsOf(f).Any(s => !s.Out(Module.Railguns) && Fitting.Spec(s).Railguns > 0 && s.Ammo >= C.Railgun.SuppliesPerShot);
@@ -650,7 +657,8 @@ public static class Combat
             stats.RailShots++;
             var d = Vec2.Distance(ship.Position, target.Position);
             var relSpeed = (targetFleet.Velocity - fleet.Velocity).Length;
-            var evasion = Fitting.Spec(target).Evasion * (SupplyLines.Hungry(target) ? SupplyLines.HungryEvasion : 1) * (Surprised(w, w.FleetOf(target)) ? 0 : 1);
+            var evasion = Fitting.Spec(target).Evasion * (SupplyLines.Hungry(target) ? SupplyLines.HungryEvasion : 1) * (Surprised(w, w.FleetOf(target)) ? 0 : 1)
+                          * (HeldInOrbit(w, targetFleet) ? C.OrbitDodgeFactor : 1);
             // Beyond normal reach a slug flies so long that only a ship holding its course gets hit.
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - railRange) / Math.Max(1e-9, Heat.D.LongRangeMm - railRange)) * (1 - evasion)
@@ -834,6 +842,7 @@ public static class Combat
         // A missile launched close still has most of its fuel at the end: it follows a dodge.
         var fuelShare = Heat.FuelShare(missile);
         var dodge = (Surprised(w, targetFleet) ? 0 : 1) * Fitting.Spec(target).Evasion * (missile.Brain >= 2 ? C.Brain2DodgeFactor : 1) * BrainBeyond2(missile)
+                    * (HeldInOrbit(w, targetFleet) ? C.OrbitDodgeFactor : 1)
                     * (1 - Heat.D.HeldDodgeCut * fuelShare * fuelShare);
         if (sim.Rng.NextDouble() < dodge)
         {

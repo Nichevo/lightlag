@@ -74,7 +74,7 @@ public sealed record AutomationData(Dictionary<string, string> Defaults, int Hab
 
 // ---- State (saved with the world) ----------------------------------------------------------------
 
-public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush, Escort }
+public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush, Escort, Strafe }
 
 /// <summary>What the computer has told one of its fleets to do, and why (shown in the debug view).</summary>
 public sealed class FleetJob
@@ -147,6 +147,8 @@ public sealed class Leanings
 /// <summary>One computer-run side: its settings, its rolled temperament, its fleets' jobs and what it believes.</summary>
 public sealed class MindState
 {
+    /// <summary>Sieges it has already given a no-relief reason for (body id @ siege start hour; see WhyNoRelief).</summary>
+    public List<string> ReliefNoted { get; set; } = new();
     public Side Side { get; set; }
     public Difficulty Difficulty { get; set; }
     public Personality Personality { get; set; }
@@ -790,7 +792,9 @@ public static class Mind
                 var done = job.Kind switch
                 {
                     JobKind.Claim => body == null || body.Owner == _side || (body.Owner == _enemy && body.Shipyard),
-                    JobKind.Break => body == null || body.ClaimSide is not Side c || c == _side,
+                    // Over: no enemy claim on it and none of its own planets under siege there (or the planet is lost).
+                    JobKind.Break => body == null || (body.ClaimSide is not Side c || c == _side) && !Besieged(body),
+                    JobKind.Strafe => body == null || body.Owner != _side || f.Flight == null,
                     JobKind.Strike => _enemyYard == null,
                     JobKind.Hunt => job.EnemyFleetId is not int e || Sensors.Find(_w, _side, e, seat: true) is not Sighting s || _w.Hour - s.Hour > 48,
                     JobKind.Probe => f.Flight == null && _w.Hour - job.Since > A.ProbeDays * 24,
@@ -929,10 +933,12 @@ public static class Mind
         private void DefendClaims()
         {
             // Any enemy: with two rivals, the one it is not aiming at may be the one sitting on its planet.
+            // Claims on empty worlds, and its own planets under siege (enemy warships in orbit, contested or blockaded).
             foreach (var b in Economy.Claimable(_w).Where(b => b.ClaimSide is Side c && c != _side && (b.Owner == _side || c == _enemy))
-                         .OrderByDescending(b => b.Owner == _side ? 1 : 0).ThenByDescending(b => b.Industry).ToList())
+                         .Concat(_w.Bodies.Where(Besieged)).Distinct()
+                         .OrderByDescending(b => b.Owner == _side ? 1 : 0).ThenByDescending(b => b.Industry).ThenBy(b => b.Id).ToList())
             {
-                if (_m.Jobs.Any(j => j.Kind == JobKind.Break && j.BodyId == b.Id)) continue;
+                if (_m.Jobs.Any(j => j.Kind is JobKind.Break or JobKind.Strafe && j.BodyId == b.Id)) continue;
                 var ours = b.Owner == _side;
                 if (!ours && (Easy || _rng.NextDouble() > _p.HuntWeight * 0.5)) continue; // a neutral planet: only some care
                 if (Slip()) continue;
@@ -953,6 +959,35 @@ public static class Mind
                 Send(group, b, JobKind.Break, 0.8, Core.Stance.Engage,
                     $"enemy is claiming {(ours ? "our" : "neutral")} {b.Name}; about {there:0} enemy power there");
             }
+        }
+
+        /// <summary>One of its own planets with people, enemy warships in its orbit (it can see its own sky).</summary>
+        private bool Besieged(Body b) =>
+            b.Owner == _side && b.PopK > 0 && _w.Fleets.Any(f => f.Side != _side && Economy.InOrbitAt(f, b) && Combat.Armed(_w, f));
+
+        /// <summary>A strafing run goes in with at least this share of the power a full relief would need.</summary>
+        private const double StrafeShare = 0.35;
+
+        /// <summary>
+        /// Too weak to break the siege: a fast pass instead. The fleets that can get there in time fly through the
+        /// planet's orbit at full speed (no braking), firing as they go and not stopping to fight. Ships held in
+        /// orbit dodge badly, so a pass wears the besiegers down; the help on its way also keeps the planet's hopes up.
+        /// </summary>
+        private bool Strafe(Body b, double need, List<(Fleet Fleet, double Days)> near)
+        {
+            var armed = near.Where(x => Combat.HasWorking(_w, x.Fleet, Module.Missiles) || Combat.HasRailAmmo(_w, x.Fleet)).ToList();
+            var sum = armed.Sum(x => War(x.Fleet));
+            if (armed.Count == 0 || sum < need * StrafeShare) return false;
+            SetGoal("Relieve", $"{armed.Count} fleet(s), {sum:0} power, on a fast pass through {b.Name}'s orbit (too weak to break the siege: needs about {need:0})");
+            foreach (var (f, _) in armed)
+            {
+                var request = new FlightRequest(b.Id, b.Position, Burn(f), ArrivalStyle.FastPass, HoldStyle.Drift, _w.Tick);
+                if (!Fly(f, request)) continue;
+                Assign(f, JobKind.Strafe, b.Id, b.Position, $"fast pass through {b.Name}'s orbit, firing at the besiegers");
+                Orders(f, Core.Stance.Hold);
+                Note($"{f.Name} ({f.ShipIds.Count} ships): Strafe {b.Name}: fast pass at the besiegers");
+            }
+            return true;
         }
 
         /// <summary>A colony this many days or more from home (at a relief burn) is "far": relief from home would come too late.</summary>
@@ -1022,6 +1057,31 @@ public static class Mind
         /// way), nearest first, until they add up to enough. Fleets already sitting on a blockade of their own,
         /// striking, refitting or busy are left alone.
         /// </summary>
+        /// <summary>
+        /// For the reports, once per siege: where the power it would have needed to relieve this planet was
+        /// (the biggest share): too far, refitting, resupplying, fighting, on another job, or not enough in all.
+        /// </summary>
+        private void WhyNoRelief(Body b, double need, double daysLeft)
+        {
+            var key = $"{b.Id}@{Math.Round(_w.Hour - b.SiegeHours)}";
+            if (b.SiegeHours <= 0 || _m.ReliefNoted.Contains(key)) return;
+            _m.ReliefNoted.Add(key);
+            if (_m.ReliefNoted.Count > 50) _m.ReliefNoted.RemoveAt(0);
+            string Why(Fleet f) =>
+                f.Refit != null || NeedsRefit(f) ? "refitting or needs a refit"
+                : f.Resupplying ? "resupplying"
+                : f.Maneuvering || f.Retreating ? "fighting or pulling back"
+                : !FitToRelieve(f) ? "damaged or low on supplies"
+                : _m.JobOf(f.Id) is { } j && !(j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort or JobKind.Refit
+                                               || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null)) ? $"busy: {j.Kind.ToString().ToLowerInvariant()}{(j.Campaign ? " campaign" : "")}"
+                : "too far";
+            var power = Mine().Where(f => War(f) > 0).ToList();
+            var why = power.Sum(f => War(f)) < need ? "not enough warships in all"
+                : power.GroupBy(Why).Select(g => (g.Key, Sum: g.Sum(f => War(f)))).OrderByDescending(x => x.Sum).ThenBy(x => x.Key).First().Key;
+            var t = Economy.Of(_w, _side).Totals.ReliefWhyNot;
+            t[why] = t.GetValueOrDefault(why) + 1;
+        }
+
         private bool Rally(Body b, double need)
         {
             if (Easy) return false;
@@ -1043,7 +1103,12 @@ public static class Mind
                 sent.Add(f);
                 sum += War(f);
             }
-            if (sum < need) return false;
+            if (sum < need)
+            {
+                if (Strafe(b, need, near)) return true;
+                WhyNoRelief(b, need, daysLeft);
+                return false;
+            }
             SetGoal("Relieve", $"{sent.Count} fleet(s), {sum:0} power, to break the blockade of {b.Name} (needs about {need:0})");
             foreach (var f in sent)
                 Send(f, b, JobKind.Break, Burn(f), Core.Stance.Engage, $"relieve our {b.Name}: blockaded {b.BlockadeHours / 24:0} days");

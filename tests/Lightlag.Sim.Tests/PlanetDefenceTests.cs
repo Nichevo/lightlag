@@ -134,3 +134,39 @@ public class PlanetDefenceTests
         Assert.True(Ground.HoldFactor(sim.World, vela) > happy);
     }
 }
+
+/// <summary>The rival answers a siege of one of its colonies with people: relief (or a fast pass) that keeps going until the siege ends.</summary>
+public class SiegeReliefTests
+{
+    [Fact]
+    public void The_rival_sends_relief_to_a_besieged_colony_and_keeps_it_going()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 7, GameLog.Memory(), options: GameOptions.VsRival(Difficulty.Normal));
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        var w = sim.World;
+        var vela = w.Bodies.Single(b => b.Key == "vela");
+        vela.Owner = Side.Rival;
+        vela.PopK = 30;
+        sim.StepMany(24 * 3); // let the rival settle into its first thoughts
+        var ships = new List<Ship> { Economy.NewShip(w, Side.Player, "gun-frigate") };
+        var enemy = Fleets.Create(w, Side.Player, ships, vela.Position);
+        enemy.Flight = null;
+        enemy.Position = vela.Position + new Vec2(Fleets.OrbitRadiusFor(vela), 0);
+        Fleets.EnterOrbit(enemy, vela);
+        foreach (var s in w.ShipsOf(enemy)) s.Position = enemy.Position + s.FormationOffset;
+        enemy.Stance = Stance.HoldPosition;
+        Assert.True(Combat.HeldInOrbit(w, enemy)); // and so it dodges badly
+        FleetJob? job = null;
+        for (var h = 0; h < 24 * 4 && job == null; h++)
+        {
+            sim.Step();
+            job = w.Minds[0].Jobs.FirstOrDefault(j => j.Kind is JobKind.Break or JobKind.Strafe && j.BodyId == vela.Id);
+        }
+        Assert.NotNull(job);
+        // Still on its way a day later (a siege of a colony with people is not a claim that ends at once).
+        sim.StepMany(24);
+        if (w.Fleets.Contains(enemy) && enemy.ShipIds.Count > 0 && Economy.InOrbitAt(enemy, vela) && w.FindFleet(job!.FleetId)?.Flight != null)
+            Assert.Contains(w.Minds[0].Jobs, j => j.FleetId == job.FleetId && j.BodyId == vela.Id);
+    }
+}

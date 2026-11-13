@@ -83,7 +83,7 @@ public sealed record CombatData(
     double ContactRangeMm, double EngageRangeMm, RailgunData Railgun, MissileData Missile, PointDefenceData PointDefence,
     double Brain2DodgeFactor, double ModuleHitChance, double RetreatBelowArmour, double RepairPerDay,
     double DodgeFactor = 1, double DodgeDeltaV = 0, double DodgeStopsBelow = 0.3, SpreadData? Spread = null, FlagBridgeData? FlagBridge = null,
-    WoundsData? Wounds = null);
+    WoundsData? Wounds = null, double OrbitDodgeFactor = 0.5);
 
 /// <summary>Damage bars, crippled ships, wrecks and repairs. See ship-classes.json ("wounds").</summary>
 public sealed record WoundsData(double BarShare = 1.5, double CrippleHold = 0.4, double CrippledSpeed = 0.25, double KnockedSpeed = 0.5,

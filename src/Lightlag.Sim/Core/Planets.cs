@@ -244,6 +244,7 @@ public static class Planets
         Grow(sim);
         Moods(w);
         Decay(sim);
+        Sieges(sim);
         Bomb(sim);
         PlanetGuns(sim);
         using (SectionTimer.Time("ground-war")) Core.Ground.Update(sim);
@@ -470,6 +471,64 @@ public static class Planets
         else t.BlockadesLeft++;
         sim.Log.Info("planets", relief ? "Blockade broken by a relief fleet" : "Blockade ends",
             new { bodyId = b.Id, body = b.Name, by = by.ToString(), days = Math.Round(b.BlockadeHours / 24, 1), relief });
+    }
+
+    /// <summary>
+    /// Siege bookkeeping for the reports (see Totals.Sieges): enemy warships in orbit of a planet with people,
+    /// contested or blockaded. Notes when the holder's help sets out and whether it reaches the planet, and how
+    /// the siege ended.
+    /// </summary>
+    private static void Sieges(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var b in w.Bodies)
+        {
+            var owner = b.Owner;
+            var under = owner != null && b.PopK > 0 && w.Fleets.Any(f => f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f));
+            if (under && b.SiegeOwner == owner)
+            {
+                b.SiegeHours += GameTime.HoursPerTick;
+                if (b.SiegeHelpHour == null && Core.Ground.HelpComing(w, b) is var (_, days)) { b.SiegeHelpHour = w.Hour; b.SiegeHelpDays = days; }
+                if (b.SiegeHelpHour != null && w.Fleets.Any(f => f.Side == owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
+                                                               && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2))
+                    b.SiegeHelpArrived = true;
+                continue;
+            }
+            if (b.SiegeOwner is Side held && b.SiegeHours >= 24)
+            {
+                var t = Economy.Of(w, held).Totals;
+                t.Sieges++;
+                var sent = b.SiegeHelpHour != null;
+                if (sent)
+                {
+                    t.SiegeHelpDays += b.SiegeHelpDays;
+                    t.SiegeHelpSentAfterDays += (b.SiegeHelpHour!.Value - (w.Hour - b.SiegeHours)) / 24;
+                }
+                string how;
+                if (b.Owner == held)
+                {
+                    if (b.SiegeHelpArrived) { t.SiegesRelieved++; how = "relieved"; }
+                    else if (sent) { t.SiegesLeftHelpSent++; how = "attackers left, help on its way"; }
+                    else { t.SiegesLeftNoHelp++; how = "attackers left"; }
+                }
+                else if (!sent) { t.SiegesLostNoHelp++; how = "fell, no help sent"; }
+                else if (b.SiegeHelpArrived) { t.SiegesLostHelpThere++; how = "fell with help there"; }
+                else
+                {
+                    t.SiegesLostHelpLate++;
+                    how = "fell before help came";
+                    t.SiegeHelpLateDays += Math.Max(0, b.SiegeHelpDays - (w.Hour - b.SiegeHelpHour!.Value) / 24);
+                }
+                sim.Log.Info("planets", "Siege ends", new { bodyId = b.Id, body = b.Name, held = held.ToString(), days = Math.Round(b.SiegeHours / 24, 1), how,
+                    helpAfterDays = sent ? Math.Round((b.SiegeHelpHour!.Value - (w.Hour - b.SiegeHours)) / 24, 1) : (double?)null,
+                    helpDays = sent ? Math.Round(b.SiegeHelpDays, 1) : (double?)null });
+            }
+            b.SiegeHours = under ? GameTime.HoursPerTick : 0;
+            b.SiegeOwner = under ? owner : null;
+            b.SiegeHelpHour = null;
+            b.SiegeHelpDays = 0;
+            b.SiegeHelpArrived = false;
+        }
     }
 
     /// <summary>
