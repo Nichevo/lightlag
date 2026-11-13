@@ -248,6 +248,9 @@ public sealed class Fleet
 
     public int? SupplyRunFor { get; set; }
 
+    /// <summary>A supply run's cargo share an hour ago, to tell a hold still filling from one the planet can't fill further.</summary>
+    public double SupplyRunLastCargo { get; set; }
+
     /// <summary>Fired on by an enemy it had not seen: caught unawares until this hour (Combat.SurpriseHours).</summary>
     public double? SurprisedUntilHour { get; set; }
 

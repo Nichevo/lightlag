@@ -140,6 +140,86 @@ public class SupplyLineTests
         Assert.All(ships, s => Assert.True(s.Food > 0, $"{s.Name} still hungry"));
     }
 
+    private static Fleet SupplyRunAtHome(Simulation sim, Fleet target, string cls = "supply-tender")
+    {
+        var yard = Economy.ShipyardOf(sim.World, Side.Player)!;
+        var run = Fleets.Create(sim.World, Side.Player, new[] { Economy.NewShip(sim.World, Side.Player, cls) }, yard.Position);
+        PlaceInOrbit(sim, run, yard);
+        sim.Issue(new SetSupplyRunCommand(Side.Player, run.Id, target.Id));
+        return run;
+    }
+
+    private static void Coasting(Simulation sim, Fleet f, Vec2 at, Vec2 velocity)
+    {
+        f.Flight = null;
+        Fleets.EnterDrift(f);
+        f.Position = at;
+        f.Velocity = velocity;
+        foreach (var s in sim.World.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+    }
+
+    [Fact]
+    public void A_supply_run_stops_alongside_a_coasting_fleet_and_keeps_its_own_fleet()
+    {
+        var sim = NewGame();
+        var f = Home(sim);
+        Coasting(sim, f, BodyNamed(sim, "pale").Position + new Vec2(20000, 0), new Vec2(0, 30));
+        foreach (var s in sim.World.ShipsOf(f)) s.Food = 2;
+        var run = SupplyRunAtHome(sim, f);
+        var met = false;
+        for (var d = 0; d < 30 && !met; d++)
+        {
+            Days(sim, 1);
+            met = sim.Log.Tail().Any(l => l.Contains("comes alongside"));
+        }
+        Assert.True(met, string.Join("\n", sim.Log.Tail().Where(l => l.Contains("upply") || l.Contains(run.Name)).TakeLast(20)));
+        Assert.NotNull(sim.World.FindFleet(run.Id));                       // not merged into the fleet it supplies
+        Assert.DoesNotContain(sim.World.ShipsOf(f), SupplyLines.IsSupplyShip);
+        Days(sim, 0.5);
+        Assert.All(sim.World.ShipsOf(f).Where(s => !SupplyLines.IsSupplyShip(s)), s => Assert.True(s.Food > 2, $"{s.Name} got no food"));
+    }
+
+    [Fact]
+    public void A_fast_supply_run_passing_through_the_handover_distance_counts_as_close()
+    {
+        var target = Home(NewGame());
+        var run = new Fleet { Position = target.Position + new Vec2(200, 10), Velocity = target.Velocity + new Vec2(300, 0) };
+        Assert.True(SupplyLines.PassedClose(run, target));                  // was 100 Mm on the other side an hour ago
+        run.Position = target.Position + new Vec2(200, 80);
+        Assert.False(SupplyLines.PassedClose(run, target));
+    }
+
+    [Fact]
+    public void A_supply_tender_refuels_its_own_tanks_from_its_fuel_cargo()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var tender = Economy.NewShip(w, Side.Player, "supply-tender");
+        var run = Fleets.Create(w, Side.Player, new[] { tender }, new Vec2(0, 0));
+        Coasting(sim, run, BodyNamed(sim, "pale").Position + new Vec2(30000, 0), Vec2.Zero);
+        tender.Supplies = Fitting.MaxSupplies(w, tender) * 0.1;
+        var cargo = tender.CargoFuel;
+        Days(sim, 1.0 / 24 * 2);
+        // Tops up from its hold (here the whole fuel cargo is less than the room in its tanks).
+        Assert.True(tender.Supplies > Fitting.MaxSupplies(w, tender) * 0.1 + cargo * 0.9, $"tanks at {tender.Supplies / Fitting.MaxSupplies(w, tender):P0}");
+        Assert.True(tender.CargoFuel < cargo);
+    }
+
+    [Fact]
+    public void A_supply_run_low_on_its_own_fuel_goes_home_to_refuel()
+    {
+        var sim = NewGame();
+        var f = Home(sim);
+        PlaceInOrbit(sim, f, BodyNamed(sim, "pale"));
+        var run = SupplyRunAtHome(sim, f, "freighter");                    // carries food only, no fuel for itself
+        Coasting(sim, run, BodyNamed(sim, "pale").Position + new Vec2(30000, 0), Vec2.Zero);
+        foreach (var s in sim.World.ShipsOf(run)) s.Supplies = Fitting.MaxSupplies(sim.World, s) * 0.2;
+        Days(sim, 1.0 / 24 * 2);
+        Assert.Contains(sim.Log.Tail(), l => l.Contains("Supply run goes home to refuel"));
+        Assert.NotNull(run.Flight);
+        Assert.Contains("refuel", SupplyLines.RunStatus(sim.World, f) ?? "");
+    }
+
     [Fact]
     public void Ships_cost_upkeep()
     {
