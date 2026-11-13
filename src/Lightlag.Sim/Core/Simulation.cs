@@ -64,7 +64,8 @@ public sealed class Simulation
     {
         build ??= log.Build;
         var rng = new SimRandom(seed);
-        var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng, options?.RandomStarts == true);
+        var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng, options?.RandomStarts == true,
+            threeSides: options?.ThirdRace is string third && third != Races.None);
         if (sandbox == null)
         {
             world.Rules.Happiness = options?.Happiness ?? true;
@@ -108,6 +109,7 @@ public sealed class Simulation
     public static Simulation FromSave(SaveGame save, GameLog log, BuildInfo? build = null)
     {
         build ??= log.Build;
+        Sides.Pad(save.World);
         var sim = new Simulation(save.World, new SimRandom(save.World.Random), log, build, save.Replay);
         foreach (var c in save.PendingCommands) sim._pending.Enqueue(c);
         if (save.Build != build.ToString())

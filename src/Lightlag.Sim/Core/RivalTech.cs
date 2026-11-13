@@ -77,12 +77,12 @@ public static class RivalTech
             .Select(kv => (kv.Key, kv.Value, StageOf(w, side, kv.Key)));
 
     /// <summary>Learn a little of a rival idea: only one the rival really has and this side lacks.</summary>
-    public static void Teach(Simulation sim, Side side, string id, double amount, string how)
+    public static void Teach(Simulation sim, Side side, string id, double amount, string how, Side? from = null)
     {
         var w = sim.World;
         if (!w.Loop || amount <= 0 || !GameData.ResearchById.TryGetValue(id, out var idea) || idea.Later) return;
-        var rival = Combat.Other(side);
-        if (!Tech.Has(w, rival, id) || Tech.Has(w, side, id)) return;
+        if (Tech.Has(w, side, id)) return;
+        if (from is Side rival ? !Tech.Has(w, rival, id) : !Sides.Enemies(w, side).Any(r => Tech.Has(w, r, id))) return;
         var ideas = Economy.Of(w, side).RivalIdeas;
         var before = StageOf(w, side, id);
         ideas[id] = Math.Min(1, ideas.GetValueOrDefault(id) + amount);
@@ -99,13 +99,13 @@ public static class RivalTech
     }
 
     /// <summary>A battle against the rival ended: the parts it showed teach the ideas behind them (not ones it held back all fight).</summary>
-    public static void FromBattle(Simulation sim, Side side, Battle b, IEnumerable<string> parts)
+    public static void FromBattle(Simulation sim, Side side, Battle b, IEnumerable<string> parts, Side? rival = null)
     {
-        var them = b.For(Combat.Other(side));
+        var them = b.For(rival ?? Sides.MainEnemy(sim.World, side));
         var held = Secrecy.HeldAllFight(them);
         foreach (var part in parts.Distinct().OrderBy(p => p, StringComparer.Ordinal))
             foreach (var id in ByPart.GetValueOrDefault(part) ?? Array.Empty<string>())
-                if (!held.Contains(id)) Teach(sim, side, id, D.BattleTeach, "seen in battle");
+                if (!held.Contains(id)) Teach(sim, side, id, D.BattleTeach, "seen in battle", rival ?? Sides.MainEnemy(sim.World, side));
     }
 
     /// <summary>The parts a ship of this class (and fit) carries, for salvage and captures.</summary>
@@ -124,14 +124,14 @@ public static class RivalTech
     public static void FromWreck(Simulation sim, Side side, string classId) => FromHull(sim, side, GameData.ShipClass(classId), D.WreckTeach, "wreck salvage");
 
     /// <summary>A rival ship captured: every part aboard teaches a lot.</summary>
-    public static void FromCapture(Simulation sim, Side side, Ship ship) => FromHull(sim, side, Fitting.Spec(ship), D.CaptureTeach, "captured ship");
+    public static void FromCapture(Simulation sim, Side side, Ship ship, Side? from = null) => FromHull(sim, side, Fitting.Spec(ship), D.CaptureTeach, "captured ship", from);
 
-    private static void FromHull(Simulation sim, Side side, ShipClass cls, double amount, string how)
+    private static void FromHull(Simulation sim, Side side, ShipClass cls, double amount, string how, Side? from = null)
     {
         foreach (var part in PartsOf(cls))
             foreach (var id in ByPart[part])
-                Teach(sim, side, id, amount, how);
-        if (cls.Needs.Length > 0) Teach(sim, side, cls.Needs, amount, how);
+                Teach(sim, side, id, amount, how, from);
+        if (cls.Needs.Length > 0) Teach(sim, side, cls.Needs, amount, how, from);
     }
 
     /// <summary>Hourly; once a day the rival's colonies looked at closely teach the buildings standing there.</summary>
@@ -139,21 +139,22 @@ public static class RivalTech
     {
         var w = sim.World;
         if (!w.Loop || w.Tick % GameTime.TicksPerDay != 0) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
-            foreach (var fact in Intel.Of(w, side).Planets.Where(p => w.Hour - p.Hour <= 24).OrderBy(p => p.BodyId))
+        foreach (var side in Sides.InPlay(w))
+            foreach (var file in Intel.Files(w, side))
+            foreach (var fact in file.Planets.Where(p => w.Hour - p.Hour <= 24).OrderBy(p => p.BodyId))
             {
                 if (w.FindBody(fact.BodyId) is not Body b) continue;
                 foreach (var kind in b.Buildings.Distinct().OrderBy(k => k, StringComparer.Ordinal))
-                    if (Planets.BuildingKind(kind)?.Needs is string needs) Teach(sim, side, needs, D.PlanetTeachPerDay, $"buildings seen on {b.Name}");
+                    if (Planets.BuildingKind(kind)?.Needs is string needs) Teach(sim, side, needs, D.PlanetTeachPerDay, $"buildings seen on {b.Name}", file.About);
             }
     }
 
     // ---- Reach as a guess ----------------------------------------------------------------------
 
     /// <summary>After a battle: the farthest each rival fleet in it was seen to fire, by weapon.</summary>
-    public static void NoteReach(World w, Side side, Battle b)
+    public static void NoteReach(World w, Side side, Battle b, Side? rival = null)
     {
-        var file = Intel.Of(w, side);
+        var file = Intel.Of(w, side, rival);
         var them = b.For(file.About);
         var fleets = b.Roster.Where(r => r.Side == file.About).Select(r => w.FindShip(r.Id)?.FleetId).OfType<int>().Distinct().OrderBy(i => i);
         foreach (var id in fleets)

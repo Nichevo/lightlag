@@ -85,7 +85,7 @@ public static class Beams
         {
             stats.LanceShots++;
             Heat.Add(ship, L.HeatPerShot);
-            var chance = L.Accuracy * (1 - 0.5 * Math.Clamp(d / Math.Max(1e-9, range), 0, 1)) * FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship);
+            var chance = L.Accuracy * (1 - 0.5 * Math.Clamp(d / Math.Max(1e-9, range), 0, 1)) * FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship) * (w.Loop ? Races.Of(w, ship.Side).Precision : 1);
             if (sim.Rng.NextDouble() >= chance) continue;
             stats.LanceHits++;
             // The beam's heat goes into the shield first (which takes more of it), else into the hull.

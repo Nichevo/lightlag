@@ -113,13 +113,27 @@ public static class Intel
 
     public static readonly string[] Parts = { "railguns", "missiles", "point-defence", "shields", "engines", "armour", "lances", "hijack" };
 
-    /// <summary>The side's file on a rival (the other side, while there are only two).</summary>
+    /// <summary>
+    /// The side's file on a rival: by default its main enemy (the other side, while there are only two).
+    /// The file on its first enemy is SideState.Intel; with two rivals the other is in SideState.MoreIntel.
+    /// </summary>
     public static IntelFile Of(World w, Side side, Side? rival = null)
     {
-        var file = Economy.Of(w, side).Intel;
-        file.About = rival ?? Combat.Other(side);
+        var state = Economy.Of(w, side);
+        var about = rival ?? Sides.MainEnemy(w, side);
+        var first = side == Side.Player ? Side.Rival : Side.Player;
+        if (about == first || about == side)
+        {
+            state.Intel.About = first;
+            return state.Intel;
+        }
+        var file = state.MoreIntel.Find(f => f.About == about);
+        if (file == null) state.MoreIntel.Add(file = new IntelFile { About = about });
         return file;
     }
+
+    /// <summary>The side's files on every rival in play.</summary>
+    public static IEnumerable<IntelFile> Files(World w, Side side) => Sides.Enemies(w, side).Select(r => Of(w, side, r)).ToList();
 
     public static int Level(IntelFile f) => LevelFor(f.Points);
 
@@ -151,9 +165,9 @@ public static class Intel
         Of(w, side).Fleets.Where(f => w.Hour - f.Hour < hours).OrderBy(f => f.FleetId);
 
     /// <summary>Estimated rival warships: a range that narrows as the intel level rises.</summary>
-    public static (int Low, int High) EstimatedWarships(World w, Side side)
+    public static (int Low, int High) EstimatedWarships(World w, Side side, Side? rival = null)
     {
-        var file = Of(w, side);
+        var file = Of(w, side, rival);
         var level = Level(file);
         var known = file.Fleets.Where(f => !f.Cargo).ToList();
         var sure = known.Where(f => Sure(w, f) >= 0.5).Sum(f => f.Ships);
@@ -163,16 +177,18 @@ public static class Intel
     }
 
     /// <summary>The rival's control share as you can tell it, and how far off it may be (±).</summary>
-    public static (double Share, double Plus) EstimatedControl(World w, Side side)
+    public static (double Share, double Plus) EstimatedControl(World w, Side side, Side? rival = null)
     {
-        var mine = Planets.Control(w, side).Share;
-        return (1 - mine, (4 - Level(Of(w, side))) * 0.03);
+        var file = Of(w, side, rival);
+        // The system's figures are known to all, so each rival's share is plain; only fleets are guessed.
+        var share = Sides.Three(w) ? Planets.Control(w, file.About).Share : 1 - Planets.Control(w, side).Share;
+        return (share, (4 - Level(file)) * 0.03);
     }
 
     /// <summary>The rival's planets and the Industry they are worth (the system's figures, known to all).</summary>
-    public static (int Planets, double Industry) EstimatedHoldings(World w, Side side)
+    public static (int Planets, double Industry) EstimatedHoldings(World w, Side side, Side? about = null)
     {
-        var rival = Of(w, side).About;
+        var rival = Of(w, side, about).About;
         var held = Economy.Claimable(w).Where(b => b.Owner == rival).ToList();
         return (held.Count, held.Sum(b => b.Industry));
     }
@@ -279,9 +295,9 @@ public static class Intel
     /// Feed in a fact from outside the sensors: prisoners, a captured ship or colony, salvage, a research find.
     /// Adds the points, logs the note, and with a part named, records the rival's true level of it.
     /// </summary>
-    public static void Note(World w, Side side, IntelSource source, string text, double points = 0, string? part = null)
+    public static void Note(World w, Side side, IntelSource source, string text, double points = 0, string? part = null, Side? about = null)
     {
-        var f = Of(w, side);
+        var f = Of(w, side, about);
         f.Points += Math.Max(0, points);
         f.Notes.Add(new IntelNote(w.Hour, source, text));
         if (f.Notes.Count > 40) f.Notes.RemoveAt(0);
@@ -308,12 +324,12 @@ public static class Intel
     {
         var w = sim.World;
         if (w.Sides.Length < 2) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
+        foreach (var f in Files(w, side))
         {
-            var f = Of(w, side);
             var rival = f.About;
             var visible = 0;
-            foreach (var s in w.Sightings.Where(s => s.SeenBy == side && !s.Own).OrderBy(s => s.FleetId))
+            foreach (var s in w.Sightings.Where(s => s.SeenBy == side && !s.Own && s.Owner(w) == rival).OrderBy(s => s.FleetId))
             {
                 var fact = f.Fleets.Find(x => x.FleetId == s.FleetId);
                 if (fact == null)
@@ -383,8 +399,8 @@ public static class Intel
                 if (us.Spoofed > 0) shown.Add("spoofing");
                 if (us.MineHits > 0) shown.Add("mines");
                 if (them.Sorties > 0) shown.Add("fighters");
-                RivalTech.FromBattle(sim, side, b, shown);
-                RivalTech.NoteReach(w, side, b);
+                RivalTech.FromBattle(sim, side, b, shown, rival);
+                RivalTech.NoteReach(w, side, b, rival);
             }
             if (w.Battles.Count > 0 && w.Battles[^1].EndHour != null) f.LastBattleId = Math.Max(f.LastBattleId, w.Battles[^1].Id);
 
@@ -445,8 +461,8 @@ public static class Intel
                 }
                 if (w.Loop && (f.Days.Count == 0 || f.Days[^1].Day != w.Day))
                 {
-                    var (low, high) = EstimatedWarships(w, side);
-                    var (planets, industry) = EstimatedHoldings(w, side);
+                    var (low, high) = EstimatedWarships(w, side, rival);
+                    var (planets, industry) = EstimatedHoldings(w, side, rival);
                     f.Days.Add(new IntelDay(w.Day, low, high, Math.Round(industry, 1), planets));
                 }
             }
@@ -486,5 +502,5 @@ public static class Intel
 
     /// <summary>Report text: both sides' belief against the truth.</summary>
     public static string Describe(World w) =>
-        "# Intelligence: belief vs truth\n\n" + string.Join("\n\n", new[] { Side.Player, Side.Rival }.Select(s => string.Join("\n", BeliefVsTruth(w, s).Select(l => "- " + l))));
+        "# Intelligence: belief vs truth\n\n" + string.Join("\n\n", Sides.InPlay(w).Select(s => string.Join("\n", BeliefVsTruth(w, s).Select(l => "- " + l))));
 }

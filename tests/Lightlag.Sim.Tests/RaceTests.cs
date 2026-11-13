@@ -51,7 +51,7 @@ public class RaceTests
         Assert.Equal(1, human.FoodNeed);
         Assert.False(human.Grown);
         Assert.True(human.CrewRanks);
-        Assert.Equal(new[] { Races.Human, Races.Hive, Races.Random }, Races.Choices().Select(c => c.Id).Take(3));
+        Assert.Equal(new[] { Races.Human, Races.Hive, Races.Lattice, Races.Random }, Races.Choices().Select(c => c.Id).Take(4));
     }
 
     [Fact]

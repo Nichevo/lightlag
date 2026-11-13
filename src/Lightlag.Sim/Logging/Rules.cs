@@ -75,7 +75,7 @@ public sealed class RuleBook
                     && !Lightlag.Sim.Core.Races.Of(w, s.Side).CrewRanks && Math.Abs(s.Xp - Lightlag.Sim.Core.Crews.DroneXp) > 1e-9)
                 .Select(s => $"drone-crewed ship {s.Id} {s.Name} has {s.Xp} experience") : Enumerable.Empty<string>()))
         // Weapons and counters (Plan 3 build 2).
-        .Add("minefields-sane", w => w.Minefields.Where(m => !(m.Mines >= 0 && m.RadiusMm > 0 && m.Position.IsFinite && m.Velocity.IsFinite && m.Known.Length == 2)
+        .Add("minefields-sane", w => w.Minefields.Where(m => !(m.Mines >= 0 && m.RadiusMm > 0 && m.Position.IsFinite && m.Velocity.IsFinite && m.Known.Length == Lightlag.Sim.Core.Sides.Max)
                 || m.BodyId is int b && w.FindBody(b) == null)
             .Select(m => $"minefield {m.Id} has {m.Mines} mines, radius {m.RadiusMm}, body {m.BodyId}"))
         .Add("squadrons-sane", w => w.Bodies.Where(b => b.FightersLost < 0 || b.BombersLost < 0 || b.FightersLost > StrikeCraft.Bases(b) + 1 || b.BombersLost > StrikeCraft.Bases(b) + 1)
@@ -211,7 +211,7 @@ public sealed class RuleBook
     private static IEnumerable<string> DesignsSane(World w)
     {
         if (!w.Loop) yield break;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var state = Economy.Of(w, side);
             foreach (var g in state.Designs.Where(d => d.Id > 0).GroupBy(d => d.Id).Where(g => g.Count() > 1))
@@ -257,7 +257,7 @@ public sealed class RuleBook
             // Once the game is over the hourly loop stops, and boats still out stay as they were.
             if (w.Winner == null && w.Hour > b.AirUntilHour + 1 + 1e-9) yield return $"lifeboat {b.Id} is still out {w.Hour - b.AirUntilHour:0.#} hours after its air ran out";
             if (!double.IsFinite(b.Position.X) || !double.IsFinite(b.Position.Y)) yield return $"lifeboat {b.Id} is at {b.Position}";
-            if (b.Side != Side.Player && b.Side != Side.Rival) yield return $"lifeboat {b.Id} has side {b.Side}";
+            if (!Lightlag.Sim.Core.Sides.InGame(w, b.Side)) yield return $"lifeboat {b.Id} has side {b.Side}";
         }
         foreach (var g in w.Lifeboats.GroupBy(b => b.Id).Where(g => g.Count() > 1)) yield return $"lifeboat id {g.Key} is used {g.Count()} times";
     }

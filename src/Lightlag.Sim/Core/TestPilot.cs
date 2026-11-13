@@ -58,7 +58,7 @@ public sealed class TestPilot
             var targets = world.Bodies.Where(b => b.Kind != BodyKind.Star).ToList();
             var home = Economy.HomeOf(world, fleet.Side);
             var target = home != null && _rng.Chance(0.3) ? home : targets[_rng.Range(0, targets.Count)];
-            var enemyYard = Economy.ShipyardOf(world, fleet.Side == Side.Player ? Side.Rival : Side.Player);
+            var enemyYard = Economy.ShipyardOf(world, Sides.MainEnemy(world, fleet.Side));
             if (roll == 6 && enemyYard != null) target = enemyYard;
             var unclaimed = Economy.Claimable(world).Where(b => b.Owner != fleet.Side && !b.Shipyard).ToList();
             if (roll == 7 && unclaimed.Count > 0) target = unclaimed[_rng.Range(0, unclaimed.Count)];
@@ -86,7 +86,7 @@ public sealed class TestPilot
     private void Manage(Simulation sim)
     {
         var world = sim.World;
-        foreach (var side in new[] { Side.Player, Side.Rival }.Where(s => Mind.Of(world, s) == null))
+        foreach (var side in Sides.InPlay(world).Where(s => Mind.Of(world, s) == null))
         {
             var orders = world.Orders.Where(o => o.Side == side).ToList();
             if (orders.Count(o => o.Kind == OrderKind.Ship) < 2 && _rng.Chance(0.5))

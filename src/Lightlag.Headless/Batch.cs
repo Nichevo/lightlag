@@ -205,7 +205,7 @@ public static class Batch
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}.csv"), Stats.ToCsv(w));
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}-choices.csv"), Choices.ToCsv(w));
             if (w.Minds.Count == 2)
-                foreach (var side in new[] { Side.Player, Side.Rival })
+                foreach (var side in Sides.InPlay(w))
                 {
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
                     WarReport.Rows.Add(WarReport.Row.Of(w, side));

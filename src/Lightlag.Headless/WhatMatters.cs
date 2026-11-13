@@ -22,7 +22,7 @@ public static class WhatMatters
         public static Row Of(World w, Side side)
         {
             var won = w.Winner is Side winner ? winner == side
-                : Planets.Control(w, side).Share > Planets.Control(w, Combat.Other(side)).Share;
+                : Sides.Enemies(w, side).All(o => Planets.Control(w, side).Share > Planets.Control(w, o).Share);
             var battles = w.Choices.Where(c => c.Side == side && c.Kind == "battle").ToList();
             return new Row(Choices.Keys(w, side).ToHashSet(), won, battles.Count, battles.Count(c => c.What == "won"), Stats.Of(w, side).ShipsLost);
         }

@@ -409,6 +409,7 @@ public static class Ground
         var fightDays = (w.Hour - f.StartHour) / 24;
         var siegeDays = Math.Max(fightDays, b.BlockadeHours / 24);
         b.PopK *= 0.95;
+        var loser = b.Owner;
         Planets.Take(sim, b, side, "troops took it");
         // The payoff of a careful invasion: a Blitz leaves a sullen planet, Methodical and Starve a content one.
         var start = D.PlanStartHappiness[(int)f.Plan];
@@ -418,8 +419,8 @@ public static class Ground
         t.InvasionDays += (w.Hour - f.StartHour) / 24;
         t.InvasionHappiness += b.Happiness;
         CaptureTally.Add(t, f.Plan.ToString(), siegeDays, fightDays, b, f.Damaged.Count, f.Wrecked);
-        for (var i = 0; i < f.LabsTaken; i++) Spoils.Scrap(sim, side, $"a research lab taken intact on {b.Name}", IntelSource.Capture, Intel.SalvagePoints);
-        Spoils.TakePrisoners(sim, side, Math.Min(f.StartGarrison * 0.2, 0.5), b.Name);
+        for (var i = 0; i < f.LabsTaken; i++) Spoils.Scrap(sim, side, $"a research lab taken intact on {b.Name}", IntelSource.Capture, Intel.SalvagePoints, from: loser);
+        Spoils.TakePrisoners(sim, side, Math.Min(f.StartGarrison * 0.2, 0.5), b.Name, loser);
         if (leftK < D.GarrisonStaysK)
         {
             b.PartisansUntilHour = w.Hour + D.PartisanDays * 24;

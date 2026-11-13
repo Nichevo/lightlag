@@ -105,6 +105,9 @@ public sealed class SideState
     /// <summary>When this side reached the tip share of control (null while it hasn't; see Planets.Control).</summary>
     public double? MajoritySinceHour { get; set; }
 
+    /// <summary>In a three-race game: when the side lost its last shipyard and dropped out of the running (see Sides.Out).</summary>
+    public double? OutHour { get; set; }
+
     /// <summary>Running totals for the game statistics (see Stats).</summary>
     public SideTotals Totals { get; set; } = new();
 
@@ -154,6 +157,9 @@ public sealed class SideState
 
     /// <summary>What this side has learned about its rival (see Intel).</summary>
     public IntelFile Intel { get; set; } = new();
+
+    /// <summary>With two rivals: the file on the second (see Intel.Of).</summary>
+    public List<IntelFile> MoreIntel { get; set; } = new();
 
     /// <summary>Events (see Events): when the next one comes (0: not rolled yet); a flare sheltered from (sensors blind) or used to hide, until.</summary>
     public double NextEventHour { get; set; }
@@ -480,7 +486,7 @@ public static class Economy
         using (SectionTimer.Time("planets")) Planets.Update(sim);
         if (w.Winner != null) return;
         Works.Update(sim);
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var earned = IncomePerDay(w, side) / 24;
             Of(w, side).Industry += earned;
@@ -814,17 +820,22 @@ public static class Economy
     private static void CheckWin(Simulation sim)
     {
         var w = sim.World;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
-            if (ShipyardOf(w, side) != null) continue;
-            var other = side == Side.Player ? Side.Rival : Side.Player;
-            Win(sim, other, other == Side.Player ? "destroyed the rival shipyard" : "destroyed your shipyard");
-            return;
+            if (ShipyardOf(w, side) != null || Sides.Out(w, side)) continue;
+            if (!Sides.Three(w))
+            {
+                var other = side == Side.Player ? Side.Rival : Side.Player;
+                Win(sim, other, other == Side.Player ? "destroyed the rival shipyard" : "destroyed your shipyard");
+                return;
+            }
+            Lose(sim, side, side == Side.Player ? "your shipyard was destroyed" : $"{Races.Of(w, side).Name} lost its shipyard");
+            if (w.Winner != null) return;
         }
         // Control: a side with tipShare of control has tipped the game (planets it blockades give up sooner);
         // it wins at winShare, or after holding tipShare for winAfterDays.
         var d = Planets.D;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.Standing(w).ToList())
         {
             var state = Of(w, side);
             var share = Planets.Control(w, side).Share;
@@ -850,6 +861,32 @@ public static class Economy
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// A side is beaten (its shipyard gone, or its flagship lost with no one to take command). With one rival the
+    /// other side wins. With two, a beaten rival drops out (its fleets and planets stay, but it plans no more) and
+    /// the last side standing wins; if you are beaten the game is over and the strongest rival wins.
+    /// </summary>
+    internal static void Lose(Simulation sim, Side side, string reason)
+    {
+        var w = sim.World;
+        if (w.Winner != null) return;
+        if (!Sides.Three(w))
+        {
+            Win(sim, side == Side.Player ? Side.Rival : Side.Player, reason);
+            return;
+        }
+        if (Sides.Out(w, side)) return;
+        Of(w, side).OutHour = w.Hour;
+        sim.Log.Info("game", $"{side} is out", new { side = side.ToString(), reason, day = w.Day });
+        var standing = Sides.Standing(w).ToList();
+        if (side == Side.Player)
+        {
+            var best = standing.OrderByDescending(s => Planets.Control(w, s).Share).ThenBy(s => (int)s).First();
+            Win(sim, best, reason);
+        }
+        else if (standing.Count == 1) Win(sim, standing[0], $"{reason}: last side standing");
     }
 
     internal static void Win(Simulation sim, Side side, string reason)

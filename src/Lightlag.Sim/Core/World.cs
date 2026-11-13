@@ -49,7 +49,7 @@ public sealed class World
     public LightState Light { get; set; } = new();
 
     /// <summary>Missile guidance level per side (1 or 2). Research raises it later.</summary>
-    public int[] MissileBrain { get; set; } = { 1, 1 };
+    public int[] MissileBrain { get; set; } = { 1, 1, 1 };
     public List<Belt> Belts { get; set; } = new();
 
     /// <summary>Clouds of battle debris (see Hazards), and events with their calls (see Events).</summary>
@@ -109,7 +109,7 @@ public sealed class World
     public bool PeopleStarted { get; set; }
 
     /// <summary>How many fleets each side has numbered so far, so new fleets get fresh numbers.</summary>
-    public int[] FleetNumbers { get; set; } = new int[2];
+    public int[] FleetNumbers { get; set; } = new int[Core.Sides.Max];
 
     public int Day => GameTime.DayOf(Tick);
 
@@ -206,9 +206,9 @@ public sealed class Body
     public Side? ClaimSide { get; set; }
     public double ClaimHours { get; set; }
 
-    /// <summary>Per side (Player, Rival): hours spent in orbit here towards a survey, and whether it is done (see Research.Surveys).</summary>
-    public double[] SurveyHours { get; set; } = { 0, 0 };
-    public bool[] Surveyed { get; set; } = { false, false };
+    /// <summary>Per side (Player, Rival, Third): hours spent in orbit here towards a survey, and whether it is done (see Research.Surveys).</summary>
+    public double[] SurveyHours { get; set; } = { 0, 0, 0 };
+    public bool[] Surveyed { get; set; } = { false, false, false };
 
     // ---- People (see Planets) ----
 
@@ -310,6 +310,9 @@ public sealed class Body
     /// <summary>Who held the planet while the current blockade went on (to tell a lifted blockade from a capture).</summary>
     public Side? BlockadedOwner { get; set; }
 
+    /// <summary>Who is blockading it (with two rivals, the side with the first armed fleet in orbit).</summary>
+    public Side? BlockadedBy { get; set; }
+
     /// <summary>Auto top-up: settle orders fill this planet up, one at a time.</summary>
     public bool AutoTopUp { get; set; }
 
@@ -356,7 +359,8 @@ public sealed class Belt
     public double Density { get; set; } = 1;
 }
 
-public enum Side { Player, Rival }
+/// <summary>The sides in a game: you, the rival, and in a three-race game a second rival (see Sides).</summary>
+public enum Side { Player, Rival, Third }
 
 /// <summary>
 /// One ship. Ships always fly in a fleet (a lone ship is a fleet of one); the fleet does the flying

@@ -475,7 +475,7 @@ public static class Fleets
         var fleet = new Fleet
         {
             Id = w.NextId++,
-            Name = side == Side.Player ? $"Fleet {number}" : $"Rival fleet {number}",
+            Name = side == Side.Player ? $"Fleet {number}" : side == Side.Third ? $"{Races.Of(w, side).Short} fleet {number}" : $"Rival fleet {number}",
             Side = side,
             Position = position,
             Autonomy = w.Sides[(int)side].DefaultAutonomy,

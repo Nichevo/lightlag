@@ -8,8 +8,14 @@ public sealed record RaceData(string Id, string Name, string Short = "", string 
     double FoodNeed = 1, double Growth = 1, double BiomassPerIndustry = 0, double ShipMaterials = 1, double HullHealPerDay = 0,
     double CrewPop = 1, bool CrewRanks = true, double Strain = 1, double Boarding = 1, double Sensors = 1,
     Dictionary<string, double>? ResearchDays = null, double DigDays = 1, double BombArmour = 1, double GroundDefence = 1,
-    List<string>? StartBuildings = null, Dictionary<string, double>? Personalities = null)
+    List<string>? StartBuildings = null, Dictionary<string, double>? Personalities = null,
+    bool AiOnly = false, double PowerUse = 1, double Precision = 1, double MineralIndustry = 1, double AirlessCap = 1,
+    double Cyber = 1, bool NoCaptures = false, bool NeedsPowerToGrow = false, bool ListenOnly = true, string Colour = "",
+    string? Drawings = null)
 {
+    /// <summary>Machines: no people to feed (see FoodNeed 0).</summary>
+    public bool Eats => FoodNeed > 0;
+
     /// <summary>Ships are grown from biomass (food from the yard's store).</summary>
     public bool Grown => BiomassPerIndustry > 0;
 
@@ -31,7 +37,7 @@ public sealed record RacesData(List<RaceData> Races);
 /// </summary>
 public static class Races
 {
-    public const string Human = "human", Hive = "hive", Random = "random";
+    public const string Human = "human", Hive = "hive", Lattice = "lattice", Random = "random", None = "none";
 
     private static readonly Lazy<RacesData> _data = new(Load);
     public static IReadOnlyList<RaceData> All => _data.Value.Races;
@@ -47,6 +53,11 @@ public static class Races
 
     public static bool IsHive(World w, Side side) => Of(w, side).Id == Hive;
 
+    public static bool IsLattice(World w, Side side) => Of(w, side).Id == Lattice;
+
+    /// <summary>A body with no air (rock, ice, asteroid): the Lattice settles these without habitats (see AirlessCap).</summary>
+    public static bool Airless(Body b) => string.IsNullOrEmpty(b.Atmosphere) && b.Kind != BodyKind.Star && b.Type is not ("gas" or "ice-giant");
+
     /// <summary>The picker's choices: each race, then Random.</summary>
     public static IEnumerable<(string Id, string Name)> Choices() => All.Select(r => (r.Id, r.Name)).Append((Random, "Random"));
 
@@ -56,7 +67,7 @@ public static class Races
     /// </summary>
     public static void Setup(World w, GameOptions? options, ulong seed)
     {
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var asked = side == Side.Player ? options?.PlayerRace : options?.RivalRace;
             var id = asked ?? Human;
@@ -70,6 +81,12 @@ public static class Races
             // Drone crews (no ranks) are bred trained: the start ships' crews too.
             if (!Get(id).CrewRanks)
                 foreach (var s in w.Ships.Where(s => s.Side == side && Crews.Crewed(s))) s.Xp = Crews.DroneXp;
+            // Machine races run every ship on AI cores: the start ships too.
+            if (Get(id).AiOnly)
+                foreach (var s in w.Ships.Where(s => s.Side == side)) { s.AiRun = true; s.Xp = 0; s.Food = 0; }
+            if (side == Side.Third)
+                foreach (var f in w.Fleets.Where(f => f.Side == side && f.Name.Contains(" fleet ")))
+                    f.Name = $"{Get(id).Short} fleet {f.Name[(f.Name.LastIndexOf(' ') + 1)..]}";
         }
     }
 
@@ -100,7 +117,8 @@ public static class Races
     /// its ships, biomass for about half its Industry going into ships.
     /// </summary>
     public static double FoodWanted(World w, Side side, IEnumerable<Body> linked) =>
-        linked.Sum(Planets.FoodNeedPerDay) * 1.15 + 0.1 + BiomassFor(w, side, Economy.IncomePerDay(w, side) * 0.5);
+        !Of(w, side).Eats && !Of(w, side).Grown ? 0
+            : linked.Sum(Planets.FoodNeedPerDay) * 1.15 + 0.1 + BiomassFor(w, side, Economy.IncomePerDay(w, side) * 0.5);
 
     /// <summary>A grown hull has food aboard to heal with (always, with supply lines off or on a ship that carries none).</summary>
     public static bool Feeds(World w, Ship s) => !w.Rules.SupplyLines || SupplyLines.MaxFood(s) <= 0 || s.Food > 1e-9;
@@ -135,7 +153,7 @@ public static class Races
         foreach (var r in d.Races)
         {
             if (!ids.Add(r.Id) || r.Id == Random) throw new InvalidDataException($"races.json: race '{r.Id}' is listed twice or uses a reserved id");
-            if (!(r.FoodNeed > 0 && r.Growth > 0 && r.BiomassPerIndustry >= 0 && r.ShipMaterials >= 0 && r.HullHealPerDay >= 0 && r.CrewPop >= 0
+            if (!(r.FoodNeed >= 0 && r.Growth > 0 && r.PowerUse > 0 && r.Precision > 0 && r.MineralIndustry > 0 && r.AirlessCap > 0 && r.Cyber > 0 && r.BiomassPerIndustry >= 0 && r.ShipMaterials >= 0 && r.HullHealPerDay >= 0 && r.CrewPop >= 0
                   && r.Strain >= 0 && r.Boarding > 0 && r.Sensors > 0 && r.DigDays > 0 && r.BombArmour > 0 && r.GroundDefence > 0))
                 throw new InvalidDataException($"races.json: race '{r.Id}' has a factor out of range");
             foreach (var p in r.Personalities?.Keys ?? Enumerable.Empty<string>())

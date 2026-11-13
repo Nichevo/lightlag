@@ -372,7 +372,7 @@ public partial class EmpirePanel : PanelContainer
                    + $"Planets held: you {mine}, rival {theirs}, of {Economy.Claimable(w).Count()}. People: you {Planets.PopulationOf(w, Side.Player):0}k, rival {Planets.PopulationOf(w, Side.Rival):0}k.\n"
                    + $"At {d.TipShare:P0} control a side has tipped the game: planets it blockades give up sooner (below happiness {d.SurrenderBelowTipped:0}, not {d.SurrenderBelow:0}). "
                    + $"Hold {d.TipShare:P0} for {d.WinAfterDays:0} days, or reach {d.WinShare:P0}, to win. Destroying the rival shipyard also wins.";
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
             if (Economy.Of(w, side).MajoritySinceHour is double since)
                 line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + d.WinAfterDays * 24)} if nothing changes.";
         return line;

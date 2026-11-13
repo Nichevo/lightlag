@@ -28,7 +28,7 @@ public static class Audit
 
     public static void Collect(World w)
     {
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             _sides++;
             var t = Stats.Of(w, side);

@@ -20,7 +20,7 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
     bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null,
-    bool? Ironman = null)
+    bool? Ironman = null, string? ThirdRace = null, bool? ContactOffers = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -150,6 +150,16 @@ public sealed class MindState
     public Side Side { get; set; }
     public Difficulty Difficulty { get; set; }
     public Personality Personality { get; set; }
+
+    /// <summary>With two rivals: the side it is going after now (see Mind.PickTarget, and contact offers). Null: the other side.</summary>
+    public Side? Target { get; set; }
+    public double TargetSinceHour { get; set; }
+
+    /// <summary>A contact offer it took up: go after this side (or leave this planet alone) until the hour (see Contact).</summary>
+    public Side? AskedTarget { get; set; }
+    public double AskedUntilHour { get; set; }
+    public int? SpareBodyId { get; set; }
+    public double SpareUntilHour { get; set; }
     public RandomState Random { get; set; } = new(0, 1);
 
     /// <summary>How much stronger it wants to be before attacking: rolled per game, and drifting a little day to day.</summary>
@@ -232,7 +242,11 @@ public static class Mind
     public static void Setup(World w, GameOptions? options, ulong seed)
     {
         if (options?.Ai == null || !w.Loop) return;
-        foreach (var setup in options.Ai.GroupBy(a => a.Side).Select(g => g.First()))
+        var setups = options.Ai.Where(a => Sides.InGame(w, a.Side)).GroupBy(a => a.Side).Select(g => g.First()).ToList();
+        // A second rival is run like the first unless the options say otherwise.
+        if (Sides.Three(w) && setups.All(a => a.Side != Side.Third))
+            setups.Add(new AiSetup(Side.Third, setups.Find(a => a.Side == Side.Rival)?.Difficulty ?? Difficulty.Normal));
+        foreach (var setup in setups)
         {
             var rng = new SimRandom(Mix(seed) ^ Mix((ulong)setup.Side + 0xC0FFEEUL), stream: 11 + (ulong)setup.Side);
             var personality = setup.Personality ?? Roll(rng, Races.Of(w, setup.Side));
@@ -349,13 +363,59 @@ public static class Mind
         if (!w.Loop || w.Winner != null) return;
         foreach (var mind in w.Minds)
         {
-            if (w.Hour < mind.NextThinkHour) continue;
+            if (w.Hour < mind.NextThinkHour || Sides.Out(w, mind.Side)) continue;
             mind.NextThinkHour = w.Hour + ThinkHours(mind.Difficulty);
+            PickTarget(sim, mind);
             var rng = new SimRandom(mind.Random);
             new Thinker(sim, mind, rng).Run();
             mind.Random = rng.Save();
             mind.LastThinkHour = w.Hour;
         }
+    }
+
+    /// <summary>Days a mind sticks with the rival it picked before it looks again (unless that rival drops out).</summary>
+    public const double TargetDays = 30;
+
+    /// <summary>
+    /// With two rivals, which side to go after: one a contact offer it took up asked for, while that lasts;
+    /// else, every TargetDays, the one scoring best: the bigger share of the system (stop the leader), the
+    /// nearer shipyard, and a grudge against whoever beat its fleets lately. It keeps away from its own race
+    /// while another target is left (the Hive never turns on the Hive).
+    /// </summary>
+    public static void PickTarget(Simulation sim, MindState m)
+    {
+        var w = sim.World;
+        if (!Sides.Three(w)) { m.Target = null; return; }
+        var standing = Sides.Enemies(w, m.Side).Where(s => !Sides.Out(w, s)).ToList();
+        if (standing.Count == 0) return;
+        Side pick;
+        if (m.AskedTarget is Side asked && w.Hour < m.AskedUntilHour && standing.Contains(asked)) pick = asked;
+        else
+        {
+            if (m.AskedTarget != null && w.Hour >= m.AskedUntilHour) m.AskedTarget = null;
+            if (m.Target is Side cur && standing.Contains(cur) && w.Hour - m.TargetSinceHour < TargetDays * 24) return;
+            var home = Economy.ShipyardOf(w, m.Side) ?? Economy.HomeOf(w, m.Side);
+            var race = Races.Of(w, m.Side).Id;
+            var choices = standing.Count > 1 && standing.Any(s => Races.Of(w, s).Id != race)
+                ? standing.Where(s => Races.Of(w, s).Id != race).ToList() : standing;
+            double Score(Side s)
+            {
+                var share = Planets.Control(w, s).Share;
+                var yard = Economy.ShipyardOf(w, s);
+                var far = home != null && yard != null ? Vec2.Distance(home.Position, yard.Position) / Physics.MmPerAu : 2;
+                var grudge = w.Battles.Where(b => b.EndHour != null && w.Hour - b.EndHour < 60 * 24)
+                    .Sum(b => b.For(s).ShipsIn > 0 && b.For(m.Side).ShipsIn > 0 ? b.For(m.Side).ShipsLost.Count : 0);
+                return share - 0.05 * far + 0.05 * Math.Min(4, grudge);
+            }
+            pick = choices.OrderByDescending(Score).ThenBy(s => (int)s).First();
+        }
+        if (m.Target == pick) return;
+        var was = m.Target;
+        m.Target = pick;
+        m.TargetSinceHour = w.Hour;
+        Choices.Note(w, m.Side, "target", pick.ToString(), "", m.AskedTarget == pick ? "asked" : "own pick");
+        sim.Log.Info("ai", $"{m.Side} turns on {pick}", new { side = m.Side.ToString(), target = pick.ToString(), was = was?.ToString(), asked = m.AskedTarget == pick });
+        Think(w, m, $"Goes after {Races.Of(w, pick).Name} ({pick})");
     }
 
     /// <summary>One round of thinking for one side.</summary>
@@ -379,7 +439,7 @@ public static class Mind
             _m = mind;
             _rng = rng;
             _side = mind.Side;
-            _enemy = Combat.Other(mind.Side);
+            _enemy = Sides.MainEnemy(_w, mind.Side);
             _p = DataFor(mind.Personality);
             _profile = ProfileOf(mind.Personality);
             _home = Economy.ShipyardOf(_w, _side);
