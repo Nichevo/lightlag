@@ -955,12 +955,6 @@ public static class Mind
             }
         }
 
-        /// <summary>
-        /// Not enough at home to relieve one of its blockaded planets: send the fleets that are out and can get
-        /// there before it is likely to give up (hunters, probes, guards, claim groups, a campaign still on its
-        /// way), nearest first, until they add up to enough. Fleets already sitting on a blockade of their own,
-        /// striking, refitting or busy are left alone.
-        /// </summary>
         /// <summary>A colony this many days or more from home (at a relief burn) is "far": relief from home would come too late.</summary>
         private const double FarColonyDays = 20;
 
@@ -1009,19 +1003,16 @@ public static class Mind
         /// <summary>Days past the planet's expected holding-out time a relief fleet may still arrive: a planet often holds on a little longer, and a late fleet can still retake it.</summary>
         private const double ReliefLateDays = 10;
 
+        /// <summary>
+        /// Not enough at home to relieve one of its blockaded planets: send the fleets that are out and can get
+        /// there before it is likely to give up (hunters, probes, guards, claim groups, a campaign still on its
+        /// way), nearest first, until they add up to enough. Fleets already sitting on a blockade of their own,
+        /// striking, refitting or busy are left alone.
+        /// </summary>
         private bool Rally(Body b, double need)
         {
             if (Easy) return false;
             var daysLeft = Math.Max(5, Planets.D.MinBlockadeDays - b.BlockadeHours / 24);
-            if (System.Environment.GetEnvironmentVariable("RALLY_DEBUG") == "1")
-            {
-                var why = Mine().Where(f => War(f) > 0).GroupBy(f =>
-                    Busy(f) ? (f.Refit != null ? "busy-refit" : f.Resupplying ? "busy-resupply" : f.Maneuvering ? "busy-fight" : f.Retreating ? "busy-retreat" : "busy-other")
-                    : NeedsRefit(f) ? "needs-refit" : !FitToRelieve(f) ? "unfit"
-                    : _m.JobOf(f.Id) is { } j && !(j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort or JobKind.Refit || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null)) ? "job-" + j.Kind + (j.Campaign ? "-campaign" : "")
-                    : TravelDays(f, b, Burn(f)) > daysLeft + ReliefLateDays ? "too-far" + (TravelDays(f, b, Burn(f)) > daysLeft + 30 ? "30+" : "") : "ok").Select(g => $"{g.Key}={g.Sum(f => War(f)):0}");
-                _sim.Log.Info("ai", "RALLYDBG", new { need, daysLeft, why = string.Join(" ", why) });
-            }
             // Its own people come first: a fleet fit to fight (not only fresh from a refit) goes, and so does one
             // flying home only because its last job ended.
             var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && FitToRelieve(f) && War(f) > 0)

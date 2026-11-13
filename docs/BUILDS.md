@@ -55,6 +55,14 @@ played every night, and its summary has a Races table (wins by race, mirror game
 To watch one game's AI decisions: `Lightlag.Headless ai-trace --seed S --days D --every N [--easy]` prints
 each side's goal and each fleet's job every N days.
 
+## Screen panel timing
+
+`Lightlag.exe -- --panel-bench` (developer mode) plays 150 game days (`BENCH_DAYS` changes it), then opens
+each view in turn (map with and without the side panel, a fleet selected, a planet selected, and the
+Empire, Planets, Fleets, Research, Intel and Progress screens) and prints one `BENCH` line per view with the
+HUD and process time per frame and the five slowest parts of the HUD refresh. Use it after changing a panel: a
+panel that rebuilds its controls every frame shows up at once.
+
 ## Stats and the rival's thinking in reports
 
 In a full game, an F8 report also holds `stats.csv` (each side at the end of each day: Industry, income,
