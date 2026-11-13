@@ -43,8 +43,12 @@ back never touches it:
 | `logs\` | One `.jsonl` log per session; every line has build, seed, game day and area |
 | `reports\` | F8 reports: note, screenshot, save, replay, log tail |
 | `crashes\` | Crash reports: error, save, replay, log tail, and a README saying how to replay |
-| `saves\` | Quick save, manual saves and the last 5 autosaves |
+| `saves\` | Quick save, manual saves and the last 5 autosaves; an Ironman game keeps one `ironman_<seed>.json` |
 | `nightly\` | Overnight runs; `latest-summary.md` is the morning summary, `latest-battles.md` the battle sweep |
+
+Settings files sit in `play\data\` too: `display.cfg`, `pause.cfg` (what each kind of event does: pause, slow,
+pop-up or news only) and `advisor.cfg` (the rival's optional Ollama advisor, off by default: server address and
+model name).
 
 See [docs/LOGGING.md](docs/LOGGING.md) for details, and [docs/BUILDS.md](docs/BUILDS.md) for how
 builds, updates and overnight runs work.

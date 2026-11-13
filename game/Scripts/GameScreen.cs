@@ -326,6 +326,7 @@ public partial class GameScreen : Node2D
             WatchNotes();
             WatchChasers();
             WatchEconomy();
+            if (Sim.World.Loop) RivalAdvisor.Tick(Sim, _main);
             WarTab.WatchCalls(Sim.World, _warCallsSeen, text => Alert(PauseEvent.CommandCall, text, () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.War; }));
             EmpireTabs.WatchEvents(Sim.World, _eventsSeen, (text, stop) => Alert(stop ? PauseEvent.EventCall : PauseEvent.EventAutoPicked, text,
                 () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.Needs; }));

@@ -73,6 +73,7 @@ public partial class Main : Node
         Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=")));
         PlayerInfo.Load(Paths.Root);
         PauseSettings.Load(Paths.Root);
+        RivalAdvisor.Load(Paths.Root);
         if (OS.GetCmdlineUserArgs().Contains("--smoke-test"))
         {
             CallDeferred(MethodName.RunSmokeTest);

@@ -137,7 +137,8 @@ public partial class HowToPlay : CenterContainer
         "RACES\n" +
         "• Pick your race and the rival's on the title screen. Humans are the all-rounders. The Hive is many hungry people: its ships are grown from food (a starving Hive grows none), their hulls heal while fed, drone crews stay Trained, its boarders swarm, its buildings are dug in against bombs and invaders, and its sensors are weak. The Intelligence screen (I) lists the rival's strengths and weaknesses.\n\n" +
         "THE BASICS\n" +
-        "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts.\n" +
+        "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts. Pauses… (top bar, or the Esc menu) sets what happens for each kind of event: pause, slow to 1x, a pop-up or only a News line, with Watchful, Standard and Hands off presets.\n" +
+        "• Ironman (title screen): one save for the whole game, written over as you play. No loading back.\n" +
         "• Click a fleet to select it. Right-click a planet or a point to plan a route, then Enter to go. Shift+right-click goes at once.\n" +
         "• Empty planets with Industry can be claimed: park a fleet in orbit and keep the enemy away for 10 days (30 if the rival holds it). A held planet makes half its Industry until settlers arrive.\n" +
         "• Industry pays for ships at your shipyard and for buildings; research costs only scientist time (Empire panel, E).\n" +

@@ -181,6 +181,13 @@ public sealed class MindState
     public string Focus { get; set; } = "";
     public double FocusUntilHour { get; set; }
 
+    /// <summary>The advisor's running nudge (see Advisor; "" for none), why, until when, and when the last came.</summary>
+    public string Advice { get; set; } = "";
+    public string AdviceWhy { get; set; } = "";
+    public double AdviceUntilHour { get; set; }
+    public double LastAdviceHour { get; set; } = -1e9;
+    public int AdviceCount { get; set; }
+
     /// <summary>Battles fought so far, and the day of the last one (a long quiet makes the side restless).</summary>
     public int BattlesSeen { get; set; }
     public double LastBattleDay { get; set; }
@@ -305,6 +312,8 @@ public static class Mind
             sb.AppendLine();
             sb.AppendLine($"- Profile: {string.Join(", ", ProfileOf(m.Personality).Axes().Select(a => $"{a.Axis} {a.Value:0.00}"))}");
             if (m.Focus != "") sb.AppendLine($"- Focus now: {m.Focus}");
+            if (m.Advice != "" && w.Hour < m.AdviceUntilHour)
+                sb.AppendLine($"- Advisor nudge: {m.Advice} for {(m.AdviceUntilHour - w.Hour) / 24:0} more days" + (m.AdviceWhy != "" ? $" ({m.AdviceWhy})" : ""));
             sb.AppendLine($"- Attack ratio now {m.Ratio:0.00} (rolled {m.BaseRatio:0.00}); first probe from day {m.FirstProbeDay:0}");
             sb.AppendLine($"- Own power {m.OwnPower:0}; guesses the enemy at {m.EnemyPowerGuess:0}");
             sb.AppendLine($"- Goal: {m.Goal}");
@@ -507,6 +516,13 @@ public static class Mind
         /// (hunt), or else empty worlds (expand).
         /// </summary>
         private void Focus()
+        {
+            OpportunistFocus();
+            // The advisor's nudge, if one is running, leans whatever profile is in force (see Advisor).
+            _profile = Advisor.Apply(_profile, _m, _w.Hour);
+        }
+
+        private void OpportunistFocus()
         {
             if (_m.Personality != Personality.Opportunist) return;
             if (_w.Hour >= _m.FocusUntilHour || _m.Focus == "")

@@ -167,6 +167,7 @@ public partial class TitleScreen : Control
         col.AddChild(Ui.Button("New game: Easy rival", () => main.StartNewGame(difficulty: Lightlag.Sim.Core.Difficulty.Easy), 16));
         col.AddChild(LightPicker(main));
         col.AddChild(SystemsPicker(main));
+        col.AddChild(RivalAdvisor.Picker());
         col.AddChild(Graphics.Picker(main));
         col.AddChild(Display.Picker());
         col.AddChild(PlayerInfo.Picker());
