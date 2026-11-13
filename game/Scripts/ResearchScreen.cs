@@ -58,7 +58,9 @@ public partial class ResearchScreen : PanelContainer
         // Fill the window: under a CanvasLayer the anchors alone can leave the screen only as tall as its
         // contents need, and then the idea cards' scroll area gets no height at all.
         var view = GetViewportRect().Size;
-        if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
+        // Under the top bar, so the menu bar stays in view.
+        var under = new Vector2(0, Hud.ContentTop);
+        if (Position != under || Size != view - under) { Position = under; Size = view - under; }
         var shape = Shape(w);
         if (shape != _shape && !Ui.MouseHeld)
         {

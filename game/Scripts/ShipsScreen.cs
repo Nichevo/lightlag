@@ -52,7 +52,9 @@ public partial class ShipsScreen : PanelContainer
     {
         var w = sim.World;
         var view = GetViewportRect().Size;
-        if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
+        // Under the top bar, so the menu bar stays in view.
+        var under = new Vector2(0, Hud.ContentTop);
+        if (Position != under || Size != view - under) { Position = under; Size = view - under; }
         if (!GameData.ShipClasses.TryGetValue(_classId, out var picked) || !Unlocked(w, picked))
         {
             _classId = ClassOrder(w).FirstOrDefault()?.Id ?? GameData.ShipClasses.Keys.OrderBy(k => k, StringComparer.Ordinal).First();

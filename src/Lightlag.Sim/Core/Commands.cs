@@ -77,6 +77,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetAutoLevelCommand), "setAutoLevel")]
 [JsonDerivedType(typeof(AcceptNeedCommand), "acceptNeed")]
 [JsonDerivedType(typeof(DismissNeedCommand), "dismissNeed")]
+[JsonDerivedType(typeof(SnoozeNeedCommand), "snoozeNeed")]
+[JsonDerivedType(typeof(UnmuteNeedKindCommand), "unmuteNeedKind")]
 [JsonDerivedType(typeof(CreateZoneCommand), "createZone")]
 [JsonDerivedType(typeof(EditZoneCommand), "editZone")]
 [JsonDerivedType(typeof(DeleteZoneCommand), "deleteZone")]

@@ -60,7 +60,7 @@ public sealed class EmpireTabs
         if (notes.Count > 0)
         {
             Heading("Auto handled");
-            foreach (var note in notes) Text($"{GameTime.Format(note.Hour)} · {note.Area}: {note.Text}", 12);
+            foreach (var note in notes) Text($"{GameTime.Format(note.Hour)} · {(NeedsUi.Worth(note.Area) ? "● " : "")}{note.Area}: {note.Text}", 12);
         }
     }
 
@@ -144,8 +144,7 @@ public sealed class EmpireTabs
             row.AddChild(Small("Go", () => { _screen.Select(fleetId); _screen.Follow(fleetId, zoom: true); }, "Select the fleet and go there"));
         else if (n.BodyId is int bodyId)
             row.AddChild(Small("Go", () => _screen.PickBody(bodyId), "Go to the planet"));
-        row.AddChild(Small("✕", () => _screen.IssueNow(new DismissNeedCommand(Side.Player, key), "dismissing a need"),
-            $"Dismiss for {Stewards.DismissDays:0} days"));
+        row.AddChild(NeedsUi.Menu("Snooze ▾", "Put it aside: an hour, a day, until it changes, or never for this kind", NeedsUi.SnoozeItems(_screen, n)));
     }
 
     // ---- Automation -----------------------------------------------------------------------------

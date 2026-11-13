@@ -132,6 +132,10 @@ public sealed class SideState
     public List<NeedItem> Needs { get; set; } = new();
     public Dictionary<string, double> Dismissed { get; set; } = new();
 
+    /// <summary>Items snoozed until their text changes (key → the text when snoozed), and kinds never shown again (see NeedKinds.KindOf).</summary>
+    public Dictionary<string, string> SnoozedText { get; set; } = new();
+    public List<string> MutedKinds { get; set; } = new();
+
     /// <summary>What automation did lately, and how much (all game, and today).</summary>
     public List<AutoNote> AutoNotes { get; set; } = new();
     public int AutoHandled { get; set; }

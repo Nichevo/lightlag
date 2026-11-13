@@ -51,6 +51,9 @@ public sealed class RuleBook
     public static RuleBook Default() => new RuleBook()
         .Add("time-not-negative", w => w.Tick < 0 ? new[] { $"tick is {w.Tick}" } : Array.Empty<string>())
         .Add("research-teams-sane", ResearchTeamsSane)
+        .Add("needs-respect-snoozes", w => w.Sides.SelectMany(state => state.Needs
+                .Where(n => state.MutedKinds.Contains(NeedKinds.KindOf(n.Key)) || state.SnoozedText.TryGetValue(n.Key, out var t) && t == n.Text)
+                .Select(n => $"{n.Key} shows though it was snoozed or its kind muted")).ToArray())
         .Add("fleet-roles-fit-ships", w => w.Fleets.Where(f => f.ShipIds.Count > 0 && !HelpCalls.RolesFor(w, f).Contains(f.Role))
             .Select(f => $"{f.Name} has role {f.Role} but {(HelpCalls.SupplyOnly(w, f) ? "is only supply ships" : "is not a supply fleet")}").ToArray())
         .Add("stocks-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)

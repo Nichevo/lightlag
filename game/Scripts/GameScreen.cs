@@ -684,6 +684,12 @@ public partial class GameScreen : Node2D
 
     public void ShowBodyMenu(bool open) => _hud.ShowBodyMenu(open);
 
+    /// <summary>Where a planet or fleet is drawn on screen now (null when it isn't drawn).</summary>
+    public Vector2? ScreenPosOf(int id) => _map.DrawnPosition(id) is Vec2 v && v.IsFinite ? _camera.ToScreen(v) : null;
+
+    /// <summary>The HUD, for screenshots: open the Needs you tray, the cards or the automation menu.</summary>
+    public Hud Hud => _hud;
+
     /// <summary>
     /// Fleets and planets list (L): shows it, closing whatever screen covers it (empire, research, planets,
     /// fitting, the engagement view); hides it when it is already showing.
@@ -1460,6 +1466,8 @@ public partial class GameScreen : Node2D
             if (key.Keycode == Key.Escape) CloseMenu();
             return;
         }
+        // Work through them: the cards take Enter, G, S, the arrows and Esc while they are up.
+        if (_hud.CardsOpen && _hud.CardKey(key)) return;
         if (key.CtrlPressed && key.ShiftPressed && key.Keycode == Key.F12)
         {
             _main.Log.Warn("ui", "Test crash requested from the keyboard");
@@ -1493,9 +1501,11 @@ public partial class GameScreen : Node2D
                 break;
             case Key.F when _selected is int id: Follow(id, zoom: !key.ShiftPressed); break;
             case Key.Z: ZoomToSelected(); break;
+            case Key.Enter or Key.KpEnter when Planner == null && _hud.TrayAct(): break;
             case Key.Enter or Key.KpEnter: ConfirmPlan(); break;
             case Key.O: OrderHold(HoldStyle.Orbit); break;
-            case Key.G: OrderHold(HoldStyle.Drift); break;
+            case Key.G when MyFleet != null: OrderHold(HoldStyle.Drift); break;
+            case Key.G when Sim.World.Loop: _hud.OpenScreen("supply"); break;
             case Key.X: OrderStop(); break;
             case Key.C when Planner == null: EditRoute(); break;
             case Key.L: ToggleSide(); break;
@@ -1512,9 +1522,9 @@ public partial class GameScreen : Node2D
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;
             case Key.F1: ShowHelp = !ShowHelp; break;
             case Key.Escape when ShowHelp: ShowHelp = false; break;
-            case Key.I when Sim.World.Loop: ShowIntel = !ShowIntel; break;
+            case Key.I when Sim.World.Loop: _hud.OpenScreen("intel"); break;
             case Key.Escape when ShowIntel: ShowIntel = false; break;
-            case Key.N when Sim.World.Loop: ShowProgress = !ShowProgress; break;
+            case Key.N when Sim.World.Loop: _hud.OpenScreen("progress"); break;
             case Key.Escape when ShowProgress: ShowProgress = false; break;
             case Key.Escape when ShipCardId != null: ShipCardId = null; break;
             case Key.B:
@@ -1534,11 +1544,11 @@ public partial class GameScreen : Node2D
                 break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
-            case Key.E when Sim.World.Loop: ShowShips = false; ShowEmpire = !ShowEmpire; break;
-            case Key.T when Sim.World.Loop: ShowResearch = !ShowResearch; break;
-            case Key.Y when Sim.World.Loop: ShowShips = false; TogglePlanets(); break;
-            case Key.K: ShowShips = false; ToggleFleets(); break;
-            case Key.J when Sim.World.Loop: ToggleShips(); break;
+            case Key.E when Sim.World.Loop: _hud.OpenScreen("empire"); break;
+            case Key.T when Sim.World.Loop: _hud.OpenScreen("research"); break;
+            case Key.Y when Sim.World.Loop: _hud.OpenScreen("planets"); break;
+            case Key.K: _hud.OpenScreen("fleets"); break;
+            case Key.J when Sim.World.Loop: _hud.OpenScreen("ships"); break;
             case Key.Bracketleft: _hud.Step(Sim.World, -1); break;
             case Key.Bracketright: _hud.Step(Sim.World, 1); break;
             case Key.Period when Sim.World.Loop: _hud.JumpToNextNeed(Sim.World); break;
@@ -1576,6 +1586,9 @@ public partial class GameScreen : Node2D
                 break;
             case Key.Escape when IsSandbox:
                 _main.ShowSandboxSetup();
+                break;
+            case Key.Escape when _hud.TrayOpen:
+                _hud.TrayOpen = false;
                 break;
             case Key.Escape:
                 OpenMenu();
