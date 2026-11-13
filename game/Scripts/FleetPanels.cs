@@ -1126,6 +1126,8 @@ public partial class FleetPanel : PanelContainer
             return Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm) is Fleet e
                 ? $"Closing on {e.Name}, {Vec2.Distance(e.Position, f.Position) * 1000:#,0} km away"
                 : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
+        if (f.HeldBack && f.Flight == null && f.RejoinFleetId is int heldFor)
+            return $"Held back from {w.FindFleet(heldFor)?.Name ?? "its fleet"}'s fight: waits here and flies to rejoin once it is over";
         if (f.Chase is ChaseOrder c)
         {
             var seen = Sensors.Find(w, f.Side, c.TargetFleetId, seat: true);

@@ -357,8 +357,10 @@ public static class Engagement
         var hasMissiles = ships.Any(x => x.Missiles > 0 && !x.Out(Module.Missiles));
 
         // Say which ship holds the burn back (a slow tender or freighter drags the whole fleet).
-        var held = FleetPerformance.HeldBackBy(w, mine) is { } hb
-            ? $" Burn held to {hb.Ship}'s {hb.Accel / 3.6:0.#} km/s each hour (the others could do {hb.Others / 3.6:0.#}): split it off to go faster."
+        var held = mine.LeaveSupportBehind && w.ShipsOf(mine).Any(Fleets.Unarmed) && !w.ShipsOf(mine).All(Fleets.Unarmed)
+            ? " Support ships stay behind and rejoin after (the burn shown still counts them)."
+            : FleetPerformance.HeldBackBy(w, mine) is { } hb
+            ? $" Burn held to {hb.Ship}'s {hb.Accel / 3.6:0.#} km/s each hour (the others could do {hb.Others / 3.6:0.#}): tick Leave support behind (ships panel) or split it off."
             : "";
         Chase("engage", "Burn and engage", ChaseMode.GunRange, burn,
             p => $"Burn at {burn:P0} thrust, peaking at {FlightPlanner.Kms(Peak(p.Flight!))}, then brake to {C.EngageRangeMm * 0.75 * 1000:#,0} km and keep pace: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.{held}",

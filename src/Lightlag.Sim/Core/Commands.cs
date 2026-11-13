@@ -145,6 +145,10 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
     public override void Apply(World world, Simulation sim)
     {
         if (GetFleet(world, sim, FleetId, "Flight order") is not Fleet fleet) return;
+        // Going in to fight with "leave support ships behind" on: the tenders stay back first, so the burn is planned without them.
+        if (fleet.LeaveSupportBehind && Request.TargetFleetId is int foe && world.FindFleet(foe) is Fleet enemy && enemy.Side != fleet.Side
+            && Request.Chase is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.Overtake)
+            Fleets.HoldBackSupport(world, sim, fleet);
         var plan = FlightPlanner.Plan(world, fleet, Request);
         if (!plan.Ok || plan.Flight == null)
         {
@@ -229,6 +233,17 @@ public sealed record SetHoldCommand(int FleetId, HoldStyle Hold) : GameCommand, 
 }
 
 /// <summary>Take some ships out of a fleet into a new fleet that carries on doing the same thing.</summary>
+/// <summary>Whether the fleet's unarmed support ships stay out of fights it goes into, and rejoin after.</summary>
+public sealed record SetLeaveSupportCommand(int FleetId, bool On) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Leave support order") is not Fleet fleet) return;
+        fleet.LeaveSupportBehind = On;
+        sim.Log.Info("fleet", "Leave support ships behind set", new { fleetId = fleet.Id, On, Source });
+    }
+}
+
 public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)

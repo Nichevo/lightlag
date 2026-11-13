@@ -173,6 +173,12 @@ public sealed class Fleet
     /// <summary>A ship (or group) that pulled out: rejoin this fleet once mended.</summary>
     public int? RejoinFleetId { get; set; }
 
+    /// <summary>Unarmed support ships (tenders and the like) stay out of fights this fleet goes into, and rejoin after.</summary>
+    public bool LeaveSupportBehind { get; set; }
+
+    /// <summary>Support ships held back from RejoinFleetId's fight: they rejoin once that fight is over (not when mended).</summary>
+    public bool HeldBack { get; set; }
+
     /// <summary>The zone this fleet holds (Ambush or Hunt mission), if any.</summary>
     public int? ZoneId { get; set; }
     public bool Retreating { get; set; }
@@ -544,6 +550,39 @@ public static class Fleets
         if (a.Velocity.Length > 1e-9 || b.Velocity.Length > 1e-9) return "both must be stopped";
         if (Vec2.Distance(a.Position, b.Position) > MergeDistance) return "they are too far apart";
         return null;
+    }
+
+    /// <summary>An unarmed ship: no railguns, lances or missiles (tenders, freighters, troop ships).</summary>
+    public static bool Unarmed(Ship s)
+    {
+        var spec = Fitting.Spec(s);
+        return spec.Railguns <= 0 && spec.Lances <= 0 && spec.Missiles <= 0;
+    }
+
+    /// <summary>
+    /// Before the fleet goes in to fight: its unarmed ships split off, stop where they are and wait, then fly
+    /// to rejoin once the fight is over (BattleRules.Hourly). Does nothing unless some armed ships stay.
+    /// Returns the support fleet, if one split off.
+    /// </summary>
+    public static Fleet? HoldBackSupport(World world, Simulation sim, Fleet fleet)
+    {
+        var ships = world.ShipsOf(fleet).ToList();
+        var support = ships.Where(Unarmed).ToList();
+        if (support.Count == 0 || support.Count == ships.Count) return null;
+        fleet.ShipIds.RemoveAll(id => support.Any(s => s.Id == id));
+        var held = Create(world, fleet.Side, support, fleet.Position);
+        held.Velocity = fleet.Velocity;
+        held.Hold = HoldStyle.Drift;
+        held.Stance = Stance.Hold;
+        held.Dodge = fleet.Dodge;
+        held.Rule = fleet.Rule.Copy();
+        held.Autonomy = fleet.Autonomy;
+        held.RejoinFleetId = fleet.Id;
+        held.HeldBack = true;
+        Arrange(world, fleet);
+        SetApart(world, held);
+        sim.Log.Info("fleet", "Support ships held back from the fight", new { fleetId = fleet.Id, heldFleetId = held.Id, ships = support.Select(s => s.Name).ToList() });
+        return held;
     }
 
     /// <summary>

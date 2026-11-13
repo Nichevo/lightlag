@@ -16,6 +16,9 @@ public partial class EngagementPanel : Control
     private VBoxContainer _options = null!;
     private readonly List<(Button Button, string Key)> _optionButtons = new();
     private Label _defence = null!, _ships = null!, _deadline = null!;
+    private VBoxContainer _shipBox = null!;          // your fleet's ships: one row each with heat and quick buttons
+    private string _shipKey = "";
+    private readonly List<Action<World, Fleet>> _shipLive = new();
     private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
@@ -136,6 +139,9 @@ public partial class EngagementPanel : Control
         _tabs = new VBoxContainer();
         _tabs.AddThemeConstantOverride("separation", 1);
         left.AddChild(_tabs);
+        _shipBox = new VBoxContainer { CustomMinimumSize = new Vector2(330, 0) };
+        _shipBox.AddThemeConstantOverride("separation", 3);
+        left.AddChild(_shipBox);
         left.AddChild(_ships);
         _legend = new VBoxContainer();
         _legend.AddThemeConstantOverride("separation", 2);
@@ -467,17 +473,9 @@ public partial class EngagementPanel : Control
         if (f.Chase is { Problem: string problem }) lines.Add($"Chase trouble: {problem}");
         _defence.Text = string.Join("\n", lines);
 
-        // Ships.
-        var shipLines = new List<string> { $"{f.Name}" };
-        foreach (var s in ships)
-        {
-            var cls = Fitting.Spec(s);
-            var hurt = s.Disabled is Module m ? $", {Combat.ModuleName(m)} out" : "";
-            shipLines.Add($"  {s.Name} ({s.Code}): armour {s.Armour / cls.Armour:P0}, supplies {s.Supplies / cls.Supplies:P0}" + (cls.Missiles > 0 ? $", missiles {s.Missiles}/{Tech.Racks(w, s)}" : "") + hurt);
-        }
-        if (ships.Count > 1) shipLines.Add("  (one ship's card or its own orders: fleet panel > Ships, ⓘ or ⇱; or zoom in and click the ship)");
-        shipLines.Add("");
-        shipLines.Add($"{e.EnemyName}: {e.EnemyShips} ships");
+        // Ships: your fleet as rows with heat and quick buttons, then the enemy and spotting as text.
+        RefreshShipRows(w, f, ships);
+        var shipLines = new List<string> { $"{e.EnemyName}: {e.EnemyShips} ships" };
         shipLines.Add(e.EnemyClasses is string kinds
             ? $"  {kinds}" + (e.ClassesSeenHoursAgo > 1 ? $" (on a close look {When(e.ClassesSeenHoursAgo)} ago)" : "")
             : $"  types unknown: come within {Km(Sensors.IdentifyRange(w, Lightlag.Sim.Core.Side.Player))} to tell");
@@ -512,6 +510,136 @@ public partial class EngagementPanel : Control
         _timeline.Info = e;
         _timeline.QueueRedraw();
         Layout();
+    }
+
+    /// <summary>
+    /// Your fleet's ships, one row each: armour, supplies, missiles and heat (red when hot), with Eject sink,
+    /// the ship's card and Split off; and a fleet row with Eject all sinks, radiators, Pull back now and Hold on.
+    /// Rebuilt only when the fleet or its ships change; the numbers update every refresh.
+    /// </summary>
+    private void RefreshShipRows(World w, Fleet f, List<Ship> ships)
+    {
+        var key = $"{f.Id}|{string.Join(",", ships.Select(s => s.Id))}";
+        if (key != _shipKey)
+        {
+            _shipKey = key;
+            _shipLive.Clear();
+            foreach (var c in _shipBox.GetChildren()) c.QueueFree();
+            BuildFleetRow(f);
+            foreach (var s in ships) BuildShipRow(s.Id, ships.Count > 1);
+        }
+        foreach (var live in _shipLive) live(w, f);
+    }
+
+    private static Button Small(string text, string tip, Action act)
+    {
+        var b = Ui.SmallButton(text, () => Main.Instance.RunGuarded("engagement ship order", act), tip);
+        b.CustomMinimumSize = new Vector2(0, 22);
+        b.AddThemeFontSizeOverride("font_size", 11);
+        return b;
+    }
+
+    private void BuildFleetRow(Fleet fleet)
+    {
+        var id = fleet.Id;
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 4);
+        var name = Ui.Label(fleet.Name, 14, Ui.Player);
+        name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        head.AddChild(name);
+        head.AddChild(Small("Eject all sinks", "Every ship throws a heat sink: sheds heat at once and can draw off missiles closing in", () => _screen.IssueNow(new EjectHeatSinksCommand(id), "eject heat sinks")));
+        var rad = Small("", "Radiators: Auto (pulled in for battle), Out (cool but fragile), Run cold (hidden, heat builds). Click to change", () =>
+        {
+            if (Main.Instance.Sim!.World.FindFleet(id) is Fleet f2)
+                _screen.IssueNow(new SetHeatCommand(id, (RadiatorMode)(((int)f2.Radiators + 1) % 3), f2.AutoSinks), "radiators");
+        });
+        head.AddChild(rad);
+        _shipBox.AddChild(head);
+        var orders = new HBoxContainer();
+        orders.AddThemeConstantOverride("separation", 4);
+        var sinks = new CheckButton { Text = "Auto sinks", FocusMode = FocusModeEnum.None, TooltipText = "Ships throw heat sinks on their own when they run hot or missiles close in" };
+        sinks.AddThemeFontSizeOverride("font_size", 11);
+        sinks.Toggled += on => Main.Instance.RunGuarded("auto sinks", () =>
+        {
+            if (Main.Instance.Sim!.World.FindFleet(id) is Fleet f2) _screen.IssueNow(new SetHeatCommand(id, f2.Radiators, on), "auto sinks");
+        });
+        orders.AddChild(sinks);
+        var support = new CheckButton { Text = "Leave support behind", FocusMode = FocusModeEnum.None,
+            TooltipText = "When this fleet goes in to fight (Burn and engage, Hold at missile range, Burn past), its unarmed ships such as supply tenders split off and wait, then fly to rejoin once the fight is over. The fleet then burns at its warships' pace" };
+        support.AddThemeFontSizeOverride("font_size", 11);
+        support.Toggled += on => Main.Instance.RunGuarded("leave support", () => _screen.IssueNow(new SetLeaveSupportCommand(id, on), "leave support behind"));
+        orders.AddChild(support);
+        orders.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        var hold = Small("Hold on", "Ignore the pull-back rules and fight on (click again to let them apply)", () =>
+        {
+            if (Main.Instance.Sim!.World.FindFleet(id) is Fleet f2) _screen.IssueNow(new HoldOnCommand(id, !f2.HoldOn), "hold on");
+        });
+        orders.AddChild(hold);
+        orders.AddChild(Small("Pull back now", "Break off and leave the fight now, by the fleet's pull-back rule", () => _screen.IssueNow(new PullBackNowCommand(id), "pull back now")));
+        _shipBox.AddChild(orders);
+        _shipLive.Add((_, f) =>
+        {
+            rad.Text = f.Radiators switch { RadiatorMode.Out => "Radiators out", RadiatorMode.Cold => "Running cold", _ => "Radiators auto" };
+            sinks.SetPressedNoSignal(f.AutoSinks);
+            support.SetPressedNoSignal(f.LeaveSupportBehind);
+            support.Visible = Main.Instance.Sim!.World.ShipsOf(f).Any(Fleets.Unarmed) || f.LeaveSupportBehind;
+            hold.Modulate = f.HoldOn ? Ui.Player : Colors.White;
+        });
+    }
+
+    private void BuildShipRow(int shipId, bool canSplit)
+    {
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 1);
+        var top = new HBoxContainer();
+        top.AddThemeConstantOverride("separation", 4);
+        var name = Ui.Label("", 13, Ui.Text);
+        name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        name.ClipText = true;
+        name.MouseFilter = MouseFilterEnum.Stop;
+        name.TooltipText = "Click for this ship's card";
+        name.GuiInput += ev => { if (ev is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) _screen.ShipCardId = shipId; };
+        top.AddChild(name);
+        var eject = Small("Eject sink", "Dump a heat sink from this ship now: drops its heat at once", () =>
+        {
+            if (Main.Instance.Sim!.World.FindShip(shipId) is Ship sh) _screen.IssueNow(new EjectShipSinkCommand(sh.FleetId, shipId), "eject heat sink");
+        });
+        top.AddChild(eject);
+        top.AddChild(Small("ⓘ", "This ship's card", () => _screen.ShipCardId = shipId));
+        Button? split = null;
+        if (canSplit)
+        {
+            split = Small("Split off", "Make this ship its own fleet (for example a slow tender, or a hurt ship to send home)", () =>
+            {
+                if (Main.Instance.Sim!.World.FindShip(shipId) is Ship sh) _screen.IssueNow(new SplitFleetCommand(sh.FleetId, new List<int> { shipId }), "split off ship");
+            });
+            top.AddChild(split);
+        }
+        v.AddChild(top);
+        var heat = new StatBar("Heat") { CustomMinimumSize = new Vector2(0, 12) };
+        v.AddChild(heat);
+        var info = Ui.Label("", 11, Ui.Dim);
+        info.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        v.AddChild(info);
+        _shipBox.AddChild(v);
+        _shipLive.Add((w, _) =>
+        {
+            if (w.FindShip(shipId) is not Ship s) { v.Modulate = new Color(1, 1, 1, 0.35f); return; }
+            var cls = Fitting.Spec(s);
+            var tag = s.Crippled ? "  CRIPPLED" : s.Overheated ? "  OVERHEATED" : s.Disabled is Module m ? $"  {Combat.ModuleName(m)} out" : "";
+            name.Text = $"{s.Name} ({s.Code}){tag}";
+            name.AddThemeColorOverride("font_color", s.Crippled || s.Overheated ? Ui.Danger : Ui.Text);
+            var cap = Math.Max(1e-6, Heat.Capacity(s));
+            heat.Set(s.Heat / cap, s.Overheated ? "OVERHEATED: weapons hold fire until it cools; eject a sink" : $"Heat {s.Heat / cap:P0} of capacity", s.Overheated, hot: true);
+            var bits = new List<string> { $"armour {s.Armour / Math.Max(1e-6, cls.Armour):P0}", $"supplies {s.Supplies / Math.Max(1e-6, cls.Supplies):P0}", $"heat {s.Heat / cap:P0}" };
+            if (cls.Missiles > 0) bits.Add($"missiles {s.Missiles}/{Tech.Racks(w, s)}");
+            if (Heat.MaxShield(w, s) > 0) bits.Add($"shield {s.Shield / Math.Max(1e-6, Heat.MaxShield(w, s)):P0}");
+            bits.Add($"sinks {s.HeatSinks}");
+            info.Text = string.Join(" · ", bits);
+            eject.Disabled = s.HeatSinks <= 0 || s.Heat <= 0;
+            eject.Text = $"Eject sink ({s.HeatSinks})";
+            eject.Modulate = s.Overheated && s.HeatSinks > 0 ? Ui.Danger : Colors.White;
+        });
     }
 
     /// <summary>What railgun fire is coming in, and how much this fleet's dodge does against it at this range.</summary>

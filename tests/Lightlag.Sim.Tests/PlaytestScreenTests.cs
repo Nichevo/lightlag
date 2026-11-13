@@ -49,4 +49,36 @@ public class PlaytestScreenTests
         Assert.Equal(ships[^1].Name, held!.Value.Ship);
         Assert.Null(Chases.PullingAway(w, f)); // no chase: nothing to say
     }
+
+    [Fact]
+    public void Support_ships_stay_behind_when_the_fleet_goes_in_and_rejoin_after()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var at = w.Bodies.Single(b => b.Key == "verdant").Position * 1.3;
+        var ships = new[] { Economy.NewShip(w, Side.Player, "gun-frigate"), Economy.NewShip(w, Side.Player, "gun-frigate"), Economy.NewShip(w, Side.Player, "supply-tender") }.ToList();
+        var f = Fleets.Create(w, Side.Player, ships, at);
+        foreach (var s in ships) s.Position = f.Position + s.FormationOffset;
+        var foes = new[] { Economy.NewShip(w, Side.Rival, "gun-frigate") }.ToList();
+        var enemy = Fleets.Create(w, Side.Rival, foes, at + new Vec2(2, 0));
+        foreach (var s in foes) s.Position = enemy.Position + s.FormationOffset;
+        Assert.True(Fleets.Unarmed(ships[2]));
+
+        sim.Issue(new SetLeaveSupportCommand(f.Id, true));
+        sim.Issue(new PlanFlightCommand(f.Id, new FlightRequest(null, enemy.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick, TargetFleetId: enemy.Id, Chase: ChaseMode.GunRange)));
+        sim.ApplyPending();
+        Assert.Equal(2, f.ShipIds.Count);
+        var held = w.Fleets.Single(x => x.ShipIds.Contains(ships[2].Id));
+        Assert.True(held.HeldBack);
+        Assert.Equal(f.Id, held.RejoinFleetId);
+
+        // The fight is over (the enemy is gone and the chase ended): the support ships set off to rejoin.
+        w.Fleets.Remove(enemy);
+        foreach (var s in foes) w.Ships.Remove(s);
+        f.Chase = null;
+        f.Flight = null;
+        BattleRules.Hourly(sim);
+        Assert.False(held.HeldBack);
+        Assert.Equal(f.Id, held.JoinFleetId);
+    }
 }

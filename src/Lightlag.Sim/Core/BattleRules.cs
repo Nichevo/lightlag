@@ -292,6 +292,25 @@ public static class BattleRules
         var w = sim.World;
         foreach (var g in w.Fleets.Where(g => g.ShipIds.Count > 0 && !AfterBattle.Busy(w, g) && !Boarders.Grappled(w, g)).OrderBy(g => g.Id).ToList())
         {
+            // Support ships held back from a fight: rejoin once that fleet is out of battle and no longer going in.
+            if (g.HeldBack && g.RejoinFleetId is int heldFor && g.Flight == null && !Heat.InBattle(w, g))
+            {
+                var main = w.FindFleet(heldFor);
+                if (main == null || main.Side != g.Side || main.ShipIds.Count == 0) { g.HeldBack = false; g.RejoinFleetId = null; }
+                else if (!Heat.InBattle(w, main) && !main.Maneuvering && main.Chase is null or { Mode: ChaseMode.Join })
+                {
+                    g.HeldBack = false;
+                    g.RejoinFleetId = null;
+                    if (Fleets.FlyToJoin(w, g, main, 1.0) is string problem)
+                        Autonomy.Report(sim, g, $"{g.Name} can't rejoin {main.Name} after the fight: {problem}. It waits here.", NoteKind.StandingOrder);
+                    else
+                    {
+                        g.JoinFleetId = main.Id;
+                        sim.Log.Info("fleet", "Held-back support ships fly to rejoin", new { fleetId = g.Id, target = main.Id });
+                    }
+                }
+                continue;
+            }
             if (g.RejoinFleetId is int id && g.Flight == null && !g.Retreating && !Heat.InBattle(w, g)
                 && w.ShipsOf(g).All(s => Wounds.Worst(w, s) >= 0.95 && !s.Crippled))
             {
