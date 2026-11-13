@@ -98,6 +98,9 @@ public sealed class SideTotals
     public double BlockadeDays { get; set; }
     public double BlockadeHappiness { get; set; }
 
+    /// <summary>Planets taken by method ("Blockade", "Blitz", "Methodical", "Starve"): days, and what was left to take.</summary>
+    public Dictionary<string, CaptureTally> Captures { get; set; } = new();
+
     /// <summary>The goods ledger (see Ledger): per good, amounts gained and used by reason.</summary>
     public Dictionary<string, Dictionary<string, double>> GoodsIn { get; set; } = new();
     public Dictionary<string, Dictionary<string, double>> GoodsOut { get; set; } = new();
@@ -193,5 +196,33 @@ public static class Stats
                           + $"earned {t.IndustryEarned:0} Industry, spent {t.IndustrySpent:0}.");
         }
         return sb.ToString().TrimEnd();
+    }
+}
+
+/// <summary>Planets taken one way: how long the siege took in all, and the people, buildings and happiness taken.</summary>
+public sealed class CaptureTally
+{
+    public int Count { get; set; }
+    /// <summary>Days from the start of the blockade (or the landing, if longer) to the capture.</summary>
+    public double Days { get; set; }
+    /// <summary>Days of ground fighting only (0 for a blockade).</summary>
+    public double FightDays { get; set; }
+    public double PeopleK { get; set; }
+    public int BuildingsKept { get; set; }
+    public int BuildingsDamaged { get; set; }
+    public int BuildingsWrecked { get; set; }
+    public double Happiness { get; set; }
+
+    public static void Add(SideTotals t, string how, double days, double fightDays, Body b, int damaged, int wrecked)
+    {
+        if (!t.Captures.TryGetValue(how, out var c)) t.Captures[how] = c = new CaptureTally();
+        c.Count++;
+        c.Days += days;
+        c.FightDays += fightDays;
+        c.PeopleK += b.PopK;
+        c.BuildingsKept += b.Buildings.Count;
+        c.BuildingsDamaged += damaged;
+        c.BuildingsWrecked += wrecked;
+        c.Happiness += b.Happiness;
     }
 }

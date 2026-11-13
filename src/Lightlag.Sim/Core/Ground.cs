@@ -406,12 +406,18 @@ public static class Ground
         var side = f.Side;
         var t = Economy.Of(w, side).Totals;
         var leftK = b.LandingTroops;
+        var fightDays = (w.Hour - f.StartHour) / 24;
+        var siegeDays = Math.Max(fightDays, b.BlockadeHours / 24);
         b.PopK *= 0.95;
         Planets.Take(sim, b, side, "troops took it");
-        b.Happiness = Math.Clamp(b.Happiness + D.PlanHappiness[(int)f.Plan], 0, 100);
+        // The payoff of a careful invasion: a Blitz leaves a sullen planet, Methodical and Starve a content one.
+        var start = D.PlanStartHappiness[(int)f.Plan];
+        var baseHappiness = f.Plan == GroundPlan.Blitz ? Math.Min(b.Happiness, start) : start;
+        b.Happiness = Math.Clamp(baseHappiness + D.PlanHappiness[(int)f.Plan], 0, 100);
         t.InvasionWins++;
         t.InvasionDays += (w.Hour - f.StartHour) / 24;
         t.InvasionHappiness += b.Happiness;
+        CaptureTally.Add(t, f.Plan.ToString(), siegeDays, fightDays, b, f.Damaged.Count, f.Wrecked);
         for (var i = 0; i < f.LabsTaken; i++) Spoils.Scrap(sim, side, $"a research lab taken intact on {b.Name}", IntelSource.Capture, Intel.SalvagePoints);
         Spoils.TakePrisoners(sim, side, Math.Min(f.StartGarrison * 0.2, 0.5), b.Name);
         if (leftK < D.GarrisonStaysK)

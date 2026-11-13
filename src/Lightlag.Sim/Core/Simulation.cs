@@ -454,7 +454,7 @@ public sealed class Simulation
                 // Both stopped but apart (the other fleet moved on, or there was no route before): once a day, set off
                 // again to where it is now. A fleet still flying is met where it stops, so that case waits.
                 if (World.Tick % GameTime.TicksPerDay == 0 && Stopped(f) && Stopped(into)
-                    && Fleets.FlyToJoin(World, f, into, Economy.ReinforceSpeed) == null)
+                    && Fleets.FlyToJoin(World, f, into, Economy.JoinSpeed(World, f)) == null)
                     Log.Info("fleet", $"{f.Name} sets off again to join {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
                 continue;
             }
