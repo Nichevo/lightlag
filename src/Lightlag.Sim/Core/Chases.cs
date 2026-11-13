@@ -285,6 +285,13 @@ public static class Chases
         {
             f.Chase = null;
             f.Flight = null;
+            if (f.SupplyRunFor == into.Id)
+            {
+                // A supply run keeps its own fleet: it stays alongside, matching speed, to hand over cargo and go home.
+                f.Velocity = into.Velocity;
+                sim.Log.Info("supply", $"{f.Name} comes alongside {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
+                return;
+            }
             sim.Log.Info("fleet", $"{f.Name} catches up and joins {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
             Fleets.Absorb(w, into, f);
             return;
@@ -295,7 +302,7 @@ public static class Chases
         if (Fleets.Meeting(w, into, c.SpeedFraction) is { TargetBodyId: int meetAt } && w.FindBody(meetAt) is Body body)
         {
             var problem = Fleets.FlyToJoin(w, f, into, c.SpeedFraction);
-            f.JoinFleetId = into.Id;
+            if (f.SupplyRunFor != into.Id) f.JoinFleetId = into.Id; // a supply run meets it there without merging
             if (problem == null)
             {
                 sim.Log.Info("fleet", $"{f.Name} goes to {body.Name} to join {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id, bodyId = body.Id });

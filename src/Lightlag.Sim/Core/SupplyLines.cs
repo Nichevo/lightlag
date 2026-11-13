@@ -157,10 +157,28 @@ public static class SupplyLines
                     Autonomy.Report(sim, f, $"{s.Name} has run out of food: the crew is hungry (worse aim, slower reloads)", NoteKind.Supply);
             }
             var suppliers = w.ShipsOf(f).Where(IsSupplyShip).ToList();
+            foreach (var s in suppliers) RefuelSelf(w, s);
             if (suppliers.Count > 0 && f.ShipIds.Count > suppliers.Count) Deliver(w, suppliers, w.ShipsOf(f).Where(s => !IsSupplyShip(s)).ToList());
         }
         if (w.Loop) Runs(sim);
     }
+
+    /// <summary>
+    /// A supply ship carrying the fuel its own engines burn tops its own tanks up from its hold once they fall below
+    /// half, to SelfFuelTo: enough to carry on and get home, leaving the rest of the cargo for the fleet.
+    /// </summary>
+    public static void RefuelSelf(World w, Ship s)
+    {
+        var max = Fitting.MaxSupplies(w, s);
+        if (s.Supplies >= max * 0.5) return;
+        s.Supplies += Fuels.TakeCargo(s, Fuels.IdOf(s), max * SelfFuelTo - s.Supplies);
+    }
+
+    /// <summary>Share of its own tanks a supply ship refuels to from its cargo.</summary>
+    public const double SelfFuelTo = 0.6;
+
+    /// <summary>A supply run whose own tanks fall to this share (and can't refill from its hold) goes home to refuel.</summary>
+    public const double RefuelBelow = 0.25;
 
     /// <summary>Supply ships pass cargo to ships short of fuel, ammunition, missiles or food.</summary>
     private static void Deliver(World w, List<Ship> from, List<Ship> to)
@@ -194,8 +212,14 @@ public static class SupplyLines
                     s.MissileGrade = s.Missiles == 0 ? src.CargoMissileGrade : Math.Min(s.MissileGrade, src.CargoMissileGrade);
                     s.Missiles++; src.CargoAmmo -= 1;
                 }
-                take = Math.Min(food, MaxFood(s) - s.Food);
-                if (take > 0) { s.Food += take; src.CargoFood -= take; food -= take; }
+            }
+            // Food goes round: the hungriest first, each taking no more than an even share of what is left this hour.
+            var eaters = to.Where(s => MaxFood(s) - s.Food > 1e-9).OrderBy(s => s.Food / MaxFood(s)).ThenBy(s => s.Id).ToList();
+            for (var i = 0; i < eaters.Count && food > 1e-9; i++)
+            {
+                var s = eaters[i];
+                var take = Math.Min(food / (eaters.Count - i), MaxFood(s) - s.Food);
+                s.Food += take; src.CargoFood -= take; food -= take;
             }
         }
     }
@@ -215,6 +239,35 @@ public static class SupplyLines
     /// <summary>Supply ships hand cargo over to a fleet within this distance (or in orbit at the same body).</summary>
     public const double TogetherMm = 50;
 
+    /// <summary>
+    /// Did the supply fleet come within TogetherMm of its fleet during the last hour? Checked along the straight
+    /// relative track, since a fast tanker can pass through the handover distance between two hourly looks.
+    /// </summary>
+    public static bool PassedClose(Fleet f, Fleet target)
+    {
+        var rel = f.Position - target.Position;
+        var rv = f.Velocity - target.Velocity;
+        var before = rel - rv * GameTime.HoursPerTick;
+        var seg = rel - before;
+        var len2 = seg.X * seg.X + seg.Y * seg.Y;
+        var t = len2 < 1e-12 ? 1 : Math.Clamp(-(before.X * seg.X + before.Y * seg.Y) / len2, 0, 1);
+        return (before + seg * t).Length <= TogetherMm;
+    }
+
+    /// <summary>Ends the supply fleet's flight beside its fleet, matching its speed (paid in fuel).</summary>
+    private static void ComeAlongside(Simulation sim, Fleet f, Fleet target)
+    {
+        var w = sim.World;
+        sim.BurnFuel(f, (f.Velocity - target.Velocity).Length);
+        f.Flight = null;
+        f.Chase = null;
+        Fleets.EnterDrift(f);
+        f.Position = target.Position + (f.Position - target.Position) * Math.Min(1, TogetherMm * 0.5 / Math.Max(1e-9, Vec2.Distance(f.Position, target.Position)));
+        f.Velocity = target.Velocity;
+        foreach (var s in w.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+        sim.Log.Info("supply", $"{f.Name} comes alongside {target.Name}", new { fleetId = f.Id, target = target.Id });
+    }
+
     /// <summary>Auto supply runs: load at home, fly out, top up while together, go home when low.</summary>
     private static void Runs(Simulation sim)
     {
@@ -230,15 +283,42 @@ public static class SupplyLines
                 continue;
             }
             var cargo = CargoShare(w, f);
+            var filling = cargo > f.SupplyRunLastCargo + 1e-6;
+            f.SupplyRunLastCargo = cargo;
             var home = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side;
+            // A planned meeting with nothing to fly (it is already where the fleet will stop): wait here, not "on its way".
+            if (f.Flight is { Started: false, Legs.Count: 0 }) f.Flight = null;
+            // Out to its fleet and passing close by it: stop alongside (match its speed) rather than fly on past.
+            var outbound = f.Flight is { } way && (way.TargetFleetId == target.Id || f.Chase?.TargetFleetId == target.Id);
+            if ((outbound || f.Flight == null && !home) && target.Hold != HoldStyle.Orbit && !f.Maneuvering
+                && !Together(w, f, target) && PassedClose(f, target))
+                ComeAlongside(sim, f, target);
             if (Together(w, f, target))
             {
+                // Drifting together: keep matching its speed so the two stay side by side while cargo goes over.
+                if (f.Flight == null && f.Hold != HoldStyle.Orbit && (f.Velocity - target.Velocity).Length > 1e-6)
+                {
+                    sim.BurnFuel(f, (f.Velocity - target.Velocity).Length);
+                    f.Velocity = target.Velocity;
+                }
+                var before = CargoShare(w, f);
                 Deliver(w, w.ShipsOf(f).Where(IsSupplyShip).ToList(), w.ShipsOf(target).Where(s => !IsSupplyShip(s)).ToList());
-                if (CargoShare(w, f) < ReloadBelow) GoLoad(sim, f, target);
+                // Empty, or carrying nothing the fleet still wants (say food is gone but ammunition is left): reload.
+                var after = CargoShare(w, f);
+                if (!home && (after < ReloadBelow || after >= before - 1e-9 && Short(w, target))) GoLoad(sim, f, target);
                 continue;
             }
+            // Low on its own fuel (a freighter carries none for itself): go home to refuel before it is stranded.
+            if (!home && !f.Resupplying && Combat.SupplyShare(w, f) < RefuelBelow 
+                && (f.Flight is not { TargetBodyId: int tb } || w.FindBody(tb)?.Owner != f.Side))
+            {
+                if (GoLoad(sim, f, target, refuel: true)) continue;
+            }
             if (f.Flight is { } fl && (fl.TargetFleetId == target.Id || f.Chase != null)) continue; // on its way out
-            if (home && cargo < 0.95) continue;                                                     // loading
+            // Loading and refuelling. It sets out once full, or once the hold stops filling (the planet is out of
+            // something), or, for a fleet already running short, once the hold is nearly half full.
+            var loaded = cargo >= 0.95 || cargo >= ReloadBelow * 2 && (!filling || Short(w, target) && cargo >= 0.45);
+            if (home && (!loaded || Combat.SupplyShare(w, f) < Supply.RefilledAt)) continue;
             if (f.Flight != null && !home) continue;                                                // on its way home
             if (cargo < ReloadBelow) { GoLoad(sim, f, target); continue; }
             if (!Needs(w, target) && home) continue;                                                // nothing wanted yet
@@ -248,6 +328,12 @@ public static class SupplyLines
                 f.SupplyRunProblem = problem;
                 if (w.Tick % (GameTime.TicksPerDay) == 0)
                     sim.Log.Info("supply", $"{f.Name} can't reach {target.Name} yet", new { fleetId = f.Id, target = target.Id, problem });
+            }
+            else if (f.Flight is { Legs.Count: 0 })
+            {
+                // Already where the fleet will stop: wait there for it.
+                f.Flight = null;
+                f.Chase = null;
             }
             else
             {
@@ -275,21 +361,31 @@ public static class SupplyLines
         var at = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b ? w.FindBody(b) : null;
         if (at?.Owner == f.Side && f.Flight == null)
             return CargoShare(w, f) < 0.95 ? $"{name}: loading at {at.Name} ({CargoShare(w, f):P0})" : $"{name}: loaded at {at.Name}, sets out when needed";
+        if (f.Resupplying && f.Flight != null) return $"{name}: low on fuel, going to refuel";
         if (f.Flight != null) return $"{name}: going to load";
-        return $"{name}: on the run";
+        return $"{name}: waiting where {target.Name} will stop";
     }
 
-    private static void GoLoad(Simulation sim, Fleet f, Fleet target)
+    private static bool GoLoad(Simulation sim, Fleet f, Fleet target, bool refuel = false)
     {
         var w = sim.World;
-        if (Supply.Nearest(w, f) is not (Body body, _)) return;
+        if (Supply.Nearest(w, f) is not (Body body, _)) return false;
         var plan = FlightPlanner.Plan(w, f, new FlightRequest(body.Id, body.Position, Economy.ReinforceSpeed, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick));
+        // Short of fuel for the usual pace: a slow coast home.
+        if (plan is not { Ok: true } || plan.DeltaV > FleetPerformance.Of(w, f).DeltaVLeft)
+            plan = FlightPlanner.Plan(w, f, new FlightRequest(body.Id, body.Position, FlightPlanner.MinSpeedFraction, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick));
         if (plan is { Ok: true, Flight: Flight flight })
         {
             f.Flight = flight;
             f.Chase = null;
-            Autonomy.Report(sim, f, $"{f.Name} heads to {body.Name} to load more supplies for {target.Name}", NoteKind.Supply);
+            if (refuel) f.Resupplying = true;
+            Autonomy.Report(sim, f, refuel
+                ? $"{f.Name} is low on fuel: heads to {body.Name} to refuel and load more supplies for {target.Name}"
+                : $"{f.Name} heads to {body.Name} to load more supplies for {target.Name}", NoteKind.Supply);
+            sim.Log.Info("supply", refuel ? "Supply run goes home to refuel" : "Supply run goes home to load", new { fleetId = f.Id, target = target.Id, bodyId = body.Id });
+            return true;
         }
+        return false;
     }
 
     /// <summary>Hourly upkeep: a share of the cost of every ship and station, paid in Industry (it can't go below 0).</summary>

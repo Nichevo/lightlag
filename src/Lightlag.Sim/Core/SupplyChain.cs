@@ -566,8 +566,9 @@ public static class SupplyChain
             string cause;
             if (w.Fleets.Find(o => o.Side == side && o.SupplyRunFor == f.Id && o.ShipIds.Count > 0) is Fleet run)
             {
-                var due = run.Flight is { } fl && (fl.TargetFleetId == f.Id || fl.TargetBodyId == null) ? fl.ArriveHour - w.Hour : (double?)null;
-                cause = due is double h ? $"{run.Name} is on its way (about {Format(h)}). OK unless the run is caught." : $"{run.Name} supplies it on call.";
+                var due = run.Flight is { } fl && (fl.TargetFleetId == f.Id || fl.TargetBodyId == null) ? Math.Max(0, fl.ArriveHour - w.Hour) : (double?)null;
+                cause = due is double h ? $"{run.Name} is on its way (about {Format(h)}). OK unless the run is caught."
+                    : SupplyLines.RunStatus(w, f) is string status ? status + "." : $"{run.Name} supplies it on call.";
                 fixes.Add(new ChainFix("Show", "", Ui: $"fleet:{run.Id}"));
             }
             else
