@@ -93,6 +93,16 @@ public partial class TitleScreen : Control
         rival.Selected = Math.Max(0, choices.FindIndex(c => c.Id == main.RivalRaceChoice));
         rival.ItemSelected += i => main.RivalRaceChoice = choices[(int)i].Id;
         rivalRow.AddChild(rival);
+        // A second rival makes a three-race game: every side against the others, and contact offers between them.
+        rivalRow.AddChild(new Control { CustomMinimumSize = new Vector2(16, 0) });
+        rivalRow.AddChild(Ui.Label("Second rival:", 15, Ui.Dim));
+        var third = new OptionButton { FocusMode = FocusModeEnum.None,
+            TooltipText = "None: a one-on-one game. Pick a race for a three-race game: two rivals, each against everyone, and one-way contact offers once you know a rival's language" };
+        var thirdChoices = new List<(string Id, string Name)> { (Races.None, "None") }.Concat(choices).ToList();
+        foreach (var (_, name) in thirdChoices) third.AddItem(name);
+        third.Selected = Math.Max(0, thirdChoices.FindIndex(c => c.Id == main.ThirdRaceChoice));
+        third.ItemSelected += i => main.ThirdRaceChoice = thirdChoices[(int)i].Id;
+        rivalRow.AddChild(third);
         col.AddChild(rivalRow);
         Describe(main.PlayerRaceChoice);
         col.AddChild(about);

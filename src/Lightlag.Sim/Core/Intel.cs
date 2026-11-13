@@ -238,11 +238,11 @@ public static class Intel
     }
 
     /// <summary>A research idea that answers what the rival has been seen to field, with why.</summary>
-    public static IEnumerable<(string Idea, string Why)> Counters(World w, Side side)
+    public static IEnumerable<(string Idea, string Why)> Counters(World w, Side side, Side? rival = null)
     {
         var mine = side;
         bool Has(string id) => Core.Tech.Has(w, mine, id);
-        foreach (var t in Of(w, side).Tech.OrderBy(t => Array.IndexOf(Parts, t.Part)))
+        foreach (var t in Of(w, side, rival).Tech.OrderBy(t => Array.IndexOf(Parts, t.Part)))
         {
             var seen = $"they have {LevelName(t.Part, t.Level)} {PartName(t.Part).ToLowerInvariant()}";
             switch (t.Part)

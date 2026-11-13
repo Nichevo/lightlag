@@ -115,6 +115,9 @@ public partial class Main : Node
     public string PlayerRaceChoice { get; set; } = Races.Human;
     public string RivalRaceChoice { get; set; } = Races.Random;
 
+    /// <summary>A second rival (a three-race game), or none.</summary>
+    public string ThirdRaceChoice { get; set; } = Races.None;
+
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
@@ -125,7 +128,7 @@ public partial class Main : Node
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
-                Ironman = IronmanChoice,
+                Ironman = IronmanChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());

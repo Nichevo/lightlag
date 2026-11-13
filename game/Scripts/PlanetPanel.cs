@@ -14,6 +14,9 @@ public partial class PlanetPanel : PanelContainer
     private readonly GameScreen _screen;
     private Label _title = null!, _body = null!;
     private HBoxContainer _build = null!, _people = null!, _war = null!;
+    private OptionButton _autoBuild = null!;
+    private HBoxContainer _autoRow = null!;
+    private string _autoShape = "";
     private MenuButton _settle = null!, _satellite = null!;
     private CheckButton _topUp = null!;
     private int _bodyId;
@@ -40,6 +43,20 @@ public partial class PlanetPanel : PanelContainer
             "The planet screen: lay out buildings on its map, set priorities, storage and transport"));
         _build.AddChild(Ui.SmallButton("Planets list", () => _screen.ShowPlanets = true, "All worlds in one list (Y)"));
         box.AddChild(_build);
+
+        // Who builds here: this planet's own automation level for buildings, or the empire's (Empire screen, E, Automation tab).
+        var autoRow = new HBoxContainer();
+        autoRow.AddThemeConstantOverride("separation", 6);
+        autoRow.AddChild(Ui.Label("Buildings:", 14, Ui.Dim));
+        _autoBuild = new OptionButton { FocusMode = FocusModeEnum.None,
+            TooltipText = "Auto: buildings are laid down for you. Advise: suggested under Needs you, you say yes. Manual: you build them on the planet screen.\n"
+                          + "\"As the empire\" follows the Building level on the Empire screen (E), Automation tab" };
+        _autoBuild.AddThemeFontSizeOverride("font_size", 14);
+        _autoBuild.ItemSelected += i => Main.Instance.RunGuarded("planet automation", () =>
+            _screen.IssueNow(new SetAutoLevelCommand(Side.Player, AutoArea.Building, i == 0 ? null : (AutoLevel)(i - 1), _bodyId), "planet automation"));
+        autoRow.AddChild(_autoBuild);
+        box.AddChild(autoRow);
+        _autoRow = autoRow;
 
         // Satellites (Plan 3 build 4): over any planet or moon, or at its leading or trailing point.
         var sats = new HBoxContainer();
@@ -223,6 +240,26 @@ public partial class PlanetPanel : PanelContainer
         _body.Text = string.Join("\n", lines);
 
         _build.Visible = mine && b.Board != null;
+        _autoRow.Visible = _build.Visible;
+        if (_autoRow.Visible)
+        {
+            var empire = Stewards.LevelFor(w, Side.Player, AutoArea.Building);
+            var own = Economy.Of(w, Side.Player).AutoOverrides.Find(o => o.Area == AutoArea.Building && o.BodyId == b.Id && o.FleetId == null);
+            var autoShape = $"{b.Id}|{empire}|{own?.Level}";
+            if (autoShape != _autoShape && !_autoBuild.GetPopup().Visible)
+            {
+            _autoShape = autoShape;
+            _autoBuild.Clear();
+            _autoBuild.AddItem($"As the empire ({empire})");
+            foreach (var l in Enum.GetValues<AutoLevel>()) _autoBuild.AddItem(l switch
+            {
+                AutoLevel.Auto => "Auto: build for me",
+                AutoLevel.Advise => "Advise: suggest, I approve",
+                _ => "Manual: I build",
+            });
+            _autoBuild.Select(own is { } o ? (int)o.Level + 1 : 0);
+            }
+        }
         _war.Visible = b.Front != null && b.Board != null;
         _satellite.GetParent<Control>().Visible = w.Loop && b.Kind != BodyKind.Star;
         var satWhy = Satellites.D.Needs.Length > 0 && !Tech.Has(w, Side.Player, Satellites.D.Needs) ? $"Research {GameData.Research(Satellites.D.Needs).Name} first (research screen, T)" : null;

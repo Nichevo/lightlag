@@ -16,6 +16,7 @@ public partial class IntelScreen : PanelContainer
     private VBoxContainer _box = null!;
     private Tab _tab = Tab.Overview;
     private string _shape = "";
+    private Side? _about;
 
     public enum Tab { Overview, Fleets, Planets, Technology, Lanes, TheirFile }
 
@@ -41,8 +42,10 @@ public partial class IntelScreen : PanelContainer
     public void Refresh(Simulation sim)
     {
         var w = sim.World;
-        var f = Intel.Of(w, Side.Player);
-        var shape = $"{_tab}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
+        if (_about is not Side pick || pick == Side.Player || !Sides.InPlay(w).Contains(pick)) _about = Sides.MainEnemy(w, Side.Player);
+        var about = _about!.Value;
+        var f = Intel.Of(w, Side.Player, about);
+        var shape = $"{_tab}|{about}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _box.GetChildren()) c.QueueFree();
@@ -62,9 +65,25 @@ public partial class IntelScreen : PanelContainer
             tabs.AddChild(b);
         }
         _box.AddChild(tabs);
+        if (Sides.Three(w))
+        {
+            // Two rivals: a file on each.
+            var rivals = new HBoxContainer();
+            rivals.AddThemeConstantOverride("separation", 4);
+            rivals.AddChild(Ui.Label("File on:", 13, Ui.Dim));
+            foreach (var r in Sides.Enemies(w, Side.Player))
+            {
+                var rr = r;
+                var b = Ui.SmallButton($"{Races.Of(w, r).Name}{(Sides.Out(w, r) ? " (out)" : "")} · level {Intel.Level(Intel.Of(w, Side.Player, r))}",
+                    () => { _about = rr; _shape = ""; }, "Switch to your file on this rival");
+                b.Modulate = r == about ? Ui.SideColor(r) : new Color(1, 1, 1, 0.7f);
+                rivals.AddChild(b);
+            }
+            _box.AddChild(rivals);
+        }
         var level = Intel.Level(f);
-        var rival = w.Minds.FirstOrDefault(m => m.Side == Side.Rival);
-        _box.AddChild(Ui.Label($"Rival{(rival != null ? $" ({rival.Difficulty})" : "")} · intel level {level} · {Intel.LevelNames[level]}"
+        var rival = w.Minds.FirstOrDefault(m => m.Side == about);
+        _box.AddChild(Ui.Label($"{Sides.Label(w, about)}{(rival != null ? $" ({rival.Difficulty})" : "")} · intel level {level} · {Intel.LevelNames[level]}"
                                + (w.Hour - f.LastContactHour < 48 ? ", in contact" : ", fading without contact"), 14, Ui.Text));
         switch (_tab)
         {
@@ -114,7 +133,7 @@ public partial class IntelScreen : PanelContainer
     private void Overview(World w, IntelFile f, int level)
     {
         // Who they are is known from the start (their broadcasts give it away); what that means comes from the race's traits.
-        var race = Races.Of(w, Side.Rival);
+        var race = Races.Of(w, f.About);
         Section($"Race: {race.Name}");
         Line(race.Style, Ui.Text, 13);
         foreach (var p in race.Pros ?? new()) Line($"+ {p}", Ui.Dim, 13);
@@ -130,10 +149,10 @@ public partial class IntelScreen : PanelContainer
                  + "or salvage, prisoners and captures. Knowledge fades without contact.", Gold, 13);
         }
         Section("Estimate");
-        var (low, high) = Intel.EstimatedWarships(w, Side.Player);
-        var (planets, industry) = Intel.EstimatedHoldings(w, Side.Player);
+        var (low, high) = Intel.EstimatedWarships(w, Side.Player, f.About);
+        var (planets, industry) = Intel.EstimatedHoldings(w, Side.Player, f.About);
         var mine = Economy.Claimable(w).Where(b => b.Owner == Side.Player).Sum(b => b.Industry);
-        var (control, plus) = Intel.EstimatedControl(w, Side.Player);
+        var (control, plus) = Intel.EstimatedControl(w, Side.Player, f.About);
         Line(level >= 1 ? $"Warships: {low} to {high}" : "Warships: unknown (reach level 1 to count them)",
             tip: "From the fleets on file; the range narrows as your intel level rises");
         Line($"Planets: {planets} ({f.Planets.Count(p => p.Hour > 0)} looked at closely)");
@@ -160,7 +179,7 @@ public partial class IntelScreen : PanelContainer
         Section("Known fleets: from sightings; old facts fade");
         var g = Table("FLEET", "SHIPS", "CLASSES", "SEEN", "SURE", "LAST KNOWN");
         var any = false;
-        foreach (var x in Intel.FleetsKnown(w, Side.Player, cargo: true))
+        foreach (var x in f.Fleets.OrderByDescending(x => x.Hour).ThenBy(x => x.FleetId))
         {
             any = true;
             var sure = Intel.Sure(w, x);
@@ -221,7 +240,7 @@ public partial class IntelScreen : PanelContainer
             Line(l.Stage == RivalStage.Seen ? $"Something new in their kit · {l.Progress:P0}" : $"{GameData.Research(l.Id).Name} · {RivalTech.StageName(l.Stage)} · {l.Progress:P0}"
                  + (l.Stage == RivalStage.Unlocked ? " · queue it without its prerequisites" : ""), l.Stage == RivalStage.Unlocked ? Gold : Ui.Text, 13);
         Section("Their weapon reach");
-        var fleets = w.Fleets.Where(x => x.Side is Side.Rival or Side.Third && Sensors.Sees(w, Side.Player, x)).OrderBy(x => x.Id).ToList();
+        var fleets = w.Fleets.Where(x => x.Side == f.About && Sensors.Sees(w, Side.Player, x)).OrderBy(x => x.Id).ToList();
         if (fleets.Count == 0) Line("No rival fleet in sight", Ui.Dim, 13);
         foreach (var x in fleets)
         {
@@ -230,7 +249,7 @@ public partial class IntelScreen : PanelContainer
                 guess.Plus > 0 ? Ui.Dim : Ui.Text, 13, "A fleet that held back may reach further than it showed");
         }
         Section("Research that answers it");
-        var counters = Intel.Counters(w, Side.Player).ToList();
+        var counters = Intel.Counters(w, Side.Player, f.About).ToList();
         if (counters.Count == 0) Line("Nothing yet: counters show once you have seen what it fields", Ui.Dim, 13);
         foreach (var (idea, why) in counters)
         {
