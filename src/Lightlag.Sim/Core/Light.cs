@@ -144,7 +144,7 @@ public static class Light
     /// <summary>Picks each side's flagship at the start: the first destroyer at home, else the first ship.</summary>
     public static void ChooseFlagships(World w)
     {
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var mine = w.Ships.Where(s => s.Side == side).ToList();
             var pick = mine.FirstOrDefault(s => s.ClassId == "missile-destroyer") ?? mine.FirstOrDefault();
@@ -172,7 +172,7 @@ public static class Light
         {
             Economy.Of(w, side).FlagshipId = null;
             sim.Log.Info("light", $"{side} flagship lost with no destroyer to take command", new { side = side.ToString() });
-            Economy.Win(sim, Combat.Other(side), "decapitation: the enemy flagship was destroyed with no destroyer left to take command");
+            Economy.Lose(sim, side, "decapitation: the enemy flagship was destroyed with no destroyer left to take command");
             return;
         }
         next ??= mine.FirstOrDefault();
@@ -242,7 +242,7 @@ public static class Light
             if (!f.Position.IsFinite) continue;
             Send(new Sighting
             {
-                SeenBy = f.Side, Own = true, FleetId = f.Id, Name = f.Name, Ships = f.ShipIds.Count, Position = f.Position,
+                SeenBy = f.Side, Of = f.Side, Own = true, FleetId = f.Id, Name = f.Name, Ships = f.ShipIds.Count, Position = f.Position,
                 Velocity = f.Velocity, State = Sensors.StateOf(f), Hour = now, SpottedHour = now, Visible = true,
                 Classes = Sensors.ClassesOf(w, f), ClassesHour = now,
             });

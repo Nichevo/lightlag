@@ -11,7 +11,7 @@ public sealed record GameResult(
     int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
     string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null,
     double? WarshipsMid = null, double[]? WarshipCurve = null, double WorstStepMs = 0, long WorstStepTick = 0,
-    string? PlayerRace = null, string? RivalRace = null);
+    string? PlayerRace = null, string? RivalRace = null, string? ThirdRace = null, SideEnd? Third = null);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
@@ -63,7 +63,9 @@ public static class Batch
         _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
         // --player-race / --rival-race human|hive|random: each side's race (batch: human; nightly: random, so both races get played).
         _races = (opts.Get("player-race") ?? (nightly ? Races.Random : null), opts.Get("rival-race") ?? (nightly ? Races.Random : null));
-        foreach (var r in new[] { _races.Player, _races.Rival })
+        // --third-race human|hive|lattice|random: a three-race game with a second rival (default none).
+        _third = opts.Get("third-race") is string third && third != Races.None ? third : null;
+        foreach (var r in new[] { _races.Player, _races.Rival, _third })
             if (r != null && r != Races.Random && !Races.Known(r)) throw new ArgumentException($"Unknown race '{r}': use {string.Join(", ", Races.All.Select(x => x.Id))} or random");
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
 
@@ -94,7 +96,7 @@ public static class Batch
             Console.WriteLine($"  game {r.Index,4}  seed {r.Seed,-12} {r.Outcome,-9} {r.Seconds,7:0.00}s  rules {r.RuleFailures}  errors {r.Errors}"
                               + (r.Winner != null ? $"  {r.Winner} wins day {r.WinDay} ({r.WinReason})" : "  no winner")
                               + (r.PlayerMind != null ? $"  [{r.PlayerMind} v {r.RivalMind}]" : "")
-                              + (r.PlayerRace != Races.Human || r.RivalRace != Races.Human ? $"  ({r.PlayerRace} v {r.RivalRace})" : "")
+                              + (r.PlayerRace != Races.Human || r.RivalRace != Races.Human || r.ThirdRace != null ? $"  ({r.PlayerRace} v {r.RivalRace}{(r.ThirdRace != null ? $" v {r.ThirdRace}" : "")})" : "")
                               + (r.Error != null ? $"  {r.Error}" : ""));
         }
 
@@ -130,7 +132,11 @@ public static class Batch
     public const double HeadlessSpread = 0.1;
 
     private static GameOptions? OptionsFor(string pilot) =>
-        _races != default ? (OptionsForRules(pilot) ?? new GameOptions()) with { PlayerRace = _races.Player, RivalRace = _races.Rival } : OptionsForRules(pilot);
+        _races != default || _third != null
+            ? (OptionsForRules(pilot) ?? new GameOptions()) with { PlayerRace = _races.Player, RivalRace = _races.Rival, ThirdRace = _third }
+            : OptionsForRules(pilot);
+
+    private static string? _third;
 
     private static (string? Player, string? Rival) _races;
 
@@ -204,8 +210,8 @@ public static class Batch
             Directory.CreateDirectory(Path.Combine(runPaths.Root, "stats"));
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}.csv"), Stats.ToCsv(w));
             File.WriteAllText(Path.Combine(runPaths.Root, "stats", $"game-{index:000}-seed-{seed}-choices.csv"), Choices.ToCsv(w));
-            if (w.Minds.Count == 2)
-                foreach (var side in new[] { Side.Player, Side.Rival })
+            if (w.Minds.Count >= 2)
+                foreach (var side in Sides.InPlay(w))
                 {
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
                     WarReport.Rows.Add(WarReport.Row.Of(w, side));
@@ -218,7 +224,8 @@ public static class Batch
                 log.Count(LogLevel.Error), log.Count(LogLevel.Warn), null, null,
                 w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null, w.WinReason,
                 MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve, Math.Round(worstMs, 1), worstTick,
-                Economy.Of(w, Side.Player).Race, Economy.Of(w, Side.Rival).Race);
+                Economy.Of(w, Side.Player).Race, Economy.Of(w, Side.Rival).Race,
+                Sides.Three(w) ? Economy.Of(w, Side.Third).Race : null, Sides.Three(w) ? SideEnd.Of(w, Side.Third) : null);
         }
         catch (Exception ex)
         {
@@ -392,7 +399,9 @@ public static class Batch
         {
             (Race: r.PlayerRace ?? Races.Human, Won: r.Winner == "Player", End: r.Player!, Mirror: r.PlayerRace == r.RivalRace),
             (Race: r.RivalRace ?? Races.Human, Won: r.Winner == "Rival", End: r.Rival!, Mirror: r.PlayerRace == r.RivalRace),
-        }).ToList();
+        }.Concat(r.ThirdRace != null && r.Third != null
+            ? new[] { (Race: r.ThirdRace, Won: r.Winner == "Third", End: r.Third, Mirror: r.ThirdRace == r.PlayerRace && r.ThirdRace == r.RivalRace) }
+            : Array.Empty<(string Race, bool Won, SideEnd End, bool Mirror)>())).ToList();
         if (rows.All(x => x.Race == Races.Human)) return;
         md.AppendLine();
         md.AppendLine("## Races");

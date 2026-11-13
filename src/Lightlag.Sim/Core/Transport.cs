@@ -294,7 +294,7 @@ public static class Satellites
             if (w.FindBody(s.BodyId) is not Body b) { Lose(sim, s, "its body is gone"); continue; }
             if (!s.Arrived) Fly(sim, s, b);
             var at = PositionOf(w, s);
-            s.Seen = SeenBy(w, Combat.Other(s.Side), at, Anchor(s));
+            s.Seen = Sides.Enemies(w, s.Side).Any(e => SeenBy(w, e, at, Anchor(s)));
             if (!s.Seen) continue;
             foreach (var e in w.Fleets.OrderBy(f => f.Id))
             {

@@ -149,7 +149,7 @@ public partial class MapView
             if (Live(f) || !Shown(f) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var p)) continue;
             var at = Camera.ToScreen(p);
             if (!Camera.OnScreen(at, 300)) continue;
-            var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(f.Side);
             var age = Math.Max(0, w.Hour - s.Hour);
             if (OnPlan(f))
             {

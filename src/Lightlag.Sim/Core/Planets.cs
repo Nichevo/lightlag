@@ -76,6 +76,8 @@ public static class Planets
         if (b.Kind == BodyKind.Star) return 0;
         var cap = TypeOf(b).Cap * (b.Kind == BodyKind.Moon ? D.MoonCapShare : 1) * b.CapFactor;
         if (cap <= 0) return 0;
+        // Machines (the Lattice) need no air: airless rock holds more of them.
+        if (b.Owner != null && Races.Airless(b)) cap *= Races.Get(b.PeopleRace).AirlessCap;
         return (b.Home ? Math.Max(cap, D.HomeCap) : cap) + Colonies.HousingK(b);
     }
 
@@ -128,8 +130,13 @@ public static class Planets
     }
 
     /// <summary>The armed enemy side holding orbit here, if any (it cuts the planet off: see Economy.Blockaded).</summary>
-    public static Side? Blockader(World w, Body b) =>
-        b.Owner is Side owner && Economy.Blockaded(w, b) ? Combat.Other(owner) : null;
+    public static Side? Blockader(World w, Body b)
+    {
+        if (b.Owner is not Side owner) return null;
+        foreach (var f in w.Fleets)
+            if (f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)) return f.Side;
+        return null;
+    }
 
     /// <summary>Industry a day this body makes for its holder (before Automated industry).</summary>
     public static double IndustryPerDay(World w, Body b)
@@ -137,7 +144,7 @@ public static class Planets
         if (b.Owner == null || b.Kind == BodyKind.Star) return 0;
         if (Economy.Blockaded(w, b)) return 0;
         if (b.PopK <= 0) return b.Abandoned ? 0 : b.Industry * D.UnsettledShare;
-        var mines = Colonies.Sum(w, b, k => k.Industry);
+        var mines = Colonies.Sum(w, b, k => k.Industry) * Races.Get(b.PeopleRace).MineralIndustry;
         return (b.Industry * b.BaseStaff + mines) * HappyFactor(w, b);
     }
 
@@ -159,12 +166,15 @@ public static class Planets
     /// </summary>
     public static (double Share, double People, double Industry, double Bodies, double Fleets) Control(World w, Side side)
     {
-        var other = Combat.Other(side);
-        static double Part(double mine, double theirs) => mine + theirs <= 1e-9 ? 0.5 : mine / (mine + theirs);
-        var people = Part(PopulationOf(w, side), PopulationOf(w, other));
-        var industry = Part(Economy.IncomePerDay(w, side), Economy.IncomePerDay(w, other));
-        var bodies = Part(Economy.Claimable(w).Count(b => b.Owner == side), Economy.Claimable(w).Count(b => b.Owner == other));
-        var fleets = Part(Stats.Power(w, side), Stats.Power(w, other));
+        // Against all the other sides together: with two rivals each starts near a third.
+        var even = 1.0 / Math.Max(2, w.Sides.Length);
+        double Part(double mine, double theirs) => mine + theirs <= 1e-9 ? even : mine / (mine + theirs);
+        double Sum(Func<Side, double> f) => Sides.Enemies(w, side).Sum(f);
+        var claimable = Economy.Claimable(w).ToList();
+        var people = Part(PopulationOf(w, side), Sum(o => PopulationOf(w, o)));
+        var industry = Part(Economy.IncomePerDay(w, side), Sum(o => Economy.IncomePerDay(w, o)));
+        var bodies = Part(claimable.Count(b => b.Owner == side), Sum(o => claimable.Count(b => b.Owner == o)));
+        var fleets = Part(Stats.Power(w, side), Sum(o => Stats.Power(w, o)));
         return ((people + industry + bodies + fleets) / 4, people, industry, bodies, fleets);
     }
 
@@ -241,7 +251,7 @@ public static class Planets
     /// </summary>
     private static void Food(World w)
     {
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var mine = w.Bodies.Where(b => b.Owner == side).ToList();
             var linked = mine.Where(b => !Economy.Blockaded(w, b)).ToList();
@@ -286,7 +296,7 @@ public static class Planets
         {
             var cap = Cap(b);
             if (b.Hungry) b.PopK -= D.StarvePerDay * b.PopK / 24;
-            else if (cap > 0) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * Races.Get(b.PeopleRace).Growth * b.PopK * (1 - b.PopK / cap) / 24;
+            else if (cap > 0 && !(Races.Get(b.PeopleRace).NeedsPowerToGrow && b.PowerWanted > b.PowerUsed + 1e-6)) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * Races.Get(b.PeopleRace).Growth * b.PopK * (1 - b.PopK / cap) / 24;
             if (cap <= 0 || b.PopK > cap) b.PopK = Math.Max(0, Math.Min(b.PopK, cap));
             if (b.PopK < 0.05) { b.PopK = 0; continue; }
             b.Abandoned = false; // people live here again
@@ -441,7 +451,7 @@ public static class Planets
     private static void Lifted(Simulation sim, Body b)
     {
         var w = sim.World;
-        var by = Combat.Other(b.BlockadedOwner!.Value);
+        var by = b.BlockadedBy ?? Sides.MainEnemy(w, b.BlockadedOwner!.Value);
         var t = Economy.Of(w, by).Totals;
         var relief = w.Fleets.Any(f => f.Side == b.Owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
                                         && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2);
@@ -464,10 +474,12 @@ public static class Planets
                 if (b.BlockadeHours >= 24 && b.BlockadedOwner == b.Owner) Lifted(sim, b);
                 b.BlockadeHours = 0;
                 b.BlockadedOwner = null;
+                b.BlockadedBy = null;
                 continue;
             }
-            if (b.BlockadeHours < 24 && b.BlockadeHours + GameTime.HoursPerTick >= 24 && b.Owner is Side held)
-                Economy.Of(sim.World, Combat.Other(held)).Totals.BlockadesStarted++;
+            b.BlockadedBy = Blockader(sim.World, b) ?? b.BlockadedBy;
+            if (b.BlockadeHours < 24 && b.BlockadeHours + GameTime.HoursPerTick >= 24 && b.BlockadedBy is Side by)
+                Economy.Of(sim.World, by).Totals.BlockadesStarted++;
             b.BlockadeHours += GameTime.HoursPerTick;
             b.BlockadedOwner = b.Owner;
             var over = b.BlockadeHours - D.DecayAfterDays * 24;
@@ -626,6 +638,15 @@ public static class Planets
         b.Front = null;
         b.PartisansAgainst = null;
         b.Pieces.RemoveAll(p => !p.Built);
+        // A machine race takes no people: they flee to the old holder's worlds (or are lost), and the planet is restaffed by its own.
+        if (Races.Of(w, side).NoCaptures && b.PopK > 0)
+        {
+            var fled = before is Side old ? Migrate(w, b, old, b.PopK) : 0;
+            sim.Log.Info("planets", "People leave a planet a machine race took", new { bodyId = b.Id, side = side.ToString(), fledK = Math.Round(fled, 2), lostK = Math.Round(b.PopK, 2) });
+            b.PopK = 0;
+            b.OwnShare = 1;
+        }
+        b.PeopleRace = w.Sides[(int)side].Race;
         // Housing that was going up is gone with the old owner: people it would have held leave.
         b.PopK = Math.Min(b.PopK, Cap(b));
         b.Priority = null;
@@ -919,7 +940,7 @@ public static class Planets
     {
         var w = sim.World;
         if (w.Tick % 6 != 0) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             if (w.Orders.Any(o => o.Side == side && o.Auto) || w.Fleets.Any(f => f.Side == side && f.PeopleRun?.Auto == true)) continue;
             var to = w.Bodies.Where(b => b.Owner == side && b.AutoTopUp && b.PopK < Cap(b) * 0.9 && CanSettle(w, side, b.Id) == null)

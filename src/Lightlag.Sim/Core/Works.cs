@@ -85,7 +85,7 @@ public static class Works
     /// <summary>Skimmer stations over gas giants put their helium-3 into the giant's store, where freighters pick it up.</summary>
     private static void Skimmers(World w)
     {
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
             foreach (var (st, b) in Economy.Stations(w, side, Skimmer))
                 if (Economy.StationKind(st.Kind)?.Makes is { } makes && !Economy.Blockaded(w, b))
                     foreach (var (good, perDay) in makes)

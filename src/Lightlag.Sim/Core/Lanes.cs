@@ -127,7 +127,7 @@ public static class Lanes
         foreach (var o in w.LaneObs.ToList())
         {
             w.LaneObs.Remove(o);
-            var enemy = Combat.Other(o.SeenBy);
+            var enemy = w.FindFleet(o.FleetId)?.Side ?? Sides.MainEnemy(w, o.SeenBy);
             var ends = w.Bodies.Where(b => b.Owner == enemy).ToList();
             // Where the bodies were when the ship was seen (they have moved on since).
             var then = ends.ToDictionary(b => b.Id, b => FlightPlanner.PredictBody(w, b, o.Hour));

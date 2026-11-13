@@ -793,7 +793,7 @@ public static class Colonies
         Math.Max(50, (days ?? StoreDaysOf(b)) * Math.Max(UsePerDay(b, good), MadePerDay(b, good)));
 
     private static bool NeedsWater(World w, Body b) =>
-        Planets.TypeOf(b).Farm <= 0 && !b.Home && b.Owner is Side side && !Tech.Has(w, side, "sealed-habitats")
+        Planets.TypeOf(b).Farm <= 0 && !b.Home && b.Owner is Side side && !Tech.Has(w, side, "sealed-habitats") && Races.Get(b.PeopleRace).Eats
         && Built(b).Any(p => (Planets.BuildingKind(p.Kind)?.HousingK ?? 0) > 0);
 
     /// <summary>What a piece takes in a day of each good it uses (fuel plants on ocean draw their own water).</summary>
@@ -1118,7 +1118,7 @@ public static class Colonies
         var w = sim.World;
         RunShipments(sim);
         if (w.Tick % 6 != 0) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             // Planets that ask come first; fixed runs take the freighters left over.
             if (Economy.Of(w, side).AutoTransport) AutoTransport(sim, side);

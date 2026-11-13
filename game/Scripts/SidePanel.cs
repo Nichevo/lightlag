@@ -85,7 +85,7 @@ public partial class SidePanel : PanelContainer
         IEnumerable<Row> r = PlayerInfo.SideShow switch
         {
             "mine" => rows.Where(x => x.Owner == Side.Player),
-            "rival" => rows.Where(x => x.Owner == Side.Rival),
+            "rival" => rows.Where(x => x.Owner is Side.Rival or Side.Third),
             _ => rows,
         };
         r = PlayerInfo.SideSort switch
@@ -223,9 +223,10 @@ public partial class SidePanel : PanelContainer
                      .OrderByDescending(s => s.Visible).ThenBy(s => s.FleetId))
         {
             var near = w.Bodies.Where(b => b.Kind != BodyKind.Star).OrderBy(b => Vec2.Distance(b.Position, s.Guess(w.Hour))).FirstOrDefault();
+            var them = s.Owner(w);
             rows.Add(new Row("Enemy (last seen)", s.FleetId, false, $"{s.Name} · {s.Ships} ship{(s.Ships == 1 ? "" : "s")}",
                 s.Visible ? "seen now" : $"{Format.Hours(w.Hour - s.Hour)} ago", s.Visible ? Ui.Danger : Ui.Dim,
-                near != null ? $"Near {near.Name}" : "", Ui.Rival, Side.Rival, Vec2.Distance(s.Guess(w.Hour), home), s.Visible ? 1 : 0, s.Name));
+                (near != null ? $"Near {near.Name}" : "") + (Sides.Three(w) ? $" · {Races.Of(w, them).Name}" : ""), Ui.SideColor(them), them, Vec2.Distance(s.Guess(w.Hour), home), s.Visible ? 1 : 0, s.Name));
         }
         return rows;
     }
@@ -252,13 +253,13 @@ public partial class SidePanel : PanelContainer
             var (badge, color) = b.Owner switch
             {
                 Side.Player => ("yours", Ui.Player),
-                Side.Rival => ("rival", Ui.Rival),
+                Side.Rival or Side.Third => (Sides.Three(w) ? Races.Of(w, b.Owner.Value).Short.ToLowerInvariant() : "rival", Ui.SideColor(b.Owner)),
                 _ => ((string?)null, Ui.Dim),
             };
             var attention = b.Owner != Side.Player || !w.Loop ? 0
                 : (b.Hungry || b.LandingSide != null ? 2 : 0) + (Economy.Blockaded(w, b) ? 2 : 0) + (b.PowerWanted > b.PowerMade + 1e-6 ? 1 : 0);
             rows.Add(new Row("Outward from the star", b.Id, true, new string(' ', depth * 4) + b.Name, badge, color, string.Join(" · ", tags),
-                b.Owner == Side.Player ? Ui.Player : b.Owner == Side.Rival ? Ui.Rival : Ui.Text, b.Owner, Vec2.Distance(b.Position, home), attention, b.Name));
+                b.Owner == Side.Player ? Ui.Player : b.Owner is Side.Rival or Side.Third ? Ui.SideColor(b.Owner) : Ui.Text, b.Owner, Vec2.Distance(b.Position, home), attention, b.Name));
             foreach (var child in w.Bodies.Where(c => c.ParentId == b.Id).OrderBy(c => c.OrbitRadius)) Add(child, depth + 1);
         }
         foreach (var root in w.Bodies.Where(b => b.ParentId == null || w.FindBody(b.ParentId.Value) == null)) Add(root, 0);

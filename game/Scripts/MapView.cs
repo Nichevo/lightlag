@@ -220,7 +220,7 @@ public partial class MapView : Node2D
             if (!Camera.OnScreen(at, 100)) continue;
             var r = (float)ScreenRadius(b);
             // Held planets take their side's colour; a shipyard is marked; a claim shows as a filling ring.
-            var side = b.Owner is Side o ? (o == Side.Player ? Ui.Player : Ui.Rival) : (Color?)null;
+            var side = b.Owner is Side o ? Ui.SideColor(o) : (Color?)null;
             var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
             var name = b.Name + (b.Shipyard ? " · shipyard" : "");
             if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
@@ -229,7 +229,7 @@ public partial class MapView : Node2D
             if (b.ClaimSide is Side claimer)
             {
                 var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
-                var cc = claimer == Side.Player ? Ui.Player : Ui.Rival;
+                var cc = Ui.SideColor(claimer);
                 DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
                 DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
                 name += $" · claiming {share * 100:0} %";
@@ -279,7 +279,7 @@ public partial class MapView : Node2D
     {
         if (!_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) return;
         var at = Camera.ToScreen(p);
-        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var color = Ui.SideColor(f.Side);
         var c = GameData.Combat;
         var ships = Sim.World.ShipsOf(f).ToList();
         void Ring(double mm, float alpha, string label)
@@ -316,7 +316,7 @@ public partial class MapView : Node2D
             var age = DrawHour - e.Hour;
             if (age < -1e-9 || age > life) continue;
             var fade = (float)(1 - age / life);
-            var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var mine = Ui.SideColor(e.Side);
             var from = Camera.ToScreen(e.From);
             var to = Camera.ToScreen(e.To);
             if (!Camera.OnScreen(to, 200) && !Camera.OnScreen(from, 200)) continue;
@@ -365,7 +365,7 @@ public partial class MapView : Node2D
     /// <summary>Pulse lance beams, mine blasts and squadron sorties (simple shapes; the same at every graphics level).</summary>
     private void DrawNewEffect(CombatEffect e, Vector2 from, Vector2 to, float fade)
     {
-        var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var mine = Ui.SideColor(e.Side);
         switch (e.Kind)
         {
             case EffectKind.Beam:
@@ -418,7 +418,7 @@ public partial class MapView : Node2D
             if (_prevMissile.TryGetValue(m.Id, out var prev)) p = prev + (p - prev) * Blend;
             var at = Camera.ToScreen(p);
             if (!Camera.OnScreen(at, 20)) continue;
-            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(m.Side);
             // A short tail pointing back along its path relative to the target, so salvos read as streaks.
             var tail = Camera.ToScreen(p - m.Velocity.Normalized() * (12 / Camera.Scale));
             DrawLine(tail, at, new Color(color, 0.5f), 1.2f, true);
@@ -432,7 +432,7 @@ public partial class MapView : Node2D
             if (m.Side != Side.Player && !RevealAll) continue;
             var at = Camera.ToScreen(m.Position);
             if (!Camera.OnScreen(at, 20)) continue;
-            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(m.Side);
             DrawArc(at, 3, 0, Mathf.Tau, 10, new Color(color, 0.6f), 1);
             if (shown++ == 0 || Camera.Scale > 2)
                 DrawString(_font, at + new Vector2(6, 4), m.WakeHour > w.Hour ? $"wakes in {Format.Hours(m.WakeHour - w.Hour)}" : "armed",
@@ -552,7 +552,7 @@ public partial class MapView : Node2D
         if (!_drawn.TryGetValue(f.Id, out var world) || !world.IsFinite) return;
         var at = Camera.ToScreen(world);
         if (!Camera.OnScreen(at, 400)) return;
-        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var color = Ui.SideColor(f.Side);
         var heading = (float)(_shownFacing.TryGetValue(f.Id, out var shown) ? shown : f.Facing);
         var apart = ShipsApart;
         var ships = Sim.World.ShipsOf(f).ToList();
@@ -661,7 +661,7 @@ public partial class MapView : Node2D
         var w = Sim.World;
         foreach (var m in w.Minds)
         {
-            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(m.Side);
             foreach (var job in m.Jobs)
             {
                 if (w.FindFleet(job.FleetId) is not Fleet f || !_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) continue;
@@ -903,8 +903,9 @@ public partial class MapView : Node2D
             var at = Camera.ToScreen(s.Position);
             var guess = Camera.ToScreen(s.Guess(DrawHour));
             if (!Camera.OnScreen(at, 300) && !Camera.OnScreen(guess, 300)) continue;
-            var color = new Color(Ui.Rival, 0.45f);
-            if (at.DistanceTo(guess) > 4) DrawDashedLine(at, guess, new Color(Ui.Rival, 0.3f), 1, 5);
+            var tint = Ui.SideColor(s.Owner(w));
+            var color = new Color(tint, 0.45f);
+            if (at.DistanceTo(guess) > 4) DrawDashedLine(at, guess, new Color(tint, 0.3f), 1, 5);
             DrawArc(at, 9, 0, Mathf.Tau, 20, color, 1.2f, true);
             DrawLine(at + new Vector2(-5, -5), at + new Vector2(5, 5), color, 1.2f);
             DrawLine(at + new Vector2(-5, 5), at + new Vector2(5, -5), color, 1.2f);
@@ -914,15 +915,15 @@ public partial class MapView : Node2D
             // One faint pip per ship seen, under the marker.
             var mark = moving ? guess : at;
             for (var i = 0; i < Math.Min(s.Ships, 8); i++)
-                DrawCircle(mark + new Vector2(-3.5f * (Math.Min(s.Ships, 8) - 1) + 7 * i, 14), 2.2f, new Color(Ui.Rival, 0.6f));
+                DrawCircle(mark + new Vector2(-3.5f * (Math.Min(s.Ships, 8) - 1) + 7 * i, 14), 2.2f, new Color(tint, 0.6f));
             if (moving)
             {
-                DrawDiamond(guess, 7, new Color(Ui.Rival, 0.75f), false);
-                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(Ui.Rival, 0.75f));
+                DrawDiamond(guess, 7, new Color(tint, 0.75f), false);
+                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(tint, 0.75f));
             }
             else if (s.FleetId == SelectedId || s.FleetId == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
-            if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
+            if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, tint, 1.5f, true);
         }
     }
 
@@ -982,7 +983,7 @@ public partial class MapView : Node2D
     private bool DrawShipDrawing(Vector2 at, Ship s, float heading, bool known)
     {
         if (!GameData.ShipClasses.TryGetValue(s.ClassId, out var cls)) return false;
-        var art = ShipArt.For(cls);
+        var art = ShipArt.For(cls, Races.Of(Sim.World, s.Side).Id);
         if (Art.Texture("Ships", art) is not Texture2D tex) return false;
         var spacingPx = (float)(Fleets.FormationSpacing * Camera.Scale);
         var hullPx = Mathf.Clamp(spacingPx * 0.75f * (float)(cls.LengthM / 260.0), 10f, 900f);
@@ -1033,13 +1034,32 @@ public partial class MapView : Node2D
         var shape = ShipIcons.For(GameData.ShipClasses.TryGetValue(s.ClassId, out var cls) ? cls.Icon : "frigate");
         // A crippled ship fades and gets a cross.
         if (s.Crippled) color = new Color(color.Darkened(0.3f), 0.45f);
+        // Same shape per class for every race; the race shows in the fill (board 28): humans solid, the Hive
+        // rounded and swollen with a dark centre, the Lattice a hollow frame with a bright core. The colour stays the side's.
+        var race = Races.Of(Sim.World, s.Side).Id;
+        var swell = race == Races.Hive ? 1.15f : 1f;
         var pts = new Vector2[shape.Length];
-        for (var i = 0; i < shape.Length; i++) pts[i] = at + shape[i].Rotated(heading);
-        DrawColoredPolygon(pts, color);
+        for (var i = 0; i < shape.Length; i++) pts[i] = at + (shape[i] * swell).Rotated(heading);
         var outline = new Vector2[pts.Length + 1];
         pts.CopyTo(outline, 0);
         outline[^1] = pts[0];
-        DrawPolyline(outline, color.Darkened(0.5f), 1, true);
+        if (race == Races.Lattice)
+        {
+            DrawColoredPolygon(pts, new Color(0.043f, 0.059f, 0.082f, color.A));
+            DrawPolyline(outline, color, 1.2f, true);
+            DrawCircle(at, 1.6f, color);
+        }
+        else if (race == Races.Hive)
+        {
+            DrawColoredPolygon(pts, color);
+            DrawPolyline(outline, color.Darkened(0.55f), 2.4f, true);
+            DrawCircle(at, 1.5f, color.Darkened(0.7f));
+        }
+        else
+        {
+            DrawColoredPolygon(pts, color);
+            DrawPolyline(outline, color.Darkened(0.5f), 1, true);
+        }
         if (s.Crippled) DrawCross(at, 7, Ui.Danger, 1.6f);
     }
 
@@ -1050,7 +1070,7 @@ public partial class MapView : Node2D
     private void DrawRoute(Fleet f, Flight? flight, bool preview, bool ok = true)
     {
         if (flight == null || flight.Legs.Count == 0) return;
-        var baseColor = !ok ? Ui.Danger : f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var baseColor = !ok ? Ui.Danger : Ui.SideColor(f.Side);
         var alpha = preview ? 0.9f : f.Id == SelectedId ? 0.6f : 0.35f;
         var now = DrawHour;
         if (!flight.Started && _drawn.TryGetValue(f.Id, out var here))

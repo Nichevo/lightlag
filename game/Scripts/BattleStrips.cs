@@ -116,7 +116,7 @@ public partial class BattleStrips : Control
         if (w.ActiveBattle is Battle battle)
         {
             string Side_(BattleSide s) => $"{s.ShipsLost.Count} lost, {s.Crippled.Count} crippled · dealt {s.DamageDealt:0} damage, {s.RailHits + s.MissileHits} hits";
-            _score.Text = $"You: {Side_(battle.For(Side.Player))}\nThem: {Side_(battle.For(Side.Rival))}";
+            _score.Text = $"You: {Side_(battle.For(Side.Player))}\nThem: {Side_(battle.Foes(Side.Player))}";
         }
         else _score.Text = "No battle under way";
     }

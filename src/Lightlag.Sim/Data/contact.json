@@ -1,0 +1,30 @@
+{
+  "_comment": "Contact (Plan 3 build 7, board 26): a language track per rival and one-way offers. Language rises from listening while in contact, Signals research, prisoners, captures and stripped wrecks; a race with listenOnly false (the Lattice) can't be learned past Noise by listening alone and needs a captured core or Decode alien signals. Offers need Words; the odds show at Language. Offers are only on with three or more races (and the Contact offers option).",
+  "stages": [0, 20, 45, 70, 90],
+  "stageNames": ["Noise", "Patterns", "Words", "Language", "Fluent"],
+  "listenPerDay": 1.0,
+  "listenCap": 75,
+  "closedCap": 19,
+  "signalsPerDay": 0.3,
+  "decoderPerDay": 0.6,
+  "prisonerPoints": 6,
+  "capturePoints": 10,
+  "corePoints": 30,
+  "wreckPoints": 3,
+  "intelPerStagePerDay": 0.15,
+  "sendStage": 2,
+  "oddsStage": 3,
+  "cooldownDays": 30,
+  "askDays": 60,
+  "droneDays": 9,
+  "broadcastHours": 2,
+  "foodGift": 150,
+  "alloysGift": 40,
+  "aiOfferChancePerDay": 0.08,
+  "values": {
+    "human":   { "idea": 1.0, "food": 1.0, "alloys": 1.0, "map": 0.6 },
+    "hive":    { "idea": 0.8, "food": 1.5, "alloys": 0.8, "map": 0.6 },
+    "lattice": { "idea": 1.5, "food": 0.0, "alloys": 1.3, "map": 0.8 }
+  },
+  "askCost": { "none": 0, "attack": 1.4, "spare": 0.8 }
+}

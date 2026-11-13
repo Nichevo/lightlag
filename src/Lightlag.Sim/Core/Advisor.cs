@@ -63,7 +63,7 @@ public static class Advisor
     /// </summary>
     public static string Brief(World w, Side side)
     {
-        var enemy = Combat.Other(side);
+        var enemy = Sides.MainEnemy(w, side);
         var mine = Economy.Claimable(w).Where(b => b.Owner == side).ToList();
         var theirs = Economy.Claimable(w).Where(b => b.Owner == enemy).ToList();
         var empty = Economy.Claimable(w).Count(b => b.Owner == null);

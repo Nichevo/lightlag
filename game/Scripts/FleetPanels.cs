@@ -1663,7 +1663,7 @@ public partial class ReportPanel : PanelContainer
         _shown = b;
         _watch.Disabled = b.Frames.Count == 0;
         var p = b.For(Side.Player);
-        var r = b.For(Side.Rival);
+        var r = b.Foes(Side.Player);
         var end = b.EndHour is double e ? GameTime.Format(e) : "still going";
         var length = (b.EndHour ?? Main.Instance.Sim!.World.Hour) - b.StartHour;
         _title.Text = $"Combat report: {GameTime.Format(b.StartHour)} to {end} ({Format.Hours(length)})";

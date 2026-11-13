@@ -124,7 +124,7 @@ public static class Lifeboats
             Done(w, f);
         }
         if (w.Tick % D.SendEveryTicks != 0) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
             if (Mind.Of(w, side) != null)
                 foreach (var (lb, f) in Wanted(w, side)) Send(sim, f, lb, "ai");
     }
@@ -172,7 +172,7 @@ public static class Lifeboats
         else
         {
             sim.Log.Info("crews", $"{f.Name} takes the {Kind(lb)} of {lb.ShipName} prisoner", new { fleetId = f.Id, boat = lb.Id, crewK = Math.Round(lb.CrewK, 3) });
-            Spoils.TakePrisoners(sim, f.Side, lb.CrewK, lb.ShipName);
+            Spoils.TakePrisoners(sim, f.Side, lb.CrewK, lb.ShipName, lb.Side);
         }
         w.Lifeboats.Remove(lb);
         if (f.Rescue?.BoatId == lb.Id) Done(w, f);

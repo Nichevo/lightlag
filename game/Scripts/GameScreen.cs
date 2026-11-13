@@ -547,7 +547,7 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         if (w.ActiveBattle is Battle b && !Combat.Standoff(w))
         {
-            var names = b.For(Side.Player).Fleets.Concat(b.For(Side.Rival).Fleets).ToHashSet();
+            var names = b.For(Side.Player).Fleets.Concat(b.Foes(Side.Player).Fleets).ToHashSet();
             var inIt = w.Fleets.Where(f => names.Contains(f.Name)).ToList();
             if (inIt.Count > 0) return inIt;
         }
@@ -819,9 +819,9 @@ public partial class GameScreen : Node2D
             // The same fleets meeting again soon after a contact ended (drifting in and out of range): no new pause.
             var again = w.Battles.Any(o => o.Id != b.Id && o.EndHour is double end && b.StartHour - end < RecontactQuietHours
                                            && o.For(Side.Player).Fleets.Intersect(b.For(Side.Player).Fleets).Any()
-                                           && o.For(Side.Rival).Fleets.Intersect(b.For(Side.Rival).Fleets).Any());
+                                           && o.Foes(Side.Player).Fleets.Intersect(b.Foes(Side.Player).Fleets).Any());
             // Every enemy fleet in it is one you said not to pause for: a news line instead.
-            var rivals = w.Fleets.Where(f => f.Side == Side.Rival && b.For(Side.Rival).Fleets.Contains(f.Name)).Select(f => f.Id).ToList();
+            var rivals = w.Fleets.Where(f => f.Side is Side.Rival or Side.Third && b.Foes(Side.Player).Fleets.Contains(f.Name)).Select(f => f.Id).ToList();
             var quiet = rivals.Count > 0 && rivals.All(QuietEnemies.Contains);
             // Our role fleets are handling every enemy in it within their rules: no pause either.
             var handled = !quiet && QuietWhenHandled && HelpCalls.BattleInHand(w, b, Side.Player);
@@ -832,19 +832,19 @@ public partial class GameScreen : Node2D
                 // A far battle: its light is only now arriving. Watch it as the light comes in.
                 var battle = b;
                 _main.AddNews($"Battle far away ({Format.Hours(b.For(Side.Player).LagHours)} of light): {string.Join(", ", b.For(Side.Player).Fleets)} and "
-                              + $"{string.Join(", ", b.For(Side.Rival).Fleets)}. Out of command range: your fleets fight on their standing orders ({FarOrders(battle)}), "
+                              + $"{string.Join(", ", b.Foes(Side.Player).Fleets)}. Out of command range: your fleets fight on their standing orders ({FarOrders(battle)}), "
                 + "and anything they decide for themselves shows as ON ITS OWN. Click to watch as the light arrives", () => OpenReplay(battle), keep: true);
                 if (!(again || quiet))
-                    Alert(PauseEvent.FarBattle, $"Light from a far battle: {string.Join(", ", b.For(Side.Player).Fleets)} met {string.Join(", ", b.For(Side.Rival).Fleets)} "
+                    Alert(PauseEvent.FarBattle, $"Light from a far battle: {string.Join(", ", b.For(Side.Player).Fleets)} met {string.Join(", ", b.Foes(Side.Player).Fleets)} "
                                 + $"{Format.Hours(Sim.World.Hour - b.StartHour)} ago; click to watch", () => OpenReplay(battle), inNews: true);
             }
             else if (again || quiet)
             {
-                _main.AddNews($"{(again ? "Contact again" : handled ? "Contact, role fleets handling it (no pause)" : "Contact (no pause)")}: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}", FocusBattle);
+                _main.AddNews($"{(again ? "Contact again" : handled ? "Contact, role fleets handling it (no pause)" : "Contact (no pause)")}: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.Foes(Side.Player).Fleets)}", FocusBattle);
             }
             else
             {
-                Alert(PauseEvent.BattleStarts, $"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time",
+                Alert(PauseEvent.BattleStarts, $"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.Foes(Side.Player).Fleets)}. Battle time",
                     FocusBattle);
             }
         }
@@ -855,13 +855,13 @@ public partial class GameScreen : Node2D
             if (!last.Fought)
             {
                 // Came within range and parted with no shots: a News line, not a battle report.
-                _main.AddNews($"Contact ended, no shots fired: {string.Join(", ", last.For(Side.Player).Fleets)} and {string.Join(", ", last.For(Side.Rival).Fleets)}");
+                _main.AddNews($"Contact ended, no shots fired: {string.Join(", ", last.For(Side.Player).Fleets)} and {string.Join(", ", last.Foes(Side.Player).Fleets)}");
                 return;
             }
             if (Replay?.Id != last.Id) Report = last;
             // Keep the result in the News menu: who fought, losses on each side; click to reopen the report.
             var us = last.For(Side.Player);
-            var them = last.For(Side.Rival);
+            var them = last.Foes(Side.Player);
             var battle = last;
             var lost = us.ShipsLost.Count == 0 ? "no ships lost" : $"lost {us.ShipsLost.Count} ({string.Join(", ", us.ShipsLost)})";
             var sunk = them.ShipsLost.Count == 0 ? "none of theirs destroyed" : $"destroyed {them.ShipsLost.Count} of theirs";
@@ -996,7 +996,7 @@ public partial class GameScreen : Node2D
                 Alert(PauseEvent.PlanetChangedHands, text, GoToBody(b.Id));
             }
             _owners[b.Id] = b.Owner;
-            if (b.ClaimSide == Side.Rival && b.Owner == Side.Player)
+            if (b.ClaimSide is Side.Rival or Side.Third && b.Owner == Side.Player)
             {
                 if (_claimsWarned.Add(b.Id)) Alert(PauseEvent.PlanetClaimed, $"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days", GoToBody(b.Id));
             }

@@ -12,12 +12,15 @@ public static class Scenarios
 
     public static IReadOnlyList<string> All { get; } = new[] { TestSystem };
 
-    public static World Create(string name, ulong seed, SimRandom rng, bool randomStarts = false)
+    public static World Create(string name, ulong seed, SimRandom rng, bool randomStarts = false, bool threeSides = false)
     {
         if (!All.Contains(name)) throw new ArgumentException($"Unknown scenario '{name}'. Known: {string.Join(", ", All)}");
         var data = GameData.LoadSystem(name + ".json");
+        // The second rival's start ships only come in a three-race game.
+        if (!threeSides) data = data with { Ships = (data.Ships ?? new()).Where(s => s.Side != Side.Third).ToList() };
         if (randomStarts) data = RandomHomes(data, rng);
         var w = FromData(data, seed, rng);
+
         Economy.Start(w);
         return w;
     }
@@ -100,6 +103,7 @@ public static class Scenarios
     public static World FromData(SystemData data, ulong seed, SimRandom rng)
     {
         var w = new World { Scenario = data.Name, Seed = seed };
+        if ((data.Ships ?? new()).Any(s => s.Side == Side.Third)) w.Sides = w.Sides.Append(new SideState { Side = Side.Third }).ToArray();
         var ids = new Dictionary<string, Body>();
         var rocks = new SimRandom(seed, 77);
 

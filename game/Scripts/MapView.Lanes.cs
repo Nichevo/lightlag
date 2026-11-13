@@ -25,7 +25,7 @@ public partial class MapView
         var side = Side.Player;
         var mouse = GetLocalMousePosition();
         Lane? hovered = null;
-        foreach (var l in w.Lanes.Where(l => l.SeenBy == side || RevealAll && l.SeenBy == Side.Rival))
+        foreach (var l in w.Lanes.Where(l => l.SeenBy == side || RevealAll && l.SeenBy != side))
         {
             var a = Camera.ToScreen(DrawnAt(w, l.FromBodyId));
             var b = Camera.ToScreen(DrawnAt(w, l.ToBodyId));

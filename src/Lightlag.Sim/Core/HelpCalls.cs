@@ -176,7 +176,7 @@ public static class HelpCalls
     public static void Update(Simulation sim)
     {
         var w = sim.World;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             FitRoles(sim, side);
             if (Mind.Of(w, side) != null) continue;
