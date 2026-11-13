@@ -122,6 +122,10 @@ public static class Planner
         bool Short(string good) => Colonies.UsePerDay(b, good) > 0 && Colonies.MadePerDay(b, good) < Colonies.UsePerDay(b, good)
                                    && Colonies.Held(b, good) < 30 + 30 * Colonies.UsePerDay(b, good);
         if (hungry && Pick("fish-farm", Planets.TypeOf(b).Farm > 0 || b.Home ? Planets.Farm : "dome-farm") is string food) return (food, null, null, true);
+        // A battery bank where the solar fields go dark in a shadow or the grid has been shedding lately.
+        if (Planets.Count(b, Grid.Battery) == 0 && Fits(Grid.Battery)
+            && ((b.LastShadowHour is long shade && w.Tick - shade < 10 * 24) || (b.LastShedHour is long shed && w.Tick - shed < 3 * 24 && b.PowerMade >= b.PowerWanted)))
+            return (Grid.Battery, null, null, false);
         if (b.PowerWanted > b.PowerMade - 3)
         {
             var fuelled = Colonies.Held(b, "uranium") > 20 || Colonies.MadePerDay(b, "uranium") > 0.2 || DepositFor(b, "uranium") != null;
@@ -631,7 +635,13 @@ public static class Stewards
             var mine = _w.Bodies.Where(b => b.Owner == _side).OrderBy(b => b.Id).ToList();
             foreach (var b in mine)
             {
-                if (b.Hungry && b.PopK > 0) Need(NeedLevel.Urgent, $"hungry:{b.Id}", $"{b.Name} is going hungry", b.Id);
+                if (b.Hungry && b.PopK > 0) Need(NeedLevel.Urgent, $"hungry:{b.Id}", $"{b.Name} is going hungry" + (Planets.LeavingNote(_w, b) is string leaving ? $" ({leaving})" : ""), b.Id);
+                if (b.Abandoned && b.PopK <= 0)
+                    Need(NeedLevel.Soon, $"abandoned:{b.Id}", $"{b.Name} was abandoned by its hungry people: it makes nothing until settlers land", b.Id,
+                        act: Planets.CanSettle(_w, _side, b.Id) == null ? new SettleCommand(_side, b.Id) : null, label: "Send settlers");
+                if (b.PopK > 0 && Grid.Shedding(_w, b) && b.LastShedHour is long shed && Grid.ShedList(b).Shed.Count > 0
+                    && b.ShedSinceHour is long since && shed - since >= Grid.D.WarnHours)
+                    Need(NeedLevel.Soon, $"grid:{b.Id}", $"{b.Name} is short of power: {string.Join(", ", Grid.ShedList(b).Shed)} shed", b.Id);
                 if (Economy.Blockaded(_w, b)) Need(NeedLevel.Urgent, $"blockaded:{b.Id}", $"{b.Name} is blockaded", b.Id);
             }
             foreach (var s in Intel.Recent(_w, _side, 6))

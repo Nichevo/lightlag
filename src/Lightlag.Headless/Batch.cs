@@ -19,7 +19,8 @@ public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuil
     int ShipsCrippled = 0, int PartsKnocked = 0, int PullBacks = 0, int PulledBeforeShots = 0, int Wiped = 0, int OneWithdrew = 0, int BothWithdrew = 0,
     double MaterialStallHours = 0, double Salvaged = 0, int Warships = 0, int Contacts = 0,
     int AmbushCatches = 0, double CargoCaptured = 0, int CargoLost = 0, int RockHits = 0, double HazardHull = 0, double RadiationShipHours = 0, int Events = 0,
-    double LiftSpent = 0, int SailShips = 0, int SatellitesLaunched = 0, int SatellitesLost = 0)
+    double LiftSpent = 0, int SailShips = 0, int SatellitesLaunched = 0, int SatellitesLost = 0,
+    int Batteries = 0, double PeopleLeftK = 0, int WorldsAbandoned = 0, int ShedHours = 0)
 {
     public static SideEnd Of(World w, Side side)
     {
@@ -30,7 +31,8 @@ public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuil
             t.ShipsCrippled, t.PartsKnocked, t.PullBacks, t.PulledBeforeShots, t.BattlesWiped, t.BattlesOneWithdrew, t.BattlesBothWithdrew,
             t.MaterialStallHours, t.Salvaged, w.Ships.Count(s => s.Side == side && Planner.Warship(s)), t.Contacts,
             t.AmbushCatches, Math.Round(t.CargoCaptured), Economy.Of(w, side).CargoLost, t.RockHits, Math.Round(t.HazardHull), Math.Round(t.RadiationShipHours), t.Events,
-            Math.Round(t.LiftSpent), w.Ships.Count(s => s.Side == side && Sails.Is(s)), t.SatellitesLaunched, t.SatellitesLost);
+            Math.Round(t.LiftSpent), w.Ships.Count(s => s.Side == side && Sails.Is(s)), t.SatellitesLaunched, t.SatellitesLost,
+            w.Bodies.Where(b => b.Owner == side).Sum(b => Lightlag.Sim.Core.Planets.Count(b, Grid.Battery)), Math.Round(t.PeopleLeftK, 1), t.WorldsAbandoned, t.ShedHours);
     }
 }
 
@@ -269,6 +271,10 @@ public static class Batch
                 + $"sail ships at the end {ended.Average(r => r.Player!.SailShips):0.0} / {ended.Average(r => r.Rival!.SailShips):0.0}, "
                 + $"satellites launched {ended.Average(r => r.Player!.SatellitesLaunched):0.0} / {ended.Average(r => r.Rival!.SatellitesLaunched):0.0}, "
                 + $"lost {ended.Average(r => r.Player!.SatellitesLost):0.0} / {ended.Average(r => r.Rival!.SatellitesLost):0.0}");
+            md.AppendLine($"- People and power, per game (player / rival): battery banks at the end {ended.Average(r => r.Player!.Batteries):0.0} / {ended.Average(r => r.Rival!.Batteries):0.0}, "
+                + $"hungry people who moved away {ended.Average(r => r.Player!.PeopleLeftK):0.#}k / {ended.Average(r => r.Rival!.PeopleLeftK):0.#}k, "
+                + $"worlds abandoned {ended.Average(r => r.Player!.WorldsAbandoned):0.0} / {ended.Average(r => r.Rival!.WorldsAbandoned):0.0}, "
+                + $"planet-hours shedding {ended.Average(r => r.Player!.ShedHours):0} / {ended.Average(r => r.Rival!.ShedHours):0}");
         }
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
         if (results.Count > 0)

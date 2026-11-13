@@ -383,9 +383,10 @@ public partial class ColonyScreen : PanelContainer
         if (b.Owner == null) return b.PopK > 0 ? "Independent" : "Free to settle";
         var parts = new List<string>();
         if (Economy.Blockaded(w, b)) parts.Add("BLOCKADED");
-        if (b.Hungry) parts.Add("HUNGRY");
+        if (b.Abandoned && b.PopK <= 0) parts.Add("ABANDONED");
+        if (b.Hungry) parts.Add(b.LeavingK > 0 ? "HUNGRY, people leaving" : "HUNGRY");
         if (b.Thirsty) parts.Add("short of water");
-        if (b.PowerWanted > b.PowerMade + 1e-6) parts.Add("short of power");
+        if (b.PowerWanted > b.PowerMade + 1e-6) parts.Add(b.FromBattery > 0 ? "on batteries" : "short of power");
         if (b.Pieces.FirstOrDefault(p => !p.Built) is Piece building)
             parts.Add($"building {Planets.BuildingKind(building.Kind)?.Name.ToLowerInvariant()}");
         if (b.Pieces.Any(p => p.RefitHoursLeft > 0)) parts.Add("refitting");
@@ -461,7 +462,9 @@ public partial class ColonyScreen : PanelContainer
                    + $" · {Colonies.Built(b).Count()} buildings, {b.Pieces.Count(p => !p.Built)} going up"
                    + $" · Industry {Planets.IndustryPerDay(w2, b):0.#} a day";
         }, 13, Ui.Dim));
+        _root.AddChild(LiveWrap(w2 => Grid.Summary(w2, b), 13, Ui.Dim));
         _root.AddChild(LiveWrap(w2 => Colonies.PowerNote(w2, b) is string note ? "POWER: " + note : "", 13, Ui.Rival));
+        _root.AddChild(LiveWrap(w2 => Planets.LeavingNote(w2, b) is string note ? "PEOPLE: " + note : "", 13, Ui.Rival));
 
         var main = Row(14);
         main.SizeFlagsVertical = SizeFlags.ExpandFill;
@@ -563,7 +566,8 @@ public partial class ColonyScreen : PanelContainer
         col.AddChild(Wrap(data.Effect, 13, Ui.Dim));
         col.AddChild(LiveWrap(w2 => p.Waiting ? $"Queued: {Colonies.QueuedWhy(w2, b, p)}"
             : !p.Built ? $"Being built: {p.HoursLeft / 24:0.#} days left" + (Colonies.MaterialShort(b, p) is string waits ? $" · WAITING: {waits}" : "")
-            : $"Output {Colonies.Output(w2, b, p):P0} · staff {p.Staff:P0} · {(p.PowerUse == PowerUse.Off && data.Power > 0 ? "SWITCHED OFF" : p.Powered ? "powered" : "NO POWER")}{(p.PowerUse is PowerUse.High or PowerUse.Low ? $" ({Colonies.PowerUseName(p.PowerUse).ToLowerInvariant()} power priority)" : "")} · condition {p.Condition:P0}"
+            : data.Battery > 0 ? $"Holds {Grid.RoomOf(p, data):0} power-hours (planet: {b.BatteryCharge:0}/{b.BatteryRoom:0} stored{(b.FromBattery > 0 ? $", giving {b.FromBattery:0.#} an hour" : "")}) · condition {p.Condition:P0}"
+            : $"Output {Colonies.Output(w2, b, p):P0} · staff {p.Staff:P0} · {(p.PowerUse == PowerUse.Off && data.Power > 0 ? "SWITCHED OFF" : p.Powered ? (p.PowerShare < 0.999 ? $"BROWNOUT {p.PowerShare:P0} power" : "powered") : "NO POWER (shed)")}{(p.PowerUse is PowerUse.High or PowerUse.Low ? $" ({Colonies.PowerUseName(p.PowerUse).ToLowerInvariant()} power priority)" : "")} · condition {p.Condition:P0}"
               + (p.Level > 0 ? $" · level {p.Level + 1}" : "") + (p.RefitHoursLeft > 0 ? $" · refit {p.RefitHoursLeft / 24:0.#} d" : "")
               + (Colonies.BonusFor(b, p) > 0 ? $" · bonus +{Colonies.BonusFor(b, p):P0}" : "")
               + (Colonies.DepositUnder(b, p) is Deposit d ? $" · digs {Colonies.GoodName(d.Mineral).ToLowerInvariant()}{(d.Rich ? " (rich)" : "")}" : ""), 13));
@@ -583,7 +587,7 @@ public partial class ColonyScreen : PanelContainer
             row.AddChild(Ui.Label("Power", 13, Ui.Dim));
             row.AddChild(Pick(Enum.GetValues<PowerUse>().Select(u => (u.ToString(), Colonies.PowerUseName(u))).ToList(), p.PowerUse.ToString(),
                 k => _screen.IssueNow(new SetPowerUseCommand(Side.Player, b.Id, p.Id, Enum.Parse<PowerUse>(k)), "power setting"),
-                "When power is short, High buildings are powered first and Low ones cut first; Off switches it off and frees its staff"));
+                "When power is short, High buildings are powered first and Low ones shed first (the next in line may run on a brownout, at part power); batteries cover a gap until they run flat. Off switches it off and frees its staff"));
             col.AddChild(row);
         }
         if (p.Kind != Colonies.Shipyard)

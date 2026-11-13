@@ -240,7 +240,8 @@ public partial class SidePanel : PanelContainer
             if (b.Shipyard) tags.Add("shipyard");
             if (b.ClaimSide == Side.Player) tags.Add("you are claiming it");
             if (w.Loop && b.PopK > 0)
-                tags.Add($"{b.PopK:0.#}k people" + (b.Owner != null && w.Rules.Happiness ? $", happy {b.Happiness:0}" : "") + (b.Hungry ? ", HUNGRY" : ""));
+                tags.Add($"{b.PopK:0.#}k people" + (b.Owner != null && w.Rules.Happiness ? $", happy {b.Happiness:0}" : "") + (b.Hungry ? (b.LeavingK > 0 ? ", HUNGRY, people leaving" : ", HUNGRY") : ""));
+            else if (w.Loop && b.Abandoned && b.Owner == Side.Player) tags.Add("ABANDONED: settle it again");
             else if (w.Loop && Planets.Settleable(b)) tags.Add($"empty, room for {Planets.Cap(b):0}k");
             if (w.Loop && b.Owner != null && b.Industry > 0) tags.Add($"industry {Planets.IndustryPerDay(w, b):0.#}");
             else if (w.Loop && b.Industry > 0) tags.Add($"industry {b.Industry:0}");

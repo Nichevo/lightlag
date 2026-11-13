@@ -259,6 +259,24 @@ public sealed class Body
     public double PowerMade { get; set; }
     public double PowerUsed { get; set; }
     public double PowerWanted { get; set; }
+
+    /// <summary>The grid (see Grid): power stored in battery banks and their room, power drawn from them this hour,
+    /// the hour the grid last cut a building (or ran a brownout) and the hour the solar fields were last in shadow.</summary>
+    public double BatteryCharge { get; set; }
+    public double BatteryRoom { get; set; }
+    public double FromBattery { get; set; }
+    public long? LastShedHour { get; set; }
+    public long? ShedSinceHour { get; set; }
+    public long? LastShadowHour { get; set; }
+    public bool InShadow { get; set; }
+
+    /// <summary>People (see Planets.Migrate): hungry people leaving, thousands who left over the last day or so
+    /// (decaying), where the last of them went, newcomers who arrived lately (a happiness pull, decaying), and
+    /// whether everyone left (an abandoned world makes nothing until settlers land).</summary>
+    public double LeavingK { get; set; }
+    public string? LeavingTo { get; set; }
+    public double NewcomersK { get; set; }
+    public bool Abandoned { get; set; }
     public double BaseStaff { get; set; } = 1;
     public bool Thirsty { get; set; }
 

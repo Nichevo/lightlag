@@ -131,13 +131,16 @@ public class ColonyTests
         var guns = Put(sim, kesh, Planets.Guns);
         Hours(sim, 1);
         // Base power 6 runs one 4-power building: in Balanced, defence comes before industry.
+        // The 2 left over run the mine on a brownout, at half its draw and half its output.
         Assert.True(guns.Powered);
-        Assert.False(mine.Powered);
-        Assert.Equal(0, Colonies.Output(sim.World, kesh, mine));
+        Assert.Equal(1, guns.PowerShare);
+        Assert.Equal(0.5, mine.PowerShare, 6);
+        var full = Colonies.Output(sim.World, kesh, mine) / mine.PowerShare;
+        Assert.Equal(full * 0.5, Colonies.Output(sim.World, kesh, mine), 6);
         sim.Issue(new SetPriorityCommand(Side.Player, kesh.Id, "war-output"));
         Hours(sim, 1);
-        Assert.True(mine.Powered);
-        Assert.False(guns.Powered);
+        Assert.Equal(1, mine.PowerShare);
+        Assert.Equal(0.5, guns.PowerShare, 6);
     }
 
     [Fact]
@@ -148,16 +151,16 @@ public class ColonyTests
         var mine = Put(sim, kesh, Planets.Mine);
         var guns = Put(sim, kesh, Planets.Guns);
         Hours(sim, 1);
-        Assert.True(guns.Powered);
-        Assert.False(mine.Powered);
-        Assert.Contains("Mine off", Colonies.PowerNote(sim.World, kesh));
+        Assert.Equal(1, guns.PowerShare);
+        Assert.True(mine.PowerShare < 1);
+        Assert.Contains("Brownout: Mine at 50", Colonies.PowerNote(sim.World, kesh));
         // High on the mine puts it ahead of the guns (works while paused: a home order applies at once).
         sim.Issue(new SetPowerUseCommand(Side.Player, kesh.Id, mine.Id, PowerUse.High));
         sim.ApplyPending();
         Assert.Equal(PowerUse.High, mine.PowerUse);
         Hours(sim, 1);
-        Assert.True(mine.Powered);
-        Assert.False(guns.Powered);
+        Assert.Equal(1, mine.PowerShare);
+        Assert.True(guns.PowerShare < 1);
         // Off on the mine: it takes no power or staff, so the guns run and nothing is short.
         sim.Issue(new SetPowerUseCommand(Side.Player, kesh.Id, mine.Id, PowerUse.Off));
         Hours(sim, 1);

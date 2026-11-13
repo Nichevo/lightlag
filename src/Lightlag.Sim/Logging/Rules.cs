@@ -186,7 +186,19 @@ public sealed class RuleBook
         .Add("lists-bounded", ListsBounded)
         .Add("designs-sane", DesignsSane)
         .Add("crews-and-strain-sane", CrewsAndStrainSane)
-        .Add("lifeboats-sane", LifeboatsSane);
+        .Add("lifeboats-sane", LifeboatsSane)
+        // People and power (Plan 3 build 5): batteries hold between nothing and their room, brownouts are a share,
+        // and an abandoned world has nobody on it.
+        .Add("grid-and-people-sane", w => w.Bodies.SelectMany(b => GridAndPeople(w, b)));
+
+    private static IEnumerable<string> GridAndPeople(World w, Body b)
+    {
+        if (!(b.BatteryCharge >= -1e-9 && b.BatteryCharge <= b.BatteryRoom + 1e-6)) yield return $"{b.Name} has battery charge {b.BatteryCharge} of {b.BatteryRoom}";
+        if (!(b.NewcomersK >= -1e-9 && double.IsFinite(b.NewcomersK))) yield return $"{b.Name} has newcomers {b.NewcomersK}";
+        if (b.Abandoned && b.PopK > 1e-9) yield return $"{b.Name} is abandoned but has {b.PopK}k people";
+        foreach (var p in b.Pieces)
+            if (!(p.PowerShare > -1e-9 && p.PowerShare <= 1 + 1e-9)) yield return $"{b.Name} piece {p.Id} has power share {p.PowerShare}";
+    }
 
     /// <summary>
     /// A numbered ship's code is its class letters and hull number ("DD3B-07"), the number no higher than the

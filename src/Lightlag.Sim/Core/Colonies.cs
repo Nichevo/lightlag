@@ -54,6 +54,9 @@ public sealed class Piece
     /// <summary>Worked out each hour: share of its staff it has, and whether it has power.</summary>
     public double Staff { get; set; } = 1;
     public bool Powered { get; set; } = true;
+
+    /// <summary>Worked out each hour: share of its power draw it got (below 1 in a brownout; see Grid).</summary>
+    public double PowerShare { get; set; } = 1;
     public double SparesShare { get; set; } = 1;
 
     /// <summary>The player's (or the rival AI's) say on power: High is powered first, Low cut first, Off never runs.</summary>
@@ -126,7 +129,15 @@ public sealed record ColoniesData(
     double FuelPerSupply = 0.01, double NoFuelRefill = 0.4, double RefitDays = 5, double ShipyardRefitDays = 10,
     double RefitOutput = 0.75, double LevelBoost = 0.2, double LabBoostCap = 0.5, double AskBelow = 0.5,
     double SettlerSpares = 10, double BasePower = 6, Dictionary<string, double>? HomeStock = null,
-    Dictionary<string, List<string>>? Presets = null);
+    Dictionary<string, List<string>>? Presets = null, GridData? Grid = null);
+
+/// <summary>
+/// The planet power grid (see Grid). Battery banks charge from spare power at ChargeEfficiency and give up to
+/// DischargeShare of their room an hour. When power runs short the grid sheds whole buildings (Low first, then
+/// Normal, then High) and gives what is left to the next building in line as a brownout if that covers at
+/// least BrownoutMin of its draw. Shed warnings reach Needs you after WarnHours of shedding.
+/// </summary>
+public sealed record GridData(double ChargeEfficiency = 0.85, double DischargeShare = 0.25, double BrownoutMin = 0.25, double WarnHours = 6);
 
 /// <summary>
 /// Colonies: each held body has a board of tiles where buildings are placed as shaped pieces. Pieces need
@@ -178,7 +189,7 @@ public static class Colonies
     /// <summary>A building that uses power and was switched off: it takes no power and no staff.</summary>
     public static bool SwitchedOff(Piece p, BuildingData data) => p.PowerUse == PowerUse.Off && data.Power > 0;
 
-    private static int PowerTier(PowerUse use) => use switch { PowerUse.High => 0, PowerUse.Low => 2, PowerUse.Off => 3, _ => 1 };
+    internal static int PowerTier(PowerUse use) => use switch { PowerUse.High => 0, PowerUse.Low => 2, PowerUse.Off => 3, _ => 1 };
 
     public static string PowerUseName(PowerUse use) => use switch
     {
@@ -200,6 +211,8 @@ public static class Colonies
         if (Built(b).Any(p => p.NoFuel && p.Kind == "power-plant")) fixes.Add("the fission plant has no uranium and runs at 30 %: bring uranium");
         if (Built(b).Any(p => p.NoFuel && p.Kind == "fusion-plant")) fixes.Add("the fusion plant has no water or helium-3");
         if (Events.PowerCut(w, b) > 0) fixes.Add($"an event cuts power by {Events.PowerCut(w, b):P0}");
+        if (b.InShadow) fixes.Add(b.BatteryRoom > 0 ? "the solar fields are in shadow; the batteries ran flat" : "the solar fields are in shadow: a battery bank would carry the planet through");
+        if (Grid.ShedList(b).Brownout is string brown) fixes.Add($"brownout: {brown}");
         fixes.Add("build a solar field or fission plant, or set less important buildings to Low or Off");
         return note + ". " + Format(string.Join("; ", fixes)) + ".";
 
@@ -716,24 +729,12 @@ public static class Colonies
         if (!baseTaken) baseGot = Math.Min(Math.Max(0, people), baseStaff);
         b.BaseStaff = baseStaff <= 0 ? 1 : Math.Clamp(baseGot / baseStaff, 0, 1);
         // An empty world you hold still works its buildings at the unsettled share, with nobody to staff them.
-        if (b.PopK <= 0) foreach (var (p, data) in built) p.Staff = SwitchedOff(p, data!) ? 0 : StaffKOf(w, b, data!) <= 0 ? 1 : D.UnsettledShare;
+        // An abandoned one (its hungry people left) works nothing until settlers land.
+        if (b.PopK <= 0) foreach (var (p, data) in built) p.Staff = SwitchedOff(p, data!) || b.Abandoned ? 0 : StaffKOf(w, b, data!) <= 0 ? 1 : D.UnsettledShare;
 
-        // Power.
-        // Every settled world has a little power of its own (small generators), enough for a first building or two.
+        // Power: plants, solar fields and the small generators every settled world has, then the grid (batteries, shedding).
         var made = (b.PopK > 0 ? C.BasePower : 0) + built.Where(x => x.Data!.Power < 0).Sum(x => PowerOf(w, b, x.Piece, x.Data!, consume: true)) * (1 - Events.PowerCut(w, b));
-        b.PowerMade = made;
-        var used = 0.0;
-        // High first, then Normal, then Low; within each, the planet's area order. Off gets nothing.
-        foreach (var (p, data) in built.OrderBy(x => PowerTier(x.Piece.PowerUse)))
-        {
-            if (data!.Power <= 0) { p.Powered = true; continue; }
-            if (p.PowerUse == PowerUse.Off) { p.Powered = false; continue; }
-            var draw = data.Power * Munitions.DrawFactor(p);
-            p.Powered = used + draw <= made + 1e-9;
-            if (p.Powered) used += draw;
-        }
-        b.PowerUsed = used;
-        b.PowerWanted = built.Where(x => x.Data!.Power > 0 && x.Piece.PowerUse != PowerUse.Off).Sum(x => x.Data!.Power * Munitions.DrawFactor(x.Piece));
+        Grid.Run(w, b, built.Select(x => (x.Piece, x.Data!)).ToList(), made);
 
         // Goods: inputs first, then what each piece makes, then upkeep in spare parts.
         var cap = StoreDaysOf(b);
@@ -898,7 +899,7 @@ public static class Colonies
         if (data.Solar)
         {
             var au = Math.Max(0.2, Vec2.Distance(b.Position, Vec2.Zero) / Physics.MmPerAu);
-            return basePower * Math.Clamp(1 / (au * au), 0.05, 2);
+            return Grid.Shaded(w, b) ? 0 : basePower * Math.Clamp(1 / (au * au), 0.05, 2); // dark in a bigger body's shadow
         }
         if (data.Hot) return basePower; // geothermal: no fuel
         var staff = Math.Max(0.01, p.Staff);
@@ -948,9 +949,10 @@ public static class Colonies
     {
         if (!p.Built) return 0;
         if (powered && !p.Powered) return 0;
+        var brownout = powered ? p.PowerShare : 1;
         var condition = 0.5 + 0.5 * p.Condition;
         var refit = p.RefitHoursLeft > 0 ? C.RefitOutput : 1;
-        return p.Staff * condition * refit * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p));
+        return p.Staff * condition * refit * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p)) * brownout;
     }
 
     public static double Output(World w, Body b, Piece p) => Planets.BuildingKind(p.Kind) is BuildingData data ? Output(w, b, p, data) : 0;
@@ -966,7 +968,7 @@ public static class Colonies
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
-            var run = p.Powered ? p.Staff * (0.5 + 0.5 * p.Condition) * (p.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p)) * p.Boost : 0;
+            var run = p.Powered ? p.PowerShare * p.Staff * (0.5 + 0.5 * p.Condition) * (p.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p)) * p.Boost : 0;
             if (data.Makes != null && data.Makes.TryGetValue(good, out var perDay)) total += perDay * run;
             if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral == good) total += data.Mines * (d.Rich ? 1.5 : 1) * run;
         }
@@ -1049,7 +1051,7 @@ public static class Colonies
     {
         var piece = Built(yard).FirstOrDefault(p => p.Kind == Shipyard) ?? Built(yard).FirstOrDefault(p => p.Kind == DryDock);
         if (piece == null) return 1;
-        return (piece.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (0.5 + 0.5 * piece.Condition) * (piece.Powered ? 1 : 0.5) * (piece.Kind == DryDock ? 0.6 : 1);
+        return (piece.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (0.5 + 0.5 * piece.Condition) * (piece.Powered ? 0.5 + 0.5 * piece.PowerShare : 0.5) * (piece.Kind == DryDock ? 0.6 : 1);
     }
 
     public const string DryDock = "dry-dock";
