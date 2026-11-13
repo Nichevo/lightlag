@@ -33,7 +33,7 @@ public sealed record PlanetsData(
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
     double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
-    double HappinessPerDay = 2, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50,
+    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
     double GroundLossPerHour = 0.05, double BoardTroopsK = 0.5, double BuildingArmour = 40, double PeopleKPerDamage = 0.02,
     double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
@@ -426,7 +426,8 @@ public static class Planets
         {
             if (!w.Rules.Happiness) { b.Happiness = D.HappinessStart; continue; }
             var (target, _) = TargetHappiness(w, b);
-            var step = D.HappinessPerDay / 24;
+            // Under blockade moods shift more slowly: a planet holds out longer before it gives up.
+            var step = (Blockader(w, b) != null ? D.BlockadedHappinessPerDay : D.HappinessPerDay) / 24;
             b.Happiness = b.Happiness < target ? Math.Min(target, b.Happiness + step) : Math.Max(target, b.Happiness - step);
             // Settled in and content, newcomers slowly come to see the holder as their own.
             if (b.Happiness >= 50 && b.OwnShare < 1) b.OwnShare = Math.Min(1, b.OwnShare + 0.01 / 24);
@@ -573,8 +574,10 @@ public static class Planets
             t.BlockadeWins++;
             t.BlockadeDays += b.BlockadeHours / 24;
             Choices.Note(w, by, "blockade-won", b.Name, "", $"{b.BlockadeHours / 24:0.#} days");
+            var days = b.BlockadeHours / 24;
             Take(sim, b, by, "surrendered to the blockade");
             t.BlockadeHappiness += b.Happiness;
+            CaptureTally.Add(t, "Blockade", days, 0, b, 0, 0);
         }
     }
 
@@ -1045,6 +1048,7 @@ public sealed record SendPeopleCommand(Side Side, int FleetId, int FromBodyId, i
         }
         f.PeopleRun = new PeopleRun { FromBodyId = FromBodyId, ToBodyId = to, Repeat = Repeat };
         f.SupplyRunFor = null;
+        f.SupplyRunByRole = false;
         sim.Log.Info("planets", $"{f.Name} will carry people from {world.FindBody(FromBodyId)!.Name} to {world.FindBody(to)!.Name}",
             new { FleetId, FromBodyId, ToBodyId, Repeat, Source });
     }

@@ -70,7 +70,8 @@ public sealed class IntelFile
     public List<int> ClaimsSeen { get; set; } = new();
 
     /// <summary>"Their file on you", as you can guess it: your fleets the rival has probably seen, and when.</summary>
-    public Dictionary<int, double> SeenUs { get; set; } = new();
+    /// <remarks>Sorted: entries are removed as fleets die, and a plain dictionary then lists them in a different order after a load (the replay hash differs).</remarks>
+    public SortedDictionary<int, double> SeenUs { get; set; } = new();
     public double TheirPointsGuess { get; set; }
 
     /// <summary>One estimate a day (see IntelDay).</summary>

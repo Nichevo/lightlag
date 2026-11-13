@@ -285,7 +285,8 @@ public partial class FleetScreen : PanelContainer
         var id = f.Id;
         var col = Column(6);
         col.AddChild(Heading("Role"));
-        var roles = Enum.GetValues<FleetRole>().Select(r => (r, HelpCalls.RoleName(r))).ToList();
+        // A fleet of supply ships can only take Supply; warfleets get the fighting roles.
+        var roles = HelpCalls.RolesFor(w, f).Select(r => (r, HelpCalls.RoleName(r))).ToList();
         var row = Row(8);
         row.AddChild(Pick(roles, f.Role, r => SetRole(id, r, null), "Which calls for help this fleet answers by itself when it is free"));
         row.AddChild(Ui.Label(HelpCalls.RoleHelp(f.Role), 13, Ui.Dim));
@@ -298,7 +299,14 @@ public partial class FleetScreen : PanelContainer
             grid.AddThemeConstantOverride("v_separation", 6);
             grid.AddChild(Ui.Label("Goes up to", 13, Ui.Dim));
             grid.AddChild(Pick(Enum.GetValues<RoleRange>().Select(r => (r, HelpCalls.RangeName(r))).ToList(), rules.Range,
-                r => SetRule(id, x => x.Range = r), "How far from the trouble the fleet may be and still go"));
+                r => SetRule(id, x => x.Range = r), f.Role == FleetRole.Supply ? "How far away a fleet running short may be and still be supplied" : "How far from the trouble the fleet may be and still go"));
+            if (f.Role == FleetRole.Supply)
+            {
+                col.AddChild(grid);
+                col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g && g.SupplyRunFor is int t && w2.FindFleet(t) is Fleet served
+                    ? $"Supplying {served.Name}." : "Waiting at a held planet, loaded, for a fleet in range to run below half its fuel, ammunition or food.", 13, new Color("9fd6ff"), wrap: true));
+                return Box(col);
+            }
             grid.AddChild(Ui.Label("Odds it wants", 13, Ui.Dim));
             grid.AddChild(Pick(Enum.GetValues<RoleOdds>().Select(o => (o, HelpCalls.OddsName(o))).ToList(), rules.Odds,
                 o => SetRule(id, x => x.Odds = o), "Its strength (with any other fleets answering) against the enemy's, as your sensors judge it. Below this it stays and the call waits for you"));

@@ -1391,30 +1391,45 @@ public static class Mind
         private void Troops(List<WorkOrder> orders)
         {
             if (Easy) return;
-            foreach (var f in Mine().Where(f => !Busy(f) && _m.JobOf(f.Id) is { Kind: JobKind.Claim }).ToList())
+            foreach (var f in Mine().Where(f => _m.JobOf(f.Id) is { Kind: JobKind.Claim } && !f.Retreating && !f.Resupplying
+                                                && f.JoinFleetId == null && f.Refit == null && !OrderOnItsWay(f)).ToList())
             {
-                if (f.OrbitBodyId is not int id || _w.FindBody(id) is not Body b || b.Owner != _enemy || b.PopK <= 0 || !Economy.InOrbitAt(f, b)) continue;
-                var stubborn = b.Grudge == _side || b.Happiness > Planets.SurrenderLine(_w, _side) + 15 && !b.Hungry;
-                // A raider tires of a blockade after a week, the others after three: then they go in.
+                // In orbit at the planet, or still on the way to it: troops are ordered as the fleet sets out, so they
+                // arrive near the start of the blockade (overnight runs showed troops ordered once in orbit landing after
+                // the surrender, or never).
+                var inOrbit = !f.Maneuvering && f.Flight == null && f.OrbitBodyId is int id && _w.FindBody(id) is Body there && Economy.InOrbitAt(f, there);
+                var targetId = inOrbit ? f.OrbitBodyId : f.Flight != null && !f.Maneuvering ? _m.JobOf(f.Id)!.BodyId : null;
+                if (targetId is not int tid || _w.FindBody(tid) is not Body b || b.Owner != _enemy || b.PopK <= 0) continue;
+                // How long the blockade will take on its own: happiness falls BlockadedHappinessPerDay a day to the
+                // surrender line (never, with a grudge). Troops are sent when that is longer than a week or two.
                 var raider = _m.Personality == Personality.Raider;
-                var tired = b.BlockadeHours > (raider ? 7 : 21) * 24;
+                var daysLeft = b.Grudge == _side ? double.PositiveInfinity
+                    : Math.Max(0, b.Happiness - Planets.SurrenderLine(_w, _side)) / Math.Max(0.1, Planets.D.BlockadedHappinessPerDay);
+                var stubborn = daysLeft > (raider ? 7 : 14);
+                var tired = b.BlockadeHours > (raider ? 7 : 21) * 24 && daysLeft > 3;
                 if (!stubborn && !tired) continue;
                 var troops = Planets.TroopsAboard(_w, f);
-                // A raider goes in hard and early; the others land with a safe margin on Auto's plan.
-                if (troops >= Planets.GarrisonOf(b) * (raider ? 1.25 : 1.5) && Planets.CanLand(_w, f, b) == null)
+                var garrison = Planets.GarrisonOf(b);
+                if (inOrbit)
                 {
-                    var plan = raider ? GroundPlan.Blitz : Ground.AutoPlan(_w, _side, b, troops);
-                    Do(new LandTroopsCommand(f.Id, b.Id, plan));
-                    Note($"{f.Name} lands troops on {b.Name} ({Ground.PlanName(plan)})");
-                    continue;
+                    // A raider goes in hard and early; the others land with a safe margin on Auto's plan.
+                    if (troops >= garrison * (raider ? 1.25 : 1.5) && Planets.CanLand(_w, f, b) == null)
+                    {
+                        var plan = raider ? GroundPlan.Blitz : Ground.AutoPlan(_w, _side, b, troops);
+                        Do(new LandTroopsCommand(f.Id, b.Id, plan));
+                        Note($"{f.Name} lands troops on {b.Name} ({Ground.PlanName(plan)})");
+                        continue;
+                    }
+                    if (f.OrbitHeight != OrbitHeight.Low && troops > 0) Do(new SetOrbitHeightCommand(f.Id, OrbitHeight.Low));
                 }
-                if (f.OrbitHeight != OrbitHeight.Low && troops > 0) Do(new SetOrbitHeightCommand(f.Id, OrbitHeight.Low));
                 var coming = orders.Count(o => o.Key == "troop-ship" && o.JoinFleetId == f.Id)
-                             + _w.Fleets.Count(o => o.Side == _side && o.JoinFleetId == f.Id);
+                             + _w.Fleets.Count(o => o.Side == _side && o.JoinFleetId == f.Id && _w.ShipsOf(o).Any(Planets.IsTroopShip));
                 var aboardSoon = troops + coming * GameData.ShipClass("troop-ship").Cargo;
-                if (aboardSoon < Planets.GarrisonOf(b) * 1.5 && orders.Count < 2 && Economy.CanQueue(_w, _side, OrderKind.Ship, "troop-ship") == null)
+                // Troops go to the front of the yard queue: a siege won't wait behind the next warship.
+                if (aboardSoon < garrison * 1.5 && orders.Count(o => o.Key == "troop-ship") < 2
+                    && Economy.CanQueue(_w, _side, OrderKind.Ship, "troop-ship") == null)
                 {
-                    Do(new QueueOrderCommand(_side, OrderKind.Ship, "troop-ship", f.Id));
+                    Do(new QueueOrderCommand(_side, OrderKind.Ship, "troop-ship", f.Id, Front: true));
                     Note($"Builds a troop ship for {f.Name} at {b.Name}");
                     return;
                 }

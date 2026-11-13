@@ -201,8 +201,12 @@ public static class SupplyLines
     }
 
     /// <summary>Do the ships of this fleet still need anything a supply ship carries?</summary>
-    private static bool Needs(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)
+    public static bool Needs(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)
         && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.95 || s.Ammo < MaxAmmo(s) * 0.95 || s.Food < MaxFood(s) * 0.95 || s.Missiles < Tech.Racks(w, s)));
+
+    /// <summary>Running short enough to send a tanker for: some ship below half its fuel, ammunition or food.</summary>
+    public static bool Short(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)
+        && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.5 || s.Ammo < MaxAmmo(s) * 0.5 || s.Food < MaxFood(s) * 0.5));
 
     private static bool Together(World w, Fleet a, Fleet b) =>
         a.Hold == HoldStyle.Orbit && b.Hold == HoldStyle.Orbit && a.OrbitBodyId != null && a.OrbitBodyId == b.OrbitBodyId
@@ -221,6 +225,7 @@ public static class SupplyLines
             if (target == null || target.Side != f.Side || !w.ShipsOf(f).Any(IsSupplyShip))
             {
                 f.SupplyRunFor = null;
+                f.SupplyRunByRole = false;
                 Autonomy.Report(sim, f, $"{f.Name} ends its supply run: the fleet it supplied is gone", NoteKind.Supply);
                 continue;
             }
@@ -324,6 +329,7 @@ public sealed record SetSupplyRunCommand(Side Side, int FleetId, int? TargetFlee
             return;
         }
         f.SupplyRunFor = TargetFleetId;
+        f.SupplyRunByRole = false;
         f.AutoRun = TargetFleetId != null && Source == "auto";
         sim.Log.Info("supply", TargetFleetId == null ? $"{f.Name} ends its supply run" : $"{f.Name} starts a supply run", new { FleetId, TargetFleetId, Source });
     }

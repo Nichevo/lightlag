@@ -89,6 +89,9 @@ public sealed class ChaseOrder
     /// <summary>The quarry has been out of sight so long the chase now closes to sensor range of the guess to look (Chases.SearchAfterHours).</summary>
     public bool Searching { get; set; }
 
+    /// <summary>The quarry is heading for this planet of ours and gets there sooner than a chase would meet it: wait (or go) there for it.</summary>
+    public int? WaitBodyId { get; set; }
+
     /// <summary>Why the last attempt to re-aim failed (null when it worked).</summary>
     public string? Problem { get; set; }
 
@@ -244,6 +247,12 @@ public sealed class Fleet
     public bool AutoRun { get; set; }
 
     public int? SupplyRunFor { get; set; }
+
+    /// <summary>Fired on by an enemy it had not seen: caught unawares until this hour (Combat.SurpriseHours).</summary>
+    public double? SurprisedUntilHour { get; set; }
+
+    /// <summary>The supply run was taken up by the Supply role (it ends when that fleet wants nothing more).</summary>
+    public bool SupplyRunByRole { get; set; }
 
     /// <summary>The last order this fleet turned down, and when (shown against the fleet for a day so the player isn't left guessing).</summary>
     public string? Refused { get; set; }
@@ -486,6 +495,12 @@ public static class Fleets
     {
         Formations.Layout(w, f, Formations.Shape(w, f), Formations.Front(w, f));
         foreach (var s in w.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+        // Its ships changed: keep only a role it can have (supply ships alone take Supply, warships never do).
+        if (f.ShipIds.Count > 0 && HelpCalls.FitRole(w, f, f.Role) is var fit && fit != f.Role)
+        {
+            if (f.AnsweringCallId != null) HelpCalls.Dropped(f);
+            f.Role = fit;
+        }
     }
 
     public static Vec2 SlotOffset(int slot)

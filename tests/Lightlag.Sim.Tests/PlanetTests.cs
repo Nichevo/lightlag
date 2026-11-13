@@ -216,6 +216,24 @@ public class PlanetTests
     }
 
     [Fact]
+    public void A_blockaded_planet_loses_heart_slowly()
+    {
+        var sim = NewGame();
+        var vela = BodyNamed(sim, "vela");
+        vela.Owner = Side.Rival;
+        vela.PopK = 20;
+        vela.Happiness = 80;
+        vela.Grudge = Side.Player; // no surrender: just watch the mood
+        PlaceInOrbit(sim, Home(sim), vela);
+        Assert.True(Economy.Blockaded(sim.World, vela));
+        Days(sim, 1);
+        var before = vela.Happiness;
+        Days(sim, 10);
+        Assert.InRange(before - vela.Happiness, 0.5, 10 * Planets.D.BlockadedHappinessPerDay + 0.01);
+        Assert.True(Planets.D.BlockadedHappinessPerDay < Planets.D.HappinessPerDay);
+    }
+
+    [Fact]
     public void A_peopled_planet_cannot_be_claimed_by_orbit_alone()
     {
         var sim = NewGame();
