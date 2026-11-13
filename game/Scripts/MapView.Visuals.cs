@@ -5,7 +5,7 @@ namespace Lightlag.Game;
 
 /// <summary>
 /// The look of the system on Medium and High: the shader sun, orbits that fade behind their body (so you
-/// see which way it moves), soft gravity wells, the belt as thousands of drifting specks, moons darkening
+/// see which way it moves), gravity wells as rings, the belt as thousands of drifting specks, moons darkening
 /// in their planet's shadow, city lights on settled worlds, and a comet on a long orbit. All of it only
 /// draws; none of it touches the simulation. Low keeps the original drawing.
 /// </summary>
@@ -109,13 +109,13 @@ public partial class MapView
     }
 
     /// <summary>
-    /// Gravity wells: a soft shading around each planet out to where its pull outweighs the star's (its
-    /// sphere of influence), denser towards the middle, with faint rings where the pull doubles.
+    /// Gravity wells as rings (no shading, which would clash with the other map layers): a ring round each
+    /// planet where its pull outweighs the star's (its sphere of influence), and fainter rings inside it,
+    /// closer together towards the middle.
     /// </summary>
     private void DrawWells()
     {
         var w = Sim.World;
-        var tex = Graphics.SoftDot;
         foreach (var b in w.Bodies)
         {
             if (b.Kind != BodyKind.Planet || b.ParentId is not int pid || w.FindBody(pid) is not Body parent || parent.Gm <= 0 || b.Gm <= 0) continue;
@@ -127,14 +127,13 @@ public partial class MapView
             var tint = b.Atmosphere is string a ? new Color(a) : new Color(b.Color).Lightened(0.3f);
             // Fade in as it grows past a few dozen pixels, so zoomed out the map stays clean.
             var fade = Mathf.Clamp((rPx - 30) / 120f, 0, 1);
-            DrawTextureRect(tex, new Rect2(at - Vector2.One * rPx, Vector2.One * rPx * 2), false, new Color(tint, 0.07f * fade));
-            DrawTextureRect(tex, new Rect2(at - Vector2.One * rPx * 0.4f, Vector2.One * rPx * 0.8f), false, new Color(tint, 0.05f * fade));
-            // Rings where the pull is 1/4 and 1/16 of that at the edge's quarter: closer together inwards.
-            foreach (var k in new[] { 1f, 0.5f, 0.25f })
+            // The edge ring is the clearest; inner rings at half and a quarter of the way (the pull 4x and 16x
+            // stronger) are fainter, so the well reads as deepening towards the planet.
+            foreach (var (k, alpha, width) in new[] { (1f, 0.22f, 1.5f), (0.5f, 0.12f, 1f), (0.25f, 0.09f, 1f) })
             {
                 var rr = rPx * k;
                 if (rr < 12) continue;
-                DrawArc(at, rr, 0, Mathf.Tau, Math.Clamp((int)(rr / 4), 32, 256), new Color(tint, 0.05f * fade * (1.3f - k)), 1, true);
+                DrawArc(at, rr, 0, Mathf.Tau, Math.Clamp((int)(rr / 4), 32, 256), new Color(tint, alpha * fade), width, true);
             }
         }
     }
