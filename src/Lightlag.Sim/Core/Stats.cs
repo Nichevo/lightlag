@@ -98,6 +98,11 @@ public sealed class SideTotals
     public double BlockadeDays { get; set; }
     public double BlockadeHappiness { get; set; }
 
+    /// <summary>Blockades of a day or more this side began, and how many its enemy broke with a fleet or it left.</summary>
+    public int BlockadesStarted { get; set; }
+    public int BlockadesBroken { get; set; }
+    public int BlockadesLeft { get; set; }
+
     /// <summary>Planets taken by method ("Blockade", "Blitz", "Methodical", "Starve"): days, and what was left to take.</summary>
     public Dictionary<string, CaptureTally> Captures { get; set; } = new();
 

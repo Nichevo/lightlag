@@ -254,7 +254,8 @@ public sealed class RuleBook
         {
             if (!(b.CrewK > 0)) yield return $"lifeboat {b.Id} of {b.ShipName} carries {b.CrewK} k crew";
             if (b.AirUntilHour < b.LaunchHour) yield return $"lifeboat {b.Id} runs out of air before it was launched";
-            if (w.Hour > b.AirUntilHour + 1 + 1e-9) yield return $"lifeboat {b.Id} is still out {w.Hour - b.AirUntilHour:0.#} hours after its air ran out";
+            // Once the game is over the hourly loop stops, and boats still out stay as they were.
+            if (w.Winner == null && w.Hour > b.AirUntilHour + 1 + 1e-9) yield return $"lifeboat {b.Id} is still out {w.Hour - b.AirUntilHour:0.#} hours after its air ran out";
             if (!double.IsFinite(b.Position.X) || !double.IsFinite(b.Position.Y)) yield return $"lifeboat {b.Id} is at {b.Position}";
             if (b.Side != Side.Player && b.Side != Side.Rival) yield return $"lifeboat {b.Id} has side {b.Side}";
         }

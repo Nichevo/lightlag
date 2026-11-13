@@ -5,9 +5,10 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The research screen (T): the team slots along the top (skills, kept fields, queues, train, split,
-/// found), the ideas as picture cards with filters, and the view-only discovery web. Buttons issue
-/// commands; the screen rebuilds only when something it shows changes shape, and updates numbers live.
+/// The research screen (T), layout A: a strip of compact team cards along the top (each unfolds to its
+/// skills, kept fields, queue, train and split), the ideas as picture cards filling the screen, and the
+/// discovery web as a slide-out on the right. Buttons issue commands; the screen rebuilds only when
+/// something it shows changes shape, and updates numbers live.
 /// </summary>
 public partial class ResearchScreen : PanelContainer
 {
@@ -23,9 +24,11 @@ public partial class ResearchScreen : PanelContainer
     private string? _unlocks;                  // null: everything
     private Sort _sort = Sort.Quickest;
     private string? _selected;                 // idea lit up in the discovery web
-    private ScrollContainer? _ideaScroll, _webScroll;
+    private ScrollContainer? _ideaScroll;
     private (int Ideas, int WebV, int WebH)? _keepScroll; // scroll places to put back after a rebuild
     private static bool _allSkills;            // team cards show every field's skill, not only the kept ones (folded by default)
+    private static int? _openTeam;             // the team whose full card (skills, queue, train, split) is unfolded
+    private static bool _webOpen;              // the discovery web slid out on the right
 
     public enum IdeaState { Available, Queued, Researching, Done, Locked }
     private enum Sort { Quickest, Cheapest, Name }
@@ -58,16 +61,14 @@ public partial class ResearchScreen : PanelContainer
         {
             _shape = shape;
             // A rebuild (clicking a card, queueing an idea) used to jump the lists back to the top.
-            if (_ideaScroll != null && IsInstanceValid(_ideaScroll) && _webScroll != null && IsInstanceValid(_webScroll))
-                _keepScroll = (_ideaScroll.ScrollVertical, _webScroll.ScrollVertical, _webScroll.ScrollHorizontal);
+            if (_ideaScroll != null && IsInstanceValid(_ideaScroll))
+                _keepScroll = (_ideaScroll.ScrollVertical, 0, 0);
             Rebuild(w);
         }
-        else if (_keepScroll is var (ideas, webV, webH) && _ideaScroll != null && _webScroll != null)
+        else if (_keepScroll is var (ideas, _, _) && _ideaScroll != null && IsInstanceValid(_ideaScroll))
         {
-            // Put the scroll places back once the new lists have their size (a frame after the rebuild).
+            // Put the scroll place back once the new list has its size (a frame after the rebuild).
             _ideaScroll.ScrollVertical = ideas;
-            _webScroll.ScrollVertical = webV;
-            _webScroll.ScrollHorizontal = webH;
             _keepScroll = null;
         }
         foreach (var update in _live) update(w);
@@ -81,7 +82,7 @@ public partial class ResearchScreen : PanelContainer
                + "|" + string.Join(",", me.Teams.Select(t => $"{t.Id}:{string.Join("+", t.Kept)}:{t.TrainingUntilHour != null}:{Research.Ready(w, t)}:{t.Scientists}:{string.Join("/", Research.KeptFields(t))}"))
                + "|" + string.Join(",", Intel.Counters(w, Side.Player).Select(c => c.Idea))
                + "|" + string.Join(",", RivalTech.Learning(w, Side.Player).Select(l => $"{l.Id}:{l.Stage}"))
-               + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{_allSkills}|{GetViewportRect().Size}|{w.Winner}";
+               + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{_allSkills}|{_openTeam}|{_webOpen}|{GetViewportRect().Size}|{w.Winner}";
     }
 
     // ---- Layout --------------------------------------------------------------------------------
@@ -105,32 +106,49 @@ public partial class ResearchScreen : PanelContainer
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowResearch = false, "Close the research screen (T or Esc)"));
         _root.AddChild(top);
 
-        // Team slots.
+        // Team strip: one compact card per slot; "Skills and queue" unfolds a team's full card.
         var teams = new HBoxContainer();
-        teams.AddThemeConstantOverride("separation", 14);
+        teams.AddThemeConstantOverride("separation", 12);
         var me = Economy.Of(w, Side.Player);
+        if (_openTeam is int open && me.Teams.All(t => t.Id != open)) _openTeam = null;
         for (var i = 0; i < Research.T.Slots; i++)
         {
-            Control card = i < me.Teams.Count ? TeamCard(w, me.Teams[i]) : i == me.Teams.Count ? EmptySlot(w) : LockedSlot();
+            Control card = i < me.Teams.Count ? (_openTeam == me.Teams[i].Id ? TeamCard(w, me.Teams[i]) : TeamStrip(w, me.Teams[i]))
+                : i == me.Teams.Count ? EmptySlot(w) : LockedSlot();
             card.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             card.SizeFlagsStretchRatio = 1;
             teams.AddChild(card);
         }
         _root.AddChild(teams);
 
-        // Ideas and the discovery web.
+        // Ideas fill the screen; the discovery web slides out from a tab on the right.
         var bottom = new HBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
-        bottom.AddThemeConstantOverride("separation", 14);
+        bottom.AddThemeConstantOverride("separation", 12);
         var ideas = Box(16);
         ideas.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         ideas.AddChild(IdeasPanel(w));
         bottom.AddChild(ideas);
-        var web = Box(16);
-        web.CustomMinimumSize = new Vector2(Mathf.Min(560, GetViewportRect().Size.X * 0.3f), 0);
-        web.AddChild(WebPanel(w));
-        bottom.AddChild(web);
+        if (_webOpen)
+        {
+            var web = Box(12);
+            web.CustomMinimumSize = new Vector2(WebWidth, 0);
+            web.AddChild(WebPanel(w));
+            bottom.AddChild(web);
+        }
+        else
+        {
+            var tab = new Button { Text = "◂\nDiscovery\nweb", FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(TabWidth, 0),
+                TooltipText = "Open the discovery web: every idea you know of and what leads to what" };
+            tab.AddThemeFontSizeOverride("font_size", 12);
+            tab.AddThemeColorOverride("font_color", new Color("7cc4ff"));
+            tab.Pressed += () => _webOpen = true;
+            bottom.AddChild(tab);
+        }
         _root.AddChild(bottom);
     }
+
+    private const float TabWidth = 76;
+    private float WebWidth => Mathf.Max(560, GetViewportRect().Size.X * 0.55f);
 
     private static PanelContainer Box(int padding, Color? border = null, bool dashed = false)
     {
@@ -169,6 +187,7 @@ public partial class ResearchScreen : PanelContainer
             + (team.TrainingUntilHour is double h ? $" (+{team.TrainingScientists:0} in {(h - w2.Hour) / 24:0.#} d)" : "")
             + (!Research.Ready(w2, team) ? $" · ready in {(team.ReadyHour - w2.Hour) / 24:0.#} d" : ""));
         head.AddChild(size);
+        head.AddChild(Ui.SmallButton("▴ Fold", () => _openTeam = null, "Fold this team back to its compact card"));
         v.AddChild(head);
 
         // Folded by default to the kept (primary) fields, so the Ideas below get the room; one click shows them all.
@@ -266,6 +285,60 @@ public partial class ResearchScreen : PanelContainer
         return card;
     }
 
+    /// <summary>A team folded to one compact card: kept skills, what it works on now and what comes next.</summary>
+    private Control TeamStrip(World w, ResearchTeam team)
+    {
+        var card = Box(10, new Color("12324a"));
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 5);
+        card.AddChild(v);
+
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 10);
+        head.AddChild(Ui.Label(team.Name, 16, Ui.Player));
+        var size = Ui.Label("", 12, Ui.Dim);
+        size.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        _live.Add(w2 => size.Text = $"{team.Scientists:0} scientists"
+            + (team.TrainingUntilHour is double h ? $" (+{team.TrainingScientists:0} in {(h - w2.Hour) / 24:0.#} d)" : "")
+            + (!Research.Ready(w2, team) ? $" · ready in {(team.ReadyHour - w2.Hour) / 24:0.#} d" : ""));
+        head.AddChild(size);
+        head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        var skills = Ui.Label("", 12, Ui.Text);
+        skills.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        _live.Add(_ => skills.Text = "★ " + string.Join(" · ", Research.KeptFields(team).Select(i => $"{Research.FieldNames[i].Split(' ')[0]} {team.Skill[i]:0.0}x")));
+        head.AddChild(skills);
+        v.AddChild(head);
+
+        var queue = Research.QueueOf(w, Side.Player, team.Id).ToList();
+        var now = new HBoxContainer();
+        now.AddThemeConstantOverride("separation", 10);
+        var first = queue.FirstOrDefault();
+        now.AddChild(Ui.Label(first == null ? "Nothing queued" : GameData.Research(first.Key).Name, 13, first == null ? Ui.Dim : new Color("f2f5fa")));
+        var bar = Bar(80, Ui.Player, () => first == null ? 0 : 1 - first.HoursLeft / Math.Max(1e-6, first.TotalHours), _live);
+        bar.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        now.AddChild(bar);
+        var left = Ui.Label("", 12, Ui.Dim);
+        _live.Add(w2 =>
+        {
+            var stuck = first != null && !first.Paid && first.Waiting != null;
+            left.Text = first == null ? "idle" : first.Paid ? $"{Research.DaysUntilDone(w2, first):0.#} d" : stuck ? $"WAITING: {first.Waiting}" : "starts next hour";
+            left.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
+        });
+        now.AddChild(left);
+        v.AddChild(now);
+
+        var next = new HBoxContainer();
+        next.AddThemeConstantOverride("separation", 6);
+        var after = queue.Skip(1).Select(o => GameData.Research(o.Key).Name).ToList();
+        var nextText = Ui.Label(after.Count > 0 ? "Next: " + string.Join(" · ", after) : first == null ? "Pick an idea below: Queue on a card" : "Next: nothing yet", 12, Ui.Dim);
+        nextText.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        nextText.ClipText = true;
+        next.AddChild(nextText);
+        next.AddChild(Ui.SmallButton("▾ Skills and queue", () => _openTeam = team.Id, "Unfold this team: skills, kept fields, queue order, train and split"));
+        v.AddChild(next);
+        return card;
+    }
+
     private void ToggleKept(ResearchTeam team, string field)
     {
         var kept = team.Kept.ToList();
@@ -280,20 +353,16 @@ public partial class ResearchScreen : PanelContainer
 
     private Control EmptySlot(World w)
     {
-        var card = Box(16, new Color("2a3446"), dashed: true);
+        var card = Box(10, new Color("2a3446"), dashed: true);
         var v = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        v.AddThemeConstantOverride("separation", 10);
+        v.AddThemeConstantOverride("separation", 6);
         card.AddChild(v);
-        var title = Ui.Label("Empty team slot", 18, new Color("aab4c3"));
+        var title = Ui.Label("Empty team slot", 15, new Color("aab4c3"));
         title.HorizontalAlignment = HorizontalAlignment.Center;
         v.AddChild(title);
         var t = Research.T;
-        var text = Ui.Label($"Found a new team: {t.FoundScientists:0} scientists, {t.FoundSkill:0.#}x in the speciality you pick, ready in {t.FoundDays:0} days. "
-                            + $"Or split one off an existing team (it takes half of each skill).", 12, Ui.Dim);
-        text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        text.HorizontalAlignment = HorizontalAlignment.Center;
-        text.CustomMinimumSize = new Vector2(260, 0);
-        v.AddChild(text);
+        card.TooltipText = $"Found a new team: {t.FoundScientists:0} scientists, {t.FoundSkill:0.#}x in the speciality you pick, ready in {t.FoundDays:0} days. "
+                           + "Or split one off an existing team (it takes half of each skill).";
         var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         row.AddThemeConstantOverride("separation", 8);
         var found = new MenuButton { Text = $"Found team · {t.FoundCost:0} Industry ▾", FocusMode = FocusModeEnum.None, Flat = false };
@@ -317,9 +386,9 @@ public partial class ResearchScreen : PanelContainer
 
     private static Control LockedSlot()
     {
-        var card = Box(16, new Color("2a3446"), dashed: true);
+        var card = Box(10, new Color("2a3446"), dashed: true);
         var v = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        var title = Ui.Label("Empty team slot", 18, new Color("aab4c3"));
+        var title = Ui.Label("Empty team slot", 15, new Color("aab4c3"));
         title.HorizontalAlignment = HorizontalAlignment.Center;
         v.AddChild(title);
         var text = Ui.Label("Opens once the slot before it is filled.", 12, Ui.Dim);
@@ -424,7 +493,7 @@ public partial class ResearchScreen : PanelContainer
 
         var scroll = _ideaScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
             CustomMinimumSize = new Vector2(0, 260) };
-        var width = GetViewportRect().Size.X - Mathf.Min(560, GetViewportRect().Size.X * 0.3f) - 110;
+        var width = GetViewportRect().Size.X - (_webOpen ? WebWidth : TabWidth) - 110;
         var grid = new GridContainer { Columns = Math.Max(1, (int)(width / 300)) };
         grid.AddThemeConstantOverride("h_separation", 12);
         grid.AddThemeConstantOverride("v_separation", 12);
@@ -563,22 +632,37 @@ public partial class ResearchScreen : PanelContainer
         m.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         m.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         foot.AddChild(m);
-        if (state == IdeaState.Available && w.Winner == null)
+        t.AddChild(foot);
+        if (state == IdeaState.Available && w.Winner == null && QueueButtons(w, r) is Control queue) t.AddChild(queue);
+        return card;
+    }
+
+    /// <summary>"Queue → Vega · 9 d": one click queues with the team that finishes it first; ▾ picks another team.</summary>
+    private Control? QueueButtons(World w, ResearchData r)
+    {
+        var best = Research.BestTeamFor(w, Side.Player, r.Id);
+        if (best == null) return null;
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 4);
+        row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        var quick = Ui.SmallButton($"Queue → {best.Name} · {Quickest(w, r.Id).Days:0.#} d",
+            () => _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id, TeamId: best.Id), "queueing research"),
+            $"Queue with {best.Name}, the team that would finish it first (double-clicking the card does the same)");
+        quick.AddThemeColorOverride("font_color", Ui.Player);
+        row.AddChild(quick);
+        var others = Economy.Of(w, Side.Player).Teams.Where(t => t != best).ToList();
+        if (others.Count > 0)
         {
-            var add = new MenuButton { Text = "Add to queue ▾", FocusMode = FocusModeEnum.None, Flat = false };
-            add.AddThemeColorOverride("font_color", Ui.Player);
-            var popup = add.GetPopup();
-            var best = Research.BestTeamFor(w, Side.Player, r.Id);
-            foreach (var team in Economy.Of(w, Side.Player).Teams)
+            var pick = new MenuButton { Text = "▾", FocusMode = FocusModeEnum.None, Flat = false, TooltipText = "Queue with another team" };
+            foreach (var team in others)
             {
                 var days = Research.BaseHours(w, Side.Player, r.Id) / 24 / Math.Max(1e-6, Research.Speed(team, r.Field));
-                popup.AddItem($"{team.Name} · {days:0.#} d of work" + (team == best ? " (finishes first)" : ""), team.Id);
+                pick.GetPopup().AddItem($"{team.Name} · {days:0.#} d of work", team.Id);
             }
-            popup.IdPressed += id => _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id, TeamId: (int)id), "queueing research");
-            foot.AddChild(add);
+            pick.GetPopup().IdPressed += id => _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id, TeamId: (int)id), "queueing research");
+            row.AddChild(pick);
         }
-        t.AddChild(foot);
-        return card;
+        return row;
     }
 
     // ---- Discovery web -------------------------------------------------------------------------
@@ -588,103 +672,334 @@ public partial class ResearchScreen : PanelContainer
         var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 8);
         var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 8);
         head.AddChild(Ui.Label("Discovery web", 16, new Color("f2f5fa")));
+        var how = Ui.Label("drag to pan · wheel to zoom · click an idea", 11, Ui.Dim);
+        how.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        head.AddChild(how);
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
-        head.AddChild(Ui.Label("view only", 12, Ui.Dim));
+        head.AddChild(Ui.SmallButton("Fit", DiscoveryWeb.Refit, "Fit the whole web in view"));
+        head.AddChild(Ui.SmallButton("▸ Hide", () => _webOpen = false, "Slide the web away so the ideas get the room"));
         v.AddChild(head);
-        var scroll = _webScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
-        var web = new DiscoveryWeb(w, _selected);
-        scroll.AddChild(web);
-        v.AddChild(scroll);
-        var note = Ui.Label("Lines show what led to what; ideas you haven't found yet stay off the web. Click an idea card to light up its path, double-click to queue it.", 11, Ui.Dim);
-        note.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        v.AddChild(note);
+        var web = new DiscoveryWeb(w, _selected, id => _selected = _selected == id ? null : id)
+        {
+            SizeFlagsVertical = SizeFlags.ExpandFill, SizeFlagsHorizontal = SizeFlags.ExpandFill, ClipContents = true,
+        };
+        v.AddChild(web);
+        v.AddChild(DiscoveryWeb.Legend());
+        if (_selected != null && GameData.Economy.Research.Find(r => r.Id == _selected) is ResearchData sel) v.AddChild(Picked(w, sel));
         return v;
+    }
+
+    /// <summary>The idea picked in the web: what it does, what it needs and what it opens the way to.</summary>
+    private Control Picked(World w, ResearchData r)
+    {
+        var box = Box(10, Ui.Player);
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 4);
+        box.AddChild(v);
+        var state = StateOf(w, r.Id);
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 10);
+        head.AddChild(Ui.Label(r.Name, 15, new Color("f2f5fa")));
+        var meta = Ui.Label($"{Research.FieldName(r.Field)} · tier {r.Tier} · {state}", 12, Ui.Dim);
+        meta.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        head.AddChild(meta);
+        v.AddChild(head);
+        var effect = Ui.Label(r.Effect, 12, new Color("aab4c3"));
+        effect.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        v.AddChild(effect);
+        string Mark(string id) => GameData.Research(id).Name + (Tech.Has(w, Side.Player, id) ? " ✓" : "");
+        if (r.Needs is { Count: > 0 }) v.AddChild(Ui.Label("Needs: " + string.Join(", ", r.Needs.Select(Mark)), 12, Ui.Text));
+        var opens = GameData.Economy.Research.Where(o => Discovered(w, o) && (o.Needs?.Contains(r.Id) ?? false))
+            .Select(o => o.Name + ((o.Needs!.Where(n => n != r.Id && !Tech.Has(w, Side.Player, n)).Select(n => GameData.Research(n).Name).ToList() is { Count: > 0 } also)
+                ? $" (also needs {string.Join(", ", also)})" : "")).ToList();
+        if (opens.Count > 0)
+        {
+            var o = Ui.Label("Opens the way to: " + string.Join(" · ", opens), 12, Ui.Text);
+            o.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            v.AddChild(o);
+        }
+        if (state == IdeaState.Available && w.Winner == null && QueueButtons(w, r) is Control queue) v.AddChild(queue);
+        return box;
     }
 }
 
 /// <summary>
-/// The discovery web: ideas in columns by how many steps of other ideas lead to them, survey finds
-/// on the left in gold. Only ideas you can work on or have done show; undiscovered ones are left off.
+/// The discovery web: every idea you know of as a node, pulled together by field into clusters, with
+/// curved links from each idea to what it opens (links between fields stretch across). Ideas one step
+/// beyond what you know show as blurred dots. Picking an idea lights its whole chain: what it needs,
+/// back to what you know, and everything it leads to. Drag to pan, wheel to zoom.
 /// </summary>
 public partial class DiscoveryWeb : Control
 {
-    private readonly List<(string Id, Vector2 At, string Text, Color Fill, Color Ink, bool Blur)> _nodes = new();
-    private readonly List<(Vector2 From, Vector2 To, Color Color)> _lines = new();
-    private const float NodeW = 130, NodeH = 24, ColW = 150, RowH = 32;
+    private enum Look { Known, Busy, Open, Next, Blur }
+    private readonly List<(string Id, string Name, int Field, Look Look, bool Lit)> _nodes = new();
+    private readonly List<(int From, int To, bool Lit)> _links = new();
+    private readonly Action<string>? _pick;
+    private Dictionary<string, Vector2> _at = new();
+    private int _hover = -1;
+    private Vector2 _press, _panAtPress;
+    private bool _dragging;
+
+    // Where the view is, kept while the game runs (the screen rebuilds the web when anything changes).
+    private static Vector2 _pan;
+    private static float _zoom;                         // 0: fit to the panel on the next draw
+    private static string _layoutKey = "";
+    private static Dictionary<string, Vector2> _layout = new();
+
+    public static readonly Color[] FieldColors =
+        { new("b58cff"), new("ff8a6b"), new("5fd6c8"), new("7cc4ff"), new("ffd27a"), new("6fe08a") };
+
+    public static void Refit() => _zoom = 0;
 
     public DiscoveryWeb() { }
 
-    public DiscoveryWeb(World w, string? selected)
+    public DiscoveryWeb(World w, string? selected, Action<string> pick)
     {
-        var all = GameData.Economy.Research;
-        var depth = new Dictionary<string, int>();
-        int Depth(string id) => depth.TryGetValue(id, out var d) ? d
-            : depth[id] = (GameData.Research(id).Needs ?? new List<string>()).Select(n => Depth(n) + 1).DefaultIfEmpty(0).Max();
-        var me = Economy.Of(w, Side.Player);
-        bool Known(string id) => ResearchScreen.StateOf(w, id) != ResearchScreen.IdeaState.Locked;
-        // Visible: only ideas you can work on, are working on or have done. Undiscovered ones are not shown.
-        var visible = all.Where(r => !r.Later && Known(r.Id)).ToList();
-        var path = new HashSet<string>();
-        void Mark(string id) { if (path.Add(id)) foreach (var n in GameData.Research(id).Needs ?? new()) Mark(n); }
-        if (selected != null) Mark(selected);
+        _pick = pick;
+        MouseFilter = MouseFilterEnum.Stop;
+        var all = GameData.Economy.Research.Where(r => !r.Later).ToList();
+        var known = all.Where(r => ResearchScreen.Discovered(w, r)).Select(r => r.Id).ToHashSet();
+        // One step beyond: ideas that something you know leads to, shown blurred and nameless.
+        var beyond = all.Where(r => !known.Contains(r.Id) && (r.Needs ?? new()).Any(known.Contains)).Select(r => r.Id).ToHashSet();
+        var shown = all.Where(r => known.Contains(r.Id) || beyond.Contains(r.Id)).ToList();
 
-        var pos = new Dictionary<string, Vector2>();
-        var finds = me.Finds.ToList();
-        var x0 = finds.Count > 0 ? ColW : 0;
-        foreach (var col in visible.GroupBy(r => Depth(r.Id)).OrderBy(g => g.Key))
+        var lit = new HashSet<string>();
+        if (selected != null)
         {
-            var y = 8f;
-            foreach (var r in col.OrderBy(r => Research.FieldIndex(r.Field)).ThenBy(r => r.Name))
+            void Up(string id) { if (lit.Add(id)) foreach (var n in GameData.Research(id).Needs ?? new()) Up(n); }
+            void Down(string id) { foreach (var r in shown.Where(r => (r.Needs ?? new()).Contains(id))) if (lit.Add(r.Id)) Down(r.Id); }
+            Up(selected);
+            Down(selected);
+        }
+        var index = new Dictionary<string, int>();
+        foreach (var r in shown)
+        {
+            var look = beyond.Contains(r.Id) ? Look.Blur : ResearchScreen.StateOf(w, r.Id) switch
             {
-                var at = new Vector2(x0 + col.Key * ColW + 8, y);
-                pos[r.Id] = at;
-                y += RowH;
-                var state = ResearchScreen.StateOf(w, r.Id);
-                var lit = path.Contains(r.Id);
-                var (fill, ink) = state switch
+                ResearchScreen.IdeaState.Done => Look.Known,
+                ResearchScreen.IdeaState.Researching or ResearchScreen.IdeaState.Queued => Look.Busy,
+                ResearchScreen.IdeaState.Available => Look.Open,
+                _ => Look.Next,
+            };
+            index[r.Id] = _nodes.Count;
+            _nodes.Add((r.Id, r.Name, Math.Max(0, Research.FieldIndex(r.Field)), look, lit.Contains(r.Id)));
+        }
+        foreach (var r in shown)
+            foreach (var n in r.Needs ?? new())
+                if (index.TryGetValue(n, out var a))
+                    _links.Add((a, index[r.Id], lit.Contains(n) && lit.Contains(r.Id) && selected != null));
+        _at = Layout(shown);
+    }
+
+    /// <summary>Field centres in two rows of three; a few hundred rounds of springs (links), push (nodes) and pull
+    /// (to the field's centre). Worked out once per set of ideas shown, so the web holds still between rebuilds.</summary>
+    private Dictionary<string, Vector2> Layout(List<ResearchData> shown)
+    {
+        var key = string.Join(",", shown.Select(r => r.Id));
+        if (key == _layoutKey) return _layout;
+        var centre = new Vector2[Research.Fields.Length];
+        for (var i = 0; i < centre.Length; i++) centre[i] = new Vector2(200 + i % 3 * 340, 200 + i / 3 * 400);
+        var rng = new Random(7);
+        var pos = shown.Select(r => centre[Math.Max(0, Research.FieldIndex(r.Field))] + new Vector2(rng.Next(-60, 60), rng.Next(-60, 60))).ToArray();
+        var n = pos.Length;
+        var force = new Vector2[n];
+        for (var round = 0; round < 500; round++)
+        {
+            Array.Clear(force);
+            for (var a = 0; a < n; a++)
+                for (var b = a + 1; b < n; b++)
                 {
-                    ResearchScreen.IdeaState.Done => (new Color("12324a"), Ui.Player),
-                    ResearchScreen.IdeaState.Researching or ResearchScreen.IdeaState.Queued => (new Color("1a2230"), new Color("d6dde8")),
-                    ResearchScreen.IdeaState.Available => (new Color("10151e"), new Color("aab4c3")),
-                    _ => (new Color("10151e"), new Color("4c5666")),
-                };
-                if (lit) fill = fill.Lightened(0.15f);
-                _nodes.Add((r.Id, at, r.Name, fill, ink, false));
+                    var d = pos[a] - pos[b];
+                    var e = new Vector2(d.X * 0.45f, d.Y); // labels are wide: count sideways distance less
+                    var d2 = e.LengthSquared() + 0.01f;
+                    if (d2 > 120 * 120) continue;
+                    var f = d.Normalized() * (900 / d2);
+                    force[a] += f;
+                    force[b] -= f;
+                }
+            foreach (var (from, to, _) in _links)
+            {
+                var d = pos[from] - pos[to];
+                var len = d.Length() + 0.01f;
+                var rest = _nodes[from].Field == _nodes[to].Field ? 55 : 140;
+                var f = d / len * (0.04f * (len - rest));
+                force[to] += f;
+                force[from] -= f;
+            }
+            var step = round < 330 ? 0.9f : 0.4f;
+            for (var i = 0; i < n; i++)
+            {
+                force[i] += (centre[_nodes[i].Field] - pos[i]) * 0.02f;
+                pos[i] += force[i].LimitLength(8) * step;
             }
         }
-        foreach (var r in visible)
-            foreach (var n in r.Needs ?? new())
-                if (pos.TryGetValue(n, out var a) && pos.TryGetValue(r.Id, out var b))
-                    _lines.Add((a + new Vector2(NodeW, NodeH / 2), b + new Vector2(0, NodeH / 2),
-                        path.Contains(r.Id) && path.Contains(n) ? Ui.Player : new Color("2a3446")));
-        for (var i = 0; i < finds.Count; i++)
+        _layoutKey = key;
+        _layout = shown.Select((r, i) => (r.Id, pos[i])).ToDictionary(p => p.Id, p => p.Item2);
+        return _layout;
+    }
+
+    private Vector2 Screen(Vector2 p) => p * _zoom + _pan;
+
+    private void Fit()
+    {
+        if (_at.Count == 0 || Size.X < 10) return;
+        var min = new Vector2(_at.Values.Min(p => p.X), _at.Values.Min(p => p.Y)) - new Vector2(70, 40);
+        var max = new Vector2(_at.Values.Max(p => p.X), _at.Values.Max(p => p.Y)) + new Vector2(70, 30);
+        _zoom = Mathf.Clamp(Mathf.Min(Size.X / (max.X - min.X), Size.Y / (max.Y - min.Y)), 0.3f, 2.5f);
+        _pan = (Size - (max - min) * _zoom) / 2 - min * _zoom;
+    }
+
+    private int NodeAt(Vector2 screen)
+    {
+        var best = -1;
+        var bestD = 14f * 14f;
+        for (var i = 0; i < _nodes.Count; i++)
         {
-            var at = new Vector2(8, 8 + i * RowH);
-            var body = w.FindBody(finds[i].BodyId)?.Name ?? "?";
-            _nodes.Add(("find", at, $"{body} survey", new Color("1d1a10"), new Color("f5d27a"), false));
-            if (pos.TryGetValue(finds[i].Idea, out var b))
-                _lines.Add((at + new Vector2(NodeW, NodeH / 2), b + new Vector2(0, NodeH / 2), new Color("5a4a20")));
+            if (_nodes[i].Look == Look.Blur) continue;
+            var d = (Screen(_at[_nodes[i].Id]) - screen).LengthSquared();
+            if (d < bestD) { best = i; bestD = d; }
         }
-        var maxX = _nodes.Count > 0 ? _nodes.Max(n => n.At.X) + NodeW + 8 : 100;
-        var maxY = _nodes.Count > 0 ? _nodes.Max(n => n.At.Y) + NodeH + 8 : 100;
-        CustomMinimumSize = new Vector2(maxX, maxY);
+        return best;
+    }
+
+    public override void _GuiInput(InputEvent e)
+    {
+        switch (e)
+        {
+            case InputEventMouseButton { ButtonIndex: MouseButton.WheelUp or MouseButton.WheelDown, Pressed: true } wheel:
+            {
+                var old = _zoom;
+                _zoom = Mathf.Clamp(_zoom * (wheel.ButtonIndex == MouseButton.WheelUp ? 1.15f : 1 / 1.15f), 0.3f, 3f);
+                _pan = wheel.Position - (wheel.Position - _pan) * (_zoom / old);
+                QueueRedraw();
+                AcceptEvent();
+                break;
+            }
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left } click:
+                if (click.Pressed) { _press = click.Position; _panAtPress = _pan; _dragging = false; }
+                else if (!_dragging && NodeAt(click.Position) is var i and >= 0) _pick?.Invoke(_nodes[i].Id);
+                AcceptEvent();
+                break;
+            case InputEventMouseMotion motion:
+                if (Input.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    if ((motion.Position - _press).Length() > 4) _dragging = true;
+                    if (_dragging) { _pan = _panAtPress + motion.Position - _press; QueueRedraw(); }
+                }
+                else if (NodeAt(motion.Position) is var h && h != _hover) { _hover = h; QueueRedraw(); }
+                break;
+        }
     }
 
     public override void _Draw()
     {
+        if (_zoom <= 0) Fit();
+        if (_zoom <= 0) return;
         var font = ThemeDB.FallbackFont;
-        foreach (var (from, to, color) in _lines)
+        DrawRect(new Rect2(Vector2.Zero, Size), new Color("0a0e15"));
+
+        // Field clusters: a faint ring round each field's ideas, and its name on top.
+        for (var f = 0; f < Research.Fields.Length; f++)
         {
-            var mid = (from.X + to.X) / 2;
-            DrawPolyline(new[] { from, new Vector2(mid, from.Y), new Vector2(mid, to.Y), to }, color, 1.5f, true);
+            var pts = _nodes.Where(n => n.Field == f).Select(n => _at[n.Id]).ToList();
+            if (pts.Count == 0) continue;
+            var mid = pts.Aggregate(Vector2.Zero, (a, b) => a + b) / pts.Count;
+            var r = pts.Max(p => (p - mid).Length()) + 26;
+            var c = FieldColors[f % FieldColors.Length];
+            DrawCircle(Screen(mid), r * _zoom, new Color(c, 0.04f));
+            DrawArc(Screen(mid), r * _zoom, 0, Mathf.Tau, 96, new Color(c, 0.18f), 1, true);
+            var name = Research.FieldNames[f].ToUpperInvariant();
+            var size = Mathf.Clamp((int)(13 * _zoom), 10, 18);
+            var at = Screen(mid - new Vector2(0, r - 16));
+            DrawString(font, at - new Vector2(240, 0), name, HorizontalAlignment.Center, 480, size, new Color(c, 0.9f));
         }
-        foreach (var n in _nodes)
+
+        // Links: a gentle curve from each idea to what it opens; the picked chain on top.
+        foreach (var lit in new[] { false, true })
+            foreach (var (from, to, isLit) in _links)
+            {
+                if (isLit != lit) continue;
+                var a = Screen(_at[_nodes[from].Id]);
+                var b = Screen(_at[_nodes[to].Id]);
+                var (fa, fb) = (_nodes[from].Look, _nodes[to].Look);
+                var color = isLit ? Ui.Player
+                    : fa == Look.Known && fb == Look.Known ? new Color("3d6a4a")
+                    : fa == Look.Known ? new Color("4a5a70")
+                    : fb == Look.Blur ? new Color("1e2633") : new Color("2a3446");
+                var d = b - a;
+                var ctrl = (a + b) / 2 + new Vector2(-d.Y, d.X) * 0.15f;
+                var pts = new Vector2[13];
+                for (var k = 0; k <= 12; k++)
+                {
+                    var t = k / 12f;
+                    pts[k] = (1 - t) * (1 - t) * a + 2 * (1 - t) * t * ctrl + t * t * b;
+                }
+                DrawPolyline(pts, color, isLit ? 2.2f : 1.2f, true);
+            }
+
+        // Ideas: filled dots for what you know, rings for what you can start or are working on, dim rings
+        // for what comes after, blurred dots beyond that. Names on everything but known ideas (hover shows them).
+        for (var i = 0; i < _nodes.Count; i++)
         {
-            DrawRect(new Rect2(n.At, new Vector2(NodeW, NodeH)), n.Fill);
-            var ink = n.Blur ? new Color(n.Ink, 0.5f) : n.Ink;
-            DrawString(font, n.At + new Vector2(8, 16), n.Text, HorizontalAlignment.Left, NodeW - 12, 12, ink);
-            if (n.Blur) DrawString(font, n.At + new Vector2(9, 17), n.Text, HorizontalAlignment.Left, NodeW - 12, 12, new Color(n.Ink, 0.25f));
+            var n = _nodes[i];
+            var p = Screen(_at[n.Id]);
+            if (p.X < -100 || p.Y < -40 || p.X > Size.X + 100 || p.Y > Size.Y + 40) continue;
+            var c = FieldColors[n.Field % FieldColors.Length];
+            var r = 6.5f * Mathf.Clamp(_zoom, 0.7f, 1.4f);
+            switch (n.Look)
+            {
+                case Look.Blur:
+                    DrawCircle(p, r * 1.6f, new Color("2a3446", 0.25f));
+                    DrawCircle(p, r, new Color("2a3446", 0.6f));
+                    continue;
+                case Look.Known:
+                    DrawCircle(p, r * 0.8f, c);
+                    break;
+                case Look.Busy:
+                    DrawCircle(p, r, new Color("0c111a"));
+                    DrawArc(p, r, 0, Mathf.Tau, 24, Ui.Player, 2, true);
+                    DrawArc(p, r + 4, 0, Mathf.Tau, 24, new Color(Ui.Player, 0.5f), 1, true);
+                    break;
+                case Look.Open:
+                    DrawCircle(p, r, new Color("0c111a"));
+                    DrawArc(p, r, 0, Mathf.Tau, 24, c, 2, true);
+                    break;
+                default:
+                    DrawCircle(p, r, new Color("0c111a"));
+                    DrawArc(p, r, 0, Mathf.Tau, 24, new Color("3a4658"), 1.2f, true);
+                    break;
+            }
+            if (n.Lit && _links.Any(l => l.Lit) || i == _hover) DrawArc(p, r + 7, 0, Mathf.Tau, 32, new Color(Ui.Player, i == _hover ? 0.6f : 0.9f), 1.5f, true);
+            if (n.Look == Look.Known && !n.Lit && i != _hover) continue;
+            var ink = n.Lit || i == _hover ? new Color("f2f5fa")
+                : n.Look switch { Look.Busy => new Color("7cc4ff"), Look.Open => new Color("e6ebf2"), Look.Known => new Color("8a96a8"), _ => new Color("6b7688") };
+            var size = Mathf.Clamp((int)(11 * _zoom), 9, 16);
+            var text = n.Name + (n.Look == Look.Known ? " ✓" : "");
+            var pos = p + new Vector2(-110, r + size + 2);
+            DrawString(font, pos + new Vector2(1, 1), text, HorizontalAlignment.Center, 220, size, new Color(0, 0, 0, 0.8f));
+            DrawString(font, pos, text, HorizontalAlignment.Center, 220, size, ink);
         }
+    }
+
+    /// <summary>The key under the web.</summary>
+    public static Control Legend()
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 14);
+        foreach (var (mark, text, color) in new[]
+                 {
+                     ("●", "Known (hover for names)", new Color("ff8a6b")), ("◎", "Researching or queued", Ui.Player), ("○", "Can start", new Color("6fe08a")),
+                     ("○", "Comes after that", new Color("3a4658")), ("•", "Not yet guessed at", new Color("2a3446")),
+                 })
+        {
+            var item = new HBoxContainer();
+            item.AddThemeConstantOverride("separation", 4);
+            item.AddChild(Ui.Label(mark, 13, color));
+            item.AddChild(Ui.Label(text, 11, Ui.Dim));
+            row.AddChild(item);
+        }
+        return row;
     }
 }
