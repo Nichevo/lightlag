@@ -27,6 +27,52 @@ public static class Chases
         };
     }
 
+    /// <summary>A quarry's track passing this close (Mm) to a planet of ours counts as heading for it.</summary>
+    public const double MeetMm = 0.01 * Physics.MmPerAu;
+
+    /// <summary>
+    /// Is the quarry heading for a planet the fleet's side holds? Its seen track (straight on at its seen velocity)
+    /// passes within MeetMm of the planet, ahead of it: the first such planet, and hours until it is closest there.
+    /// A quarry holding orbit, or barely moving, is heading nowhere.
+    /// </summary>
+    /// <remarks>A planet and its moon both lie on the track: prefer, when it is one of them, the body the asking fleet is at.</remarks>
+    public static (Body Body, double Hours)? HeadingFor(World w, Side side, Sighting s, int? preferBodyId = null)
+    {
+        if (s.OrbitBodyId != null || s.Velocity.Length < 1e-3) return null;
+        var at = Sensors.Predict(w, side, s.FleetId, w.Hour) ?? s.Guess(w.Hour);
+        var v = s.Velocity;
+        (Body, double)? best = null;
+        foreach (var b in w.Bodies.Where(b => b.Owner == side).OrderBy(b => b.Id))
+        {
+            var rel = b.Position - at;
+            var t = (rel.X * v.X + rel.Y * v.Y) / (v.X * v.X + v.Y * v.Y);
+            if (t <= 0) continue;
+            // The planet moves on its orbit meanwhile: aim once more at where it will be then.
+            var then = FlightPlanner.PredictBody(w, b, w.Hour + t);
+            rel = then - at;
+            t = (rel.X * v.X + rel.Y * v.Y) / (v.X * v.X + v.Y * v.Y);
+            if (t <= 0 || Vec2.Distance(at + v * t, FlightPlanner.PredictBody(w, b, w.Hour + t)) > MeetMm) continue;
+            if (b.Id == preferBodyId) return (b, t);
+            if (best is not var (_, bt) || t < bt) best = (b, t);
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// A chase order against a quarry coming to a planet of ours: wait there for it (already in orbit), or fly there
+    /// when that is sooner than the quarry arrives. Null: chase as usual. Chasing out past a fleet on its way to
+    /// the planet the chaser just left let it bomb that planet unopposed.
+    /// </summary>
+    public static (Body Body, Flight? Flight)? MeetAt(World w, Fleet f, int quarryId, ChaseMode mode, double speedFraction)
+    {
+        if (mode is not (ChaseMode.GunRange or ChaseMode.MissileRange)) return null;
+        if (w.FindFleet(quarryId) is not Fleet q || q.Side == f.Side || Sensors.Find(w, f.Side, quarryId) is not Sighting s) return null;
+        if (HeadingFor(w, f.Side, s, f.OrbitBodyId) is not var (body, hours)) return null;
+        if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId == body.Id && f.Flight is not { Started: true }) return (body, null);
+        var plan = FlightPlanner.Plan(w, f, new FlightRequest(body.Id, body.Position, speedFraction, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick));
+        return plan is { Ok: true, Flight: Flight flight } && flight.ArriveHour <= w.Hour + hours ? (body, flight) : null;
+    }
+
     /// <summary>Only a gun-range chase (or no chase) hands over to close combat; the others keep their distance.</summary>
     public static bool LetsEngage(Fleet f) => f.Chase is not { } c || c.Mode == ChaseMode.GunRange;
 
@@ -110,6 +156,16 @@ public static class Chases
                 continue;
             }
             if (f.Maneuvering) continue; // in a fight: combat steers
+            if (c.WaitBodyId is int waitAt)
+            {
+                // Waiting at (or flying to) a planet of ours the quarry is heading for: carry on while it still is and
+                // is still far off; once it is close, or turns elsewhere, chase it as usual.
+                var close = gapNow <= (FlightPlanner.ChaseDistance(c.Mode) ?? 0) * 2 + GameData.Combat.ContactRangeMm;
+                if (!close && HeadingFor(w, f.Side, s, waitAt) is var (b, _) && b.Id == waitAt) continue;
+                c.WaitBodyId = null;
+                c.PlannedHour = -1; // forces a fresh plan below
+                sim.Log.Info("fleet", $"{f.Name} stops waiting and chases", new { fleetId = f.Id, targetFleetId = c.TargetFleetId, close });
+            }
             var detoured = c.Detouring && f.Flight is not { Detour: true };
             if (c.Mode == ChaseMode.Overtake && f.Flight == null && !detoured)
             {
@@ -118,7 +174,7 @@ public static class Chases
                 continue;
             }
             var guess = Sensors.Predict(w, f.Side, c.TargetFleetId, now) ?? s.Guess(now);
-            var turned = s.Hour >= c.PlannedHour && ((s.Velocity - c.TargetVelocity).Length > Math.Max(0.5, 0.02 * s.Velocity.Length)
+            var turned = c.PlannedHour < 0 || s.Hour >= c.PlannedHour && ((s.Velocity - c.TargetVelocity).Length > Math.Max(0.5, 0.02 * s.Velocity.Length)
                                        || Vec2.Distance(guess, Expected(c, now)) > ReaimDriftMm);
             // Far off, a quarry seen burning is re-aimed at every few hours, not every hour of its burn.
             var want = FlightPlanner.ChaseDistance(c.Mode);

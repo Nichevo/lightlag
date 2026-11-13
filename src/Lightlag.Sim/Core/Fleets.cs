@@ -89,6 +89,9 @@ public sealed class ChaseOrder
     /// <summary>The quarry has been out of sight so long the chase now closes to sensor range of the guess to look (Chases.SearchAfterHours).</summary>
     public bool Searching { get; set; }
 
+    /// <summary>The quarry is heading for this planet of ours and gets there sooner than a chase would meet it: wait (or go) there for it.</summary>
+    public int? WaitBodyId { get; set; }
+
     /// <summary>Why the last attempt to re-aim failed (null when it worked).</summary>
     public string? Problem { get; set; }
 

@@ -1133,6 +1133,13 @@ public partial class FleetPanel : PanelContainer
             var seen = Sensors.Find(w, f.Side, c.TargetFleetId, seat: true);
             var who = seen?.Name ?? w.FindFleet(c.TargetFleetId)?.Name ?? "the enemy";
             var how = FlightPlanner.ChaseName(c.Mode);
+            if (c.WaitBodyId is int waitAt && w.FindBody(waitAt) is Body meet)
+            {
+                var due = seen != null && Chases.HeadingFor(w, f.Side, seen, waitAt) is var (_, hours) ? $", there in about {hours:0} h" : "";
+                return f.Flight is Flight mf
+                    ? $"{who} is heading for {meet.Name}: going there to meet it, arrives {GameTime.Format(mf.ArriveHour)}{due}"
+                    : $"They're coming to you: waiting at {meet.Name} for {who}{due}. Chases it ({how}) once it is close or turns away";
+            }
             var orbiting = seen?.OrbitBodyId is int ob && w.FindBody(ob) is Body ob2 ? $" (orbiting {ob2.Name}{(seen.Visible ? "" : ", out of sight: looked for there")})" : "";
             var text = f.Flight is Flight cf
                 ? $"Chasing {who}{orbiting} ({how}), there {GameTime.Format(cf.ArriveHour)}"
