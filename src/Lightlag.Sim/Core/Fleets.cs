@@ -417,6 +417,18 @@ public readonly record struct FleetPerformance(double MaxSpeed, double Accel, do
         if (speed == double.MaxValue) return new FleetPerformance(0, 0, 0);
         return new FleetPerformance(speed, accel, dv);
     }
+
+    /// <summary>
+    /// The ship that holds the fleet's burn back, when the others could burn clearly harder (a quarter or more):
+    /// its name, its burn and the next slowest ship's, in Mm/h per hour. Null when the ships burn about alike.
+    /// </summary>
+    public static (string Ship, double Accel, double Others)? HeldBackBy(World w, Fleet f)
+    {
+        var ships = w.ShipsOf(f).Where(s => !Sails.Is(s))
+            .Select(s => (s.Name, Accel: s.Accel * Wounds.SpeedFactor(s) * Fuels.Thrust(w, s))).OrderBy(x => x.Accel).ThenBy(x => x.Name, StringComparer.Ordinal).ToList();
+        if (ships.Count < 2 || ships[1].Accel < ships[0].Accel * 1.25) return null;
+        return (ships[0].Name, ships[0].Accel, ships[1].Accel);
+    }
 }
 
 /// <summary>Fleet bookkeeping shared by commands and the scenario builder.</summary>

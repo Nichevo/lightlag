@@ -57,6 +57,23 @@ public static class Chases
     public const double GiveUpHours = 10 * 24;
 
     /// <summary>Once an hour: end finished chases and re-aim those whose target has changed course.</summary>
+    /// <summary>Hours without closing in before a chase says the quarry is pulling away.</summary>
+    public const double PullingAwayHours = 2;
+
+    /// <summary>
+    /// The quarry is getting away: the chase has not closed in for PullingAwayHours (it is burning away as hard
+    /// as we chase). Says the gap now and the closest it came, for the fleet panel and the engagement screen.
+    /// </summary>
+    public static string? PullingAway(World w, Fleet f)
+    {
+        if (f.Chase is not { } c || c.Mode == ChaseMode.Join || c.ClosestHour <= 0 || w.Hour - c.ClosestHour < PullingAwayHours) return null;
+        if (Sensors.Find(w, f.Side, c.TargetFleetId) is not Sighting s) return null;
+        var gap = Vec2.Distance(f.Position, Sensors.Predict(w, f.Side, c.TargetFleetId, w.Hour) ?? s.Guess(w.Hour));
+        if (gap <= c.ClosestGap) return null;
+        return $"they are pulling away: {gap * 1000:#,0} km now, closest was {c.ClosestGap * 1000:#,0} km {w.Hour - c.ClosestHour:0} h ago. "
+               + $"Their burn matches or beats yours; the chase closes once they stop burning (gives up after {GiveUpHours / 24:0} days)";
+    }
+
     public static void Update(Simulation sim)
     {
         var w = sim.World;

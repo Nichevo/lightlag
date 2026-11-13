@@ -1135,7 +1135,8 @@ public partial class FleetPanel : PanelContainer
             var text = f.Flight is Flight cf
                 ? $"Chasing {who}{orbiting} ({how}), there {GameTime.Format(cf.ArriveHour)}"
                 : $"Keeping pace with {who}{orbiting} ({how})";
-            return c.Problem != null ? $"{text}. Can't keep up: {c.Problem}" : text;
+            if (c.Problem != null) return $"{text}. Can't keep up: {c.Problem}";
+            return Chases.PullingAway(w, f) is string away ? $"{text}. WARNING: {away}" : text;
         }
         if (f.Flight is Flight fl)
         {

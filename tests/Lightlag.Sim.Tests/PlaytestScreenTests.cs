@@ -33,4 +33,20 @@ public class PlaytestScreenTests
         var held = Colonies.HeldUp(sim.World, verdant);
         Assert.Contains(held, h => h.Why.StartsWith("waiting for", StringComparison.Ordinal) && h.Why.Contains("Industry"));
     }
+
+    [Fact]
+    public void A_slow_ship_holding_the_fleets_burn_back_is_named()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var f = w.Fleets.Where(x => x.Side == Side.Player && x.ShipIds.Count >= 2).OrderBy(x => x.Id).First();
+        var ships = w.ShipsOf(f).ToList();
+        foreach (var s in ships) s.Accel = 15;
+        Assert.Null(FleetPerformance.HeldBackBy(w, f));
+        ships[^1].Accel = 8;
+        var held = FleetPerformance.HeldBackBy(w, f);
+        Assert.NotNull(held);
+        Assert.Equal(ships[^1].Name, held!.Value.Ship);
+        Assert.Null(Chases.PullingAway(w, f)); // no chase: nothing to say
+    }
 }
