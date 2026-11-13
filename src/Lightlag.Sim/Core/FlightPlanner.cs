@@ -92,7 +92,6 @@ public static partial class FlightPlanner
         if (perf.MaxSpeed <= 0 || perf.Accel <= 0) return FlightPlan.Fail("The fleet has no ships that can fly");
         var now = w.Hour;
         var legs = new List<FlightLeg>();
-        double dv = 0;
 
         Body? body = null;
         if (req.TargetBodyId is int bodyId)
@@ -127,54 +126,73 @@ public static partial class FlightPlanner
         if (req.Route == RouteKind.Slingshot && req.FlybyBodyId is int flyby)
             return PlanSlingshot(w, fleet, req, perf, body, enemy, AimFrom, flyby);
 
+        // The trip is planned in a frame that starts moving with the planet the fleet leaves (a fleet in
+        // orbit already moves with it, as a ship leaving Earth for the Moon does) and changes speed steadily
+        // to match the target's motion on arrival. Inside that frame the old straight-line planning works.
+        var frame = FrameFor(w, fleet, req, body);
+        Vec2 TargetAt(double hour) => body != null ? PredictBody(w, body, hour) : enemy != null
+            ? Sensors.Predict(w, fleet.Side, enemy.Id, hour)!.Value : req.Point;
+        Vec2 RelAimIn(TripFrame fr, Vec2 from, double hour)
+        {
+            var c = TargetAt(hour) - fr.OffsetArriving(hour);
+            if (body == null && enemy == null) return c;
+            var away = (from - c).Normalized();
+            if (away == Vec2.Zero) away = new Vec2(1, 0);
+            return c + away * standoffFor;
+        }
+        Vec2 RelAim(Vec2 from, double hour) => RelAimIn(frame, from, hour);
+
         if (req.Waypoints is { Count: > 0 })
-            return PlanWaypoints(w, fleet, req, perf, body, enemy, AimFrom);
+            return PlanWaypoints(w, fleet, req, perf, body, enemy, frame, RelAimIn);
 
         // A fleet already moving and told to go now swings round onto the new course in one curving burn.
+        var relV = fleet.Velocity - frame.V0;
         if (fleet.Velocity.Length > 1e-9 && req.DepartTick <= now + 1e-9)
         {
             var cruiseNow = Math.Clamp(req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
-            if (Redirect(fleet.Position, fleet.Velocity, now, perf.Accel, cruiseNow, req.Arrival, AimFrom) is { } turn)
-                return Finish(w, req, body, enemy, perf, turn.Legs, turn.Aim, turn.Speed, now, turn.DeltaV);
+            if (relV.Length > 1e-9 && Redirect(fleet.Position, relV, now, perf.Accel, cruiseNow, req.Arrival, RelAim) is { } turn)
+                return FinishInFrame(w, req, body, enemy, perf, frame, turn.Legs, turn.Aim, turn.Speed, now);
         }
 
-        // A fleet still moving (after a fast pass, or mid-flight) first brakes to a stop.
+        // A fleet still moving (after a fast pass, or mid-flight) first brakes to a stop (in the trip's frame).
         var ready = now;
         Vec2? restPoint = null;
-        if (fleet.Velocity.Length > 1e-9)
+        if (relV.Length > 1e-9 && fleet.Velocity.Length > 1e-9)
         {
-            var v = fleet.Velocity;
-            var tb = v.Length / perf.Accel;
-            var brake = new FlightLeg(now, now + tb, fleet.Position, v, v.Normalized() * -perf.Accel);
+            var tb = relV.Length / perf.Accel;
+            var brake = new FlightLeg(now, now + tb, fleet.Position, relV, relV.Normalized() * -perf.Accel);
             legs.Add(brake);
-            dv += v.Length;
             ready = now + tb;
             restPoint = brake.PositionAt(brake.End);
         }
 
         var depart = Math.Max(ready, (double)req.DepartTick);
-        var p0 = restPoint ?? PredictHoldPosition(w, fleet, depart);
+        Vec2 p0;
+        if (fleet.Velocity.Length <= 1e-9)
+        {
+            // A fleet at rest holds (in orbit, say) until it leaves, and the frame starts then.
+            frame.Start = depart;
+            p0 = PredictHoldPosition(w, fleet, depart);
+        }
+        else
+        {
+            // Moving: the frame starts now; it waits at rest in the frame (moving with it) until it leaves.
+            p0 = restPoint ?? fleet.Position;
+            if (depart > ready + 1e-9) legs.Add(new FlightLeg(ready, depart, p0, Vec2.Zero, Vec2.Zero));
+        }
         var cruise = Math.Clamp(req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
         var a = perf.Accel;
 
         Vec2 aim;
-        if (body == null && enemy == null)
+        if (body == null && enemy == null && frame.V0 == Vec2.Zero)
         {
-            aim = req.Point;
+            aim = req.Point; // a point stands still, and so does the frame
         }
         else
         {
             // Bodies: arrive at orbit height. Fleets: brake just inside railgun range, or fly straight through.
-            var standoff = body != null ? Fleets.OrbitRadiusFor(body)
-                : req.Arrival == ArrivalStyle.Brake ? GameData.Combat.EngageRangeMm * 0.75 : 0;
-            var targetName = body?.Name ?? enemy!.Name;
-            Vec2 AimAt(double hour)
-            {
-                var p = body != null ? PredictBody(w, body, hour) : Sensors.Predict(w, fleet.Side, enemy!.Id, hour)!.Value;
-                var away = (p0 - p).Normalized();
-                if (away == Vec2.Zero) away = new Vec2(1, 0);
-                return p + away * standoff;
-            }
+            var targetName = body?.Name ?? enemy?.Name ?? "that point";
+            Vec2 AimAt(double hour) => RelAim(p0, hour);
             double Gap(double hour) => depart + Profile(Vec2.Distance(AimAt(hour), p0), cruise, a, req.Arrival).Total - hour;
 
             // Find the hour where "leave at depart and fly there" lands exactly on the target.
@@ -227,10 +245,112 @@ public static partial class FlightPlanner
                 legs.Add(brake);
                 t = brake.End;
             }
-            dv += profile.DeltaV;
         }
 
-        return Finish(w, req, body, enemy, perf, legs, aim, profile.Peak, depart, dv);
+        return FinishInFrame(w, req, body, enemy, perf, frame, legs, aim, profile.Peak, depart);
+    }
+
+    /// <summary>
+    /// The frame a trip is planned in. It starts at Start moving at V0 and changes speed steadily by Accel,
+    /// so that at the end it moves as the target does (EndVelocity, by arrival hour; null keeps V0).
+    /// Inside it the planner's straight burns, coasts and brakes work as before; Offset is
+    /// how far the frame has moved, and the legs are turned back into real ones with the frame's motion added.
+    /// </summary>
+    private sealed class TripFrame
+    {
+        public double Start;
+        public Vec2 V0;
+        public Vec2 Accel;
+        public Func<double, Vec2>? EndVelocity;
+
+        public Vec2 Offset(double hour)
+        {
+            var t = hour - Start;
+            return V0 * t + Accel * (0.5 * t * t);
+        }
+
+        /// <summary>How far the frame has moved by the hour it arrives, if the trip ends then.</summary>
+        public Vec2 OffsetArriving(double hour)
+        {
+            var t = hour - Start;
+            return EndVelocity == null ? V0 * t : (V0 + EndVelocity(hour)) * (0.5 * t);
+        }
+
+        /// <summary>Fixes the frame's speed change for a trip that ends at this hour.</summary>
+        public void Settle(double end)
+        {
+            Accel = EndVelocity != null && end - Start > 1e-9 ? (EndVelocity(end) - V0) * (1 / (end - Start)) : Vec2.Zero;
+        }
+
+        public FlightLeg ToWorld(FlightLeg l)
+        {
+            var frameV = V0 + Accel * (l.Start - Start);
+            return new FlightLeg(l.Start, l.End, l.P0 + Offset(l.Start), l.V0 + frameV, l.A + Accel) { Match = Accel, FrameV0 = frameV };
+        }
+    }
+
+    /// <summary>How fast a body moves at an hour (along its orbit, plus its planet's), Mm per hour.</summary>
+    public static Vec2 BodyVelocity(World w, Body b, double hour) =>
+        PredictBody(w, b, hour + 0.5) - PredictBody(w, b, hour - 0.5);
+
+    /// <summary>A fleet's real velocity: one holding an orbit moves with its body.</summary>
+    public static Vec2 TrueVelocity(World w, Fleet f, double hour) =>
+        f.Velocity.Length <= 1e-9 && f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int id && w.FindBody(id) is Body b
+            ? BodyVelocity(w, b, hour) : f.Velocity;
+
+    /// <summary>
+    /// The planet whose neighbourhood a body or point is in (a moon's planet, or the planet itself); null
+    /// out in open space or for the star. The planet's gravity carries everything near it along its orbit.
+    /// </summary>
+    public static Body? SystemOf(World w, Body? b)
+    {
+        while (b?.ParentId is int pid && w.FindBody(pid) is Body parent && parent.ParentId != null) b = parent;
+        return b?.ParentId == null ? null : b;
+    }
+
+    public static Body? SystemAt(World w, Vec2 at) => SystemOf(w, Fleets.OrbitableNear(w, at));
+
+    /// <summary>The planet system a fleet is in now (where it orbits, or the neighbourhood it is in).</summary>
+    public static Body? SystemOf(World w, Fleet f) =>
+        f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int id ? SystemOf(w, w.FindBody(id)) : SystemAt(w, f.Position);
+
+    /// <summary>
+    /// The frame a trip is planned in. A trip to a body in the planet system the fleet is in (to its moon,
+    /// between moons, back to the planet) starts moving with the body the fleet leaves, as a ship leaving
+    /// Earth for the Moon does, and ends moving with the target: the planet's gravity carries its whole
+    /// system along its orbit, so the trip need not chase the planet round the sun. Trips between planets,
+    /// and to points or fleets, are planned at rest relative to the sun, as before (without the sun's pull,
+    /// a fleet keeping its planet's speed would fly off in a straight line for months; and a fleet stopped
+    /// at a point stays there while the planet moves on).
+    /// </summary>
+    private static TripFrame FrameFor(World w, Fleet fleet, FlightRequest req, Body? body)
+    {
+        var now = w.Hour;
+        var start = fleet.Velocity.Length > 1e-9 ? now : Math.Max(now, req.DepartTick);
+        var system = SystemOf(w, fleet);
+        if (body == null || system == null || SystemOf(w, body)?.Id != system.Id) return new TripFrame { Start = start };
+        // Leaving orbit: moving with the body. Already flying: keep the frame of the trip it is on.
+        var v0 = fleet.Velocity.Length > 1e-9 ? fleet.Flight?.FrameVelocityAt(now) ?? Vec2.Zero : TrueVelocity(w, fleet, start);
+        // Arriving: moving with the body (a fast pass then sweeps by at the chosen speed relative to it).
+        return new TripFrame { Start = start, V0 = v0, EndVelocity = h => BodyVelocity(w, body, h) };
+    }
+
+    /// <summary>Turns a trip planned in its frame into real legs, works out the fuel, and finishes it.</summary>
+    private static FlightPlan FinishInFrame(World w, FlightRequest req, Body? body, Fleet? enemy, FleetPerformance perf,
+        TripFrame frame, List<FlightLeg> legs, Vec2 aim, double cruise, double depart)
+    {
+        var end = legs.Count > 0 ? legs[^1].End : depart;
+        frame.Settle(end);
+        var real = legs.Select(frame.ToWorld).ToList();
+        var dv = real.Sum(l => l.A.Length * (l.End - l.Start));
+        var plan = Finish(w, req, body, enemy, perf, real, aim + frame.Offset(end), cruise, depart, dv);
+        if (plan.Flight is Flight f)
+        {
+            f.FrameStart = frame.Start;
+            f.FrameVelocity = frame.V0;
+            f.FrameAccel = frame.Accel;
+        }
+        return plan;
     }
 
     private static FlightPlan Finish(World w, FlightRequest req, Body? body, Fleet? enemy, FleetPerformance perf,
@@ -261,57 +381,107 @@ public static partial class FlightPlanner
     /// <summary>One stretch of a route: the legs, where it ended up aiming, and the state at its end.</summary>
     private sealed record StretchPlan(List<FlightLeg> Legs, Vec2 Aim, double DeltaV, Vec2 EndP, Vec2 EndV, double EndT);
 
-    /// <summary>A route through waypoints: each stretch is planned from where and how fast the last one ended.</summary>
+    /// <summary>
+    /// A route through waypoints: each stretch is planned from where and how fast the last one ended.
+    /// Waypoints stand still in space. The route is cut at each stop: each part is planned in a frame of
+    /// its own (see TripFrame) that starts with the fleet's motion and ends at rest at the stop (or moving
+    /// with the target at the end), planned again until the frame's speed change settles.
+    /// </summary>
     private static FlightPlan PlanWaypoints(World w, Fleet fleet, FlightRequest req, FleetPerformance perf, Body? body, Fleet? enemy,
-        Func<Vec2, double, Vec2> aimFrom)
+        TripFrame first, Func<TripFrame, Vec2, double, Vec2> relAimIn)
     {
         var now = w.Hour;
         var a = perf.Accel;
         Vec2 p, v;
-        double t;
-        if (fleet.Velocity.Length > 1e-9) { p = fleet.Position; v = fleet.Velocity; t = now; }
-        else { t = Math.Max(now, req.DepartTick); p = PredictHoldPosition(w, fleet, t); v = Vec2.Zero; }
+        if (fleet.Velocity.Length > 1e-9) { p = fleet.Position; v = fleet.Velocity; first.Start = now; }
+        else { first.Start = Math.Max(now, req.DepartTick); p = PredictHoldPosition(w, fleet, first.Start); v = first.V0; }
+        var t = first.Start;
         var depart = t;
-        var legs = new List<FlightLeg>();
-        double dv = 0;
         double Speed(double? fraction) => Math.Clamp(fraction ?? req.SpeedFraction, MinSpeedFraction, 1.0) * perf.MaxSpeed;
-
         var points = req.Waypoints!;
-        var start = p;
-        var reached = new List<double>();
-        for (var i = 0; i < points.Count; i++)
-        {
-            var wp = points[i];
-            var cruiseHere = Speed(wp.SpeedFraction);
-            var endSpeed = 0.0;
-            if (!wp.Stop)
-            {
-                // Fly through at a speed the turn onto the next stretch allows, not flat out.
-                var prev = i == 0 ? start : points[i - 1].Point;
-                var next = i + 1 < points.Count ? points[i + 1].Point : aimFrom(wp.Point, t);
-                var nextCruise = Speed(i + 1 < points.Count ? points[i + 1].SpeedFraction : null);
-                endSpeed = CornerSpeed(prev, wp.Point, next, a, Math.Min(cruiseHere, nextCruise));
-            }
-            var stretch = Stretch(p, v, t, a, cruiseHere, endSpeed, (_, _) => wp.Point);
-            if (stretch == null) return FlightPlan.Fail($"Cannot reach waypoint {i + 1}", perf.DeltaVLeft);
-            legs.AddRange(stretch.Legs);
-            dv += stretch.DeltaV;
-            (p, v, t) = (stretch.EndP, stretch.EndV, stretch.EndT);
-            reached.Add(t);
-            if (wp.Stop && wp.WaitHours > 0)
-            {
-                legs.Add(new FlightLeg(t, t + wp.WaitHours, p, Vec2.Zero, Vec2.Zero));
-                t += wp.WaitHours;
-            }
-        }
         var cruise = Speed(null);
-        var last = Stretch(p, v, t, a, cruise, EndSpeed(req.Arrival), aimFrom);
-        if (last == null) return FlightPlan.Fail("Cannot reach the target from the last waypoint", perf.DeltaVLeft);
-        legs.AddRange(last.Legs);
-        dv += last.DeltaV;
-        var plan = Finish(w, req, body, enemy, perf, legs, last.Aim, cruise, depart, dv);
+        var legs = new List<FlightLeg>();
+        var reached = new List<double>();
+        var frame = first;
+        Vec2 lastAim = p;
+        var from = 0;
+        while (from <= points.Count)
+        {
+            // This part runs to the next stop (or to the target).
+            var to = from;
+            while (to < points.Count && !points[to].Stop) to++;
+            var toStop = to < points.Count;
+            var stopAt = toStop ? points[to].Point : Vec2.Zero;
+            if (from > 0) frame = new TripFrame { Start = t, V0 = v, EndVelocity = first.EndVelocity };
+            if (toStop) frame.EndVelocity = _ => Vec2.Zero;
+            var partFrame = frame;
+            Vec2 FinalAim(Vec2 at, double hour) => toStop ? stopAt - partFrame.OffsetArriving(hour) : relAimIn(partFrame, at, hour);
+
+            List<FlightLeg>? part = null;
+            List<double>? partReached = null;
+            Vec2 partAim = p;
+            for (var pass = 0; pass < 4; pass++)
+            {
+                var guess = frame.Accel;
+                Vec2 Rel(Vec2 point, double hour) => point - partFrame.Offset(hour);
+                part = new List<FlightLeg>();
+                partReached = new List<double>();
+                var (rp, rv, rt) = (p, v - frame.V0, t);
+                var start = rp;
+                for (var i = from; i < to; i++)
+                {
+                    var wp = points[i];
+                    var cruiseHere = Speed(wp.SpeedFraction);
+                    // Fly through at a speed the turn onto the next stretch allows, not flat out.
+                    var prev = i == from ? start : Rel(points[i - 1].Point, rt);
+                    var next = i + 1 < to ? Rel(points[i + 1].Point, rt) : FinalAim(Rel(wp.Point, rt), rt);
+                    var nextCruise = Speed(i + 1 < points.Count ? points[i + 1].SpeedFraction : null);
+                    var endSpeed = CornerSpeed(prev, Rel(wp.Point, rt), next, a, Math.Min(cruiseHere, nextCruise));
+                    var stretch = Stretch(rp, rv, rt, a, cruiseHere, endSpeed, (_, hour) => Rel(wp.Point, hour));
+                    if (stretch == null) return FlightPlan.Fail($"Cannot reach waypoint {i + 1}", perf.DeltaVLeft);
+                    part.AddRange(stretch.Legs);
+                    (rp, rv, rt) = (stretch.EndP, stretch.EndV, stretch.EndT);
+                    partReached.Add(rt);
+                }
+                var cruiseLast = toStop ? Speed(points[to].SpeedFraction) : cruise;
+                var last = Stretch(rp, rv, rt, a, cruiseLast, toStop ? 0 : EndSpeed(req.Arrival), FinalAim);
+                if (last == null)
+                    return FlightPlan.Fail(toStop ? $"Cannot reach waypoint {to + 1}" : "Cannot reach the target from the last waypoint", perf.DeltaVLeft);
+                part.AddRange(last.Legs);
+                partAim = last.Aim;
+                if (toStop) partReached.Add(last.EndT);
+                var end = part.Count > 0 ? part[^1].End : t;
+                frame.Settle(end);
+                // Waypoints were placed with the last guess of the frame's speed change: plan again until it holds.
+                var tt = end - t;
+                if ((frame.Accel - guess).Length * 0.5 * tt * tt < 0.01) break;
+            }
+            var real = part!.Select(frame.ToWorld).ToList();
+            legs.AddRange(real);
+            reached.AddRange(partReached!);
+            if (real.Count > 0)
+            {
+                var l = real[^1];
+                (p, v, t) = (l.PositionAt(l.End), l.VelocityAt(l.End), l.End);
+            }
+            lastAim = partAim + frame.Offset(t);
+            if (!toStop) break;
+            // At the stop: at rest in space, waiting if asked.
+            v = Vec2.Zero;
+            if (points[to].WaitHours > 0)
+            {
+                legs.Add(new FlightLeg(t, t + points[to].WaitHours, p, Vec2.Zero, Vec2.Zero));
+                t += points[to].WaitHours;
+            }
+            from = to + 1;
+        }
+        var dv = legs.Sum(l => l.A.Length * (l.End - l.Start));
+        var plan = Finish(w, req, body, enemy, perf, legs, lastAim, cruise, depart, dv);
         if (plan.Flight is Flight flight)
         {
+            flight.FrameStart = frame.Start;
+            flight.FrameVelocity = frame.V0;
+            flight.FrameAccel = frame.Accel;
             flight.Waypoints.AddRange(points.Select(x => x.Point));
             flight.WaypointPlan.AddRange(points);
             flight.WaypointHours.AddRange(reached);
@@ -594,7 +764,9 @@ public static partial class FlightPlanner
         }
 
         var r = fleet.Position - at.Value;
-        var u = fleet.Velocity - vt;
+        // A fleet in orbit already moves with its planet: chasing a fleet near the same planet starts from that.
+        var mine = SystemOf(w, fleet) is Body home && SystemAt(w, at.Value)?.Id == home.Id ? TrueVelocity(w, fleet, now) : fleet.Velocity;
+        var u = mine - vt;
         var standoff = standoffMm ?? ChaseDistance(mode) ?? r.Length;
         var endSpeed = mode == ChaseMode.Overtake ? double.PositiveInfinity : 0;
         // Keep the fleet at least slightly faster than the enemy when it has to catch up.
@@ -633,7 +805,7 @@ public static partial class FlightPlanner
             var fastest = legs.Count == 0 ? 0 : legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
             if (fastest > Math.Max(top, theirSpeed + closing * 0.01) * 1.001 && attempt < 23) continue;
             if (legs.Count == 0)
-                legs.Add(new FlightLeg(now, now + 0.01, fleet.Position, fleet.Velocity, Vec2.Zero));
+                legs.Add(new FlightLeg(now, now + 0.01, fleet.Position, mine, Vec2.Zero));
             var end = legs[^1];
             var flight = new Flight
             {
@@ -787,7 +959,7 @@ public static partial class FlightPlanner
         double dv = 0;
         foreach (var l in f.Legs)
         {
-            if (!l.IsBurn) continue;
+            if (!l.IsThrust) continue;
             var overlap = Math.Min(l.End, to) - Math.Max(l.Start, from);
             if (overlap > 0) dv += l.A.Length * overlap;
         }
