@@ -618,10 +618,17 @@ public static class Combat
                      ?? (fleet.FireAt is FireAt.Largest or FireAt.Weakest ? FireControl.Pick(sim, ship, fleet, launch) : null)
                      ?? SalvoTarget(w, ship, launch, fleet);
         if (target == null) return;
+        var count = Math.Min(m.Salvo, ship.Missiles);
+        // Missile budget: never more than the fleet's limit in flight at one ship; at the limit, hold fire.
+        if (fleet.MissilesPerTarget > 0)
+        {
+            var inFlight = w.Missiles.Count(x => x.Side == ship.Side && x.TargetShipId == target.Id);
+            count = Math.Min(count, fleet.MissilesPerTarget - inFlight);
+            if (count <= 0) return;
+        }
         target.LastTargetedHour = t1;
         battle.Action(t1);
         fleet.LastBurnHour = t1;
-        var count = Math.Min(m.Salvo, ship.Missiles);
         ship.Missiles -= count;
         ship.SalvoReadyHour = t1 + m.SalvoReloadSeconds / 3600;
         battle.For(ship.Side).MissilesFired += count;

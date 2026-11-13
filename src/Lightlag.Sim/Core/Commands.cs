@@ -244,6 +244,42 @@ public sealed record SetLeaveSupportCommand(int FleetId, bool On) : GameCommand,
     }
 }
 
+/// <summary>The fleet's missile budget: at most this many missiles in flight at one target ship (0: no limit).</summary>
+public sealed record SetMissileBudgetCommand(int FleetId, int PerTarget) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Missile budget order") is not Fleet fleet) return;
+        fleet.MissilesPerTarget = Math.Max(0, PerTarget);
+        sim.Log.Info("fleet", "Missile budget set", new { fleetId = fleet.Id, PerTarget, Source });
+    }
+}
+
+/// <summary>One ship leaves its fleet and heads for the nearest yard (or home) at once, alone.</summary>
+public sealed record SendShipHomeCommand(int FleetId, int ShipId) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Send home order") is not Fleet fleet) return;
+        if (!fleet.ShipIds.Contains(ShipId) || world.FindShip(ShipId) is not Ship ship)
+        {
+            Refuse(world, sim, fleet, "that ship is not in this fleet", new { fleetId = fleet.Id, ShipId, Source });
+            return;
+        }
+        var alone = fleet;
+        if (fleet.ShipIds.Count > 1)
+        {
+            new SplitFleetCommand(FleetId, new List<int> { ShipId }) { Source = Source }.Apply(world, sim);
+            alone = world.Fleets.First(f => f.ShipIds.Contains(ShipId));
+        }
+        alone.Chase = null;
+        alone.JoinFleetId = null;
+        alone.RejoinFleetId = fleet.Id == alone.Id ? null : fleet.Id;
+        var yard = BattleRules.NearestYard(world, alone.Side, alone.Position) ?? Economy.HomeOf(world, alone.Side);
+        Combat.Retreat(sim, alone, $"is sent home ({ship.Name})", yard);
+    }
+}
+
 public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCommand, IFleetCommand
 {
     public override void Apply(World world, Simulation sim)
