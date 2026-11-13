@@ -247,7 +247,7 @@ public partial class FleetRules : VBoxContainer
 
     // ---- Zones ----------------------------------------------------------------------------------
 
-    private const int Leave = 1, DrawHere = 2, ToggleHold = 3, ZoneBase = 1000, LaneBase = 100000;
+    private const int Leave = 1, DrawHere = 2, ToggleHold = 3, DrawPinned = 4, ZoneBase = 1000, LaneBase = 100000;
 
     private void FillZoneMenu()
     {
@@ -258,10 +258,15 @@ public partial class FleetRules : VBoxContainer
         if (_fleet.ZoneId != null)
         {
             menu.AddItem("Leave the zone", Leave);
-            menu.AddItem("Switch drift / keep station", ToggleHold);
+            menu.AddItem("Switch drift / keep station / roam", ToggleHold);
             menu.AddSeparator();
         }
-        menu.AddItem("Draw a raiding zone here", DrawHere);
+        menu.AddItem("Draw a raiding zone here (fixed in space)", DrawHere);
+        if (Lanes.AnchorFor(w, _fleet.Position) is Body pin)
+        {
+            menu.AddItem($"Draw a raiding zone here, moving with {pin.Name}", DrawPinned);
+            menu.SetItemTooltip(menu.GetItemIndex(DrawPinned), $"The zone keeps its place beside {pin.Name} as it orbits, so it stays between {pin.Name} and the same area");
+        }
         foreach (var z in w.Zones.Where(z => z.Side == Side.Player && z.Id != _fleet.ZoneId).OrderBy(z => z.Id))
             menu.AddItem($"Hold {z.Name}", ZoneBase + z.Id);
         var lanes = w.Lanes.Where(l => l.SeenBy == Side.Player).OrderByDescending(l => Lanes.Confidence(w, l)).ThenBy(l => l.Id).ToList();
@@ -282,9 +287,11 @@ public partial class FleetRules : VBoxContainer
         var f = _fleet;
         if (id == Leave) _screen.IssueNow(new SetZoneFleetCommand(f.Id, null), "leave zone");
         else if (id == DrawHere) _screen.IssueNow(new CreateZoneCommand(Side.Player, ZoneKind.Raid, f.Position, 300, FleetId: f.Id), "draw zone");
+        else if (id == DrawPinned && Lanes.AnchorFor(w, f.Position) is Body pin)
+            _screen.IssueNow(new CreateZoneCommand(Side.Player, ZoneKind.Raid, f.Position, 300, FleetId: f.Id, AnchorBodyId: pin.Id), "draw pinned zone");
         else if (id == ToggleHold && w.Zones.Find(z => z.Id == f.ZoneId) is Zone zone)
             _screen.IssueNow(new EditZoneCommand(Side.Player, zone.Id, zone.Center, zone.RadiusMm, zone.FromBodyId, zone.ToBodyId, zone.T,
-                zone.Hold == ZoneHold.Drift ? ZoneHold.StationKeep : ZoneHold.Drift, zone.Prey), "zone hold");
+                zone.Hold switch { ZoneHold.Drift => ZoneHold.StationKeep, ZoneHold.StationKeep => ZoneHold.Roam, _ => ZoneHold.Drift }, zone.Prey), "zone hold");
         else if (id >= LaneBase && w.Lanes.Find(l => l.Id == id - LaneBase) is Lane lane)
             _screen.IssueNow(new HuntCommand(f.Id, lane.FromBodyId, lane.ToBodyId), "hunt");
         else if (id >= ZoneBase) _screen.IssueNow(new SetZoneFleetCommand(f.Id, id - ZoneBase), "hold zone");
