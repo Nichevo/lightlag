@@ -21,8 +21,29 @@ public class ShipArtTests
             Assert.True(File.Exists(Path.Combine(folder, name + ".svg")), $"missing {name}.svg");
             Assert.True(File.Exists(Path.Combine(folder, name + "-cutaway.svg")), $"missing {name}-cutaway.svg");
         }
+        foreach (var name in ShipArt.Sails) Assert.True(File.Exists(Path.Combine(folder, name + ".svg")), $"missing {name}.svg");
         foreach (var cls in GameData.ShipClasses.Values)
-            Assert.Contains(ShipArt.For(cls), ShipArt.Drawings);
+            Assert.Contains(ShipArt.For(cls), ShipArt.Drawings.Concat(ShipArt.Sails));
+    }
+
+    [Fact]
+    public void Each_race_skin_has_its_drawings_and_falls_back_to_human()
+    {
+        var folder = ArtFolder();
+        foreach (var race in ShipArt.SkinnedRaces)
+            foreach (var name in ShipArt.RaceDrawings)
+                Assert.True(File.Exists(Path.Combine(folder, race, name + ".svg")), $"missing {race}/{name}.svg");
+        foreach (var cls in GameData.ShipClasses.Values)
+            foreach (var race in ShipArt.SkinnedRaces)
+            {
+                var art = ShipArt.For(cls, race);
+                var path = art.Contains('.') ? Path.Combine(folder, art.Replace('.', Path.DirectorySeparatorChar) + ".svg") : Path.Combine(folder, art + ".svg");
+                Assert.True(File.Exists(path), $"{cls.Id} as {race}: {art}");
+                Assert.InRange(ShipArt.HullShare(art), 0.5f, 1f);
+            }
+        Assert.Equal("hive.escort", ShipArt.For(GameData.ShipClass("gun-frigate"), Races.Hive));
+        Assert.Equal("lattice.cruiser", ShipArt.For(GameData.ShipClass("cruiser"), Races.Lattice));
+        Assert.Equal("cruiser", ShipArt.For(GameData.ShipClass("cruiser"), Races.Human));
     }
 
     [Fact]

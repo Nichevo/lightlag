@@ -22,8 +22,8 @@ public sealed class Minefield
     /// <summary>Laid with IFF codes: it spares its own side's ships.</summary>
     public bool Iff { get; set; }
 
-    /// <summary>Known to each side (Player, Rival): the layer always; the other once it is spotted or struck.</summary>
-    public bool[] Known { get; set; } = { false, false };
+    /// <summary>Known to each side (Player, Rival, Third): the layer always; the other once it is spotted or struck.</summary>
+    public bool[] Known { get; set; } = { false, false, false };
 }
 
 /// <summary>

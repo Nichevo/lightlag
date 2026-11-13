@@ -51,7 +51,10 @@ public partial class FleetScreen : PanelContainer
                     + string.Join(";", fleets.Select(f => $"{f.Id}:{string.Join(",", f.ShipIds)}:{f.Role}:{f.RoleRules.Range}:{f.RoleRules.Odds}:{f.RoleRules.ReturnAfter}:{f.RoleRules.MinHealth}"))
                     + "|" + string.Join(",", w.HelpCalls.Where(c => c.Side == Side.Player).Select(c => $"{c.Id}{(c.Open ? "o" : "")}"))
                     + "|" + (picked != null ? string.Join(",", Here(w, picked).Select(f => f.Id)) : "")
-                    + "|" + _screen.QuietWhenHandled;
+                    + "|" + _screen.QuietWhenHandled
+                    + "|" + string.Join(";", fleets.Select(f => f.Name))
+                    + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}"))
+                    + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"));
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
@@ -200,6 +203,7 @@ public partial class FleetScreen : PanelContainer
         if (fleets.Count == 0) list.AddChild(Ui.Label("You have no fleets", 14, Ui.Dim));
         listScroll.AddChild(list);
         left.AddChild(listScroll);
+        left.AddChild(ZonesBox(w, picked));
         body.AddChild(left);
 
         // Right: the picked fleet.
@@ -224,6 +228,70 @@ public partial class FleetScreen : PanelContainer
         right.AddChild(cols);
         right.AddChild(ShipsBox(w, picked));
         right.AddChild(CallsBox(w, picked));
+    }
+
+    // ---- Zones ---------------------------------------------------------------------------------
+
+    /// <summary>Your zones: who holds each, where it is pinned; rename, resize, pin to a planet, move to the picked fleet, delete.</summary>
+    private Control ZonesBox(World w, Fleet? picked)
+    {
+        var col = Column(6);
+        col.AddChild(Heading("Zones"));
+        var zones = w.Zones.Where(z => z.Side == Side.Player).OrderBy(z => z.Id).ToList();
+        if (zones.Count == 0)
+            col.AddChild(Ui.Label("No zones. Draw one from a fleet's Zone menu", 13, Ui.Dim));
+        foreach (var z in zones)
+        {
+            var id = z.Id;
+            var holders = w.Fleets.Where(f => f.ZoneId == id && f.ShipIds.Count > 0).Select(f => f.Name).ToList();
+            var where = z.FromBodyId is int a && z.ToBodyId is int b
+                ? $"on the {w.FindBody(a)?.Name}–{w.FindBody(b)?.Name} run"
+                : z.AnchorBodyId is int pin ? $"moves with {w.FindBody(pin)?.Name}" : "fixed in space";
+            var line = Column(3);
+            var nameRow = Row(4);
+            var name = new LineEdit { Text = z.Name, MaxLength = RenameZoneCommand.MaxLength, CustomMinimumSize = new Vector2(170, 26),
+                TooltipText = "Type a new name and press Enter" };
+            name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            name.TextSubmitted += t => Main.Instance.RunGuarded("zone name", () =>
+            {
+                if (t.Trim().Length > 0) _screen.IssueNow(new RenameZoneCommand(Side.Player, id, t.Trim()), "rename zone");
+                name.ReleaseFocus();
+            });
+            nameRow.AddChild(name);
+            nameRow.AddChild(Ui.SmallButton("Delete", () => _screen.IssueNow(new DeleteZoneCommand(Side.Player, id), "delete zone"),
+                "Remove the zone; fleets holding it stop"));
+            line.AddChild(nameRow);
+            line.AddChild(Ui.Label($"{z.Kind} · radius {Format.Distance(z.RadiusMm)} · {where} · "
+                                   + (holders.Count == 0 ? "no fleet holds it" : $"held by {string.Join(", ", holders)}"), 12, Ui.Dim));
+            var tools = Row(4);
+            tools.AddChild(Ui.SmallButton("Smaller", () => Resize(id, 0.75), "Shrink the zone by a quarter"));
+            tools.AddChild(Ui.SmallButton("Bigger", () => Resize(id, 1.33), "Grow the zone by a third"));
+            var near = Lanes.AnchorFor(w, Lanes.CenterOf(w, z));
+            if (z.AnchorBodyId != null)
+                tools.AddChild(Ui.SmallButton("Unpin", () => _screen.IssueNow(new PinZoneCommand(Side.Player, id, null), "unpin zone"),
+                    "Stop moving with the planet: the zone stays where it is now"));
+            else if (near != null)
+                tools.AddChild(Ui.SmallButton($"Pin to {near.Name}", () => _screen.IssueNow(new PinZoneCommand(Side.Player, id, near.Id), "pin zone"),
+                    $"Move with {near.Name}, keeping its place beside it as it orbits"));
+            if (picked != null)
+                tools.AddChild(Ui.SmallButton("Move here", () => MoveTo(id, picked.Id),
+                    $"Move the zone to where {picked.Name} is now (a pinned zone stays pinned)"));
+            line.AddChild(tools);
+            col.AddChild(Box(line, 8));
+        }
+        return col;
+    }
+
+    private void Resize(int zoneId, double factor)
+    {
+        if (Main.Instance.Sim?.World is not World w || w.Zones.Find(z => z.Id == zoneId) is not Zone z) return;
+        _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, z.Center, z.RadiusMm * factor, z.FromBodyId, z.ToBodyId, z.T, z.Hold, z.Prey), "resize zone");
+    }
+
+    private void MoveTo(int zoneId, int fleetId)
+    {
+        if (Main.Instance.Sim?.World is not World w || w.Zones.Find(z => z.Id == zoneId) is not Zone z || w.FindFleet(fleetId) is not Fleet f) return;
+        _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, f.Position, z.RadiusMm, null, null, z.T, z.Hold, z.Prey), "move zone");
     }
 
     private Control FleetRow(World w, Fleet f, bool picked)

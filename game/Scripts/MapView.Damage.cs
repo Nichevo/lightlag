@@ -135,10 +135,11 @@ public partial class MapView
             var spacingPx = (float)(Fleets.FormationSpacing * Camera.Scale);
             GameData.ShipClasses.TryGetValue(wr.ClassId, out var cls);
             var hullPx = cls != null ? Mathf.Clamp(spacingPx * 0.75f * (float)(cls.LengthM / 260.0), 4f, 900f) : 8f;
-            var color = wr.Side == Side.Player ? Ui.Player : Ui.Rival;
-            if (cls != null && hullPx >= 24 && Art.Texture("Ships", ShipArt.For(cls)) is Texture2D tex)
+            var color = Ui.SideColor(wr.Side);
+            var wreckArt = cls != null ? ShipArt.For(cls, Races.Of(w, wr.Side).Id) : "";
+            if (cls != null && hullPx >= 24 && Art.Texture("Ships", wreckArt) is Texture2D tex)
             {
-                var art = ShipArt.For(cls);
+                var art = wreckArt;
                 var width = hullPx / ShipArt.HullShare(art);
                 var height = width * tex.GetHeight() / tex.GetWidth();
                 var left = -(width - hullPx) - hullPx / 2;
@@ -193,7 +194,7 @@ public partial class MapView
             if (!known) continue;
             var at = Camera.ToScreen(lb.BodyId is int bid && _drawn.TryGetValue(bid, out var bp) ? bp + lb.Offset : lb.Position);
             if (!Camera.OnScreen(at, 100)) continue;
-            var color = lb.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(lb.Side);
             var blink = (Time.GetTicksMsec() / 600 + (ulong)lb.Id) % 2 == 0;
             var r = lb.Boat ? 3.5f : 2.5f;
             DrawCircle(at, r, new Color(color, 0.9f));

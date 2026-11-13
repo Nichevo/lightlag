@@ -1,4 +1,6 @@
 using Godot;
+using Lightlag.Sim.Core;
+using Side = Lightlag.Sim.Core.Side;
 
 namespace Lightlag.Game;
 
@@ -20,6 +22,14 @@ public static class Ui
 
     public static readonly Color Player = new("3fd0ff");
     public static readonly Color Rival = new("ffb347");
+
+    /// <summary>The second rival in a three-race game.</summary>
+    public static readonly Color Third = new("d48cff");
+
+    /// <summary>Each side's colour on the map and in lists: you blue, the rival amber, a second rival violet.</summary>
+    public static Color SideColor(Side side) => side switch { Side.Player => Player, Side.Third => Third, _ => Rival };
+
+    public static Color SideColor(Side? side) => side is Side s ? SideColor(s) : Text;
     public static readonly Color Text = new("d8e2f0");
     public static readonly Color Dim = new("7d8aa0");
     public static readonly Color Orbit = new(0.45f, 0.55f, 0.7f, 0.25f);

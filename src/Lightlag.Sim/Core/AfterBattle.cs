@@ -102,7 +102,7 @@ public static class AfterBattle
     {
         var w = sim.World;
         if (!w.Loop) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
             foreach (var name in b.For(side).Fleets)
             {
                 if (w.Fleets.Find(f => f.Side == side && f.Name == name && f.ShipIds.Count > 0) is not Fleet f || f.Retreating || Busy(w, f)) continue;

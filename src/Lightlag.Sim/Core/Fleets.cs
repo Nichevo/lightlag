@@ -283,6 +283,12 @@ public sealed class Fleet
     public FleetRole Role { get; set; }
     public RoleRules RoleRules { get; set; } = new();
 
+    /// <summary>The player named it, so it keeps its name when its role or ships change (see FleetNames).</summary>
+    public bool NamedByPlayer { get; set; }
+
+    /// <summary>A fleet roaming its zone (ZoneHold.Roam) picks its next spot at this hour.</summary>
+    public double NextRoamHour { get; set; }
+
     /// <summary>The call for help it is answering now, and the post and mission it goes back to after.</summary>
     public int? AnsweringCallId { get; set; }
     public int? PostBodyId { get; set; }
@@ -475,7 +481,7 @@ public static class Fleets
         var fleet = new Fleet
         {
             Id = w.NextId++,
-            Name = side == Side.Player ? $"Fleet {number}" : $"Rival fleet {number}",
+            Name = side == Side.Player ? $"Fleet {number}" : side == Side.Third ? $"{Races.Of(w, side).Short} fleet {number}" : $"Rival fleet {number}",
             Side = side,
             Position = position,
             Autonomy = w.Sides[(int)side].DefaultAutonomy,
@@ -501,6 +507,7 @@ public static class Fleets
             if (f.AnsweringCallId != null) HelpCalls.Dropped(f);
             f.Role = fit;
         }
+        FleetNames.Refresh(w, f);
     }
 
     public static Vec2 SlotOffset(int slot)

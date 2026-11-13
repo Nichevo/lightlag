@@ -14,6 +14,9 @@ public sealed class Sighting
 {
     public Side SeenBy { get; set; }
 
+    /// <summary>Whose fleet it is (with two rivals, which one).</summary>
+    public Side Of { get; set; }
+
     /// <summary>A report on one of the side's own fleets (only in a light-lag picture, see Light).</summary>
     public bool Own { get; set; }
 
@@ -55,6 +58,9 @@ public sealed class Sighting
 
     /// <summary>Where it would be at this hour if it kept going as last seen.</summary>
     public Vec2 Guess(double hour) => Position + Velocity * Math.Max(0, hour - Hour);
+
+    /// <summary>Whose fleet it is (one made before sightings said so is taken to be the main enemy's, or the fleet's own side while it lives).</summary>
+    public Side Owner(World w) => Of != SeenBy ? Of : w.FindFleet(FleetId)?.Side is Side s && s != SeenBy ? s : Sides.MainEnemy(w, SeenBy);
 
     public Sighting Copy()
     {
@@ -263,7 +269,7 @@ public static class Sensors
     {
         var w = sim.World;
         var now = w.Hour;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var observers = new List<(Vec2 At, double Sensor, int? Body)>();
             foreach (var f in w.Fleets.Where(f => f.Side == side))
@@ -292,7 +298,7 @@ public static class Sensors
                 }
                 if (sighting == null)
                 {
-                    sighting = new Sighting { SeenBy = side, FleetId = enemy.Id };
+                    sighting = new Sighting { SeenBy = side, Of = enemy.Side, FleetId = enemy.Id };
                     w.Sightings.Add(sighting);
                 }
                 if (!sighting.Visible)
@@ -349,7 +355,7 @@ public static class Sensors
     public static void Reveal(World w, Side to, Fleet enemy)
     {
         var s = Find(w, to, enemy.Id);
-        if (s == null) { s = new Sighting { SeenBy = to, FleetId = enemy.Id }; w.Sightings.Add(s); }
+        if (s == null) { s = new Sighting { SeenBy = to, Of = enemy.Side, FleetId = enemy.Id }; w.Sightings.Add(s); }
         s.Name = enemy.Name;
         s.Ships = enemy.ShipIds.Count;
         s.Position = enemy.Position;

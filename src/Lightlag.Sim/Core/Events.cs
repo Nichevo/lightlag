@@ -175,7 +175,7 @@ public static class Events
         var rate = w.Rules.Events;
         if (rate != EventRate.Off && E.PerSideDays[(int)rate] > 0)
         {
-            foreach (var side in new[] { Side.Player, Side.Rival })
+            foreach (var side in Sides.InPlay(w))
             {
                 var state = Economy.Of(w, side);
                 var days = E.PerSideDays[(int)rate];
@@ -195,7 +195,7 @@ public static class Events
             if (e.Hit && !e.Done && w.Hour >= e.UntilHour - 1e-9) Finish(sim, e);
         }
         // Keep the list short: the last few done events per side.
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var done = w.Events.Where(e => e.Side == side && e.Done).ToList();
             for (var i = 0; i < done.Count - 12; i++) w.Events.Remove(done[i]);
@@ -232,14 +232,15 @@ public static class Events
         w.Events.Add(e);
         Economy.Of(w, side).Totals.Events++;
         sim.Log.Info("events", $"{side}: {e.Title}", new { side = side.ToString(), eventId = e.Id, e.Kind, text = e.Call.Text, hits = Math.Round(e.HitsHour, 1), due = Math.Round(e.Call.DueHour, 1) });
-        // A flare is weather: it reaches the other side too, with the warning its own research gives.
+        // A flare is weather: it reaches the other sides too, with the warning their own research gives.
         if (kind == "flare" && !w.Events.Any(x => x.Kind == "flare" && x.Side != side && !x.Done))
-        {
-            var other = Flare(sim, Combat.Other(side), e.HitsHour);
-            w.Events.Add(other);
-            Economy.Of(w, other.Side).Totals.Events++;
-            if (other.Call.DueHour <= w.Hour + 1e-9) Choose(sim, other, other.Call.AutoPick, byAuto: true);
-        }
+            foreach (var enemy in Sides.Enemies(w, side).ToList())
+            {
+                var other = Flare(sim, enemy, e.HitsHour);
+                w.Events.Add(other);
+                Economy.Of(w, other.Side).Totals.Events++;
+                if (other.Call.DueHour <= w.Hour + 1e-9) Choose(sim, other, other.Call.AutoPick, byAuto: true);
+            }
         if (e.Call.DueHour <= w.Hour + 1e-9) Choose(sim, e, e.Call.AutoPick, byAuto: true);
         return e;
     }
@@ -489,8 +490,9 @@ public static class Events
                 Intel.Note(w, e.Side, IntelSource.Prisoners, "A defector brings fleet plans", gain);
                 if (e.Plant)
                 {
-                    var theirs = Intel.Of(w, Combat.Other(e.Side));
-                    Intel.Note(w, Combat.Other(e.Side), IntelSource.Prisoners, "Our agent among them reports back", Math.Max(10, gain * 0.5));
+                    var planter = Sides.MainEnemy(w, e.Side);
+                    var theirs = Intel.Of(w, planter, e.Side);
+                    Intel.Note(w, planter, IntelSource.Prisoners, "Our agent among them reports back", Math.Max(10, gain * 0.5));
                     sim.Log.Info("events", $"The defector to {e.Side} was a plant", new { side = e.Side.ToString(), theirPoints = Math.Round(theirs.Points, 1) });
                 }
                 e.Outcome = "Intel on the rival rises";

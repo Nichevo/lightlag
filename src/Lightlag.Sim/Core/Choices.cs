@@ -29,10 +29,10 @@ public static class Choices
     public static void OnBattleOver(World w, Battle b)
     {
         if (!w.Loop) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var mine = b.For(side);
-            var theirs = b.For(Combat.Other(side));
+            var theirs = b.Foes(side);
             if (mine.Fleets.Count == 0 || theirs.Fleets.Count == 0) continue;
             var odds = theirs.PowerIn > 0 ? mine.PowerIn / theirs.PowerIn : 9.99;
             Note(w, side, "battle", Outcome(mine, theirs), "", string.Create(CultureInfo.InvariantCulture,

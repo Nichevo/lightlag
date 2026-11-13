@@ -201,7 +201,7 @@ public static class Research
     /// <summary>Each side's first, general team (also for games saved before teams existed).</summary>
     public static void EnsureTeams(World w)
     {
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             if (Economy.Of(w, side).Teams.Count == 0) NewTeam(w, side, T.StartScientists);
             foreach (var team in Economy.Of(w, side).Teams) MapOldFields(team);
@@ -296,7 +296,7 @@ public static class Research
     {
         var w = sim.World;
         foreach (var b in w.Bodies)
-            foreach (var side in new[] { Side.Player, Side.Rival })
+            foreach (var side in Sides.InPlay(w))
             {
                 var i = (int)side;
                 if (b.Surveyed[i] || !w.Fleets.Any(f => f.Side == side && Economy.InOrbitAt(f, b))) continue;
