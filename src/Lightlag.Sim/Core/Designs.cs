@@ -213,12 +213,14 @@ public static class Designer
 
     /// <summary>Are new ships of this class AI-run for this side?</summary>
     public static bool AiRun(World w, Side side, string classId) =>
-        S(w, side).AiRun.Contains(classId) && GameData.ShipClasses.TryGetValue(classId, out var c) && c.AiRunAllowed && Tech.Has(w, side, "ai-cores");
+        Races.Of(w, side).AiOnly
+        || S(w, side).AiRun.Contains(classId) && GameData.ShipClasses.TryGetValue(classId, out var c) && c.AiRunAllowed && Tech.Has(w, side, "ai-cores");
 
     /// <summary>Why ships of this class can't be AI-run for this side, or null.</summary>
     public static string? CanRunOnAi(World w, Side side, string classId)
     {
         if (!GameData.ShipClasses.TryGetValue(classId, out var cls)) return $"Unknown class '{classId}'";
+        if (Races.Of(w, side).AiOnly) return null;
         if (!cls.AiRunAllowed) return $"{cls.Name}s carry people: they always have a crew";
         if (!Tech.Has(w, side, "ai-cores")) return $"Needs {GameData.Research("ai-cores").Name}";
         return null;
@@ -325,7 +327,7 @@ public static class Designer
     {
         var w = sim.World;
         if (!w.Loop) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var state = S(w, side);
             foreach (var d in state.Designs.Where(d => d.Id <= 0).ToList())

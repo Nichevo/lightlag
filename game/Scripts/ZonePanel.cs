@@ -16,7 +16,7 @@ public partial class ZonePanel : VBoxContainer
     private readonly GameScreen _screen;
     private Fleet? _fleet;
     private Zone? _zone;
-    private Button _drift = null!, _keep = null!, _prey = null!;
+    private Button _drift = null!, _keep = null!, _roam = null!, _prey = null!;
     private Label _fuel = null!, _days = null!, _catch = null!, _note = null!;
     private Label _hidden = null!, _due = null!, _caught = null!, _window = null!;
     private VBoxContainer _held = null!;
@@ -38,7 +38,8 @@ public partial class ZonePanel : VBoxContainer
         toggle.AddThemeConstantOverride("separation", 2);
         _drift = Ui.SmallButton("Drift", () => SetHold(ZoneHold.Drift), "Drift in the zone with small nudges: nearly no fuel, but the fleet wanders across it");
         _keep = Ui.SmallButton("Station-keep", () => SetHold(ZoneHold.StationKeep), "Hold still in the zone for a little fuel a day");
-        foreach (var b in new[] { _drift, _keep })
+        _roam = Ui.SmallButton("Roam", () => SetHold(ZoneHold.Roam), "Every day or two a small burn takes the fleet to a new spot in the zone, then it drifts: covers the zone for a little fuel");
+        foreach (var b in new[] { _drift, _keep, _roam })
         {
             b.ToggleMode = true;
             b.CustomMinimumSize = new Vector2(0, 26);
@@ -150,9 +151,10 @@ public partial class ZonePanel : VBoxContainer
     {
         _drift.SetPressedNoSignal(z.Hold == ZoneHold.Drift);
         _keep.SetPressedNoSignal(z.Hold == ZoneHold.StationKeep);
+        _roam.SetPressedNoSignal(z.Hold == ZoneHold.Roam);
         var ships = w.ShipsOf(f).ToList();
         var fuel = Lanes.FuelPerDay(w, f, z);
-        _fuel.Text = z.Hold == ZoneHold.Drift ? "nudges only" : $"{fuel:0.#}";
+        _fuel.Text = z.Hold switch { ZoneHold.Drift => "nudges only", ZoneHold.Roam => "small burns", _ => $"{fuel:0.#}" };
         // How long it can stay: station keeping runs the fuel down; either way the food runs out (with supply lines on).
         double? days = null;
         if (z.Hold == ZoneHold.StationKeep && ships.Count > 0)
@@ -165,9 +167,15 @@ public partial class ZonePanel : VBoxContainer
         _days.Text = days is double dd ? $"{dd:0} days" : "no limit";
         var (catches, due, chance) = Lanes.Info(w, z);
         _catch.Text = chance > 0 ? $"{chance:P0}" : "no lane";
-        _note.Text = z.Hold == ZoneHold.Drift
-            ? "Drifting: nearly no fuel, but the fleet wanders across the zone and may be out of place when a ship comes."
-            : "Keeping station: holds still where you put it, for a little fuel a day.";
+        _note.Text = z.Hold switch
+        {
+            ZoneHold.Drift => "Drifting: nearly no fuel, but the fleet wanders across the zone and may be out of place when a ship comes.",
+            ZoneHold.Roam => $"Roaming: a small burn to a new spot in the zone every day or two, then drifting"
+                             + (f.NextRoamHour > w.Hour ? $" (next move in {f.NextRoamHour - w.Hour:0} h)." : "."),
+            _ => "Keeping station: holds still where you put it, for a little fuel a day.",
+        };
+        if (z.AnchorBodyId is int pin && w.FindBody(pin) is Body pb)
+            _note.Text += $" The zone moves with {pb.Name}, keeping its place beside it as it orbits.";
         _prey.Text = z.Prey ? "On · support ships only" : "Off";
         _prey.Modulate = z.Prey ? RaidTint : Colors.White;
         var state = Sensors.StateOf(f);

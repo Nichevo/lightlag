@@ -14,11 +14,13 @@ public partial class ShipPicture : Control
     private readonly List<string>? _fit;
     private readonly bool _cutaway;
     private readonly Texture2D? _tex;
+    private readonly string _art = "";
 
     public ShipPicture() : this(null!, new Vector2(1, 1)) { }
 
     /// <param name="fit">Pass the fit to draw slot markers; null for a plain picture.</param>
-    public ShipPicture(ShipClass cls, Vector2 size, List<string>? fit = null, bool cutaway = true)
+    /// <param name="race">The race whose skin to draw (board 28); null: the player's.</param>
+    public ShipPicture(ShipClass cls, Vector2 size, List<string>? fit = null, bool cutaway = true, string? race = null)
     {
         _cls = cls;
         _fit = fit;
@@ -26,7 +28,8 @@ public partial class ShipPicture : Control
         CustomMinimumSize = size;
         MouseFilter = MouseFilterEnum.Ignore;
         if (cls == null) return;
-        var art = ShipArt.For(cls);
+        race ??= Main.Instance?.Sim?.World is Lightlag.Sim.Core.World w ? Races.Of(w, Lightlag.Sim.Core.Side.Player).Id : null;
+        var art = _art = ShipArt.For(cls, race);
         _tex = (cutaway ? Art.Texture("Ships", art + "-cutaway") : null) ?? Art.Texture("Ships", art);
         TooltipText = ShipArt.HasOwn(cls) ? "" : $"Drawing to come: shown with the {art} hull";
         if (!ShipArt.HasOwn(cls)) MouseFilter = MouseFilterEnum.Pass;
@@ -53,7 +56,7 @@ public partial class ShipPicture : Control
         if (_fit != null && _cls.SlotList.Count > 0)
         {
             // Hull runs from the end of the plume (left) to the nose (right); engines sit at the back.
-            var share = ShipArt.HullShare(ShipArt.For(_cls));
+            var share = ShipArt.HullShare(_art);
             var x0 = at.X + size.X * (1 - share) + size.X * share * 0.08f;
             var x1 = at.X + size.X * 0.94f;
             var order = Enumerable.Range(0, _cls.SlotList.Count)

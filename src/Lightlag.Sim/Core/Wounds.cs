@@ -209,7 +209,7 @@ public static class Wounds
         else
         {
             sim.Log.Info("combat", $"{f.Name} takes the crew of {wr.Name} prisoner", new { fleetId = f.Id, wreck = wr.Id, crewK = Math.Round(wr.CrewK, 3) });
-            Spoils.TakePrisoners(sim, f.Side, wr.CrewK, wr.Name);
+            Spoils.TakePrisoners(sim, f.Side, wr.CrewK, wr.Name, wr.Side);
         }
         wr.CrewK = 0;
     }
@@ -235,7 +235,8 @@ public static class Wounds
         Sparks.Fire(sim, f.Side, "wreck-salvaged");
         if (wr.Side != f.Side)
         {
-            Spoils.Scrap(sim, f.Side, $"parts from the wreck of {wr.Name}", IntelSource.Wreck, part: true);
+            Spoils.Scrap(sim, f.Side, $"parts from the wreck of {wr.Name}", IntelSource.Wreck, part: true, from: wr.Side);
+            Contact.Learn(w, f.Side, wr.Side, Contact.D.WreckPoints, "wreck");
             RivalTech.FromWreck(sim, f.Side, wr.ClassId);
         }
     }

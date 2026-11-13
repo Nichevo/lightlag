@@ -52,13 +52,14 @@ public static class Grid
         // First pass: whole buildings, in power order; one that does not fit is skipped (a smaller one later may fit).
         var used = 0.0;
         var order = built.OrderBy(x => Colonies.PowerTier(x.Piece.PowerUse)).ToList();
+        var hunger = Races.Get(b.PeopleRace).PowerUse; // machines (the Lattice) draw more
         var dark = new List<(Piece Piece, double Draw)>();
         foreach (var (p, data) in order)
         {
             p.PowerShare = 1;
             if (data.Power <= 0) { p.Powered = true; continue; }
             if (p.PowerUse == PowerUse.Off) { p.Powered = false; continue; }
-            var draw = data.Power * Munitions.DrawFactor(p);
+            var draw = data.Power * Munitions.DrawFactor(p) * hunger;
             p.Powered = used + draw <= available + 1e-9;
             if (p.Powered) used += draw;
             else dark.Add((p, draw));
@@ -73,7 +74,7 @@ public static class Grid
             used += left;
         }
         b.PowerUsed = used;
-        b.PowerWanted = built.Where(x => x.Data.Power > 0 && x.Piece.PowerUse != PowerUse.Off).Sum(x => x.Data.Power * Munitions.DrawFactor(x.Piece));
+        b.PowerWanted = built.Where(x => x.Data.Power > 0 && x.Piece.PowerUse != PowerUse.Off).Sum(x => x.Data.Power * Munitions.DrawFactor(x.Piece) * hunger);
         if (dark.Count > 0)
         {
             b.ShedSinceHour ??= w.Tick;

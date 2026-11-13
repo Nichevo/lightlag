@@ -103,7 +103,7 @@ public partial class ReplayPanel : PanelContainer
         _play.Text = _playing ? "Pause" : "Play";
         var b = _battle;
         var end = b.EndHour is double e ? e : (double?)null;
-        _title.Text = $"Battle replay: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}, {GameTime.Format(b.StartHour)}";
+        _title.Text = $"Battle replay: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.Foes(Side.Player).Fleets)}, {GameTime.Format(b.StartHour)}";
         var lag = BattleRecords.SeenFromHour(Main.Instance.Sim!.World, b, Side.Player) - b.StartHour;
         var light = end == null || until < end - 1e-6
             ? $" · light has arrived up to {Format.Hours(until - b.StartHour)} in" + (lag > 1.0 / 60 ? $" ({Format.Hours(lag)} away)" : "")
@@ -201,7 +201,7 @@ public partial class ReplayView : Control
         // Shots recorded between the two frames.
         foreach (var s in c.Shots)
         {
-            var col = s.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var col = Ui.SideColor(s.Side);
             switch (s.Kind)
             {
                 case EffectKind.Volley:
@@ -226,7 +226,7 @@ public partial class ReplayView : Control
             if (!roster.TryGetValue(s.Id, out var r)) continue;
             var to = next.TryGetValue(s.Id, out var n) ? n : s;
             var pos = P(s.X, s.Y).Lerp(P(to.X, to.Y), k);
-            var col = r.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var col = Ui.SideColor(r.Side);
             var dead = !next.ContainsKey(s.Id) && c != a;
             var big = r.ClassId.Contains("destroyer");
             var size = big ? 7f : 5f;
@@ -238,7 +238,7 @@ public partial class ReplayView : Control
             if (r.Flagship) DrawString(ThemeDB.FallbackFont, pos + new Vector2(size + 2, -size), "⚑", fontSize: 12, modulate: col);
         }
         foreach (var m in a.Missiles)
-            DrawCircle(P(m.X, m.Y), 1.8f, m.Side == Side.Player ? Ui.Player : Ui.Rival);
+            DrawCircle(P(m.X, m.Y), 1.8f, Ui.SideColor(m.Side));
 
         // Timeline marks along the bottom edge.
         var length = Math.Max(1e-6, (b.EndHour ?? until) - b.StartHour);
@@ -253,7 +253,7 @@ public partial class ReplayView : Control
         {
             var s = g.First();
             var r = roster[s.Id];
-            DrawString(ThemeDB.FallbackFont, P(s.X, s.Y) + new Vector2(10, 14), g.Key, fontSize: 11, modulate: (r.Side == Side.Player ? Ui.Player : Ui.Rival) with { A = 0.8f });
+            DrawString(ThemeDB.FallbackFont, P(s.X, s.Y) + new Vector2(10, 14), g.Key, fontSize: 11, modulate: Ui.SideColor(r.Side) with { A = 0.8f });
         }
     }
 }

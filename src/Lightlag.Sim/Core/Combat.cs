@@ -124,12 +124,41 @@ public sealed class Battle
         LastActionHour = hour;
     }
 
-    public BattleSide[] Sides { get; set; } = { new(), new() };
+    public BattleSide[] Sides { get; set; } = { new(), new(), new() };
 
     /// <summary>How it ended (see BattleRules.Ending): set when it is over.</summary>
     public BattleEnding? Ending { get; set; }
 
     public BattleSide For(Side s) => Sides[(int)s];
+
+    /// <summary>
+    /// Everyone this side fought in the battle: the other side's record, or with two rivals both of theirs
+    /// added together (counts summed, lists joined, reaches the longest), so "us against them" reads the same.
+    /// </summary>
+    public BattleSide Foes(Side s)
+    {
+        var others = Enumerable.Range(0, Sides.Length).Where(i => i != (int)s && (Sides[i].ShipsIn > 0 || Sides[i].Fleets.Count > 0)).ToList();
+        if (others.Count == 0) return For(s == Side.Player ? Side.Rival : Side.Player);
+        if (others.Count == 1) return Sides[others[0]];
+        var m = new BattleSide();
+        foreach (var p in typeof(BattleSide).GetProperties().Where(p => p.CanWrite))
+            foreach (var i in others)
+            {
+                object? v = p.GetValue(Sides[i]), cur = p.GetValue(m);
+                if (v is int a) p.SetValue(m, (int)cur! + a);
+                else if (v is double d) p.SetValue(m, p.Name.EndsWith("Reach") || p.Name == "LagHours" ? Math.Max((double)cur!, d) : (double)cur! + d);
+                else if (v is bool f) p.SetValue(m, (bool)cur! || f);
+                else if (v is List<string> l) ((List<string>)cur!).AddRange(l);
+                else if (v is Dictionary<string, List<string>> dict)
+                    foreach (var kv in dict) ((Dictionary<string, List<string>>)cur!)[kv.Key] = kv.Value.ToList();
+            }
+        return m;
+    }
+
+    /// <summary>The other side in the battle with the most ships in it (with two sides, simply the other).</summary>
+    public Side MainFoe(Side s) =>
+        Enumerable.Range(0, Sides.Length).Where(i => i != (int)s).OrderByDescending(i => Sides[i].ShipsIn).ThenBy(i => i).Select(i => (Side)i)
+            .FirstOrDefault(x => (int)x < 2 || Sides[(int)x].ShipsIn > 0);
 
     /// <summary>The recording, to watch the battle again from News (see BattleRecords).</summary>
     public List<BattleFrame> Frames { get; set; } = new();
@@ -173,10 +202,9 @@ public static class Combat
         }
         foreach (var a in w.Fleets)
         {
-            if (a.Side != Side.Player) continue;
             foreach (var b in w.Fleets)
             {
-                if (b.Side == a.Side || Boarders.Grappled(w, a) || Boarders.Grappled(w, b)) continue;
+                if (b.Side <= a.Side || Boarders.Grappled(w, a) || Boarders.Grappled(w, b)) continue;
                 var (a0, a1, ma) = ends[a.Id];
                 var (b0, b1, mb) = ends[b.Id];
                 // Closest approach if both moved in straight lines over the hour (orbits curve, hence the margin).
@@ -613,7 +641,7 @@ public static class Combat
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - railRange) / Math.Max(1e-9, Heat.D.LongRangeMm - railRange)) * (1 - evasion)
                 : rail.Accuracy * (1 - d / railRange) * (1 - evasion) / (1 + relSpeed / 1000);
-            chance *= FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship);
+            chance *= FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship) * (w.Loop ? Races.Of(w, ship.Side).Precision : 1);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
             chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryAccuracy : 1);
             if (Dodging(w, targetFleet))
@@ -805,7 +833,7 @@ public static class Combat
             return;
         }
         // Jamming: a share of the guided missiles that get this far lose their target in the noise (dumb ones fly on regardless).
-        if (w.Loop && Tech.Has(w, targetFleet.Side, "jamming") && sim.Rng.NextDouble() < GameData.Weapons.C.Jam(missile.Brain))
+        if (w.Loop && Tech.Has(w, targetFleet.Side, "jamming") && sim.Rng.NextDouble() < GameData.Weapons.C.Jam(missile.Brain) * Races.Of(w, missile.Side).Cyber)
         {
             stats.Jammed++;
             return;
@@ -913,8 +941,8 @@ public static class Combat
         var w = sim.World;
         var inContact = new List<(Fleet A, Fleet B)>();
         // Contact needs someone to see someone: a fleet that slips in cold is not in the battle until spotted.
-        foreach (var a in w.Fleets.Where(f => f.Side == Side.Player))
-            foreach (var b in w.Fleets.Where(f => f.Side != Side.Player))
+        foreach (var a in w.Fleets)
+            foreach (var b in w.Fleets.Where(f => f.Side > a.Side))
                 if (Vec2.Distance(a.Position, b.Position) <= C.ContactRangeMm && !Boarders.Grappled(w, a) && !Boarders.Grappled(w, b)
                     && (Sensors.Sees(w, a.Side, b) || Sensors.Sees(w, b.Side, a)))
                     inContact.Add((a, b));
@@ -926,7 +954,7 @@ public static class Combat
             w.Battles.Add(battle);
             if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
             BattleRecords.Trim(w);
-            foreach (var side in new[] { Side.Player, Side.Rival }) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
+            foreach (var side in Sides.InPlay(w)) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
             {
                 battleId = battle.Id, a = inContact[0].A.Id, b = inContact[0].B.Id,
@@ -962,7 +990,7 @@ public static class Combat
             // A contact where nobody fired (or pulled back) is counted as a contact, not a battle.
             var fought = battle.Sides.Any(s => s.RailShots + s.MissilesFired > 0 || s.Withdrew);
             if (w.Loop)
-                foreach (var side in new[] { Side.Player, Side.Rival })
+                foreach (var side in Sides.InPlay(w))
                     if (battle.For(side).Fleets.Count > 0)
                     {
                         var t = Economy.Of(w, side).Totals;
@@ -973,10 +1001,10 @@ public static class Combat
                         if (battle.For(side).Flagship) t.FlagshipBattles++;
                     }
             var p = battle.For(Side.Player);
-            var r = battle.For(Side.Rival);
+            var r = battle.Foes(Side.Player);
             battle.Ending = BattleRules.Ending(w, battle);
             if (w.Loop && fought)
-                foreach (var side in new[] { Side.Player, Side.Rival })
+                foreach (var side in Sides.InPlay(w))
                     if (battle.For(side).Fleets.Count > 0)
                     {
                         var t = Economy.Of(w, side).Totals;
@@ -1001,7 +1029,6 @@ public static class Combat
 
     // ---- Helpers ------------------------------------------------------------------------------
 
-    public static Side Other(Side s) => s == Side.Player ? Side.Rival : Side.Player;
 
     /// <summary>Has the fleet a working weapon (railguns or loaded missile racks)?</summary>
     public static bool Armed(World w, Fleet f) =>
@@ -1051,13 +1078,12 @@ public static class Combat
     /// <summary>A missile whose target is gone picks the ship it can turn onto most easily: ahead of it and close.</summary>
     private static Ship? EasiestTurn(World w, Missile missile)
     {
-        var side = Other(missile.Side);
-        var seen = w.Fleets.Where(f => f.Side == side && Sensors.Sees(w, missile.Side, f)).ToDictionary(f => f.Id);
+        var seen = w.Fleets.Where(f => f.Side != missile.Side && Sensors.Sees(w, missile.Side, f)).ToDictionary(f => f.Id);
         Ship? best = null;
         var bestCost = double.PositiveInfinity;
         foreach (var s in w.Ships)
         {
-            if (s.Side != side || !seen.TryGetValue(s.FleetId, out var fleet)) continue;
+            if (s.Side == missile.Side || !seen.TryGetValue(s.FleetId, out var fleet)) continue;
             var gap = s.Position - missile.Position;
             var d = gap.Length;
             if (d > C.ContactRangeMm) continue;
@@ -1077,11 +1103,10 @@ public static class Combat
         Ship? best = null;
         var bestD = range;
         var bestCrippled = true;
-        var side = Other(ship.Side);
-        var seen = w.Fleets.Where(f => f.Side == side && Sensors.Sees(w, ship.Side, f)).Select(f => f.Id).ToHashSet();
+        var seen = w.Fleets.Where(f => f.Side != ship.Side && Sensors.Sees(w, ship.Side, f)).Select(f => f.Id).ToHashSet();
         foreach (var s in w.Ships)
         {
-            if (s.Side != side || !seen.Contains(s.FleetId) || !MayFireAt(w, fleet, s)) continue;
+            if (s.Side == ship.Side || !seen.Contains(s.FleetId) || !MayFireAt(w, fleet, s)) continue;
             var d = Vec2.Distance(s.Position, ship.Position);
             if (d > range) continue;
             if (best == null || (bestCrippled && !s.Crippled) || (s.Crippled == bestCrippled && d <= bestD)) { best = s; bestD = d; bestCrippled = s.Crippled; }

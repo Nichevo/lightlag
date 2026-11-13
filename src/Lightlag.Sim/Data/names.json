@@ -18,7 +18,12 @@
       "any": ["Brood One", "Brood Two", "Brood Three", "Swarm-Mother", "Chitter", "Carapace", "Mandible", "Thorax", "Ovipositor", "Drone-Queen", "Proboscis", "Antenna", "Pheromone", "Chitin", "Pupa", "Chrysalis", "Larva", "Drone", "Worker", "Soldier", "Hatchling", "Moult", "Ichor", "Spiracle", "Ocellus", "Elytra", "Hive Wing", "Many Legs", "Silk Spinner", "Jaw Swarm", "Stinger"]
     },
     "lattice": {
-      "any": ["Node 1", "Node 2", "Node 3", "Vertex", "Edge", "Lattice Prime", "Array", "Kernel", "Register", "Bus"]
+      "home": ["Lattice Prime", "Kernel", "Root", "Origin", "First Light", "Bootstrap", "Axiom", "Invariant", "Constant", "Index Zero", "Seed", "Prime Mover"],
+      "water": ["Coolant", "Heat Sink", "Condenser", "Flux", "Gradient", "Diffusion", "Sublimate", "Reservoir"],
+      "rocky": ["Node 7", "Vertex", "Edge", "Array 3", "Register", "Bus", "Tensor", "Matrix", "Sector 4", "Lode", "Drill Prime", "Facet", "Crystal 9", "Ore Index"],
+      "ice": ["Cryo 2", "Absolute", "Zero Point", "Stillness", "Lattice Cold", "Rime Array", "Frost Node"],
+      "storm": ["Vector 12", "Signal", "Carrier", "Pulse", "Waveform", "Harmonic", "Interference", "Static"],
+      "any": ["Node 1", "Node 2", "Node 3", "Node 5", "Node 8", "Node 13", "Vector 1", "Vector 4", "Array 1", "Array 7", "Cache", "Buffer", "Parity", "Checksum", "Daemon", "Thread", "Process", "Iterator", "Recursion", "Halting", "Proof", "Lemma", "Theorem", "Quorum", "Consensus", "Relay 6", "Gate 11", "Cipher", "Hash", "Fork"]
     }
   }
 }

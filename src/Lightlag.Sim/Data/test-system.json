@@ -1,5 +1,5 @@
 {
-  "_comment": "The hand-made test system. Distances: orbitAu (astronomical units) or orbitMm (megametres, 1000 km). Sizes: radiusMm. Masses: massSun or massEarth. Orbit periods are worked out from the parent's mass. Bodies must list parents before their moons. Colours are hex. industry is what holding the body makes per day (0 or missing: not worth claiming). Names are placeholders. Asteroids (kind asteroid) in the Scatter are big enough to settle. Belts: innerAu/outerAu round the star, or innerRadii/outerRadii (in the parent's radii, after sizeScale) for rings and radiation belts round a planet; kind belt, ring or radiation; density 1 is the standard (see hazards.json).",
+  "_comment": "The hand-made test system. Distances: orbitAu (astronomical units) or orbitMm (megametres, 1000 km). Sizes: radiusMm. Masses: massSun or massEarth. Orbit periods are worked out from the parent's mass. Bodies must list parents before their moons. Colours are hex. industry is what holding the body makes per day (0 or missing: not worth claiming). Names are placeholders. Ships for side third start only in a three-race game (two rivals). Asteroids (kind asteroid) in the Scatter are big enough to settle. Belts: innerAu/outerAu round the star, or innerRadii/outerRadii (in the parent's radii, after sizeScale) for rings and radiation belts round a planet; kind belt, ring or radiation; density 1 is the standard (see hazards.json).",
   "name": "test-system",
   "_sizeComment": "sizeScale multiplies every radius below (which are true sizes). 5 makes planets and moons big enough to hide fleets and shape routes at battle ranges; moons too close to their enlarged planet are moved out.",
   "sizeScale": 5,
@@ -46,6 +46,10 @@
     { "class": "gun-frigate", "side": "rival", "near": "rust", "count": 2 },
     { "class": "missile-destroyer", "side": "rival", "near": "rust", "count": 1 },
     { "class": "supply-tender", "side": "rival", "near": "rust", "count": 1 },
-    { "class": "supply-tender", "side": "rival", "near": "rust", "count": 1, "fleet": "transport" }
+    { "class": "supply-tender", "side": "rival", "near": "rust", "count": 1, "fleet": "transport" },
+    { "class": "gun-frigate", "side": "third", "near": "vela", "count": 2 },
+    { "class": "missile-destroyer", "side": "third", "near": "vela", "count": 1 },
+    { "class": "supply-tender", "side": "third", "near": "vela", "count": 1 },
+    { "class": "supply-tender", "side": "third", "near": "vela", "count": 1, "fleet": "transport" }
   ]
 }

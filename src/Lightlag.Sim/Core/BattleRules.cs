@@ -268,11 +268,11 @@ public static class BattleRules
     {
         // A wipe is total destruction; crippled ships that limp away count as pulling back.
         bool Wiped(BattleSide s) => s.ShipsIn > 0 && s.ShipsLost.Count >= s.ShipsIn;
-        var p = b.For(Side.Player);
-        var r = b.For(Side.Rival);
-        if (Wiped(p) || Wiped(r)) return BattleEnding.Wipe;
-        if (p.Withdrew && r.Withdrew) return BattleEnding.BothWithdrew;
-        if (p.Withdrew || r.Withdrew) return BattleEnding.OneWithdrew;
+        var inIt = b.Sides.Where(s => s.ShipsIn > 0 || s.Fleets.Count > 0).ToList();
+        if (inIt.Count < 2) inIt = new List<BattleSide> { b.For(Side.Player), b.For(Side.Rival) };
+        if (inIt.Any(Wiped)) return BattleEnding.Wipe;
+        if (inIt.All(s => s.Withdrew)) return BattleEnding.BothWithdrew;
+        if (inIt.Any(s => s.Withdrew)) return BattleEnding.OneWithdrew;
         return BattleEnding.BrokeOff;
     }
 

@@ -37,8 +37,11 @@ public sealed record LaneSighting(double Hour, Vec2 Position);
 
 public enum ZoneKind { Raid, Guard, Picket }
 
-/// <summary>Drift in zone (minimal nudges, nearly no fuel) or keep station (hold still, a little fuel a day).</summary>
-public enum ZoneHold { Drift, StationKeep }
+/// <summary>
+/// Drift in zone (minimal nudges, nearly no fuel), keep station (hold still, a little fuel a day), or roam
+/// (a small burn now and then to a new spot in the zone, then drift: covers the zone for a little fuel).
+/// </summary>
+public enum ZoneHold { Drift, StationKeep, Roam }
 
 /// <summary>
 /// A zone a side has drawn: a raiding zone (prey on passing enemy cargo), a guard zone (fight what comes
@@ -57,6 +60,13 @@ public sealed class Zone
     public int? FromBodyId { get; set; }
     public int? ToBodyId { get; set; }
     public double T { get; set; } = 0.5;
+
+    /// <summary>
+    /// Pinned to a body (not on a lane): it moves with the body round its orbit, keeping the same place
+    /// beside it. The offset is in the body's orbit frame: X outward from what it circles, Y along its orbit.
+    /// </summary>
+    public int? AnchorBodyId { get; set; }
+    public Vec2 AnchorOffset { get; set; }
 
     public ZoneHold Hold { get; set; } = ZoneHold.Drift;
     public bool Prey { get; set; } = true;
@@ -84,6 +94,8 @@ public static class Lanes
     public const double KeepStationPerDay = 0.01; // share of full supplies a day
     public const double LossDays = 10;
     public const double LossRadiusMm = 0.08 * 149_598; // about 0.08 AU (Mm per AU)
+    /// <summary>A roaming fleet picks a new spot in its zone about this often (hours), give or take a third.</summary>
+    public const double RoamEveryHours = 36;
 
     /// <summary>Only cargo or supply ships (as far as the sighting shows): what raiders hunt.</summary>
     public static bool CargoOnly(World w, Fleet f) => f.ShipIds.Count > 0 && w.ShipsOf(f).All(s => Fitting.Spec(s) is { Cargo: > 0 } c && c.Railguns == 0 && c.Missiles == 0);
@@ -127,7 +139,7 @@ public static class Lanes
         foreach (var o in w.LaneObs.ToList())
         {
             w.LaneObs.Remove(o);
-            var enemy = Combat.Other(o.SeenBy);
+            var enemy = w.FindFleet(o.FleetId)?.Side ?? Sides.MainEnemy(w, o.SeenBy);
             var ends = w.Bodies.Where(b => b.Owner == enemy).ToList();
             // Where the bodies were when the ship was seen (they have moved on since).
             var then = ends.ToDictionary(b => b.Id, b => FlightPlanner.PredictBody(w, b, o.Hour));
@@ -160,7 +172,45 @@ public static class Lanes
     }
 
     /// <summary>The zone's centre now (it slides with its lane).</summary>
-    public static Vec2 CenterOf(World w, Zone z) => PointOn(w, z.FromBodyId, z.ToBodyId, z.T) ?? z.Center;
+    public static Vec2 CenterOf(World w, Zone z) => PointOn(w, z.FromBodyId, z.ToBodyId, z.T) ?? PinnedCenter(w, z) ?? z.Center;
+
+    /// <summary>A pinned zone's centre now, or null when it is not pinned (or its body is gone).</summary>
+    public static Vec2? PinnedCenter(World w, Zone z)
+    {
+        if (z.AnchorBodyId is not int id || w.FindBody(id) is not Body b) return null;
+        return Pinned(b.Position, b.ParentId is int p ? w.FindBody(p)?.Position : null, z.AnchorOffset);
+    }
+
+    /// <summary>The point at this offset in a body's orbit frame (X outward from its parent, Y along its orbit).</summary>
+    public static Vec2 Pinned(Vec2 body, Vec2? parent, Vec2 offset)
+    {
+        var (u, v) = Frame(body, parent);
+        return body + u * offset.X + v * offset.Y;
+    }
+
+    /// <summary>The offset of a point from a body, in the body's orbit frame (the inverse of Pinned).</summary>
+    public static Vec2 OffsetFrom(Vec2 body, Vec2? parent, Vec2 point)
+    {
+        var (u, v) = Frame(body, parent);
+        var d = point - body;
+        return new Vec2(d.X * u.X + d.Y * u.Y, d.X * v.X + d.Y * v.Y);
+    }
+
+    private static (Vec2 U, Vec2 V) Frame(Vec2 body, Vec2? parent)
+    {
+        var out_ = parent is Vec2 p ? body - p : Vec2.Zero;
+        var len = out_.Length;
+        var u = len > 1e-9 ? out_ * (1 / len) : new Vec2(1, 0);
+        return (u, new Vec2(-u.Y, u.X));
+    }
+
+    /// <summary>
+    /// The body a zone drawn here would be pinned to: the nearest planet (one that circles the star, so a moon's
+    /// zone goes with its planet) within reach, or null.
+    /// </summary>
+    public static Body? AnchorFor(World w, Vec2 at, double maxMm = 0.5 * 149_598) =>
+        w.Bodies.Where(b => b.ParentId is int p && w.FindBody(p)?.ParentId == null && Vec2.Distance(b.Position, at) <= maxMm)
+            .OrderBy(b => Vec2.Distance(b.Position, at)).ThenBy(b => b.Id).FirstOrDefault();
 
     /// <summary>The side's lanes that pass through the zone.</summary>
     public static IEnumerable<Lane> LanesThrough(World w, Zone z) => w.Lanes.Where(l => l.SeenBy == z.Side
@@ -191,6 +241,7 @@ public static class Lanes
         foreach (var z in w.Zones.ToList())
         {
             if (z.FromBodyId is int a && w.FindBody(a) == null || z.ToBodyId is int b && w.FindBody(b) == null) { w.Zones.Remove(z); continue; }
+            if (z.AnchorBodyId is int pin && w.FindBody(pin) == null) z.AnchorBodyId = null; // its body is gone: it stays where it was
             z.Center = CenterOf(w, z);
         }
         foreach (var f in w.Fleets.Where(f => f.ZoneId != null && f.ShipIds.Count > 0).OrderBy(f => f.Id).ToList())
@@ -215,7 +266,19 @@ public static class Lanes
             if (f.Flight != null || f.Maneuvering) continue;
             var d = Vec2.Distance(f.Position, center);
             var drift = f.Position + (f.Velocity - VelocityOf(w, z)) * 12 - center; // where it drifts to in half a day, against the zone
-            if (d > z.RadiusMm || z.Hold == ZoneHold.Drift && drift.Length > z.RadiusMm * 0.9)
+            if (z.Hold == ZoneHold.Roam && d <= z.RadiusMm && w.Hour >= f.NextRoamHour)
+            {
+                // Roam: a small burn to a new spot in the zone, then drift there (the spot is rolled from the seed).
+                var rng = new SimRandom(w.Seed ^ (ulong)f.Id * 0x9E3779B97F4A7C15UL, (ulong)Math.Max(0, (long)w.Hour) * 2 + 1);
+                var angle = rng.Range(0, 2 * Math.PI);
+                var dist = z.RadiusMm * 0.7 * Math.Sqrt(rng.NextDouble());
+                var spot = center + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * dist;
+                f.NextRoamHour = w.Hour + RoamEveryHours * rng.Range(0.67, 1.33);
+                new PlanFlightCommand(f.Id, new FlightRequest(null, spot, 0.1, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick)) { Source = "zone" }.Apply(w, sim);
+                sim.Log.Info("lanes", "Fleet roams its zone", new { fleetId = f.Id, zone = z.Id, spot });
+                continue;
+            }
+            if (d > z.RadiusMm || z.Hold != ZoneHold.StationKeep && drift.Length > z.RadiusMm * 0.9)
             {
                 // A nudge back in (a slow, cheap burn), or the flight out to the zone.
                 var speed = d > z.RadiusMm * 2 ? 0.6 : 0.15;
@@ -233,6 +296,7 @@ public static class Lanes
     /// <summary>How fast a zone moves (a lane zone moves with its bodies), so drifting is judged against it.</summary>
     private static Vec2 VelocityOf(World w, Zone z)
     {
+        if (z.AnchorBodyId is int pin && w.FindBody(pin) is Body pb) return Combat.BodyVelocity(w, pb);
         if (z.FromBodyId is not int a || z.ToBodyId is not int b || w.FindBody(a) is not Body fa || w.FindBody(b) is not Body fb) return Vec2.Zero;
         return Combat.BodyVelocity(w, fa) * (1 - z.T) + Combat.BodyVelocity(w, fb) * z.T;
     }
@@ -302,7 +366,7 @@ public static class Lanes
 
 /// <summary>Draw a zone (raid, guard or picket), optionally on a lane between two bodies (it slides with them).</summary>
 public sealed record CreateZoneCommand(Side Side, ZoneKind Kind, Vec2 Center, double RadiusMm, int? FromBodyId = null, int? ToBodyId = null,
-    double T = 0.5, ZoneHold Hold = ZoneHold.Drift, int? FleetId = null) : GameCommand
+    double T = 0.5, ZoneHold Hold = ZoneHold.Drift, int? FleetId = null, int? AnchorBodyId = null) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null;
 
@@ -313,10 +377,16 @@ public sealed record CreateZoneCommand(Side Side, ZoneKind Kind, Vec2 Center, do
             Id = world.NextId++, Side = Side, Kind = Kind, Center = Center, RadiusMm = Math.Clamp(RadiusMm, 20, 2000),
             FromBodyId = FromBodyId, ToBodyId = ToBodyId, T = Math.Clamp(T, 0, 1), Hold = Hold,
         };
+        // Pinned to a body (only off a lane): keep its place beside the body as it orbits.
+        if (FromBodyId == null && AnchorBodyId is int pin && world.FindBody(pin) is Body pb)
+        {
+            z.AnchorBodyId = pin;
+            z.AnchorOffset = Lanes.OffsetFrom(pb.Position, pb.ParentId is int p ? world.FindBody(p)?.Position : null, Center);
+        }
         z.Name = $"{(Kind == ZoneKind.Raid ? "Raiding" : Kind == ZoneKind.Guard ? "Guard" : "Picket")} zone {world.Zones.Count(o => o.Side == Side) + 1}";
         world.Zones.Add(z);
         Choices.Note(world, Side, "zone", Kind.ToString().ToLowerInvariant());
-        sim.Log.Info("lanes", $"{Side} draws {z.Name}", new { side = Side.ToString(), zone = z.Id, Kind, Center, RadiusMm, FromBodyId, ToBodyId, Source });
+        sim.Log.Info("lanes", $"{Side} draws {z.Name}", new { side = Side.ToString(), zone = z.Id, Kind, Center, RadiusMm, FromBodyId, ToBodyId, anchor = z.AnchorBodyId, Source });
         if (FleetId is int f) new SetZoneFleetCommand(f, z.Id) { Source = Source }.Apply(world, sim);
     }
 }
@@ -329,6 +399,10 @@ public sealed record EditZoneCommand(Side Side, int ZoneId, Vec2 Center, double 
     public override void Apply(World world, Simulation sim)
     {
         if (world.Zones.Find(z => z.Id == ZoneId && z.Side == Side) is not Zone z) return;
+        // A pinned zone moved by hand keeps its new place beside its body.
+        if (z.AnchorBodyId is int pin && world.FindBody(pin) is Body pb && Vec2.Distance(Center, z.Center) > 1e-6)
+            z.AnchorOffset = Lanes.OffsetFrom(pb.Position, pb.ParentId is int p ? world.FindBody(p)?.Position : null, Center);
+        if (FromBodyId != null) z.AnchorBodyId = null;
         z.Center = Center;
         z.RadiusMm = Math.Clamp(RadiusMm, 20, 2000);
         z.FromBodyId = FromBodyId;
@@ -348,6 +422,51 @@ public sealed record DeleteZoneCommand(Side Side, int ZoneId) : GameCommand
     {
         world.Zones.RemoveAll(z => z.Id == ZoneId && z.Side == Side);
         foreach (var f in world.Fleets.Where(f => f.ZoneId == ZoneId)) { f.ZoneId = null; f.Mission = Mission.None; }
+    }
+}
+
+/// <summary>Name one of your zones (an empty name is refused).</summary>
+public sealed record RenameZoneCommand(Side Side, int ZoneId, string Name) : GameCommand
+{
+    public const int MaxLength = 32;
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim)
+    {
+        var name = Name.Trim();
+        if (world.Zones.Find(z => z.Id == ZoneId && z.Side == Side) is not Zone z || name.Length == 0 || name.Length > MaxLength)
+        {
+            sim.Log.Warn("lanes", "Zone rename refused", new { ZoneId, Name, Source });
+            return;
+        }
+        var old = z.Name;
+        z.Name = name;
+        sim.Log.Info("lanes", "Zone renamed", new { ZoneId, from = old, to = name, Source });
+    }
+}
+
+/// <summary>
+/// Pin a zone to a planet or moon, so it moves with it and keeps its place beside it as it orbits, or unpin it
+/// (null: it stays where it is now). A zone on a lane is taken off the lane.
+/// </summary>
+public sealed record PinZoneCommand(Side Side, int ZoneId, int? BodyId) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (world.Zones.Find(z => z.Id == ZoneId && z.Side == Side) is not Zone z) return;
+        var center = Lanes.CenterOf(world, z);
+        z.Center = center;
+        z.FromBodyId = null;
+        z.ToBodyId = null;
+        if (BodyId is int id && world.FindBody(id) is Body b && b.ParentId != null)
+        {
+            z.AnchorBodyId = id;
+            z.AnchorOffset = Lanes.OffsetFrom(b.Position, b.ParentId is int p ? world.FindBody(p)?.Position : null, center);
+        }
+        else z.AnchorBodyId = null;
+        sim.Log.Info("lanes", z.AnchorBodyId == null ? "Zone unpinned" : "Zone pinned", new { ZoneId, body = z.AnchorBodyId, Source });
     }
 }
 

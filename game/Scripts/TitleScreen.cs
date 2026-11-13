@@ -93,6 +93,16 @@ public partial class TitleScreen : Control
         rival.Selected = Math.Max(0, choices.FindIndex(c => c.Id == main.RivalRaceChoice));
         rival.ItemSelected += i => main.RivalRaceChoice = choices[(int)i].Id;
         rivalRow.AddChild(rival);
+        // A second rival makes a three-race game: every side against the others, and contact offers between them.
+        rivalRow.AddChild(new Control { CustomMinimumSize = new Vector2(16, 0) });
+        rivalRow.AddChild(Ui.Label("Second rival:", 15, Ui.Dim));
+        var third = new OptionButton { FocusMode = FocusModeEnum.None,
+            TooltipText = "None: a one-on-one game. Pick a race for a three-race game: two rivals, each against everyone, and one-way contact offers once you know a rival's language" };
+        var thirdChoices = new List<(string Id, string Name)> { (Races.None, "None") }.Concat(choices).ToList();
+        foreach (var (_, name) in thirdChoices) third.AddItem(name);
+        third.Selected = Math.Max(0, thirdChoices.FindIndex(c => c.Id == main.ThirdRaceChoice));
+        third.ItemSelected += i => main.ThirdRaceChoice = thirdChoices[(int)i].Id;
+        rivalRow.AddChild(third);
         col.AddChild(rivalRow);
         Describe(main.PlayerRaceChoice);
         col.AddChild(about);
@@ -140,6 +150,8 @@ public partial class TitleScreen : Control
         events.Selected = (int)main.EventsChoice;
         events.ItemSelected += i => main.EventsChoice = (Lightlag.Sim.Core.EventRate)(int)i;
         row.AddChild(events);
+        Box("Contact offers", main.ContactOffersChoice, v => main.ContactOffersChoice = v,
+            "With a second rival: once you know a race's tongue (Words), send it gifts and ask it to go after the other rival or leave a planet alone. Rivals do the same. Off: no offers; the language track still raises intel");
         Box("Ironman", main.IronmanChoice, v => main.IronmanChoice = v,
             "One save for the whole game, written over as you play and when you quit. No loading back, no quick load: every choice sticks");
         return row;
