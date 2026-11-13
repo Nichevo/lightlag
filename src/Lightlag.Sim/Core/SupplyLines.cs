@@ -254,6 +254,13 @@ public static class SupplyLines
         return (before + seg * t).Length <= TogetherMm;
     }
 
+    /// <summary>
+    /// Close to a planet or moon (taking up or leaving orbit): stopping alongside there could put the tanker inside the
+    /// body, so the usual flight to the planet's orbit does the meeting instead.
+    /// </summary>
+    private static bool NearBody(World w, Fleet target) =>
+        w.Bodies.Any(b => Vec2.Distance(target.Position, b.Position) < Fleets.OrbitRadiusFor(b) * 3 + TogetherMm);
+
     /// <summary>Ends the supply fleet's flight beside its fleet, matching its speed (paid in fuel).</summary>
     private static void ComeAlongside(Simulation sim, Fleet f, Fleet target)
     {
@@ -291,12 +298,12 @@ public static class SupplyLines
             // Out to its fleet and passing close by it: stop alongside (match its speed) rather than fly on past.
             var outbound = f.Flight is { } way && (way.TargetFleetId == target.Id || f.Chase?.TargetFleetId == target.Id);
             if ((outbound || f.Flight == null && !home) && target.Hold != HoldStyle.Orbit && !f.Maneuvering
-                && !Together(w, f, target) && PassedClose(f, target))
+                && !NearBody(w, target) && !Together(w, f, target) && PassedClose(f, target))
                 ComeAlongside(sim, f, target);
             if (Together(w, f, target))
             {
                 // Drifting together: keep matching its speed so the two stay side by side while cargo goes over.
-                if (f.Flight == null && f.Hold != HoldStyle.Orbit && (f.Velocity - target.Velocity).Length > 1e-6)
+                if (f.Flight == null && f.Hold != HoldStyle.Orbit && !NearBody(w, target) && (f.Velocity - target.Velocity).Length > 1e-6)
                 {
                     sim.BurnFuel(f, (f.Velocity - target.Velocity).Length);
                     f.Velocity = target.Velocity;
