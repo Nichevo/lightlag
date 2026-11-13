@@ -318,6 +318,7 @@ public partial class Hud : CanvasLayer
     {
         var sim = Main.Instance.Sim;
         if (sim == null) return;
+        BenchProbe.Start();
         _date.Text = _screen.InBattle ? GameTime.Format(sim.World.Hour) : GameTime.Format(sim.World.Tick);
         _battle.Text = (_screen.InBattle ? _screen.BattleLine() : "")
                        + (_screen.RevealAll ? (_screen.InBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
@@ -340,6 +341,7 @@ public partial class Hud : CanvasLayer
                        + (sim.RuleViolations > 0 ? $" · rule failures: {sim.RuleViolations}" : "")
                        + (second.Length > 0 ? "\n" + second : "");
         _scaleBar.QueueRedraw();
+        BenchProbe.Lap("top-status");
 
         var w = sim.World;
         _empireButton.Visible = w.Loop;
@@ -358,6 +360,7 @@ public partial class Hud : CanvasLayer
             var urgent = me.Needs.Any(n => n.Level == NeedLevel.Urgent);
             _empireButton.Modulate = attacked || urgent ? Ui.Danger : _screen.ShowEmpire ? Ui.Player : Colors.White;
         }
+        BenchProbe.Lap("empire-button+needs+control");
         _row2.Visible = w.Loop;
         _intelButton.Visible = w.Loop;
         _intelButton.Modulate = _screen.ShowIntel ? Ui.Player : Colors.White;
@@ -365,20 +368,26 @@ public partial class Hud : CanvasLayer
         _researchButton.Visible = w.Loop;
         if (w.Loop) { _researchButton.Text = ResearchLine(w); _researchButton.Modulate = _researchButton.Text.Contains("WAITING") ? Ui.Danger : Colors.White; }
         _planetsButton.Visible = w.Loop;
+        BenchProbe.Lap("research-line");
         _research.Visible = w.Loop && _screen.ShowResearch;
         if (_research.Visible) _research.Refresh(sim);
+        BenchProbe.Lap("research-screen");
         _colonies.Visible = w.Loop && (_screen.ShowPlanets || _screen.PlanetScreenId != null) && !_research.Visible;
         if (_colonies.Visible) _colonies.Refresh(sim);
+        BenchProbe.Lap("colonies");
         _ground.Visible = w.Loop && _screen.GroundScreenId != null && !_research.Visible;
         if (_ground.Visible) _ground.Refresh(sim);
         if (_ground.Visible) _colonies.Visible = false;
         _fleets.Visible = _screen.ShowFleets && !_research.Visible && !_colonies.Visible && !_ground.Visible && _screen.FittingFleetId == null;
         if (_fleets.Visible) _fleets.Refresh(sim);
+        BenchProbe.Lap("fleets-screen");
         _fleetsButton.Modulate = _fleets.Visible ? Ui.Player : Colors.White;
         _ships.Visible = w.Loop && _screen.ShowShips && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible;
         if (_ships.Visible) _ships.Refresh(sim);
+        BenchProbe.Lap("ships-screen");
         _shipsButton.Modulate = _ships.Visible ? Ui.Player : Colors.White;
         if (w.Loop) ApplyBadges(w);
+        BenchProbe.Lap("badges");
         _bottomBar.UrgentOnly = _screen.Engagement != null;
         if (w.Loop)
         {
@@ -387,8 +396,10 @@ public partial class Hud : CanvasLayer
             _bottomBar.Position = new Vector2(16, view.Y - 64);
             _bottomBar.Size = new Vector2(barWidth, 30);
             _bottomBar.Refresh(w, barWidth);
+        BenchProbe.Lap("bottombar");
             // Wide events (a flare, a comet pass): a banner centred under the top bar, below the battle line if there is one.
             _eventBanner.Refresh(w);
+        BenchProbe.Lap("banner");
             var under = _battle.Text.Length > 0 ? _battle.Position.Y + _battle.Size.Y + 4 : 48;
             _eventBanner.Position = new Vector2(Mathf.Max(16, (view.X - _eventBanner.Size.X) / 2), under);
         }
@@ -396,20 +407,24 @@ public partial class Hud : CanvasLayer
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
         _empire.Visible = w.Loop && _screen.ShowEmpire && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible && !_ships.Visible;
         if (_empire.Visible) _empire.Refresh(sim);
+        BenchProbe.Lap("empire-panel");
         var rivalMind = Mind.Of(w, Side.Rival);
         _mindPanel.Visible = _screen.RevealAll && rivalMind != null && !_empire.Visible;
         if (_mindPanel.Visible) _mind.Text = MindText(w, rivalMind!);
         _end.Visible = w.Winner != null && _screen.ShowEnd;
         if (_end.Visible) _end.Refresh(w);
+        BenchProbe.Lap("mind+end");
 
         var fleet = _screen.SelectedFleet;
         _fleetPanel.Visible = fleet != null && !_fleets.Visible && !_ships.Visible;
         if (fleet != null) _fleetPanel.Refresh(sim, fleet);
+        BenchProbe.Lap("fleet-panel");
         var group = _screen.Group;
         _groupPanel.Visible = group.Count >= 2;
         if (group.Count >= 2) _groupPanel.Refresh(sim, group);
         _plannerPanel.Visible = _screen.Planner != null;
         if (_screen.Planner != null) _plannerPanel.Refresh(sim, _screen.Planner);
+        BenchProbe.Lap("group+planner");
         // On a short screen the planner and the fleet panel would overlap: the planner wins while it is open.
         if (_plannerPanel.Visible && _fleetPanel.Visible && _plannerPanel.GetGlobalRect().End.Y > _fleetPanel.GetGlobalRect().Position.Y)
             _fleetPanel.Visible = false;
@@ -424,9 +439,11 @@ public partial class Hud : CanvasLayer
         if (fittingFleet == null || fittingFleet.Side != Side.Player) _screen.FittingFleetId = null;
         _fitting.Visible = fittingFleet != null && fittingFleet.Side == Side.Player && !_research.Visible && !_colonies.Visible;
         if (_fitting.Visible) _fitting.Refresh(sim, fittingFleet!);
+        BenchProbe.Lap("menu+fitting");
         var screen = _side.GetViewportRect().Size;
         _side.Visible = _screen.ShowSide && !_research.Visible && !_colonies.Visible && !_fleets.Visible && !_ships.Visible && !_ground.Visible && !_empire.Visible && !_fitting.Visible && engagement == null && !_menu.Visible;
         if (_side.Visible) _side.Refresh(sim, Mathf.Max(200, screen.Y - 96 - 110));
+        BenchProbe.Lap("side-panel");
         _sideButton.Modulate = _side.Visible ? Ui.Player : new Color(1, 1, 1, 0.75f);
         var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : 16;
         _contacts.Position = new Vector2(leftEdge, 124);
@@ -434,6 +451,7 @@ public partial class Hud : CanvasLayer
         var covered = _research.Visible || _colonies.Visible || _fleets.Visible || _ships.Visible || _ground.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
+        BenchProbe.Lap("contacts");
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;
         if (engagement != null)
         {
@@ -444,6 +462,7 @@ public partial class Hud : CanvasLayer
             _battle.Visible = false;
         }
         else _battle.Visible = true;
+        BenchProbe.Lap("engagement");
 
         // Ship card, How am I doing, intelligence and key help: opened on demand, over the map.
         var card = _screen.ShipCardId is int cid ? w.Ships.Find(x => x.Id == cid) : null;
@@ -460,18 +479,22 @@ public partial class Hud : CanvasLayer
         }
         _progress.Visible = w.Loop && _screen.ShowProgress && !_menu.Visible;
         if (_progress.Visible) _progress.Refresh(sim);
+        BenchProbe.Lap("shipcard+progress");
         _intel.Visible = w.Loop && _screen.ShowIntel && !_menu.Visible && !_progress.Visible;
         if (_intel.Visible) _intel.Refresh(sim);
+        BenchProbe.Lap("intel");
         _keyHelp.Visible = _screen.ShowHelp && !_menu.Visible;
 
         // In a full game a selected planet gets the planet screen; the sandbox keeps the short description.
         var planet = fleet == null && group.Count < 2 && engagement == null && w.Loop ? _screen.SelectedBody : null;
         _planetPanel.Visible = planet != null && planet.Kind != BodyKind.Star && !_colonies.Visible && !_fleets.Visible && !_ships.Visible && !_ground.Visible && !_research.Visible;
         if (_planetPanel.Visible) _planetPanel.Refresh(sim, planet!);
+        BenchProbe.Lap("planet-panel");
         var text = fleet == null && group.Count < 2 && engagement == null && !_planetPanel.Visible ? Describe(sim) : null;
         _infoPanel.Visible = text != null;
         if (text != null) _info.Text = text;
         ApplyBattleView(sim);
+        BenchProbe.Lap("info+battleview");
     }
 
     /// <summary>Battle view (U): hide the menus and panels, keep the date and speeds, and show a strip per ship.</summary>
@@ -563,16 +586,22 @@ public partial class Hud : CanvasLayer
             var baseText = b.Text;
             var cut = baseText.IndexOf("  ●", StringComparison.Ordinal);
             if (cut >= 0) baseText = baseText[..cut];
-            if (list is not { Count: > 0 })
+            var worst = list is { Count: > 0 } ? list.Min(n => n.Level) : (NeedLevel?)null;
+            var text = worst == null ? baseText : $"{baseText}  ● {list!.Count}";
+            if (b.Text != text) b.Text = text;
+            // Style and tooltip only change when the badge does: setting theme overrides every frame
+            // made Godot restyle the bar each time (about 10 ms a frame).
+            var key = worst == null ? "" : $"{worst}|{string.Join("\n", list!.OrderBy(n => n.Level).Take(5).Select(n => $"{n.Level}: {n.Text}"))}";
+            if (_badgeKeys.TryGetValue(b, out var was) && was == key) return;
+            _badgeKeys[b] = key;
+            if (worst is not NeedLevel level)
             {
-                b.Text = baseText;
                 foreach (var st in new[] { "normal", "hover" }) b.RemoveThemeStyleboxOverride(st);
                 b.RemoveThemeColorOverride("font_color");
+                b.TooltipText = b.TooltipText.Split("\n\nNeeds you here:")[0];
                 return;
             }
-            var worst = list.Min(n => n.Level);
-            var color = BottomBar.ColorOf(worst);
-            b.Text = $"{baseText}  ● {list.Count}";
+            var color = BottomBar.ColorOf(level);
             b.AddThemeColorOverride("font_color", color);
             foreach (var st in new[] { "normal", "hover" })
             {
@@ -582,7 +611,7 @@ public partial class Hud : CanvasLayer
                 box.SetContentMarginAll(6);
                 b.AddThemeStyleboxOverride(st, box);
             }
-            b.TooltipText = b.TooltipText.Split("\n\nNeeds you here:")[0] + "\n\nNeeds you here:\n" + string.Join("\n", list.OrderBy(n => n.Level).Take(5).Select(n => $"{n.Level}: {n.Text}"));
+            b.TooltipText = b.TooltipText.Split("\n\nNeeds you here:")[0] + "\n\nNeeds you here:\n" + key[(key.IndexOf('|') + 1)..];
         }
         Badge(_fleetsButton, NeedScreens.Fleets);
         Badge(_planetsButton, NeedScreens.Planets);
@@ -590,6 +619,9 @@ public partial class Hud : CanvasLayer
         Badge(_researchButton, NeedScreens.Research);
         Badge(_empireButton, NeedScreens.Empire);
     }
+
+    /// <summary>What each tab badge last showed (level and its items), so it is restyled only when that changes.</summary>
+    private readonly Dictionary<Button, string> _badgeKeys = new();
 
     private int _nextNeed;
 
