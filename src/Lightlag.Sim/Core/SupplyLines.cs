@@ -38,6 +38,24 @@ public static class SupplyLines
     public static double MaxAmmo(Ship s) => Fitting.Spec(s).Railguns * AmmoPerRailgun;
     public static double MaxFood(Ship s) => Crews.Crewed(s) ? Fitting.Spec(s).FoodDays : 0;
 
+    /// <summary>A hauler that carries goods between planets (freighters of every kind, sail freighters too).</summary>
+    public static bool IsFreighter(Ship s) => s.ClassId is "freighter" or "bulk-freighter" or "sail-freighter";
+
+    /// <summary>
+    /// The freighter to build next: bulk once researched, else the plain one; once sails are researched every
+    /// other one is a sail freighter (cheap and fuel-free, but slow and in need of light).
+    /// </summary>
+    public static string HaulerClass(World w, Side side)
+    {
+        var normal = Economy.CanQueue(w, side, OrderKind.Ship, "bulk-freighter") == null ? "bulk-freighter" : "freighter";
+        if (Economy.CanQueue(w, side, OrderKind.Ship, "sail-freighter") != null) return normal;
+        var classes = w.Ships.Where(s => s.Side == side).Select(s => s.ClassId)
+            .Concat(w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship).Select(o => o.Key)).ToList();
+        var sails = classes.Count(c => c == "sail-freighter");
+        var others = classes.Count(c => c is "freighter" or "bulk-freighter");
+        return sails < others ? "sail-freighter" : normal;
+    }
+
     public static bool IsSupplyShip(Ship s) => Fitting.Spec(s) is { Cargo: > 0, CargoKind: "fuel" or "food" or "mixed" };
 
     /// <summary>

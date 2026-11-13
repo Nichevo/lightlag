@@ -89,7 +89,8 @@ public partial class EmpirePanel : PanelContainer
         + "|" + string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => o.JoinFleetId))
         + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"))
         + "|" + string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id))
-        + "|" + string.Join(",", w.Stations.Where(st => st.Side == Side.Player).Select(st => $"{st.Id}{(w.Hour >= st.ReadyHour ? "r" : "")}"));
+        + "|" + string.Join(",", w.Stations.Where(st => st.Side == Side.Player).Select(st => $"{st.Id}{(w.Hour >= st.ReadyHour ? "r" : "")}"))
+        + "|" + string.Join(",", w.Satellites.Where(s => s.Side == Side.Player && s.LostHour == null).Select(s => s.Id));
 
     /// <summary>The Supply tab is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
     private void RebuildSupply(Simulation sim)
@@ -187,8 +188,9 @@ public partial class EmpirePanel : PanelContainer
         if (GameData.Economy.Stations is { Count: > 0 } kinds)
         {
             Heading("Stations");
-            Live(12, Ui.Dim, _ => string.Join("\n", kinds.Select(k => $"{k.Name} ({k.Cost:0}, {k.Days:0} d): {k.Effect}"
-                + (k.Id == Economy.Relay && !w.Light.On ? " (light lag only)" : ""))));
+            Live(12, Ui.Dim, w2 => string.Join("\n", kinds.Select(k => $"{k.Name} ({k.Cost:0}, {k.Days:0} d): {k.Effect}"
+                + (k.Id == Economy.Relay && !w.Light.On ? " (light lag only)" : "")
+                + (k.Needs is string n && !Tech.Has(w2, Side.Player, n) ? $" · needs {GameData.Research(n).Name}" : ""))));
             foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player).OrderBy(b => b.Id))
             {
                 var row = Row();
@@ -210,6 +212,9 @@ public partial class EmpirePanel : PanelContainer
                         continue;
                     }
                     if (w.Winner != null) continue;
+                    // Only stations that can go here and are researched (the list above says what the rest need).
+                    if (k.Needs is string needs && !Tech.Has(w, Side.Player, needs)) continue;
+                    if (k.OnTypes is { Count: > 0 } types && !types.Contains(b.Type) || k.Ground && b.Board == null) continue;
                     var bodyId = b.Id;
                     var kind = k.Id;
                     var button = Ui.SmallButton($"{k.Name} · {k.Cost:0}", () => _screen.BuildStation(bodyId, kind),
@@ -218,6 +223,28 @@ public partial class EmpirePanel : PanelContainer
                     row.AddChild(button);
                 }
             }
+        }
+
+        // Satellites: each one, where it is and how it is doing, with a button to scrap it; and what the lift to orbit costs.
+        Heading("Satellites and lift");
+        Live(12, Ui.Dim, w2 =>
+        {
+            var lines = new List<string>();
+            var mine = w2.Satellites.Where(s => s.Side == Side.Player).OrderBy(s => s.Id).ToList();
+            lines.Add(mine.Count == 0
+                ? (Tech.Has(w2, Side.Player, Satellites.D.Needs) ? "No satellites. Launch one from a planet's panel (Satellite ▾)" : $"Satellites need {GameData.Research(Satellites.D.Needs).Name}")
+                : $"{Satellites.Live(w2, Side.Player).Count()} of {Satellites.D.MaxPerSide} satellites:");
+            lines.AddRange(mine.Select(s => "  " + Satellites.Describe(w2, s)));
+            lines.Add($"Lift to orbit paid so far: {Economy.Of(w2, Side.Player).Totals.LiftSpent:0} Industry");
+            return string.Join("\n", lines);
+        });
+        var scrap = Row();
+        foreach (var s in w.Satellites.Where(s => s.Side == Side.Player && s.LostHour == null).OrderBy(s => s.Id))
+        {
+            var id = s.Id;
+            var button = Ui.SmallButton($"Scrap {s.Name}", () => _screen.IssueNow(new ScrapSatelliteCommand(Side.Player, id), "scrapping a satellite"),
+                $"Switch {s.Name} off and let it fall: frees its place under the limit of {Satellites.D.MaxPerSide}");
+            scrap.AddChild(button);
         }
 
         // Claims under way.

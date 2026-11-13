@@ -18,6 +18,11 @@ public sealed class SideTotals
     public int ShipsKilled { get; set; }
     public double IndustryEarned { get; set; }
     public double IndustrySpent { get; set; }
+
+    /// <summary>Industry paid to lift goods and satellites to orbit (part of IndustrySpent; see Lift).</summary>
+    public double LiftSpent { get; set; }
+    public int SatellitesLaunched { get; set; }
+    public int SatellitesLost { get; set; }
     public int PlanetsClaimed { get; set; }
     public int PlanetsLost { get; set; }
     public int Battles { get; set; }

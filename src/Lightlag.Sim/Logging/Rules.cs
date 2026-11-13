@@ -81,6 +81,15 @@ public sealed class RuleBook
         .Add("rival-ideas-sane", w => w.Sides.SelectMany(s => s.RivalIdeas.Where(kv => !(kv.Value >= 0 && kv.Value <= 1 + 1e-9) || !GameData.ResearchById.ContainsKey(kv.Key))
             .Select(kv => $"{s.Side} learns rival idea {kv.Key} at {kv.Value}")))
         .Add("supply-rules-sane", SupplyRulesSane)
+        // Transport and orbit (Plan 3 build 4): satellites are of a known kind, over a body that exists, at a sane place,
+        // and no more than the limit are alive per side; lift spending never goes negative.
+        .Add("satellites-sane", w => w.Satellites.Where(s => Lightlag.Sim.Core.Satellites.KindOf(s.Kind) == null || !s.Position.IsFinite
+                || s.LostHour == null && w.FindBody(s.BodyId) == null)
+            .Select(s => $"satellite {s.Id} {s.Name} ({s.Kind}) over body {s.BodyId} at {s.Position}")
+            .Concat(w.Sides.Where(side => w.Satellites.Count(s => s.Side == side.Side && s.LostHour == null) > Lightlag.Sim.Core.Satellites.D.MaxPerSide)
+                .Select(side => $"{side.Side} has more than {Lightlag.Sim.Core.Satellites.D.MaxPerSide} satellites"))
+            .Concat(w.Sides.Where(side => side.Totals.LiftSpent < -1e-9 || side.Totals.LiftSpent > side.Totals.IndustrySpent + 1e-6)
+                .Select(side => $"{side.Side} lift spending {side.Totals.LiftSpent} is out of range")))
         .Add("positions-finite", PositionsFinite)
         .Add("ids-unique", IdsUnique)
         .Add("orbits-hold-radius", OrbitsHoldRadius)

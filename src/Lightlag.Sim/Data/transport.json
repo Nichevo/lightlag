@@ -1,0 +1,18 @@
+{
+  "_comment": "Transport and orbit (see Transport.cs): sail ships and laser stations, satellites, and the lift-to-orbit ladder. Missing values use the defaults in code.",
+
+  "_sailsComment": "A sail ship's acceleration (its class's accelMmPerHour2) is what it gets in full sunlight at sunAu from the star. Sunlight falls with the square of the distance (capped at maxLight times); in a planet's or moon's shadow it is 0. A laser station of the side within laserRangeMm and in sight adds laserPush (in the same units: 1 = full sunlight at sunAu). A route is flown with the average push along it, and refused below minPush. Sails make no plume: a sailing fleet shows like a cold one.",
+  "sails": { "sunAu": 1.0, "maxLight": 3.0, "laserPush": 2.0, "laserRangeMm": 450000, "minPush": 0.08, "samples": 7 },
+
+  "_satellitesComment": "Satellites: launched from a body the side holds to the orbit of any body, or to a planet's (or moon's) leading or trailing point, 60 degrees ahead of or behind it on its orbit. They fly there at speedMmPerHour. Sensor satellites see like a ship with sensorMm; relay satellites pass orders and reports round planets like a relay station. Each costs its Industry plus the lift of liftGoods goods from where it is launched. Enemies see one only from seenMm times their sensors (a tiny, cold target); an armed enemy fleet within killRangeMm that sees it shoots it down (killPerHour chance an hour). A side may have maxPerSide at once. Lost ones stay listed for keepLostDays.",
+  "satellites": {
+    "needs": "satellites", "speedMmPerHour": 300, "maxPerSide": 12, "seenMm": 0.25, "killRangeMm": 30, "killPerHour": 0.35, "liftGoods": 4, "keepLostDays": 10,
+    "kinds": [
+      { "id": "sensor-sat", "name": "Sensor satellite", "short": "sensor", "cost": 30, "sensorMm": 60, "effect": "Watches space round it like a picket ship: sees burning fleets far off, cold ones only close" },
+      { "id": "relay-sat", "name": "Relay satellite", "short": "relay", "cost": 25, "relay": true, "effect": "Passes orders and reports round planets that block them, like a relay station, from wherever it sits" }
+    ]
+  },
+
+  "_liftComment": "The lift to orbit: every good a freighter, tanker or supply ship loads at a body, and every satellite launched from it, costs industryPerGood Industry times the body's gravity well (its mass over its radius, 1 for an Earth-sized world drawn refRadiusMm across; asteroids and small moons are almost free; at most maxWell). The ladder cuts it: a working mass driver on the body (massDriver), a skyhook over it, or a space elevator down to it (their stations' liftCut); the best one counts.",
+  "lift": { "industryPerGood": 0.15, "refRadiusMm": 31.85, "maxWell": 3.0, "massDriver": 0.5 }
+}
