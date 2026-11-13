@@ -1048,6 +1048,7 @@ public sealed record SendPeopleCommand(Side Side, int FleetId, int FromBodyId, i
         }
         f.PeopleRun = new PeopleRun { FromBodyId = FromBodyId, ToBodyId = to, Repeat = Repeat };
         f.SupplyRunFor = null;
+        f.SupplyRunByRole = false;
         sim.Log.Info("planets", $"{f.Name} will carry people from {world.FindBody(FromBodyId)!.Name} to {world.FindBody(to)!.Name}",
             new { FleetId, FromBodyId, ToBodyId, Repeat, Source });
     }

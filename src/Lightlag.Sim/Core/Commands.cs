@@ -310,7 +310,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Autonomy = fleet.Autonomy;
         created.Cover = fleet.Cover;
         created.FireAt = fleet.FireAt;
-        created.Role = fleet.Role;
+        created.Role = HelpCalls.FitRole(world, created, fleet.Role);
         created.RoleRules = fleet.RoleRules.Copy();
         Fleets.Arrange(world, fleet);
         Fleets.SetApart(world, created);

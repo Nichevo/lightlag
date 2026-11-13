@@ -51,6 +51,8 @@ public sealed class RuleBook
     public static RuleBook Default() => new RuleBook()
         .Add("time-not-negative", w => w.Tick < 0 ? new[] { $"tick is {w.Tick}" } : Array.Empty<string>())
         .Add("research-teams-sane", ResearchTeamsSane)
+        .Add("fleet-roles-fit-ships", w => w.Fleets.Where(f => f.ShipIds.Count > 0 && !HelpCalls.RolesFor(w, f).Contains(f.Role))
+            .Select(f => $"{f.Name} has role {f.Role} but {(HelpCalls.SupplyOnly(w, f) ? "is only supply ships" : "is not a supply fleet")}").ToArray())
         .Add("stocks-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
                 && !(s.Ammo >= -1e-9 && s.Ammo <= SupplyLines.MaxAmmo(s) + 1e-6 && s.Food >= -1e-9 && s.Food <= SupplyLines.MaxFood(s) + 1e-6
                      && s.CargoFuel >= -1e-9 && s.CargoAmmo >= -1e-9 && s.CargoFood >= -1e-9

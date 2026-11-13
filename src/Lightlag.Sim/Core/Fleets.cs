@@ -245,6 +245,9 @@ public sealed class Fleet
 
     public int? SupplyRunFor { get; set; }
 
+    /// <summary>The supply run was taken up by the Supply role (it ends when that fleet wants nothing more).</summary>
+    public bool SupplyRunByRole { get; set; }
+
     /// <summary>The last order this fleet turned down, and when (shown against the fleet for a day so the player isn't left guessing).</summary>
     public string? Refused { get; set; }
     public double RefusedHour { get; set; }
@@ -486,6 +489,12 @@ public static class Fleets
     {
         Formations.Layout(w, f, Formations.Shape(w, f), Formations.Front(w, f));
         foreach (var s in w.ShipsOf(f)) s.Position = f.Position + s.FormationOffset;
+        // Its ships changed: keep only a role it can have (supply ships alone take Supply, warships never do).
+        if (f.ShipIds.Count > 0 && HelpCalls.FitRole(w, f, f.Role) is var fit && fit != f.Role)
+        {
+            if (f.AnsweringCallId != null) HelpCalls.Dropped(f);
+            f.Role = fit;
+        }
     }
 
     public static Vec2 SlotOffset(int slot)

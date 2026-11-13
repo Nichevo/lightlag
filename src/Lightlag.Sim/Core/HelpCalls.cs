@@ -3,9 +3,10 @@ namespace Lightlag.Sim.Core;
 /// <summary>
 /// A fleet's role: which calls for help it answers by itself when it is free. None answers nothing;
 /// Defence answers planets that see an enemy close; AntiPiracy answers raids on cargo runs and cargo
-/// ships in trouble; Support answers every call, fleets in trouble included.
+/// ships in trouble; Support answers every call, fleets in trouble included. Supply is the only role a
+/// fleet of supply ships can have: when free it takes supplies to fleets of its side that run short.
 /// </summary>
-public enum FleetRole { None, Defence, AntiPiracy, Support }
+public enum FleetRole { None, Defence, AntiPiracy, Support, Supply }
 
 /// <summary>How far a role fleet goes to answer a call.</summary>
 public enum RoleRange { Near, Region, Anywhere }
@@ -110,6 +111,7 @@ public static class HelpCalls
         FleetRole.Defence => "Planet defence",
         FleetRole.AntiPiracy => "Anti-piracy",
         FleetRole.Support => "Support",
+        FleetRole.Supply => "Supply",
         _ => "No role",
     };
 
@@ -118,11 +120,23 @@ public static class HelpCalls
         FleetRole.Defence => "Answers planets that see an enemy fleet close",
         FleetRole.AntiPiracy => "Answers raids on cargo runs and cargo ships in trouble",
         FleetRole.Support => "Answers every call: planets, raids and fleets in trouble",
+        FleetRole.Supply => "Takes fuel, ammunition and food to fleets in range that run short, then goes home to load",
         _ => "Answers no calls; only does what it is told",
     };
 
     public static string RangeName(RoleRange r) => r switch { RoleRange.Near => "Near (0.3 AU)", RoleRange.Region => "Region (1 AU)", _ => "Anywhere" };
     public static string OddsName(RoleOdds o) => o switch { RoleOdds.Any => "Any odds", RoleOdds.Even => "About even or better", _ => "Clearly stronger (1.5 to 1)" };
+
+    /// <summary>A fleet made only of supply ships (tankers, freighters): it can't fight, so its only role is Supply.</summary>
+    public static bool SupplyOnly(World w, Fleet f) => f.ShipIds.Count > 0 && w.ShipsOf(f).All(SupplyLines.IsSupplyShip);
+
+    /// <summary>The roles this fleet can have: None or Supply for a fleet of supply ships, the fighting roles for the rest.</summary>
+    public static IEnumerable<FleetRole> RolesFor(World w, Fleet f) =>
+        SupplyOnly(w, f) ? new[] { FleetRole.None, FleetRole.Supply } : new[] { FleetRole.None, FleetRole.Defence, FleetRole.AntiPiracy, FleetRole.Support };
+
+    /// <summary>The role a fleet keeps when its ships change (a split or a merge): Supply for supply ships, never for warships.</summary>
+    public static FleetRole FitRole(World w, Fleet f, FleetRole wanted) =>
+        RolesFor(w, f).Contains(wanted) ? wanted : SupplyOnly(w, f) ? (wanted == FleetRole.None ? FleetRole.None : FleetRole.Supply) : FleetRole.None;
 
     /// <summary>Does this role answer a call with these reasons?</summary>
     public static bool Covers(FleetRole role, CallReason reasons) => role switch
@@ -164,14 +178,64 @@ public static class HelpCalls
         var w = sim.World;
         foreach (var side in new[] { Side.Player, Side.Rival })
         {
+            FitRoles(sim, side);
             if (Mind.Of(w, side) != null) continue;
             Raise(sim, side);
+            Supplies(sim, side);
             foreach (var f in w.Fleets.Where(f => f.Side == side && f.AnsweringCallId != null).OrderBy(f => f.Id).ToList())
                 KeepAt(sim, f);
             foreach (var c in w.HelpCalls.Where(c => c.Side == side && c.Open).OrderBy(c => c.Id).ToList())
                 Answer(sim, c);
         }
         w.HelpCalls.RemoveAll(c => c.OverHour is double end && w.Hour - end > KeepHours);
+    }
+
+    /// <summary>A fleet whose ships changed keeps only a role it can have (a supply ship split off a warfleet takes Supply).</summary>
+    private static void FitRoles(Simulation sim, Side side)
+    {
+        var w = sim.World;
+        foreach (var f in w.Fleets.Where(f => f.Side == side && f.Role != FleetRole.None).OrderBy(f => f.Id))
+        {
+            var fit = FitRole(w, f, f.Role);
+            if (fit == f.Role) continue;
+            sim.Log.Info("fleet", "Fleet role changed to fit its ships", new { fleetId = f.Id, fleet = f.Name, from = f.Role.ToString(), to = fit.ToString() });
+            if (f.AnsweringCallId != null) Dropped(f);
+            f.Role = fit;
+        }
+    }
+
+    /// <summary>
+    /// Supply-role fleets: a free one, loaded at a held planet, takes a supply run to the nearest fleet in range
+    /// that runs short and has no tanker coming. When that fleet wants nothing more and the tanker is home, the run ends.
+    /// </summary>
+    private static void Supplies(Simulation sim, Side side)
+    {
+        var w = sim.World;
+        foreach (var f in w.Fleets.Where(f => f.Side == side && f.Role == FleetRole.Supply).OrderBy(f => f.Id).ToList())
+        {
+            var home = f.Flight == null && f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == side;
+            if (f.SupplyRunByRole && f.SupplyRunFor is int served)
+            {
+                if (home && (w.FindFleet(served) is not Fleet t || !SupplyLines.Needs(w, t)))
+                {
+                    f.SupplyRunFor = null;
+                    f.SupplyRunByRole = false;
+                    sim.Log.Info("supply", $"{f.Name} is free for the next fleet", new { fleetId = f.Id, served });
+                }
+                continue;
+            }
+            if (!home || !Free(w, f) || SupplyLines.CargoShare(w, f) < 0.95) continue;
+            var range = RangeAu(f.RoleRules.Range) * Au;
+            var want = w.Fleets.Where(t => t.Side == side && t.Id != f.Id && !SupplyOnly(w, t) && t.ShipIds.Count > 0
+                                            && !w.Fleets.Any(x => x.SupplyRunFor == t.Id) && SupplyLines.Short(w, t)
+                                            && Vec2.Distance(t.Position, f.Position) <= range)
+                .OrderBy(t => Vec2.Distance(t.Position, f.Position)).ThenBy(t => t.Id).FirstOrDefault();
+            if (want == null) continue;
+            f.SupplyRunFor = want.Id;
+            f.SupplyRunByRole = true;
+            f.SupplyRunProblem = null;
+            Autonomy.Report(sim, f, $"{f.Name} (Supply) takes supplies to {want.Name}", NoteKind.Supply);
+        }
     }
 
     /// <summary>Raise or refresh calls from what the side sees now, and end calls whose reasons have passed.</summary>
@@ -481,6 +545,12 @@ public sealed record SetFleetRoleCommand(int FleetId, FleetRole Role, RoleRules?
     public override void Apply(World world, Simulation sim)
     {
         if (GetFleet(world, sim, FleetId, "Role") is not Fleet fleet) return;
+        if (!HelpCalls.RolesFor(world, fleet).Contains(Role))
+        {
+            sim.Log.Warn("fleet", "Role does not fit the fleet", new { FleetId, fleet = fleet.Name, Role, supplyOnly = HelpCalls.SupplyOnly(world, fleet), Source });
+            return;
+        }
+        if (fleet.Role == FleetRole.Supply && Role != FleetRole.Supply && fleet.SupplyRunByRole) { fleet.SupplyRunFor = null; fleet.SupplyRunByRole = false; }
         fleet.Role = Role;
         if (Rules != null) fleet.RoleRules = Rules.Copy();
         if (Role == FleetRole.None && fleet.AnsweringCallId != null) HelpCalls.Dropped(fleet);
