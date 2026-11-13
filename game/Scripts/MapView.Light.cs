@@ -75,7 +75,9 @@ public partial class MapView
                 Economy.SensorStation => "sensors",
                 _ => Economy.StationKind(st.Kind)?.Name.ToLowerInvariant() ?? st.Kind,
             };
-            var text = w.Hour >= st.ReadyHour ? $"◆ {name}" : $"◇ {name} (building)";
+            var text = w.Hour < st.ReadyHour ? $"◇ {name} (building)"
+                : Economy.StationKind(st.Kind) is { Armour: > 0 } fort ? $"◆ {name} {100 * st.Armour / fort.Armour:0} %"
+                : $"◆ {name}";
             var y = (float)Math.Max(8, b.Radius * Camera.Scale) + 12 * row[b.Id] + 6;
             DrawString(_font, at + new Vector2(-24, y), text, HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
         }

@@ -31,6 +31,8 @@ public sealed class GroundFront
     public bool SpareAll { get; set; }
     public bool Surround { get; set; }
     public bool Storm { get; set; }
+    /// <summary>The defenders know help is on its way (a note was written when they first heard).</summary>
+    public bool HelpHeard { get; set; }
 
     /// <summary>Buildings already passed by the front (piece ids), how each came out, and counts.</summary>
     public List<int> Passed { get; set; } = new();
@@ -121,6 +123,28 @@ public static class Ground
         w.Sightings.Any(s => s.SeenBy == side && !s.Own && w.Hour - s.Hour < 48 && w.FindFleet(s.FleetId) is Fleet f && f.Side != side && f.ShipIds.Count > 0
                              && Combat.Armed(w, f) && !w.ShipsOf(f).All(Boarders.Helpless)
                              && Vec2.Distance(s.Position, at) <= hours * w.ShipsOf(f).Min(x => x.MaxSpeed) * 0.6);
+
+    /// <summary>
+    /// The holder's soonest armed fleet flying to this planet, due within HelpComingDays, and the days until it
+    /// arrives. Its people know help is coming: happiness rises and defenders hold on harder.
+    /// </summary>
+    public static (Fleet Fleet, double Days)? HelpComing(World w, Body b)
+    {
+        if (b.Owner is not Side owner) return null;
+        (Fleet, double)? best = null;
+        foreach (var f in w.Fleets)
+        {
+            if (f.Side != owner || f.ShipIds.Count == 0 || f.Flight is not { TargetBodyId: int to } fl || to != b.Id) continue;
+            var days = (fl.ArriveHour - w.Hour) / 24;
+            if (days > D.HelpComingDays || best is { } bb && bb.Item2 <= days || !Combat.Armed(w, f)) continue;
+            best = (f, Math.Max(0, days));
+        }
+        return best;
+    }
+
+    /// <summary>How hard defenders hold on: morale (happiness) and help coming scale the losses they take.</summary>
+    public static double HoldFactor(World w, Body b) =>
+        (1 + D.MoraleLoss * (50 - Math.Clamp(b.Happiness, 0, 100)) / 50) * (HelpComing(w, b) != null ? D.HelpComingLoss : 1);
 
     // ---- Landing --------------------------------------------------------------------------------
 
@@ -360,7 +384,16 @@ public static class Ground
             var cut = w.Fleets.Any(o => o.Side != side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o))
                       && !w.Fleets.Any(o => o.Side == side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o));
             var troops = b.LandingTroops - b.Garrison * D.LossPerHour * D.PlanLoss[plan] * (cut ? 1.5 : 1) * (f.Storm ? 1.5 : 1);
-            var garrison = b.Garrison - b.LandingTroops * D.LossPerHour * D.PlanAttack[plan] * f.Edge * defLoss;
+            // Happy defenders, and those who know help is on its way, hold on harder.
+            var help = HelpComing(w, b);
+            if (help is { } h && !f.HelpHeard)
+            {
+                f.HelpHeard = true;
+                f.Notes.Add($"Help is coming ({h.Fleet.Name}, about {h.Days:0} days): the defenders dig in");
+                sim.Log.Info("ground", "Defenders hear help is coming", new { bodyId = b.Id, fleetId = h.Fleet.Id, days = Math.Round(h.Days, 1) });
+            }
+            else if (help == null) f.HelpHeard = false;
+            var garrison = b.Garrison - b.LandingTroops * D.LossPerHour * D.PlanAttack[plan] * f.Edge * defLoss * HoldFactor(w, b);
             // Guns left standing keep shooting at the landing zone; defenders with no farms left go hungry.
             var guns = f.PushForGuns ? GunsOn(b, f) * 0.3 : GunsOn(b, f);
             troops -= guns * D.GunLossPerDay / 24;

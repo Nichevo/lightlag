@@ -64,6 +64,34 @@ public static class WarReport
             md.AppendLine($"Blockades (a day or more): {started / Rows.Count:0.00} per side per game; {broken / started:P0} broken by a relief fleet (target 50 %), "
                           + $"{Sum(r => r.T.BlockadesLeft) / started:P0} left by the blockaders, {blkWins / started:P0} ended in surrender, the rest in an invasion or still going.");
         }
+        var sieges = Sum(r => r.T.Sieges);
+        if (sieges > 0)
+        {
+            // Sieges: enemy warships in orbit a day or more (contested or blockaded), from the holder's side.
+            var sent = Sum(r => r.T.SiegesRelieved + r.T.SiegesLeftHelpSent + r.T.SiegesLostHelpLate + r.T.SiegesLostHelpThere);
+            var late = Sum(r => r.T.SiegesLostHelpLate);
+            md.AppendLine();
+            md.AppendLine($"Sieges (enemy warships in orbit a day or more, contested or blockaded): {sieges / Rows.Count:0.00} per side per game.");
+            md.AppendLine();
+            md.AppendLine("| How it ended | Share |");
+            md.AppendLine("|---|---|");
+            void Line(string what, double n) => md.AppendLine($"| {what} | {n / sieges:P0} |");
+            Line("Help reached it", Sum(r => r.T.SiegesRelieved));
+            Line("Attackers left, help on its way", Sum(r => r.T.SiegesLeftHelpSent));
+            Line("Attackers left, no help sent", Sum(r => r.T.SiegesLeftNoHelp));
+            Line("Fell, no help sent", Sum(r => r.T.SiegesLostNoHelp));
+            Line("Fell before help came", late);
+            Line("Fell with help there", Sum(r => r.T.SiegesLostHelpThere));
+            if (sent > 0)
+                md.AppendLine($"\nHelp was sent in {sent / sieges:P0} of sieges, {Sum(r => r.T.SiegeHelpSentAfterDays) / sent:0.0} days in, from {Sum(r => r.T.SiegeHelpDays) / sent:0.0} days away"
+                              + (late > 0 ? $"; where the planet fell first, help was still {Sum(r => r.T.SiegeHelpLateDays) / late:0.0} days out." : "."));
+            var left = Rows.SelectMany(r => r.T.SiegeLeftWhy).GroupBy(kv => kv.Key).Select(g => (g.Key, N: g.Sum(kv => kv.Value))).OrderByDescending(x => x.N).ThenBy(x => x.Key).ToList();
+            if (left.Count > 0)
+                md.AppendLine($"\nWhy besiegers gave up (help not there yet): " + string.Join(", ", left.Select(x => $"{x.Key} {x.N}")) + ".");
+            var why = Rows.SelectMany(r => r.T.ReliefWhyNot).GroupBy(kv => kv.Key).Select(g => (g.Key, N: g.Sum(kv => kv.Value))).OrderByDescending(x => x.N).ThenBy(x => x.Key).ToList();
+            if (why.Count > 0)
+                md.AppendLine($"\nWhy the computer sent no relief (sieges, where most of its power was): " + string.Join(", ", why.Select(x => $"{x.Key} {x.N}")) + ".");
+        }
         if (invWins + blkWins > 0 && (invWins == 0 || blkWins == 0))
             md.AppendLine($"\n**Only {(invWins == 0 ? "blockades" : "invasions")} took planets: both ways should be worth using.**");
         md.AppendLine();

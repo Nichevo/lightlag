@@ -319,6 +319,18 @@ public sealed class Body
     /// <summary>Who is blockading it (with two rivals, the side with the first armed fleet in orbit).</summary>
     public Side? BlockadedBy { get; set; }
 
+    /// <summary>
+    /// A siege (for the reports): enemy warships in orbit, contested or blockaded. Its hours, who held the planet,
+    /// when the holder's first help set out (and how many days off it was then), and whether help reached it.
+    /// </summary>
+    public double SiegeHours { get; set; }
+    public Side? SiegeOwner { get; set; }
+    public double? SiegeHelpHour { get; set; }
+    public double SiegeHelpDays { get; set; }
+    public bool SiegeHelpArrived { get; set; }
+    /// <summary>The besiegers' fleets in orbit last hour (to tell, when they leave, why).</summary>
+    public List<int> SiegeFleetIds { get; set; } = new();
+
     /// <summary>Auto top-up: settle orders fill this planet up, one at a time.</summary>
     public bool AutoTopUp { get; set; }
 

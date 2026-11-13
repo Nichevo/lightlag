@@ -30,4 +30,15 @@ public static class Starts
         }
         return sim;
     }
+
+    /// <summary>
+    /// Marks a held world as blockaded long enough for this side's troops to land (Planets.LandAfterBlockadeDays):
+    /// for tests about the ground war itself. An armed fleet of that side must hold orbit there.
+    /// </summary>
+    public static void BlockadedLongEnough(Body b, Side by)
+    {
+        b.BlockadeHours = Planets.D.LandAfterBlockadeDays * 24;
+        b.BlockadedBy = by;
+        b.BlockadedOwner = b.Owner;
+    }
 }

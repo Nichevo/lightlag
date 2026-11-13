@@ -100,6 +100,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(RenameShipCommand), "renameShip")]
 [JsonDerivedType(typeof(RenameFleetCommand), "renameFleet")]
 [JsonDerivedType(typeof(SetFleetRoleCommand), "setFleetRole")]
+[JsonDerivedType(typeof(SetGuardPlanetsCommand), "setGuardPlanets")]
 [JsonDerivedType(typeof(MoveShipsCommand), "moveShips")]
 [JsonDerivedType(typeof(SetSecrecyCommand), "setSecrecy")]
 [JsonDerivedType(typeof(SetAdvancedCommand), "setAdvanced")]

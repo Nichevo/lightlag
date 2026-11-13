@@ -16,6 +16,8 @@ public sealed class SideTotals
     public int ShipsBuilt { get; set; }
     public int ShipsLost { get; set; }
     public int ShipsKilled { get; set; }
+    /// <summary>Enemy defence stations wrecked.</summary>
+    public int FortsWrecked { get; set; }
     public double IndustryEarned { get; set; }
     public double IndustrySpent { get; set; }
 
@@ -102,6 +104,29 @@ public sealed class SideTotals
     public int BlockadesStarted { get; set; }
     public int BlockadesBroken { get; set; }
     public int BlockadesLeft { get; set; }
+
+    /// <summary>
+    /// Sieges of this side's planets (enemy warships in orbit a day or more, contested or blockaded) and how each
+    /// ended: help reached it, the attackers left (with or without help on the way), or it fell (no help sent, help
+    /// still on its way, or help there and beaten). HelpDays: days off the help was when it set out; HelpLateDays:
+    /// for planets that fell with help on the way, how much later it would have arrived.
+    /// </summary>
+    public int Sieges { get; set; }
+    public int SiegesRelieved { get; set; }
+    public int SiegesLeftHelpSent { get; set; }
+    public int SiegesLeftNoHelp { get; set; }
+    public int SiegesLostNoHelp { get; set; }
+    public int SiegesLostHelpLate { get; set; }
+    public int SiegesLostHelpThere { get; set; }
+    public double SiegeHelpDays { get; set; }
+    public double SiegeHelpSentAfterDays { get; set; }
+    public double SiegeHelpLateDays { get; set; }
+
+    /// <summary>Sieges this side gave up (it left the planet's orbit with the planet still the enemy's), by why its fleets left.</summary>
+    public Dictionary<string, int> SiegeLeftWhy { get; set; } = new();
+
+    /// <summary>The computer's reason, once per siege, for sending no relief: where the power it needed was.</summary>
+    public Dictionary<string, int> ReliefWhyNot { get; set; } = new();
 
     /// <summary>Planets taken by method ("Blockade", "Blitz", "Methodical", "Starve"): days, and what was left to take.</summary>
     public Dictionary<string, CaptureTally> Captures { get; set; } = new();

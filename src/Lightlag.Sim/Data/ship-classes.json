@@ -139,6 +139,7 @@
                  "damage": 50, "lifetimeHours": 1.0, "hitRadiusMm": 0.3 },
     "pointDefence": { "rangeMm": 12, "shotSeconds": 10, "killChance": 0.02, "brain2KillFactor": 0.56 },
     "brain2DodgeFactor": 0.5,
+    "orbitDodgeFactor": 0.5,
     "moduleHitChance": 0.15,
     "retreatBelowArmour": 0.5,
     "repairPerDay": 0.1,

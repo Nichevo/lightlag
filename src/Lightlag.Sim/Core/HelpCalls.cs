@@ -6,7 +6,7 @@ namespace Lightlag.Sim.Core;
 /// ships in trouble; Support answers every call, fleets in trouble included. Supply is the only role a
 /// fleet of supply ships can have: when free it takes supplies to fleets of its side that run short.
 /// </summary>
-public enum FleetRole { None, Defence, AntiPiracy, Support, Supply }
+public enum FleetRole { None, Defence, AntiPiracy, Support, Supply, ForwardGuard }
 
 /// <summary>How far a role fleet goes to answer a call.</summary>
 public enum RoleRange { Near, Region, Anywhere }
@@ -112,6 +112,7 @@ public static class HelpCalls
         FleetRole.AntiPiracy => "Anti-piracy",
         FleetRole.Support => "Support",
         FleetRole.Supply => "Supply",
+        FleetRole.ForwardGuard => "Forward guard",
         _ => "No role",
     };
 
@@ -121,6 +122,7 @@ public static class HelpCalls
         FleetRole.AntiPiracy => "Answers raids on cargo runs and cargo ships in trouble",
         FleetRole.Support => "Answers every call: planets, raids and fleets in trouble",
         FleetRole.Supply => "Takes fuel, ammunition and food to fleets in range that run short, then goes home to load",
+        FleetRole.ForwardGuard => "Waits at a post central to the planets you pick and answers any of them that sees an enemy close, however far",
         _ => "Answers no calls; only does what it is told",
     };
 
@@ -132,7 +134,7 @@ public static class HelpCalls
 
     /// <summary>The roles this fleet can have: None or Supply for a fleet of supply ships, the fighting roles for the rest.</summary>
     public static IEnumerable<FleetRole> RolesFor(World w, Fleet f) =>
-        SupplyOnly(w, f) ? new[] { FleetRole.None, FleetRole.Supply } : new[] { FleetRole.None, FleetRole.Defence, FleetRole.AntiPiracy, FleetRole.Support };
+        SupplyOnly(w, f) ? new[] { FleetRole.None, FleetRole.Supply } : new[] { FleetRole.None, FleetRole.Defence, FleetRole.AntiPiracy, FleetRole.Support, FleetRole.ForwardGuard };
 
     /// <summary>The role a fleet keeps when its ships change (a split or a merge): Supply for supply ships, never for warships.</summary>
     public static FleetRole FitRole(World w, Fleet f, FleetRole wanted) =>
@@ -144,6 +146,7 @@ public static class HelpCalls
         FleetRole.Defence => (reasons & CallReason.EnemyNear) != 0,
         FleetRole.AntiPiracy => (reasons & CallReason.Raiding) != 0,
         FleetRole.Support => reasons != CallReason.None,
+        FleetRole.ForwardGuard => (reasons & CallReason.EnemyNear) != 0,
         _ => false,
     };
 
@@ -182,12 +185,107 @@ public static class HelpCalls
             if (Mind.Of(w, side) != null) continue;
             Raise(sim, side);
             Supplies(sim, side);
+            GuardPosts(sim, side);
             foreach (var f in w.Fleets.Where(f => f.Side == side && f.AnsweringCallId != null).OrderBy(f => f.Id).ToList())
                 KeepAt(sim, f);
             foreach (var c in w.HelpCalls.Where(c => c.Side == side && c.Open).OrderBy(c => c.Id).ToList())
                 Answer(sim, c);
         }
         w.HelpCalls.RemoveAll(c => c.OverHour is double end && w.Hour - end > KeepHours);
+    }
+
+    // ---- Forward guards -------------------------------------------------------------------------
+
+    /// <summary>A guard posted this close (AU) to where it should be stays put.</summary>
+    public const double PostSlackAu = 0.1;
+
+    /// <summary>A post this close (AU) to a guarded planet is that planet's orbit (it can resupply and calm the people there).</summary>
+    public const double PostAtPlanetAu = 0.15;
+
+    /// <summary>
+    /// The planets a forward guard watches: those picked for it that are still its side's. With none picked, its
+    /// side's settled planets (not the home) within 1.5 AU of where it is.
+    /// </summary>
+    public static List<Body> Guarded(World w, Fleet f) =>
+        f.GuardBodyIds.Select(w.FindBody).OfType<Body>().Where(b => b.Owner == f.Side).ToList();
+
+    public static List<int> DefaultGuarded(World w, Fleet f) =>
+        w.Bodies.Where(b => b.Owner == f.Side && !b.Shipyard && b.PopK > 0 && Vec2.Distance(b.Position, f.Position) <= 1.5 * Au)
+            .OrderBy(b => Vec2.Distance(b.Position, f.Position)).ThenBy(b => b.Id).Take(4).Select(b => b.Id).ToList();
+
+    /// <summary>
+    /// Where a forward guard waits: the point that keeps its longest trip to a guarded planet shortest (the middle
+    /// of the smallest circle round them), or a guarded planet's orbit when one is that close to it. Null with nothing to guard.
+    /// </summary>
+    public static (Vec2 At, Body? Planet)? PostOf(World w, Fleet f)
+    {
+        var bodies = Guarded(w, f);
+        if (bodies.Count == 0) return null;
+        var pts = bodies.Select(b => b.Position).ToList();
+        // Smallest enclosing circle of a few points: try every pair's midpoint and every three's circumcentre.
+        Vec2 best = pts[0];
+        var bestR = double.PositiveInfinity;
+        void Try(Vec2 c)
+        {
+            var r = pts.Max(p => Vec2.Distance(p, c));
+            if (r < bestR - 1e-9) { bestR = r; best = c; }
+        }
+        for (var i = 0; i < pts.Count; i++)
+        {
+            Try(pts[i]);
+            for (var j = i + 1; j < pts.Count; j++)
+            {
+                Try((pts[i] + pts[j]) * 0.5);
+                for (var k = j + 1; k < pts.Count; k++) if (Circumcentre(pts[i], pts[j], pts[k]) is Vec2 cc) Try(cc);
+            }
+        }
+        var near = bodies.OrderBy(b => Vec2.Distance(b.Position, best)).ThenBy(b => b.Id).First();
+        return Vec2.Distance(near.Position, best) <= PostAtPlanetAu * Au ? (near.Position, near) : (best, null);
+    }
+
+    private static Vec2? Circumcentre(Vec2 a, Vec2 b, Vec2 c)
+    {
+        var d = 2 * (a.X * (b.Y - c.Y) + b.X * (c.Y - a.Y) + c.X * (a.Y - b.Y));
+        if (Math.Abs(d) < 1e-9) return null;
+        double A2 = a.X * a.X + a.Y * a.Y, B2 = b.X * b.X + b.Y * b.Y, C2 = c.X * c.X + c.Y * c.Y;
+        return new Vec2((A2 * (b.Y - c.Y) + B2 * (c.Y - a.Y) + C2 * (a.Y - b.Y)) / d, (A2 * (c.X - b.X) + B2 * (a.X - c.X) + C2 * (b.X - a.X)) / d);
+    }
+
+    /// <summary>What a forward guard is doing, for the screens.</summary>
+    public static string GuardStatus(World w, Fleet f)
+    {
+        var bodies = Guarded(w, f);
+        if (bodies.Count == 0) return "Guards no planets yet: pick the planets it should guard.";
+        var names = string.Join(", ", bodies.Select(b => b.Name));
+        if (f.AnsweringCallId != null) return $"Guarding {names}: answering a call.";
+        if (PostOf(w, f) is not var (at, planet)) return $"Guarding {names}.";
+        var where = planet != null ? $"in orbit at {planet.Name}" : "in open space between them";
+        var far = bodies.Max(b => Vec2.Distance(b.Position, at)) / Au;
+        if (f.GuardPosting) return $"Guarding {names}: on its way to its post {where} (the farthest is {far:0.##} AU from it).";
+        return Vec2.Distance(f.Position, at) <= PostSlackAu * Au
+            ? $"Guarding {names}: waiting at its post {where} (the farthest is {far:0.##} AU away)."
+            : $"Guarding {names}: its post moves with the planets; it heads there when free.";
+    }
+
+    /// <summary>
+    /// Forward guards keep to their post as the planets move (checked twice a day): a free guard more than
+    /// PostSlackAu from it flies there. A guard busy with an order, a mission or a call is left alone.
+    /// </summary>
+    private static void GuardPosts(Simulation sim, Side side)
+    {
+        var w = sim.World;
+        if (Math.Abs(w.Hour % 12) > 1e-6) return;
+        foreach (var f in w.Fleets.Where(f => f.Side == side && f.Role == FleetRole.ForwardGuard && f.AnsweringCallId == null).OrderBy(f => f.Id).ToList())
+        {
+            if (f.GuardPosting && f.Flight == null) f.GuardPosting = false; // arrived (or the flight was dropped)
+            if (f.Flight != null && !f.GuardPosting || !Free(w, f) || f.GuardPosting) continue;
+            if (PostOf(w, f) is not var (at, planet)) continue;
+            if (Vec2.Distance(f.Position, at) <= PostSlackAu * Au) continue;
+            Do(sim, new PlanFlightCommand(f.Id, new FlightRequest(planet?.Id, at, 0.5, ArrivalStyle.Brake, planet != null ? HoldStyle.Orbit : HoldStyle.Drift, w.Tick)));
+            if (f.Flight == null) continue;
+            f.GuardPosting = true;
+            sim.Log.Info("fleet", $"{f.Name} heads for its guard post", new { fleetId = f.Id, planet = planet?.Name, at });
+        }
     }
 
     /// <summary>A fleet whose ships changed keeps only a role it can have (a supply ship split off a warfleet takes Supply).</summary>
@@ -337,6 +435,7 @@ public static class HelpCalls
         if (f.ShipIds.Count == 0 || f.AnsweringCallId != null || f.Retreating || f.Maneuvering || f.Chase != null || f.JoinFleetId != null) return false;
         if (f.Refit != null || f.Resupplying || f.SupplyRunFor != null || f.PeopleRun != null || f.ZoneId != null || f.RejoinFleetId != null) return false;
         if (f.Mission is not (Mission.None or Mission.Hold or Mission.Patrol)) return false;
+        if (f.Role == FleetRole.ForwardGuard && f.GuardPosting) return true; // on its way to its post: free to answer
         // A patrol between stops is still free; any other flight is an order being carried out.
         return f.Flight == null || f.Mission == Mission.Patrol;
     }
@@ -350,10 +449,12 @@ public static class HelpCalls
         if (f.Role == FleetRole.None) return "it has no role";
         if (!Covers(f.Role, c.Reasons)) return $"{RoleName(f.Role)} does not answer this kind of call";
         if (c.FleetId == f.Id) return "it is the fleet in trouble";
+        var guarded = f.Role == FleetRole.ForwardGuard;
+        if (guarded && (c.BodyId is not int called || !f.GuardBodyIds.Contains(called))) return "it guards other planets";
         if (checkFree && !Free(w, f)) return "it is busy";
         if (!Combat.Armed(w, f)) return "it has no working weapons";
         if (f.Stance is Stance.Avoid or Stance.ReturnHome) return "its contact order is to avoid fights";
-        if (Vec2.Distance(f.Position, c.Position) > RangeAu(f.RoleRules.Range) * Au) return "it is out of range";
+        if (!guarded && Vec2.Distance(f.Position, c.Position) > RangeAu(f.RoleRules.Range) * Au) return "it is out of range";
         if (Combat.ArmourShare(w, f) < f.RoleRules.MinHealth || Combat.SupplyShare(w, f) < f.RoleRules.MinHealth) return "it is too worn or low on supplies";
         if (w.Hour - c.RaisedHour < HearHours(w, c, f)) return "the call has not reached it yet";
         return null;
@@ -394,6 +495,7 @@ public static class HelpCalls
         f.PostMissionBodyId = f.MissionBodyId;
         f.Mission = Mission.None;
         f.AnsweringCallId = c.Id;
+        f.GuardPosting = false;
         if (!Aim(sim, f, c, s))
         {
             Restore(f);
@@ -442,6 +544,7 @@ public static class HelpCalls
         f.AnsweringCallId = null;
         if (f.Maneuvering) { Restore(f); return; }
         Restore(f);
+        if (f.Role == FleetRole.ForwardGuard) return; // GuardPosts takes it back to its post
         if (!f.RoleRules.ReturnAfter)
         {
             Autonomy.Report(sim, f, $"{f.Name}: the call is over; it stays where it is.", NoteKind.StandingOrder);
@@ -554,9 +657,22 @@ public sealed record SetFleetRoleCommand(int FleetId, FleetRole Role, RoleRules?
         if (fleet.Role == FleetRole.Supply && Role != FleetRole.Supply && fleet.SupplyRunByRole) { fleet.SupplyRunFor = null; fleet.SupplyRunByRole = false; }
         fleet.Role = Role;
         if (Rules != null) fleet.RoleRules = Rules.Copy();
+        if (Role == FleetRole.ForwardGuard && fleet.GuardBodyIds.Count == 0) fleet.GuardBodyIds = HelpCalls.DefaultGuarded(world, fleet);
+        if (Role != FleetRole.ForwardGuard) fleet.GuardPosting = false;
         if (Role == FleetRole.None && fleet.AnsweringCallId != null) HelpCalls.Dropped(fleet);
         FleetNames.Refresh(world, fleet);
         sim.Log.Info("fleet", "Fleet role set", new { FleetId, fleet = fleet.Name, Role, Rules, Source });
+    }
+}
+
+/// <summary>The planets a forward guard watches (see HelpCalls.GuardPosts); only its own side's planets count.</summary>
+public sealed record SetGuardPlanetsCommand(int FleetId, List<int> BodyIds) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Guard planets") is not Fleet fleet) return;
+        fleet.GuardBodyIds = BodyIds.Distinct().Where(id => world.FindBody(id)?.Owner == fleet.Side).OrderBy(id => id).ToList();
+        sim.Log.Info("fleet", "Guard planets set", new { FleetId, fleet = fleet.Name, bodies = fleet.GuardBodyIds, Source });
     }
 }
 

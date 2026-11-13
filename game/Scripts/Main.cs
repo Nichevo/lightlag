@@ -79,6 +79,7 @@ public partial class Main : Node
             CallDeferred(MethodName.RunSmokeTest);
             return;
         }
+        if (OS.GetCmdlineUserArgs().Contains("--panel-bench")) { _ = RunBench(); return; }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--screenshots=")) is string shots)
         {
             _ = TakeScreenshots(shots["--screenshots=".Length..].Trim('"'));
@@ -354,6 +355,50 @@ public partial class Main : Node
     /// CI runs the game under a virtual screen with --screenshots=DIR to photograph a set of map views,
     /// so changes to how the map looks can be checked without a person at the PC.
     /// </summary>
+    /// <summary>
+    /// Developer check (--panel-bench): plays a game for BENCH_DAYS (default 150) days, then opens each screen in
+    /// turn and prints how long each part of the HUD's refresh takes per frame (see BenchProbe), and the frame's
+    /// process time. Run it under a virtual screen; it quits when done.
+    /// </summary>
+    private async Task RunBench()
+    {
+        RandomStartsChoice = false;
+        StartNewGame(7);
+        var game = (GameScreen)_screen!;
+        var days = int.Parse(System.Environment.GetEnvironmentVariable("BENCH_DAYS") ?? "150");
+        Sim!.StepMany(days * GameTime.TicksPerDay);
+        game.TogglePause();
+        var fleet = Sim.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player);
+        var home = Sim.World.Bodies.First(b => b.Owner == Lightlag.Sim.Core.Side.Player && b.Home);
+        var views = new (string Name, Action Setup)[]
+        {
+            ("map-side", () => { }),
+            ("map-noside", () => { game.ShowSide = false; }),
+            ("fleet-selected", () => { game.Select(fleet.Id); }),
+            ("planet-selected", () => { game.Select(home.Id); }),
+            ("empire", () => { game.ShowEmpire = true; }),
+            ("planets", () => { game.ShowPlanets = true; }),
+            ("fleets", () => { game.ShowFleets = true; }),
+            ("research", () => { game.ShowResearch = true; }),
+            ("intel", () => { game.ShowIntel = true; }),
+            ("progress", () => { game.ShowProgress = true; }),
+        };
+        foreach (var (name, setup) in views)
+        {
+            game.Select(null); game.ShowSide = true; game.ShowEmpire = false; game.ShowPlanets = false; game.ShowFleets = false;
+            game.ShowResearch = false; game.ShowIntel = false; game.ShowProgress = false;
+            setup();
+            for (var i = 0; i < 20; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            BenchProbe.Ms.Clear(); BenchProbe.On = true;
+            var frames = 60; double proc = 0;
+            for (var i = 0; i < frames; i++) { await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame); proc += Performance.GetMonitor(Performance.Monitor.TimeProcess) * 1000; }
+            BenchProbe.On = false;
+            var total = BenchProbe.Ms.Values.Sum() / frames;
+            GD.Print($"BENCH {name}: hud {total:0.00} ms/frame, process {proc / frames:0.00} ms :: " + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(5).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
+        }
+        Quit(0);
+    }
+
     private async Task TakeScreenshots(string dir)
     {
         var ok = true;

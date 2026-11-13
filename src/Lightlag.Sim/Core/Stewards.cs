@@ -168,6 +168,9 @@ public static class Planner
         if (Staffed(Planets.Mine) && Pick(Planets.Mine) != null && LeastHeldMineral(w, side, b) is var (lx, ly)) return (Planets.Mine, lx, ly, false);
         if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return (home, null, null, false);
         if (!Colonies.Built(b).Any(p => p.Kind == "storehouse") && b.Pieces.Count >= 3 && Pick("storehouse") is string store) return (store, null, null, false);
+        // A colony with people gets one rail battery: while it fires, enemy ships in orbit can't blockade it.
+        if (!b.Home && b.PopK >= 10 && Planets.Count(b, Planets.Guns) == 0 && Staffed(Planets.Guns) && Pick(Planets.Guns) is string colonyGuns)
+            return (colonyGuns, null, null, false);
         if (b.Home && Planets.Count(b, Planets.Mine) >= 2)
         {
             if (Planets.Count(b, Planets.Guns) == 0 && Pick(Planets.Guns) is string guns) return (guns, null, null, false);

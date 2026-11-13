@@ -10,7 +10,8 @@ public sealed record PlanetTypeData(double Cap = 0, double Farm = 0, int Plots =
 
 /// <summary>The pulls on a planet's happiness (see Planets.TargetHappiness).</summary>
 public sealed record HappinessData(double Base = 55, double Fed = 10, double Hungry = -30, double Blockaded = -20, double Bombed = -30,
-    double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5, double Newcomers = 8);
+    double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5, double Newcomers = 8,
+    double HelpComing = 25);
 
 /// <summary>
 /// A building on a planet: a W×H piece on the board, paid when ordered (Industry) and standing after Days
@@ -33,10 +34,10 @@ public sealed record PlanetsData(
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
     double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
-    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30,
+    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30, double LandAfterBlockadeDays = 20,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
     double GroundLossPerHour = 0.05, double BoardTroopsK = 0.5, double BuildingArmour = 40, double PeopleKPerDamage = 0.02,
-    double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
+    double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double GunHighOrbitShare = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
     List<BuildingData>? Buildings = null);
 
 /// <summary>
@@ -132,11 +133,18 @@ public static class Planets
     /// <summary>The armed enemy side holding orbit here, if any (it cuts the planet off: see Economy.Blockaded).</summary>
     public static Side? Blockader(World w, Body b)
     {
-        if (b.Owner is not Side owner) return null;
+        if (b.Owner is not Side owner || Contested(w, b)) return null;
         foreach (var f in w.Fleets)
             if (f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)) return f.Side;
         return null;
     }
+
+    /// <summary>
+    /// Enemy ships in orbit are still under fire from the planet's guns or a defence station: the orbit is
+    /// contested, so no blockade yet (no blockade days, the planet still trades and builds) until they are knocked out.
+    /// </summary>
+    public static bool Contested(World w, Body b) =>
+        b.Owner != null && (Economy.Fort(w, b) != null || Colonies.Sum(w, b, k => k.GunDamage) > 0);
 
     /// <summary>Industry a day this body makes for its holder (before Automated industry).</summary>
     public static double IndustryPerDay(World w, Body b)
@@ -236,6 +244,7 @@ public static class Planets
         Grow(sim);
         Moods(w);
         Decay(sim);
+        Sieges(sim);
         Bomb(sim);
         PlanetGuns(sim);
         using (SectionTimer.Time("ground-war")) Core.Ground.Update(sim);
@@ -421,6 +430,7 @@ public static class Planets
         if (b.Hungry) parts.Add(("Hungry", H.Hungry));
         else parts.Add(("Fed", H.Fed));
         if (Economy.Blockaded(w, b)) parts.Add(("Blockaded", H.Blockaded));
+        if ((Economy.Blockaded(w, b) || b.LandingSide != null) && Core.Ground.HelpComing(w, b) != null) parts.Add(("Help is coming", H.HelpComing));
         if (b.LastBombedHour is double bombed && w.Hour - bombed < H.BombedDays * 24) parts.Add(("People bombed", H.Bombed));
         if (b.LastStruckHour is double struck && w.Hour - struck < H.StruckDays * 24) parts.Add(("Buildings struck", H.Struck));
         if (b.OwnShare < 0.995) parts.Add(("Not your people", H.Foreign * (1 - b.OwnShare)));
@@ -453,12 +463,113 @@ public static class Planets
         var w = sim.World;
         var by = b.BlockadedBy ?? Sides.MainEnemy(w, b.BlockadedOwner!.Value);
         var t = Economy.Of(w, by).Totals;
+        // A relief fleet near, or one due within two days that the blockaders pulled away from.
         var relief = w.Fleets.Any(f => f.Side == b.Owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
-                                        && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2);
+                                        && (Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2
+                                            || f.Flight is { TargetBodyId: int to } fl && to == b.Id && fl.ArriveHour - w.Hour <= 48));
         if (relief) t.BlockadesBroken++;
         else t.BlockadesLeft++;
         sim.Log.Info("planets", relief ? "Blockade broken by a relief fleet" : "Blockade ends",
             new { bodyId = b.Id, body = b.Name, by = by.ToString(), days = Math.Round(b.BlockadeHours / 24, 1), relief });
+    }
+
+    /// <summary>
+    /// Siege bookkeeping for the reports (see Totals.Sieges): enemy warships in orbit of a planet with people,
+    /// contested or blockaded. Notes when the holder's help sets out and whether it reaches the planet, and how
+    /// the siege ended.
+    /// </summary>
+    private static void Sieges(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var b in w.Bodies)
+        {
+            var owner = b.Owner;
+            var under = owner != null && b.PopK > 0 && w.Fleets.Any(f => f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f));
+            if (under && b.SiegeOwner == owner)
+            {
+                b.SiegeHours += GameTime.HoursPerTick;
+                if (b.SiegeHelpHour == null && Core.Ground.HelpComing(w, b) is var (_, days)) { b.SiegeHelpHour = w.Hour; b.SiegeHelpDays = days; }
+                if (b.SiegeHelpHour != null && w.Fleets.Any(f => f.Side == owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
+                                                               && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2))
+                    b.SiegeHelpArrived = true;
+                b.SiegeFleetIds = w.Fleets.Where(f => f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).Select(f => f.Id).OrderBy(x => x).ToList();
+                continue;
+            }
+            if (b.SiegeOwner is Side held && b.SiegeHours >= 24)
+            {
+                var t = Economy.Of(w, held).Totals;
+                t.Sieges++;
+                var sent = b.SiegeHelpHour != null;
+                if (sent)
+                {
+                    t.SiegeHelpDays += b.SiegeHelpDays;
+                    t.SiegeHelpSentAfterDays += (b.SiegeHelpHour!.Value - (w.Hour - b.SiegeHours)) / 24;
+                }
+                string how;
+                if (b.Owner == held)
+                {
+                    if (b.SiegeHelpArrived) { t.SiegesRelieved++; how = "relieved"; }
+                    else if (sent) { t.SiegesLeftHelpSent++; how = "attackers left, help on its way"; }
+                    else { t.SiegesLeftNoHelp++; how = "attackers left"; }
+                    if (!b.SiegeHelpArrived && SiegeLeftWhy(w, b) is var (by, why))
+                    {
+                        var lw = Economy.Of(w, by).Totals.SiegeLeftWhy;
+                        lw[why] = lw.GetValueOrDefault(why) + 1;
+                        how += $" ({why})";
+                    }
+                }
+                else if (!sent) { t.SiegesLostNoHelp++; how = "fell, no help sent"; }
+                else if (b.SiegeHelpArrived) { t.SiegesLostHelpThere++; how = "fell with help there"; }
+                else
+                {
+                    t.SiegesLostHelpLate++;
+                    how = "fell before help came";
+                    t.SiegeHelpLateDays += Math.Max(0, b.SiegeHelpDays - (w.Hour - b.SiegeHelpHour!.Value) / 24);
+                }
+                sim.Log.Info("planets", "Siege ends", new { bodyId = b.Id, body = b.Name, held = held.ToString(), days = Math.Round(b.SiegeHours / 24, 1), how,
+                    helpAfterDays = sent ? Math.Round((b.SiegeHelpHour!.Value - (w.Hour - b.SiegeHours)) / 24, 1) : (double?)null,
+                    helpDays = sent ? Math.Round(b.SiegeHelpDays, 1) : (double?)null });
+            }
+            b.SiegeHours = under ? GameTime.HoursPerTick : 0;
+            b.SiegeOwner = under ? owner : null;
+            b.SiegeHelpHour = null;
+            b.SiegeHelpDays = 0;
+            b.SiegeHelpArrived = false;
+            b.SiegeFleetIds = under ? w.Fleets.Where(f => f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).Select(f => f.Id).OrderBy(x => x).ToList() : new();
+        }
+    }
+
+    /// <summary>
+    /// Why the besiegers left a planet still held by its owner (for the reports): what became of the fleets that
+    /// were in its orbit. Destroyed or crippled, pulled back after a fight, gone for supplies or a refit, or the
+    /// computer gave them another job (or none).
+    /// </summary>
+    private static (Side By, string Why)? SiegeLeftWhy(World w, Body b)
+    {
+        string? why = null;
+        Side? by = null;
+        foreach (var id in b.SiegeFleetIds)
+        {
+            var f = w.FindFleet(id);
+            if (f == null || f.ShipIds.Count == 0) { why ??= "destroyed"; continue; }
+            by ??= f.Side;
+            var job = Mind.Of(w, f.Side)?.JobOf(f.Id);
+            var dest = f.Flight?.TargetBodyId is int to ? w.FindBody(to) : null;
+            why = job is { StandOffUntil: not null } ? "stood off to wait out the relief"
+                : f.Retreating ? "pulled back after a fight"
+                : f.Maneuvering ? "left orbit to fight"
+                : w.ShipsOf(f).Any(s => s.Crippled) && !Combat.Armed(w, f) ? "crippled"
+                : f.Resupplying || f.SupplyRunFor != null ? "low on supplies"
+                : f.Refit != null || job is { Kind: JobKind.Refit } ? "gone for a refit"
+                : job == null && dest != null && dest.Shipyard && dest.Owner == f.Side ? "going home (no job)"
+                : job == null ? "no job (stopped)"
+                : job.BodyId != b.Id ? $"new job: {job.Kind.ToString().ToLowerInvariant()}"
+                : "other";
+            break;
+        }
+        if (why == null) return null;
+        by ??= b.BlockadedBy ?? (b.SiegeOwner is Side o ? Sides.MainEnemy(w, o) : null);
+        return by is Side s ? (s, why) : null;
     }
 
     /// <summary>
@@ -561,10 +672,13 @@ public static class Planets
     private static void PlanetGuns(Simulation sim)
     {
         var w = sim.World;
-        foreach (var b in w.Bodies.Where(b => b.Owner != null && Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0)).ToList())
+        Forts(sim);
+        foreach (var b in w.Bodies.Where(b => b.Owner != null && (Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0) || Economy.Fort(w, b) != null)).ToList())
         {
-            var low = Colonies.Sum(w, b, k => k.GunDamage);
-            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : 0);
+            // Rail batteries reach high orbit too, at a share; missile silos and defence stations reach both in full.
+            var fort = Economy.Fort(w, b) is Station st ? Economy.StationKind(st.Kind)!.GunDamage : 0;
+            var low = Colonies.Sum(w, b, k => k.GunDamage) + fort;
+            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : k.GunDamage * D.GunHighOrbitShare) + fort;
             // Guns fire ammunition: with none in store they fire half as hard.
             if (w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)))
             {
@@ -587,6 +701,35 @@ public static class Planets
                 sim.Log.Info("planets", $"{b.Name}'s guns destroy {ship.Name}", new { bodyId = b.Id, shipId = ship.Id, side = ship.Side.ToString() });
                 Combat.Destroy(sim, ship);
             }
+        }
+    }
+
+    /// <summary>
+    /// Defence stations: enemy warships in orbit shoot at the station first (it is the biggest gun over the planet),
+    /// as they would a shipyard. At no armour it is wrecked. Not under fire, it mends RepairPerDay a day.
+    /// </summary>
+    private static void Forts(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var st in w.Stations.Where(st => w.Hour >= st.ReadyHour && Economy.StationKind(st.Kind)?.Armour > 0).ToList())
+        {
+            var data = Economy.StationKind(st.Kind)!;
+            if (w.FindBody(st.BodyId) is not Body b) continue;
+            var attackers = w.Fleets.Where(f => f.Side != st.Side && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).ToList();
+            var damage = attackers.SelectMany(w.ShipsOf).Sum(s => Economy.HourlyDamage(w, s, consume: true));
+            if (damage <= 0)
+            {
+                if (st.LastHitHour == null || w.Hour - st.LastHitHour > 24) st.Armour = Math.Min(data.Armour, st.Armour + data.Armour * data.RepairPerDay / 24);
+                continue;
+            }
+            if (st.LastHitHour == null || w.Hour - st.LastHitHour > 24)
+                sim.Log.Info("planets", $"{b.Name}'s defence station is under fire", new { bodyId = b.Id, side = st.Side.ToString(), attacker = attackers[0].Side.ToString() });
+            st.LastHitHour = w.Hour;
+            st.Armour -= damage;
+            if (st.Armour > 0) continue;
+            w.Stations.Remove(st);
+            Economy.Of(w, attackers[0].Side).Totals.FortsWrecked++;
+            sim.Log.Info("planets", $"{b.Name}'s defence station is wrecked", new { bodyId = b.Id, side = st.Side.ToString(), by = attackers[0].Side.ToString() });
         }
     }
 
@@ -979,7 +1122,21 @@ public static class Planets
         if (b.Owner == f.Side) return "It is already yours";
         if (b.PopK <= 0 && b.Owner == null) return "Nobody there to fight: claim or settle it instead";
         if (w.Fleets.Any(o => o.Side != f.Side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o))) return "Enemy warships hold orbit here";
+        // A held world must first be cut off for a while (its holder gets time to send relief); more troops may
+        // join a landing already fighting there.
+        if (b.Owner != null && b.LandingSide != f.Side && LandWaitDays(w, f.Side, b) is double wait and > 0)
+            return Economy.Blockaded(w, b) && b.BlockadedBy == f.Side
+                ? $"Blockade it {D.LandAfterBlockadeDays:0} days first ({b.BlockadeHours / 24:0} so far, {wait:0.#} to go)"
+                : $"Blockade it {D.LandAfterBlockadeDays:0} days first (armed ships in orbit cut it off)";
         return null;
+    }
+
+    /// <summary>Days this side's blockade of a held world must still last before its troops may land (0: they may land now).</summary>
+    public static double LandWaitDays(World w, Side side, Body b)
+    {
+        if (b.Owner == null || b.Owner == side) return 0;
+        var held = Economy.Blockaded(w, b) && b.BlockadedBy == side ? b.BlockadeHours / 24 : 0;
+        return Math.Max(0, D.LandAfterBlockadeDays - held);
     }
 
     /// <summary>Bombing damage that knocks out one building here (dug-in Hive buildings take more).</summary>

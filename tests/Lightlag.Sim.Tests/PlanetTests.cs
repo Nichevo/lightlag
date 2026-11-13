@@ -281,7 +281,7 @@ public class PlanetTests
         vela.PopK = 40;
         vela.Happiness = 90;
         vela.Grudge = Side.Player;
-        var troops = NewFleet(sim, Side.Player, verdant, "troop-ship", "troop-ship");
+        var troops = NewFleet(sim, Side.Player, verdant, "gun-frigate", "troop-ship", "troop-ship");
         Days(sim, 1);
         Assert.Equal(2 * GameData.ShipClass("troop-ship").Cargo, Planets.TroopsAboard(sim.World, troops), 6);
         PlaceInOrbit(sim, troops, vela);
@@ -290,6 +290,10 @@ public class PlanetTests
         sim.StepMany(2); // under light lag the order takes a few minutes to get there
         Assert.NotNull(Planets.CanLand(sim.World, troops, vela));
         sim.Issue(new SetOrbitHeightCommand(troops.Id, OrbitHeight.Low));
+        sim.StepMany(2);
+        // A held world has to be cut off for a while first, so its holder has time to send relief.
+        Assert.StartsWith("Blockade it", Planets.CanLand(sim.World, troops, vela));
+        Starts.BlockadedLongEnough(vela, Side.Player);
         sim.Issue(new LandTroopsCommand(troops.Id, vela.Id));
         sim.StepMany(2);
         Assert.Equal(Side.Player, vela.LandingSide);
@@ -299,7 +303,7 @@ public class PlanetTests
     }
 
     [Fact]
-    public void Planet_guns_hit_ships_in_low_orbit_but_not_high()
+    public void Planet_guns_hit_ships_in_low_orbit_hardest_and_high_orbit_at_a_share()
     {
         var sim = NewGame();
         var vela = BodyNamed(sim, "vela");
@@ -311,12 +315,17 @@ public class PlanetTests
         sim.Issue(new SetOrbitHeightCommand(fleet.Id, OrbitHeight.High));
         sim.Step();
         PlaceInOrbit(sim, fleet, vela);
+        // Rail batteries reach high orbit only at a share (gunHighOrbitShare); low orbit takes their full fire.
         var armour = sim.World.ShipsOf(fleet).Sum(s => s.Armour);
-        Days(sim, 1);
-        Assert.Equal(armour, sim.World.ShipsOf(fleet).Sum(s => s.Armour), 6);
+        sim.StepMany(GameTime.TicksPerDay / 4);
+        var high = armour - sim.World.ShipsOf(fleet).Sum(s => s.Armour);
         sim.Issue(new SetOrbitHeightCommand(fleet.Id, OrbitHeight.Low));
-        Days(sim, 1);
-        Assert.True(sim.World.ShipsOf(fleet).Sum(s => s.Armour) < armour);
+        sim.Step();
+        var before = sim.World.ShipsOf(fleet).Sum(s => s.Armour);
+        sim.StepMany(GameTime.TicksPerDay / 4);
+        var low = before - sim.World.ShipsOf(fleet).Sum(s => s.Armour);
+        Assert.True(high > 0);
+        Assert.True(low > high * 1.5);
     }
 
     [Fact]

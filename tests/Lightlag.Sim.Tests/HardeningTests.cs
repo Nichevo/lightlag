@@ -145,6 +145,7 @@ public class HardeningTests
         var troops = NewFleet(sim, Side.Player, vela.Position,
             Enumerable.Repeat("troop-ship", (int)Math.Ceiling(garrison * 2.2 / GameData.ShipClass("troop-ship").Cargo)).Prepend("gun-frigate").ToArray());
         PlaceInOrbit(sim, troops, vela);
+        Starts.BlockadedLongEnough(vela, Side.Player);
         troops.OrbitHeight = OrbitHeight.Low;
         new LandTroopsCommand(troops.Id, vela.Id, GroundPlan.Methodical).Apply(w, sim);
         Assert.NotNull(vela.Front);

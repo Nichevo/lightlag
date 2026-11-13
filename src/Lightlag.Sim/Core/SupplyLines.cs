@@ -211,6 +211,7 @@ public static class SupplyLines
                 {
                     s.MissileGrade = s.Missiles == 0 ? src.CargoMissileGrade : Math.Min(s.MissileGrade, src.CargoMissileGrade);
                     s.Missiles++; src.CargoAmmo -= 1;
+                    ammo = Math.Min(ammo, src.CargoAmmo); // the next ship can't take ammunition the reload used
                 }
             }
             // Food goes round: the hungriest first, each taking no more than an even share of what is left this hour.

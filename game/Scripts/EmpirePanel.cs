@@ -208,7 +208,9 @@ public partial class EmpirePanel : PanelContainer
                         label.CustomMinimumSize = new Vector2(130, 0);
                         row.AddChild(label);
                         _live.Add((label, w2 => w2.Stations.Find(x => x.Id == stId) is Station s2
-                            ? w2.Hour >= s2.ReadyHour ? $"{k.Name} ✓" : $"{k.Name}: {Format.Hours(s2.ReadyHour - w2.Hour)}" : ""));
+                            ? w2.Hour < s2.ReadyHour ? $"{k.Name}: {Format.Hours(s2.ReadyHour - w2.Hour)}"
+                            : k.Armour > 0 ? $"{k.Name} ✓ armour {100 * s2.Armour / k.Armour:0} %" + (s2.LastHitHour is double hit && w2.Hour - hit < 2 ? " UNDER FIRE" : "")
+                            : $"{k.Name} ✓" : ""));
                         continue;
                     }
                     if (w.Winner != null) continue;

@@ -64,6 +64,9 @@ public sealed class RuleBook
         .Add("fuel-sane", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => Fuels.Problem(w, s) is string p ? $"ship {s.Id} {s.Name} {p}" : null).OfType<string>())
         .Add("planets-sane", PlanetsSane)
+        // A defence station's armour stays between nothing and full (a wrecked one is removed).
+        .Add("forts-sane", w => w.Stations.Where(st => Economy.StationKind(st.Kind) is { Armour: > 0 } d && !(st.Armour > 0 && st.Armour <= d.Armour + 1e-6))
+            .Select(st => $"station {st.Id} {st.Kind} at body {st.BodyId} has armour {st.Armour}"))
         // A queued building is not paid for or started: it has made no progress and is not standing.
         .Add("queued-buildings-unstarted", w => w.Bodies.SelectMany(b => b.Pieces.Where(p => p.Waiting
                 && (p.Built || Lightlag.Sim.Core.Planets.BuildingKind(p.Kind) is not { } d
@@ -337,11 +340,13 @@ public sealed class RuleBook
             ("battles", w.Battles.Count), ("boardings", w.Boardings.Count), ("after-battle plans", w.Aftermaths.Count),
             ("sightings", w.Sightings.Count), ("picture", w.Picture.Count), ("missiles", w.Missiles.Count), ("dropped missiles", w.Dropped.Count),
             ("drones", w.Drones.Count), ("shipments", w.Shipments.Count), ("events", w.Events.Count), ("debris", w.Debris.Count),
-            ("zones", w.Zones.Count), ("orders", w.Orders.Count), ("choices", w.Choices.Count),
+            ("zones", w.Zones.Count), ("orders", w.Orders.Count),
             ("orders in transit", w.Light.InTransit.Count), ("reports in transit", w.Light.Reports.Count),
         };
         foreach (var (name, count) in lists.Where(l => l.Count > ListLimit))
             yield return $"{count} {name}";
+        // The choice log keeps a whole game (for the overnight "what goes with winning" tables) up to its own cap.
+        if (w.Choices.Count > Choices.Max) yield return $"{w.Choices.Count} choices";
         foreach (var side in w.Sides.Where(s => s.Intel.Fleets.Count > ListLimit || s.Intel.Notes.Count > ListLimit))
             yield return $"{side.Side} intel holds {side.Intel.Fleets.Count} fleets and {side.Intel.Notes.Count} notes";
     }
