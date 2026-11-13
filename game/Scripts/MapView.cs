@@ -903,8 +903,9 @@ public partial class MapView : Node2D
             var at = Camera.ToScreen(s.Position);
             var guess = Camera.ToScreen(s.Guess(DrawHour));
             if (!Camera.OnScreen(at, 300) && !Camera.OnScreen(guess, 300)) continue;
-            var color = new Color(Ui.Rival, 0.45f);
-            if (at.DistanceTo(guess) > 4) DrawDashedLine(at, guess, new Color(Ui.Rival, 0.3f), 1, 5);
+            var tint = Ui.SideColor(s.Owner(w));
+            var color = new Color(tint, 0.45f);
+            if (at.DistanceTo(guess) > 4) DrawDashedLine(at, guess, new Color(tint, 0.3f), 1, 5);
             DrawArc(at, 9, 0, Mathf.Tau, 20, color, 1.2f, true);
             DrawLine(at + new Vector2(-5, -5), at + new Vector2(5, 5), color, 1.2f);
             DrawLine(at + new Vector2(-5, 5), at + new Vector2(5, -5), color, 1.2f);
@@ -914,15 +915,15 @@ public partial class MapView : Node2D
             // One faint pip per ship seen, under the marker.
             var mark = moving ? guess : at;
             for (var i = 0; i < Math.Min(s.Ships, 8); i++)
-                DrawCircle(mark + new Vector2(-3.5f * (Math.Min(s.Ships, 8) - 1) + 7 * i, 14), 2.2f, new Color(Ui.Rival, 0.6f));
+                DrawCircle(mark + new Vector2(-3.5f * (Math.Min(s.Ships, 8) - 1) + 7 * i, 14), 2.2f, new Color(tint, 0.6f));
             if (moving)
             {
-                DrawDiamond(guess, 7, new Color(Ui.Rival, 0.75f), false);
-                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(Ui.Rival, 0.75f));
+                DrawDiamond(guess, 7, new Color(tint, 0.75f), false);
+                DrawString(_font, guess + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): predicted, last seen {ago} ago", HorizontalAlignment.Left, -1, 12, new Color(tint, 0.75f));
             }
             else if (s.FleetId == SelectedId || s.FleetId == HoverId || Camera.Scale > 0.01)
                 DrawString(_font, at + new Vector2(12, -8), $"{s.Name} ({s.Ships} ships): last seen {ago} ago", HorizontalAlignment.Left, -1, 12, color);
-            if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, Ui.Rival, 1.5f, true);
+            if (s.FleetId == SelectedId) DrawArc(moving ? guess : at, 15, 0, Mathf.Tau, 32, tint, 1.5f, true);
         }
     }
 

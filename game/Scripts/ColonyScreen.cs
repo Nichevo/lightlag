@@ -249,7 +249,7 @@ public partial class ColonyScreen : PanelContainer
         rows = _owner switch
         {
             "yours" => rows.Where(b => b.Owner == Side.Player),
-            "rival" => rows.Where(b => b.Owner == Side.Rival),
+            "rival" => rows.Where(b => b.Owner is Side.Rival or Side.Third),
             "nobody" => rows.Where(b => b.Owner == null),
             _ => rows,
         };
@@ -382,7 +382,7 @@ public partial class ColonyScreen : PanelContainer
 
     private static string Status(World w, Body b)
     {
-        if (b.Owner == Side.Rival) return "Rival world";
+        if (b.Owner is Side.Rival or Side.Third) return Sides.Three(w) ? $"{Races.Of(w, b.Owner.Value).Name} world" : "Rival world";
         if (b.Owner == null) return b.PopK > 0 ? "Independent" : "Free to settle";
         var parts = new List<string>();
         if (Economy.Blockaded(w, b)) parts.Add("BLOCKADED");

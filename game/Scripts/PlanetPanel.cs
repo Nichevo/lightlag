@@ -156,7 +156,7 @@ public partial class PlanetPanel : PanelContainer
         lines.Add(owner switch
         {
             Side.Player => "Yours" + (b.Shipyard ? $" · shipyard, armour {b.ShipyardArmour / GameData.Economy.Shipyard.Armour:P0}" : ""),
-            Side.Rival => "Held by the rival" + (b.Shipyard ? $" · shipyard, armour {b.ShipyardArmour / GameData.Economy.Shipyard.Armour:P0}" : ""),
+            Side.Rival or Side.Third => (Sides.Three(w) ? $"Held by {Races.Of(w, owner.Value).Name}" : "Held by the rival") + (b.Shipyard ? $" · shipyard, armour {b.ShipyardArmour / GameData.Economy.Shipyard.Armour:P0}" : ""),
             _ => b.PopK > 0 ? "Independent: hold orbit to win it over" : "Nobody's",
         });
         var cap = Planets.Cap(b);

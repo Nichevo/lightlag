@@ -340,7 +340,7 @@ public partial class Hud : CanvasLayer
             var me = Economy.Of(w, Side.Player);
             var held = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
             var attacked = Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double h } && w.Hour - h <= 24;
-            var tipped = Planets.Tipped(w, Side.Player) ? " TIPPED" : Planets.Tipped(w, Side.Rival) ? " (rival tipped)" : "";
+            var tipped = Planets.Tipped(w, Side.Player) ? " TIPPED" : Sides.Enemies(w, Side.Player).Any(r => Planets.Tipped(w, r)) ? " (rival tipped)" : "";
             _empireButton.Text = $"Industry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/d) · planets {held}/{Economy.Claimable(w).Count()}"
                                  + $" · {Planets.PopulationOf(w, Side.Player):0}k people{tipped}"
                                  + (attacked ? " · SHIPYARD UNDER ATTACK" : "") + " · Empire ▾";
@@ -504,7 +504,7 @@ public partial class Hud : CanvasLayer
         lines.Add("");
         lines.Add("INTEL (belief vs truth)");
         lines.AddRange(Intel.BeliefVsTruth(w, Side.Player));
-        lines.AddRange(Intel.BeliefVsTruth(w, Side.Rival).Take(3));
+        lines.AddRange(Intel.BeliefVsTruth(w, m.Side).Take(3));
         lines.Add("");
         foreach (var t in m.Thoughts.TakeLast(8).Reverse())
             lines.Add($"{GameTime.Format(t.Hour)}: {t.Text}");
