@@ -65,7 +65,10 @@ public partial class MapView
         foreach (var z in w.Zones.Where(z => z.Side == side || RevealAll))
         {
             var onLane = z.FromBodyId is int fa2 && z.ToBodyId is int fb2;
-            var center = onLane ? DrawnAt(w, z.FromBodyId!.Value) + (DrawnAt(w, z.ToBodyId!.Value) - DrawnAt(w, z.FromBodyId!.Value)) * z.T : z.Center;
+            var center = onLane ? DrawnAt(w, z.FromBodyId!.Value) + (DrawnAt(w, z.ToBodyId!.Value) - DrawnAt(w, z.FromBodyId!.Value)) * z.T
+                : z.AnchorBodyId is int pin && w.FindBody(pin) is Body pb
+                    ? Lanes.Pinned(DrawnAt(w, pin), pb.ParentId is int pp ? DrawnAt(w, pp) : null, z.AnchorOffset)
+                : z.Center;
             var at = Camera.ToScreen(center);
             var r = (float)(z.RadiusMm * Camera.Scale);
             if (!Camera.OnScreen(at, r + 50)) continue;

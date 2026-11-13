@@ -40,6 +40,7 @@ public static class Autonomy
     {
         var w = sim.World;
         HelpCalls.Update(sim);
+        FleetNames.RefreshAll(w);
         foreach (var f in w.Fleets.ToList())
         {
             if (f.ShipIds.Count == 0 || Minded(w, f.Side) || w.FindFleet(f.Id) == null) continue;
