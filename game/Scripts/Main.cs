@@ -110,6 +110,7 @@ public partial class Main : Node
     public EventRate EventsChoice { get; set; } = EventRate.Normal;
     public bool RandomStartsChoice { get; set; } = true;
     public bool IronmanChoice { get; set; }
+    public bool ContactOffersChoice { get; set; } = true;
 
     /// <summary>Races for the next new game: yours, and the rival's (human, hive or random; see Races).</summary>
     public string PlayerRaceChoice { get; set; } = Races.Human;
@@ -128,7 +129,7 @@ public partial class Main : Node
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
-                Ironman = IronmanChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
+                Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());

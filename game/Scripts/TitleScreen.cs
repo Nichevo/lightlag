@@ -150,6 +150,8 @@ public partial class TitleScreen : Control
         events.Selected = (int)main.EventsChoice;
         events.ItemSelected += i => main.EventsChoice = (Lightlag.Sim.Core.EventRate)(int)i;
         row.AddChild(events);
+        Box("Contact offers", main.ContactOffersChoice, v => main.ContactOffersChoice = v,
+            "With a second rival: once you know a race's tongue (Words), send it gifts and ask it to go after the other rival or leave a planet alone. Rivals do the same. Off: no offers; the language track still raises intel");
         Box("Ironman", main.IronmanChoice, v => main.IronmanChoice = v,
             "One save for the whole game, written over as you play and when you quit. No loading back, no quick load: every choice sticks");
         return row;

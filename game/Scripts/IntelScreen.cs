@@ -18,7 +18,15 @@ public partial class IntelScreen : PanelContainer
     private string _shape = "";
     private Side? _about;
 
-    public enum Tab { Overview, Fleets, Planets, Technology, Lanes, TheirFile }
+    // The offer being drawn up on the Contact tab.
+    private GiftKind _gift = GiftKind.Map;
+    private string? _idea;
+    private double _amount;
+    private AskKind _ask = AskKind.None;
+    private int? _askBody;
+    private bool _broadcast;
+
+    public enum Tab { Overview, Fleets, Planets, Technology, Lanes, TheirFile, Contact }
 
     private static readonly Color Old = new(0.55f, 0.6f, 0.68f, 0.55f);
     private static readonly Color Gold = new("ffd27a");
@@ -45,7 +53,7 @@ public partial class IntelScreen : PanelContainer
         if (_about is not Side pick || pick == Side.Player || !Sides.InPlay(w).Contains(pick)) _about = Sides.MainEnemy(w, Side.Player);
         var about = _about!.Value;
         var f = Intel.Of(w, Side.Player, about);
-        var shape = $"{_tab}|{about}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
+        var shape = $"{_tab}|{about}|{(_tab == Tab.Contact ? $"{Contact.Score(w, Side.Player, about):0}|{w.Offers.Count(o => o.Known[0])}|{w.Offers.Count(o => o.Landed)}|{_gift}{_idea}{_amount}{_ask}{_askBody}{_broadcast}|{GameTime.DayOf(w.Tick)}" : "")}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _box.GetChildren()) c.QueueFree();
@@ -93,6 +101,7 @@ public partial class IntelScreen : PanelContainer
             case Tab.Technology: Technology(w, f, level); break;
             case Tab.Lanes: LanesTab(w, f); break;
             case Tab.TheirFile: TheirFile(w, f); break;
+            case Tab.Contact: ContactTab(w, f); break;
         }
     }
 
@@ -100,6 +109,7 @@ public partial class IntelScreen : PanelContainer
     {
         Tab.Lanes => "Lanes and raids",
         Tab.TheirFile => "Their file on you",
+        Tab.Contact => "Contact",
         _ => t.ToString(),
     };
 
@@ -294,5 +304,119 @@ public partial class IntelScreen : PanelContainer
             Ui.Text, 13);
         Line("Your planets: who holds them is plain to everyone", Ui.Dim, 13);
         Line("Built from where their scouts and raiders have been. It tells you what is still a surprise, so running cold and decoys matter.", Ui.Dim, 12);
+    }
+
+    private static OptionButton Options(IReadOnlyList<string> items, int selected, Action<int> chosen, string tip)
+    {
+        var o = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = tip };
+        o.AddThemeFontSizeOverride("font_size", 13);
+        foreach (var item in items) o.AddItem(item);
+        if (items.Count > 0) o.Select(Math.Clamp(selected, 0, items.Count - 1));
+        o.ItemSelected += i => chosen((int)i);
+        return o;
+    }
+
+    /// <summary>The language track on this rival, the offer form (three races only), and the offers you know of.</summary>
+    private void ContactTab(World w, IntelFile f)
+    {
+        var about = f.About;
+        var race = Races.Of(w, about);
+        var score = Contact.Score(w, Side.Player, about);
+        var stage = Contact.Stage(score);
+        Section($"Their tongue: {race.Name}");
+        for (var i = 0; i < Contact.D.Stages.Length; i++)
+            Line($"{(i == stage ? "▶" : i < stage ? "✓" : "○")} {Contact.StageName(i)} ({Contact.D.Stages[i]:0} %)"
+                 + (i == Contact.D.SendStage ? ": you can send offers" : i == Contact.D.OddsStage ? ": you see the odds of an offer" : i == 1 ? ": their broadcasts give away more" : ""),
+                i == stage ? Ui.Player : i < stage ? Ui.Text : Ui.Dim, 13);
+        Line($"Now {score:0.#} %. Each stage adds intel on them every day.", Ui.Text, 13);
+        if (Contact.Closed(w, Side.Player, about) is string closed) Line(closed + ". Until then listening stops at Noise.", Gold, 13);
+        Line($"It rises from listening while in contact ({Contact.D.ListenPerDay:0.#} a day, up to {Contact.D.ListenCap:0} %), {GameData.Research(Contact.Signals).Name} and "
+             + $"{GameData.Research(Contact.Decoder).Name} research, prisoners, captured ships and stripped wrecks.", Ui.Dim, 12);
+
+        Section("Send an offer");
+        if (!Contact.OffersOn(w))
+            Line(Sides.Three(w) ? "Contact offers are off in this game (title screen, Systems)" : "Offers come with three races (title screen: Second rival). The language track still raises your intel.", Ui.Dim, 13);
+        else OfferForm(w, about, stage);
+
+        Section("Offers you know of");
+        var known = Contact.KnownTo(w, Side.Player).Where(o => o.From == about || o.To == about).Take(12).ToList();
+        if (known.Count == 0) Line("None yet", Ui.Dim, 13);
+        foreach (var o in known)
+        {
+            var who = $"{Sides.Label(w, o.From)} → {Sides.Label(w, o.To)}";
+            var how = o.Broadcast ? "broadcast" : "drone";
+            var state = !o.Landed ? $"lands in {Math.Max(0, o.LandHour - w.Hour) / 24:0.#} days"
+                : o.Ask == AskKind.None ? "landed"
+                : o.From == Side.Player || o.To == Side.Player ? (o.Taken == true ? "landed: they seem to take it up" : "landed: no sign they will") : "landed";
+            var heard = o.From != Side.Player && o.To != Side.Player ? " (overheard)" : "";
+            Line($"{GameTime.Format(o.SentHour)} · {who} by {how}{heard}: {Contact.Describe(w, o)} · {state}", o.Landed ? Ui.Text : Gold, 13);
+        }
+    }
+
+    private void OfferForm(World w, Side about, int stage)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 6);
+        row.AddChild(Ui.Label("Give", 13, Ui.Dim));
+        var gifts = Enum.GetValues<GiftKind>();
+        row.AddChild(Options(gifts.Select(g => g switch { GiftKind.Idea => "An idea", GiftKind.Food => "Food", GiftKind.Alloys => "Alloys", _ => "Your survey map" }).ToList(),
+            Array.IndexOf(gifts, _gift), i => { _gift = gifts[i]; _amount = Contact.DefaultAmount(_gift); _shape = ""; },
+            $"{race(w, about)} values: " + string.Join(", ", ValuesText(w, about))));
+        if (_gift == GiftKind.Idea)
+        {
+            var ideas = Contact.GiftIdeas(w, Side.Player, about).ToList();
+            if (_idea == null || !ideas.Contains(_idea)) _idea = ideas.FirstOrDefault();
+            row.AddChild(ideas.Count == 0 ? Ui.Label("you have no idea they lack", 13, Ui.Dim)
+                : Options(ideas.Select(id => GameData.Research(id).Name).ToList(), ideas.IndexOf(_idea!), i => { _idea = ideas[i]; _shape = ""; }, "An idea you have that they lack: they learn it when the message lands"));
+        }
+        if (_gift is GiftKind.Food or GiftKind.Alloys)
+        {
+            if (_amount <= 0) _amount = Contact.DefaultAmount(_gift);
+            var amounts = new[] { 0.5, 1, 2 }.Select(x => Math.Round(Contact.DefaultAmount(_gift) * x)).ToList();
+            row.AddChild(Options(amounts.Select(a => $"{a:0}").ToList(), Math.Max(0, amounts.IndexOf(_amount)), i => { _amount = amounts[i]; _shape = ""; }, "How much, from the shipyard's store"));
+        }
+        row.AddChild(Ui.Label("Ask", 13, Ui.Dim));
+        var third = Sides.Enemies(w, Side.Player).Where(s => s != about && !Sides.Out(w, s)).ToList();
+        var asks = new List<(AskKind Ask, string Text)> { (AskKind.None, "Nothing (a gift)") };
+        foreach (var t in third) asks.Add((AskKind.Attack, $"Go after {Races.Of(w, t).Name} ({Contact.D.AskDays:0} days)"));
+        asks.Add((AskKind.Spare, $"Leave a planet alone ({Contact.D.AskDays:0} days)"));
+        row.AddChild(Options(asks.Select(a => a.Text).ToList(), Math.Max(0, asks.FindIndex(a => a.Ask == _ask)), i => { _ask = asks[i].Ask; _shape = ""; },
+            "What you ask in return. They are free to ignore it; the gift goes anyway"));
+        if (_ask == AskKind.Spare)
+        {
+            var mine = w.Bodies.Where(b => b.Owner == Side.Player).OrderBy(b => b.Name).ToList();
+            if (_askBody is not int id || mine.All(b => b.Id != id)) _askBody = mine.FirstOrDefault()?.Id;
+            row.AddChild(Options(mine.Select(b => b.Name).ToList(), mine.FindIndex(b => b.Id == _askBody), i => { _askBody = mine[i].Id; _shape = ""; }, "The planet they should leave alone"));
+        }
+        _box.AddChild(row);
+
+        var send = new HBoxContainer();
+        send.AddThemeConstantOverride("separation", 6);
+        send.AddChild(Ui.Label("By", 13, Ui.Dim));
+        send.AddChild(Options(new[] { $"Messenger drone (private, {Contact.D.DroneDays:0} days)", $"Broadcast ({Contact.D.BroadcastHours:0} h, can be overheard)" },
+            _broadcast ? 1 : 0, i => { _broadcast = i == 1; _shape = ""; }, "A drone is private but slow; a broadcast is quick, and anyone who reads your tongue hears it"));
+        var offer = new Offer { From = Side.Player, To = about, Gift = _gift, Idea = _idea, Amount = _gift is GiftKind.Food or GiftKind.Alloys ? _amount : 0, Ask = _ask,
+            AskSide = _ask == AskKind.Attack ? third.FirstOrDefault() : null, AskBodyId = _ask == AskKind.Spare ? _askBody : null, Broadcast = _broadcast };
+        var why = Contact.CanSend(w, offer);
+        var odds = stage >= Contact.D.OddsStage && why == null ? $" · odds they take it up: {Contact.Odds(w, offer):P0}" : stage < Contact.D.OddsStage ? " · odds show at Language" : "";
+        var b = Ui.SmallButton("Send offer", () => _screen.IssueNow(new SendOfferCommand(Side.Player, about, offer.Gift, offer.Idea, offer.Amount, offer.Ask, offer.AskSide, offer.AskBodyId, offer.Broadcast), "offer"),
+            why ?? "The gift leaves your stores now and lands with the message");
+        b.Disabled = why != null;
+        send.AddChild(b);
+        send.AddChild(Ui.Label((why ?? "Ready") + odds, 13, why != null ? Ui.Dim : Gold));
+        _box.AddChild(send);
+        Line($"One offer to each race every {Contact.D.CooldownDays:0} days. Rivals send offers too: you see them only if you read their tongue.", Ui.Dim, 12);
+    }
+
+    private static string race(World w, Side s) => Races.Of(w, s).Name;
+
+    private static IEnumerable<string> ValuesText(World w, Side s)
+    {
+        var v = Contact.D.Values.TryGetValue(Races.Of(w, s).Id, out var x) ? x : new GiftValues();
+        string Word(double f) => f >= 1.3 ? "a lot" : f >= 0.9 ? "fairly" : f > 0 ? "a little" : "not at all";
+        yield return $"ideas {Word(v.Idea)}";
+        yield return $"food {Word(v.Food)}";
+        yield return $"alloys {Word(v.Alloys)}";
+        yield return $"maps {Word(v.Map)}";
     }
 }
