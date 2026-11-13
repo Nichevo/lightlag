@@ -101,6 +101,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetSalvoGuidanceCommand), "setSalvoGuidance")]
 [JsonDerivedType(typeof(EjectShipSinkCommand), "ejectShipSink")]
 [JsonDerivedType(typeof(LayMinesCommand), "layMines")]
+[JsonDerivedType(typeof(AdviseCommand), "advise")]
 [JsonDerivedType(typeof(SetFleetFuelCommand), "setFleetFuel")]
 [JsonDerivedType(typeof(SetPlantModeCommand), "setPlantMode")]
 [JsonDerivedType(typeof(SetLeaveSupportCommand), "setLeaveSupport")]

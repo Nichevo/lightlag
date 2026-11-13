@@ -14,6 +14,7 @@ public partial class GameMenu : Control
     private Control _main = null!;
     private SavesList _saves = null!;
     private HowToPlay _help = null!;
+    private PauseSettingsPage _pause = null!;
 
     public GameMenu() : this(null!) { }
     public GameMenu(GameScreen screen) => _screen = screen;
@@ -29,13 +30,17 @@ public partial class GameMenu : Control
         col.AddChild(Ui.Label("Game menu", 26, Ui.Player));
         col.AddChild(Ui.Button("Resume  (Esc)", () => _screen.CloseMenu()));
         col.AddChild(Ui.Button("Save game", () => _screen.SaveManual()));
-        col.AddChild(Ui.Button("Load game", () => Show(_saves)));
+        // Ironman: no loading back mid-game.
+        if (Main.Instance.Sim?.World.Rules.Ironman != true) col.AddChild(Ui.Button("Load game", () => Show(_saves)));
         col.AddChild(Ui.Button("How to play", () => Show(_help)));
+        col.AddChild(Ui.Button("Pause settings", () => Show(_pause)));
         col.AddChild(Ui.Button("Quit to title screen", () => _screen.QuitToTitle()));
         col.AddChild(Graphics.Picker(this));
         col.AddChild(Display.Picker());
         col.AddChild(PlayerInfo.Picker());
-        col.AddChild(Ui.Label("Quitting saves an autosave first. F5 quick save, F9 quick load.", 13, Ui.Dim));
+        col.AddChild(Ui.Label(Main.Instance.Sim?.World.Rules.Ironman == true
+            ? "Ironman: the game keeps one save and writes over it as you play (and when you quit). No loading back."
+            : "Quitting saves an autosave first. F5 quick save, F9 quick load.", 13, Ui.Dim));
         _main = Ui.Centered(Ui.Panel(col, 24));
         AddChild(_main);
 
@@ -45,13 +50,15 @@ public partial class GameMenu : Control
         _help = new HowToPlay(() => Show(_main));
         _help.Visible = false;
         AddChild(_help);
+        _pause = new PauseSettingsPage(() => Show(_main)) { Visible = false };
+        AddChild(_pause);
     }
 
-    /// <summary>Opens on the main page every time.</summary>
-    public void Open()
+    /// <summary>Opens on the main page, or straight on the pause settings ("pause").</summary>
+    public void Open(string? page = null)
     {
         Visible = true;
-        Show(_main);
+        Show(page == "pause" ? _pause : _main);
     }
 
     private void Show(Control page)
@@ -59,7 +66,9 @@ public partial class GameMenu : Control
         _main.Visible = page == _main;
         _saves.Visible = page == _saves;
         _help.Visible = page == _help;
+        _pause.Visible = page == _pause;
         if (page == _saves) _saves.Refresh();
+        if (page == _pause) _pause.Refresh();
     }
 }
 
@@ -128,7 +137,8 @@ public partial class HowToPlay : CenterContainer
         "RACES\n" +
         "• Pick your race and the rival's on the title screen. Humans are the all-rounders. The Hive is many hungry people: its ships are grown from food (a starving Hive grows none), their hulls heal while fed, drone crews stay Trained, its boarders swarm, its buildings are dug in against bombs and invaders, and its sensors are weak. The Intelligence screen (I) lists the rival's strengths and weaknesses.\n\n" +
         "THE BASICS\n" +
-        "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts.\n" +
+        "• Space pauses; 1-4 set the speed. The game pauses itself when enemies are spotted (P turns that off) and when fighting starts. Pauses… (top bar, or the Esc menu) sets what happens for each kind of event: pause, slow to 1x, a pop-up or only a News line, with Watchful, Standard and Hands off presets.\n" +
+        "• Ironman (title screen): one save for the whole game, written over as you play. No loading back.\n" +
         "• Click a fleet to select it. Right-click a planet or a point to plan a route, then Enter to go. Shift+right-click goes at once.\n" +
         "• Empty planets with Industry can be claimed: park a fleet in orbit and keep the enemy away for 10 days (30 if the rival holds it). A held planet makes half its Industry until settlers arrive.\n" +
         "• Industry pays for ships at your shipyard and for buildings; research costs only scientist time (Empire panel, E).\n" +

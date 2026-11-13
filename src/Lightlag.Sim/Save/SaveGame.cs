@@ -30,16 +30,44 @@ public sealed class SaveGame
     public static SaveGame Load(string path) => FromJson(File.ReadAllText(path));
 }
 
-/// <summary>Manual saves, quick save and rotating autosaves, all in the saves folder.</summary>
+/// <summary>
+/// Manual saves, quick save and rotating autosaves, all in the saves folder. An Ironman game has one save of its own
+/// (ironman_{seed}.json): every save, autosave and quick save writes over it, and nothing else is written, so there
+/// is no older save to go back to.
+/// </summary>
 public static class SaveSlots
 {
     public const string QuickSave = "quicksave";
+    public const string IronmanPrefix = "ironman_";
     public const int AutosavesKept = 5;
 
     public static string PathFor(DataPaths paths, string slot) => Path.Combine(paths.Saves, slot + ".json");
 
+    /// <summary>The one save of an Ironman game.</summary>
+    public static string IronmanPath(DataPaths paths, World w) => PathFor(paths, $"{IronmanPrefix}{w.Seed}");
+
+    public static string WriteIronman(DataPaths paths, Simulation sim)
+    {
+        Directory.CreateDirectory(paths.Saves);
+        var path = IronmanPath(paths, sim.World);
+        sim.ToSave().WriteTo(path);
+        return path;
+    }
+
+    /// <summary>The quick save (F5); in Ironman, the game's own save.</summary>
+    public static string WriteQuick(DataPaths paths, Simulation sim)
+    {
+        if (sim.World.Rules.Ironman) return WriteIronman(paths, sim);
+        Directory.CreateDirectory(paths.Saves);
+        var path = PathFor(paths, QuickSave);
+        sim.ToSave().WriteTo(path);
+        return path;
+    }
+
     public static string WriteAutosave(DataPaths paths, Simulation sim)
     {
+        if (sim.World.Rules.Ironman) return WriteIronman(paths, sim);
+        Directory.CreateDirectory(paths.Saves);
         var path = Path.Combine(paths.Saves, $"autosave_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json");
         sim.ToSave().WriteTo(path);
         foreach (var old in new DirectoryInfo(paths.Saves).GetFiles("autosave_*.json")
@@ -51,6 +79,7 @@ public static class SaveSlots
     /// <summary>A manual save, named by when it was made, so it never overwrites another.</summary>
     public static string WriteManual(DataPaths paths, Simulation sim)
     {
+        if (sim.World.Rules.Ironman) return WriteIronman(paths, sim);
         Directory.CreateDirectory(paths.Saves);
         var path = Path.Combine(paths.Saves, $"save_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json");
         sim.ToSave().WriteTo(path);
@@ -80,7 +109,8 @@ public static class SaveSlots
                     foreach (var m in minds.EnumerateArray())
                         if (m.TryGetProperty("difficulty", out var d)) rival = d.GetString();
                 var over = world.TryGetProperty("winner", out var winner) && winner.ValueKind != System.Text.Json.JsonValueKind.Null;
-                var kind = f.Name.StartsWith("autosave_") ? "Autosave" : f.Name.StartsWith(QuickSave) ? "Quick save"
+                var ironman = world.TryGetProperty("rules", out var rules) && rules.TryGetProperty("ironman", out var iron) && iron.ValueKind == System.Text.Json.JsonValueKind.True;
+                var kind = ironman ? "Ironman" : f.Name.StartsWith("autosave_") ? "Autosave" : f.Name.StartsWith(QuickSave) ? "Quick save"
                     : f.Name.StartsWith("crash") ? "Crash save" : "Save";
                 list.Add(new Entry(f.FullName, kind, f.LastWriteTimeUtc, GameTime.DayOf(tick), tick, rival, over));
             }
