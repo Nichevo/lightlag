@@ -453,8 +453,10 @@ public static class Planets
         var w = sim.World;
         var by = b.BlockadedBy ?? Sides.MainEnemy(w, b.BlockadedOwner!.Value);
         var t = Economy.Of(w, by).Totals;
+        // A relief fleet near, or one due within two days that the blockaders pulled away from.
         var relief = w.Fleets.Any(f => f.Side == b.Owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
-                                        && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2);
+                                        && (Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2
+                                            || f.Flight is { TargetBodyId: int to } fl && to == b.Id && fl.ArriveHour - w.Hour <= 48));
         if (relief) t.BlockadesBroken++;
         else t.BlockadesLeft++;
         sim.Log.Info("planets", relief ? "Blockade broken by a relief fleet" : "Blockade ends",

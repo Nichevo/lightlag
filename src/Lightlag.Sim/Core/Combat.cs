@@ -218,6 +218,8 @@ public static class Combat
                 // can't (or won't) fight are checked once an hour instead.
                 if (r0.Length > C.ContactRangeMm + 50) return (a, b);
                 if (ma > 0 || mb > 0 || WouldEngage(w, a, b) || WouldEngage(w, b, a)) return (a, b);
+                // A missile fleet passing within launch range gets its shot too (it doesn't close in, so WouldEngage misses it).
+                if (closest <= Math.Max(Heat.LaunchRange(a), Heat.LaunchRange(b)) && (CouldLaunch(w, a, b) || CouldLaunch(w, b, a))) return (a, b);
                 if ((a.Flight is { Started: true } || b.Flight is { Started: true }) && closest < r0.Length - 1) return (a, b);
             }
         }
@@ -446,8 +448,16 @@ public static class Combat
         // way): closing on a fleet it may not shoot would shadow it for ever and keep the battle going.
         && (!enemy.Retreating || f.Chase?.TargetFleetId == enemy.Id)
         && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
-        && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
+        && HasWorking(w, f, Module.Railguns) && HasRailAmmo(w, f) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
         && (f.Stance == Stance.Engage || Stronger(w, f));
+
+    /// <summary>The fleet has missiles to launch at an enemy it can see (it may hold fire, but it gets the chance).</summary>
+    private static bool CouldLaunch(World w, Fleet f, Fleet enemy) =>
+        !f.Retreating && f.Stance is Stance.Engage or Stance.EngageIfStronger && HasWorking(w, f, Module.Missiles) && Sensors.Sees(w, f.Side, enemy);
+
+    /// <summary>A ship with working railguns still has slugs for a shot: a fleet out of them has nothing to close in for.</summary>
+    public static bool HasRailAmmo(World w, Fleet f) =>
+        w.ShipsOf(f).Any(s => !s.Out(Module.Railguns) && Fitting.Spec(s).Railguns > 0 && s.Ammo >= C.Railgun.SuppliesPerShot);
 
     /// <summary>How much more power a fleet set to engage-if-stronger wants than the enemies in contact.</summary>
     public const double StrongerBy = 1.2;
@@ -584,6 +594,8 @@ public static class Combat
     {
         var w = sim.World;
         var rail = C.Railgun;
+        // No slugs left: nothing to fire (and no "action" to keep the battle in fighting time).
+        if (ship.Ammo < rail.SuppliesPerShot) return;
         var railRange = Secrecy.RailRange(w, fleet);
         // Unseen, no long shots: they would give the fleet away before the enemy is in good reach.
         var reach = (fleet.LongShots || AiLongShots(w, fleet)) && !Unseen(w, fleet) ? Math.Max(railRange, Heat.D.LongRangeMm) : railRange;

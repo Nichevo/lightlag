@@ -337,11 +337,13 @@ public sealed class RuleBook
             ("battles", w.Battles.Count), ("boardings", w.Boardings.Count), ("after-battle plans", w.Aftermaths.Count),
             ("sightings", w.Sightings.Count), ("picture", w.Picture.Count), ("missiles", w.Missiles.Count), ("dropped missiles", w.Dropped.Count),
             ("drones", w.Drones.Count), ("shipments", w.Shipments.Count), ("events", w.Events.Count), ("debris", w.Debris.Count),
-            ("zones", w.Zones.Count), ("orders", w.Orders.Count), ("choices", w.Choices.Count),
+            ("zones", w.Zones.Count), ("orders", w.Orders.Count),
             ("orders in transit", w.Light.InTransit.Count), ("reports in transit", w.Light.Reports.Count),
         };
         foreach (var (name, count) in lists.Where(l => l.Count > ListLimit))
             yield return $"{count} {name}";
+        // The choice log keeps a whole game (for the overnight "what goes with winning" tables) up to its own cap.
+        if (w.Choices.Count > Choices.Max) yield return $"{w.Choices.Count} choices";
         foreach (var side in w.Sides.Where(s => s.Intel.Fleets.Count > ListLimit || s.Intel.Notes.Count > ListLimit))
             yield return $"{side.Side} intel holds {side.Intel.Fleets.Count} fleets and {side.Intel.Notes.Count} notes";
     }

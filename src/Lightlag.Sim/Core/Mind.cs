@@ -768,6 +768,9 @@ public static class Mind
             ShareOf(_w.ShipsOf(f).Where(s => Fitting.Spec(s).Missiles > 0)
                 .Select(s => ((double)s.Missiles, (double)Fitting.Spec(s).Missiles)));
 
+        /// <summary>Fit enough to go to the help of its own blockaded planet: lighter than Ready, since waiting for a refit loses the planet.</summary>
+        private bool FitToRelieve(Fleet f) => Combat.ArmourShare(_w, f) >= 0.75 && Supplies(f) >= 0.5 && Missiles(f) >= 0.4;
+
         private bool Ready(Fleet f) => Combat.ArmourShare(_w, f) >= 0.9 && Supplies(f) >= 0.7 && Missiles(f) >= 0.7;
 
         private bool NeedsRefit(Fleet f) =>
@@ -783,7 +786,7 @@ public static class Mind
                 var done = job.Kind switch
                 {
                     JobKind.Claim => body == null || body.Owner == _side || (body.Owner == _enemy && body.Shipyard),
-                    JobKind.Break => body == null || body.ClaimSide != _enemy,
+                    JobKind.Break => body == null || body.ClaimSide is not Side c || c == _side,
                     JobKind.Strike => _enemyYard == null,
                     JobKind.Hunt => job.EnemyFleetId is not int e || Sensors.Find(_w, _side, e, seat: true) is not Sighting s || _w.Hour - s.Hour > 48,
                     JobKind.Probe => f.Flight == null && _w.Hour - job.Since > A.ProbeDays * 24,
@@ -920,7 +923,9 @@ public static class Mind
         /// <summary>The enemy is claiming one of its planets: send enough to break the claim, if it has it.</summary>
         private void DefendClaims()
         {
-            foreach (var b in Economy.Claimable(_w).Where(b => b.ClaimSide == _enemy).OrderByDescending(b => b.Industry).ToList())
+            // Any enemy: with two rivals, the one it is not aiming at may be the one sitting on its planet.
+            foreach (var b in Economy.Claimable(_w).Where(b => b.ClaimSide is Side c && c != _side && (b.Owner == _side || c == _enemy))
+                         .OrderByDescending(b => b.Owner == _side ? 1 : 0).ThenByDescending(b => b.Industry).ToList())
             {
                 if (_m.Jobs.Any(j => j.Kind == JobKind.Break && j.BodyId == b.Id)) continue;
                 var ours = b.Owner == _side;
@@ -955,9 +960,12 @@ public static class Mind
         {
             if (Easy) return false;
             var daysLeft = Math.Max(5, Planets.D.MinBlockadeDays - b.BlockadeHours / 24);
-            var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && Ready(f) && War(f) > 0)
+            // Its own people come first: a fleet fit to fight (not only fresh from a refit) goes, and so does one
+            // flying home only because its last job ended.
+            var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && FitToRelieve(f) && War(f) > 0)
                 .Where(f => _m.JobOf(f.Id) is not { } j
                             || j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort
+                            || j.Kind == JobKind.Refit
                             || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null))
                 .Select(f => (Fleet: f, Days: TravelDays(f, b, 0.8)))
                 .Where(x => x.Days <= daysLeft).OrderBy(x => x.Days).ToList();
