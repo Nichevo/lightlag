@@ -21,6 +21,9 @@ public sealed class World
     public List<Fleet> Fleets { get; set; } = new();
     public List<Missile> Missiles { get; set; } = new();
     public List<Wreck> Wrecks { get; set; } = new();
+
+    /// <summary>One-way offers between sides, sent and landed (see Contact).</summary>
+    public List<Offer> Offers { get; set; } = new();
     public List<Lifeboat> Lifeboats { get; set; } = new();
     public List<Lane> Lanes { get; set; } = new();
     public List<Zone> Zones { get; set; } = new();
@@ -167,6 +170,9 @@ public sealed class GameRules
 
     /// <summary>Ironman: one save per game, written over as you play; no loading back (see SaveSlots).</summary>
     public bool Ironman { get; set; }
+
+    /// <summary>Contact offers between races (only with three or more; see Contact). The language track runs either way.</summary>
+    public bool ContactOffers { get; set; } = true;
 }
 
 public enum EventRate { Off, Rare, Normal, Lively }

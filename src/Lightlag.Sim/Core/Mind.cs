@@ -1258,6 +1258,7 @@ public static class Mind
         {
             danger = EnemyNear(b.Position, 0.1 * _au, 10 * 24);
             if (b.Owner == _side || b.Shipyard || b.ClaimSide == _side) return 0;
+            if (Contact.Spared(_w, _m, b)) return 0;
             if (_m.Jobs.Any(j => j.BodyId == b.Id)) return 0;
             if (b.Owner == _enemy) danger = Math.Max(danger, A.EnemyShipValue);
             if (danger * Math.Max(Want, A.DangerRatio * 1.05) > free) return 0;

@@ -75,6 +75,12 @@ public static class Sides
             b.Surveyed = Grow(b.Surveyed, false);
         }
         foreach (var m in w.Minefields) m.Known = Grow(m.Known, false);
+        foreach (var s in w.Sides)
+        {
+            s.Language = Grow(s.Language ?? Array.Empty<double>(), 0.0);
+            s.Cored = Grow(s.Cored ?? Array.Empty<bool>(), false);
+        }
+        foreach (var o in w.Offers) o.Known = Grow(o.Known, false);
         // Sightings from before they said whose fleet: the other side (there were only two).
         foreach (var s in w.Sightings.Concat(w.Picture))
             if (!s.Own && s.Of == s.SeenBy) s.Of = s.SeenBy == Side.Player ? Side.Rival : Side.Player;

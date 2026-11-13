@@ -108,6 +108,10 @@ public sealed class SideState
     /// <summary>In a three-race game: when the side lost its last shipyard and dropped out of the running (see Sides.Out).</summary>
     public double? OutHour { get; set; }
 
+    /// <summary>Contact (see Contact): the side's grasp of each side's tongue (0 to 100), and whether it has a captured core of theirs.</summary>
+    public double[] Language { get; set; } = new double[Sides.Max];
+    public bool[] Cored { get; set; } = new bool[Sides.Max];
+
     /// <summary>Running totals for the game statistics (see Stats).</summary>
     public SideTotals Totals { get; set; } = new();
 

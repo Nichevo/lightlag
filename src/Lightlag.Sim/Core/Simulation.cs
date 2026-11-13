@@ -76,6 +76,7 @@ public sealed class Simulation
             world.Rules.Hazards = options?.Hazards ?? true;
             world.Rules.Events = options?.Events ?? EventRate.Normal;
             world.Rules.Ironman = options?.Ironman ?? false;
+            world.Rules.ContactOffers = options?.ContactOffers ?? true;
             Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
         }
@@ -190,6 +191,7 @@ public sealed class Simulation
         using (SectionTimer.Time("autonomy")) Autonomy.Update(this);
         using (SectionTimer.Time("lanes")) Lanes.Observe(this);
         using (SectionTimer.Time("intel")) Intel.Update(this);
+        using (SectionTimer.Time("contact")) Contact.Update(this);
         using (SectionTimer.Time("weapons"))
         {
             Mines.Hourly(this);

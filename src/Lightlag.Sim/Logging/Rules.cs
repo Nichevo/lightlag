@@ -77,6 +77,11 @@ public sealed class RuleBook
             .Concat(w.Bodies.Where(b => b.Owner is Side o && !Lightlag.Sim.Core.Sides.InGame(w, o)).Select(b => $"{b.Name} is held by {b.Owner}, not in play"))
             .Concat(w.Loop ? w.Ships.Where(s => Lightlag.Sim.Core.Sides.InGame(w, s.Side) && Lightlag.Sim.Core.Races.Of(w, s.Side).AiOnly && !s.AiRun)
                 .Select(s => $"ship {s.Id} {s.Name} of a machine race has a crew") : Enumerable.Empty<string>()))
+        // Contact (Plan 3 build 7): language scores 0 to 100 per side, offers between two different sides in play, none landing before it was sent.
+        .Add("contact-sane", w => w.Sides.Where(s => s.Language.Length != Lightlag.Sim.Core.Sides.Max || s.Language.Any(x => !(x >= 0 && x <= 100 + 1e-9)))
+                .Select(s => $"{s.Side} language scores [{string.Join(", ", s.Language)}]")
+            .Concat(w.Offers.Where(o => o.From == o.To || !Lightlag.Sim.Core.Sides.InGame(w, o.From) || !Lightlag.Sim.Core.Sides.InGame(w, o.To) || o.LandHour < o.SentHour || o.Amount < 0)
+                .Select(o => $"offer {o.Id} from {o.From} to {o.To}, sent {o.SentHour}, lands {o.LandHour}, amount {o.Amount}")))
         // Races (Plan 3 build 3): every side plays a known race, and drone crews never gain or lose experience.
         .Add("races-sane", w => w.Sides.Where(s => !Lightlag.Sim.Core.Races.Known(s.Race)).Select(s => $"{s.Side} plays unknown race '{s.Race}'")
             .Concat(w.Loop ? w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId) && Lightlag.Sim.Core.Crews.Crewed(s)
