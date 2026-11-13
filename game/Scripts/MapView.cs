@@ -710,7 +710,7 @@ public partial class MapView : Node2D
 
     /// <summary>Green where a burn is speeding the fleet up, violet where it is braking.</summary>
     private static Color BurnColor(FlightLeg leg, double hour) =>
-        Vec2.Dot(leg.A, leg.VelocityAt(hour)) >= 0 ? SpeedUp : Braking;
+        Vec2.Dot(leg.A - leg.Match, leg.RelativeVelocityAt(hour)) >= 0 ? SpeedUp : Braking;
 
     /// <summary>Waypoints of a flight not reached yet (older saves only have the points).</summary>
     private List<Vec2> AheadPoints(Flight flight) => flight.WaypointPlan.Count > 0
