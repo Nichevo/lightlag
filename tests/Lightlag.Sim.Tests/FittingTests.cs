@@ -112,6 +112,11 @@ public class FittingTests
         Hour(sim);
         Assert.NotNull(Economy.CanQueue(sim.World, Side.Player, OrderKind.Ship, "cruiser"));
         Player(sim).Researched.Add(Tech.CruiserHull);
+        // A 260 m hull also needs a great yard: a starbase's slipway over a world you hold.
+        Assert.Contains("great yard", Economy.CanQueue(sim.World, Side.Player, OrderKind.Ship, "cruiser"));
+        var home = Economy.ShipyardOf(sim.World, Side.Player)!;
+        var cls = GameData.ShipClass("station-starbase");
+        sim.World.Starbases.Add(new Starbase { Id = sim.World.NextId++, Side = Side.Player, BodyId = home.Id, ClassId = cls.Id, Fit = Fitting.StandardFit(cls), Armour = cls.Armour });
         Assert.Null(Economy.CanQueue(sim.World, Side.Player, OrderKind.Ship, "cruiser"));
     }
 

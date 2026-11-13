@@ -97,6 +97,7 @@ public static class Fitting
         if (GameData.Module(moduleId) is not ModuleData m) return $"Unknown module '{moduleId}'";
         if (m.Slot != cls.SlotList[slot].Type) return $"{m.Name} doesn't fit a {SlotName(cls.SlotList[slot].Type)} slot";
         if (m.Needs.Length > 0 && !Tech.Has(w, side, m.Needs)) return $"Needs {GameData.Research(m.Needs).Name}";
+        if (m.MinTier > 0 && (!cls.Station || Starbases.TierOf(cls.Id).Tier < m.MinTier)) return $"{m.Name} needs a tier {m.MinTier} station or bigger";
         return null;
     }
 
@@ -111,7 +112,7 @@ public static class Fitting
         return null;
     }
 
-    public static string SlotName(string type) => type switch { "W" => "weapon", "D" => "defence", "U" => "utility", "E" => "engine", _ => type };
+    public static string SlotName(string type) => type switch { "W" => "weapon", "D" => "defence", "U" => "utility", "E" => "engine", "B" => "bay", _ => type };
 
     /// <summary>The fit a new ship of this class gets: the class's default variant (see Designer), with the best parts on Auto.</summary>
     public static List<string> AutoFit(World w, Side side, ShipClass cls) => Designer.FitFor(w, side, cls.Id, Designer.DefaultFor(w, side, cls.Id));

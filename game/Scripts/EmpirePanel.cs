@@ -90,6 +90,7 @@ public partial class EmpirePanel : PanelContainer
         + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"))
         + "|" + string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id))
         + "|" + string.Join(",", w.Stations.Where(st => st.Side == Side.Player).Select(st => $"{st.Id}{(w.Hour >= st.ReadyHour ? "r" : "")}"))
+        + "|" + string.Join(",", w.Starbases.Select(st => $"{st.Id}{st.Side}{st.ClassId}"))
         + "|" + string.Join(",", w.Satellites.Where(s => s.Side == Side.Player && s.LostHour == null).Select(s => s.Id));
 
     /// <summary>The Supply tab is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
@@ -188,7 +189,7 @@ public partial class EmpirePanel : PanelContainer
         if (GameData.Economy.Stations is { Count: > 0 } kinds)
         {
             Heading("Stations");
-            Live(12, Ui.Dim, w2 => string.Join("\n", kinds.Select(k => $"{k.Name} ({k.Cost:0}, {k.Days:0} d): {k.Effect}"
+            Live(12, Ui.Dim, w2 => string.Join("\n", kinds.Where(k => k.Bay == null).Select(k => $"{k.Name} ({k.Cost:0}, {k.Days:0} d): {k.Effect}"
                 + (k.Id == Economy.Relay && !w.Light.On ? " (light lag only)" : "")
                 + (k.Needs is string n && !Tech.Has(w2, Side.Player, n) ? $" · needs {GameData.Research(n).Name}" : ""))));
             foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player).OrderBy(b => b.Id))
@@ -197,6 +198,23 @@ public partial class EmpirePanel : PanelContainer
                 var name = Ui.Label(b.Name, 13, Ui.Text);
                 name.CustomMinimumSize = new Vector2(110, 0);
                 row.AddChild(name);
+                // The station line: what is over it (build and upgrade it on the planet screen, or here while there is none).
+                var lineLabel = Ui.Label("", 12, Ui.Dim);
+                lineLabel.CustomMinimumSize = new Vector2(150, 0);
+                var bid = b.Id;
+                _live.Add((lineLabel, w2 => w2.FindBody(bid) is Body bb ? StationPanel.Short(w2, bb) : ""));
+                row.AddChild(lineLabel);
+                if (Starbases.At(w, b.Id) == null && w.Winner == null && Starbases.TopTier(w, Side.Player) > 0)
+                {
+                    var t1 = Starbases.TierAt(1)!;
+                    var cls = GameData.ShipClass(t1.ClassId);
+                    var why = Starbases.CanBuild(w, Side.Player, b.Id, t1.ClassId);
+                    var build = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.IssueNow(new BuildStarbaseCommand(Side.Player, bid, t1.ClassId), "building a station"),
+                        (why != null ? why + ". " : "") + $"Start the station line over {b.Name}: {cls.Cost:0} Industry, {t1.Days:0} days. {t1.Blurb} Upgrade it on the planet screen, or build a higher tier there.");
+                    build.Disabled = why != null;
+                    build.CustomMinimumSize = new Vector2(130, 26);
+                    row.AddChild(build);
+                }
                 foreach (var k in kinds)
                 {
                     if (k.Id == Economy.SensorStation && b.Shipyard) continue; // the shipyard planet already sees full range
@@ -213,7 +231,7 @@ public partial class EmpirePanel : PanelContainer
                             : $"{k.Name} ✓" : ""));
                         continue;
                     }
-                    if (w.Winner != null) continue;
+                    if (w.Winner != null || k.Bay != null) continue; // relays, sensor and laser stations are bays on the line now
                     // Only stations that can go here and are researched (the list above says what the rest need).
                     if (k.Needs is string needs && !Tech.Has(w, Side.Player, needs)) continue;
                     if (k.OnTypes is { Count: > 0 } types && !types.Contains(b.Type) || k.Ground && b.Board == null) continue;

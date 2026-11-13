@@ -123,7 +123,7 @@ public static class Light
         double? best = null;
         var home = BodyAt(w, seat);
         var hop = Tech.Has(w, side, Tech.TightBeam) ? 0 : GameData.Economy.RelayDelayHours;
-        foreach (var (_, b) in Economy.Stations(w, side, Economy.Relay))
+        foreach (var b in Economy.StationBodies(w, side, Economy.Relay))
         {
             // The relay sits just above its body, on whichever side it needs.
             if (!Sensors.LineOfSight(w, seat, b.Position, b.Id, home) || !Sensors.LineOfSight(w, b.Position, at, b.Id)) continue;

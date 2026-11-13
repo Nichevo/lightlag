@@ -58,7 +58,7 @@ public partial class MapView
         f.Side == Side.Player ? Live(f) || News(f) != null : Sensors.Sees(Sim.World, Side.Player, f, seat: true);
 
     /// <summary>The command range ring, the flagship mark, news ages and orders on their way.</summary>
-    /// <summary>Your stations: a small tag under the body (relays and sensor stations, and those still being built).</summary>
+    /// <summary>Stations: a small tag under the body (relays, sensor stations and the station line, and those still being built).</summary>
     private void DrawStations()
     {
         var w = Sim.World;
@@ -80,6 +80,21 @@ public partial class MapView
                 : $"◆ {name}";
             var y = (float)Math.Max(8, b.Radius * Camera.Scale) + 12 * row[b.Id] + 6;
             DrawString(_font, at + new Vector2(-24, y), text, HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
+        }
+        // The station line: yours always; an enemy one once a fleet of yours is in orbit there (or in the debug view).
+        foreach (var st in w.Starbases)
+        {
+            if (!_drawn.TryGetValue(st.BodyId, out var p) || w.FindBody(st.BodyId) is not Body b) continue;
+            if (st.Side != Side.Player && !RevealAll && !w.Fleets.Any(f => f.Side == Side.Player && Economy.InOrbitAt(f, b))) continue;
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 100)) continue;
+            row[b.Id] = row.GetValueOrDefault(b.Id) + 1;
+            var cls = Starbases.ClassOf(st);
+            var text = w.Hour < st.ReadyHour ? $"◇ {cls.Name.ToLowerInvariant()} (building)"
+                : $"◆ {cls.Short} {100 * st.Armour / Math.Max(1, Starbases.MaxArmour(st)):0} %" + (st.Refit != null ? " refit" : "")
+                  + (st.LastHitHour is double hit && w.Hour - hit < 2 ? " under fire" : "");
+            var y = (float)Math.Max(8, b.Radius * Camera.Scale) + 12 * row[b.Id] + 6;
+            DrawString(_font, at + new Vector2(-24, y), text, HorizontalAlignment.Left, -1, 10, new Color(Ui.SideColor(st.Side), 0.8f));
         }
     }
 

@@ -47,6 +47,9 @@ public static partial class FlightPlanner
     public static FlightPlan Plan(World w, Fleet fleet, FlightRequest req)
     {
         using var timed = SectionTimer.Time("route-planner");
+        // A fleet mending in a station's repair hangar takes hours to undock before it can leave.
+        if (fleet.Docked && fleet.Flight is not { Started: true } && req.DepartTick < w.Tick + (long)Starbases.D.UndockHours)
+            req = req with { DepartTick = w.Tick + (long)Starbases.D.UndockHours };
         int? from = fleet.Hold == HoldStyle.Orbit && fleet.Velocity.Length <= 1e-9 ? fleet.OrbitBodyId : null;
         // A fleet redirected while it is still climbing out of, or settling into, a body (a flight between
         // moons skims them) leaves from that body, so it may pass through its surface on the way out.

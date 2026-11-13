@@ -55,7 +55,7 @@ public partial class ShipsScreen : PanelContainer
         // Under the top bar, so the menu bar stays in view.
         var under = new Vector2(0, Hud.ContentTop);
         if (Position != under || Size != view - under) { Position = under; Size = view - under; }
-        if (!GameData.ShipClasses.TryGetValue(_classId, out var picked) || !Unlocked(w, picked))
+        if (!GameData.TryClass(_classId, out var picked) || !Unlocked(w, picked))
         {
             _classId = ClassOrder(w).FirstOrDefault()?.Id ?? GameData.ShipClasses.Keys.OrderBy(k => k, StringComparer.Ordinal).First();
             _designId = Designer.StandardId;
@@ -151,6 +151,7 @@ public partial class ShipsScreen : PanelContainer
         "D" => slot.Pair ? "Defence pair" : "Defence",
         "U" => "Internal",
         "E" => "Drive",
+        "B" => "Bay",
         _ => slot.Type,
     };
 
@@ -172,7 +173,7 @@ public partial class ShipsScreen : PanelContainer
 
     private static string SizeOf(ShipClass c) => c.LengthM < 100 ? "S" : c.LengthM < 200 ? "M" : c.LengthM < 400 ? "L" : "H";
 
-    private static bool Unlocked(World w, ShipClass c) => c.Needs.Length == 0 || Tech.Has(w, Me, c.Needs);
+    private static bool Unlocked(World w, ShipClass c) => c.Station ? Starbases.Researched(w, Me, c.Id) == null : c.Needs.Length == 0 || Tech.Has(w, Me, c.Needs);
 
     // ---- Layout --------------------------------------------------------------------------------
 
@@ -249,10 +250,13 @@ public partial class ShipsScreen : PanelContainer
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         var list = Column(2);
         list.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        foreach (var cls in ClassOrder(w))
+        // Ships first, then the station tiers you have researched (stations are fitted the same way, with bays).
+        var stations = GameData.StationClasses.Values.Where(c => Unlocked(w, c)).OrderBy(c => Starbases.TierOf(c.Id).Tier).ToList();
+        foreach (var cls in ClassOrder(w).Concat(stations))
         {
+            if (cls.Station && cls == stations[0]) list.AddChild(Ui.Label("Stations (built on the planet screen)", 13, Ui.Dim));
             var open = Unlocked(w, cls);
-            var head = Ui.Label($"{cls.Name}  {SizeOf(cls)}", 15, cls.Id == _classId ? Ui.Player : open ? Ui.Text : Ui.Dim);
+            var head = Ui.Label(cls.Station ? $"{cls.Name}  tier {Starbases.TierOf(cls.Id).Tier}" : $"{cls.Name}  {SizeOf(cls)}", 15, cls.Id == _classId ? Ui.Player : open ? Ui.Text : Ui.Dim);
             var id = cls.Id;
             Click(head, open ? "Show this class" : $"Needs {GameData.Research(cls.Needs).Name}: you can plan variants now", () => { _classId = id; _designId = Designer.StandardId; _working = null; });
             list.AddChild(head);
@@ -378,10 +382,14 @@ public partial class ShipsScreen : PanelContainer
                 "New ships of this class are built to this variant unless you ask for another");
             b.Disabled = def;
             buttons.AddChild(b);
-            var build = Ui.SmallButton("Build one", () => _screen.IssueNow(new QueueOrderCommand(Me, OrderKind.Ship, cls.Id, DesignId: _designId), "building a ship"),
-                Economy.CanQueue(w, Me, OrderKind.Ship, cls.Id) ?? "Add one to the shipyard queue, built to this variant");
-            build.Disabled = Economy.CanQueue(w, Me, OrderKind.Ship, cls.Id) != null || _working != null;
-            buttons.AddChild(build);
+            if (!cls.Station)
+            {
+                var build = Ui.SmallButton("Build one", () => _screen.IssueNow(new QueueOrderCommand(Me, OrderKind.Ship, cls.Id, DesignId: _designId), "building a ship"),
+                    Economy.CanQueue(w, Me, OrderKind.Ship, cls.Id) ?? $"Add one to the queue, built to this variant ({cls.LengthM:0} m: {Starbases.YardNeeded(cls).Name.ToLowerInvariant()})");
+                build.Disabled = Economy.CanQueue(w, Me, OrderKind.Ship, cls.Id) != null || _working != null;
+                buttons.AddChild(build);
+            }
+            else buttons.AddChild(Ui.Label("New stations of this tier are built to the variant marked ●; refit one on its planet screen", 12, Ui.Dim));
             if (!Designer.OnAuto(w, Me) && design == null)
                 buttons.AddChild(Ui.SmallButton("Update the Standard", () => _screen.IssueNow(new UpdateStandardCommand(Me, cls.Id), "update standard"),
                     "Take the best parts you have into the Standard now (the design manager is not on Auto)"));
@@ -394,7 +402,7 @@ public partial class ShipsScreen : PanelContainer
                 col.AddChild(Ui.SmallButton($"Refit fleet ships ({ships.Count} behind)", () => RefitAll(ships.Select(s => s.Id).ToList()),
                     "Send each fleet with ships behind this variant to the nearest yard to refit"));
         }
-        col.AddChild(CrewingRow(w, cls));
+        if (!cls.Station) col.AddChild(CrewingRow(w, cls));
         return Box(col);
     }
 

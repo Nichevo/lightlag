@@ -76,7 +76,7 @@ public static class Sails
     /// <summary>The side's working laser stations that can reach this point (in range and in sight).</summary>
     public static IEnumerable<Body> Lasers(World w, Side side, Vec2 at, int? ignore = null)
     {
-        foreach (var (_, b) in Economy.Stations(w, side, LaserStation))
+        foreach (var b in Economy.StationBodies(w, side, LaserStation))
             if (Vec2.Distance(b.Position, at) <= D.LaserRangeMm && Sensors.LineOfSight(w, b.Position, at, b.Id, ignore)) yield return b;
     }
 
@@ -84,7 +84,7 @@ public static class Sails
     public static double PushAt(World w, Side side, Vec2 at, int? ignore = null, int? alsoIgnore = null)
     {
         var push = Sunlight(w, at, ignore, alsoIgnore);
-        if (w.Stations.Count > 0 && Lasers(w, side, at, ignore).Any()) push += D.LaserPush;
+        if ((w.Stations.Count > 0 || w.Starbases.Count > 0) && Lasers(w, side, at, ignore).Any()) push += D.LaserPush;
         return Math.Min(D.MaxLight + D.LaserPush, push);
     }
 
@@ -149,7 +149,7 @@ public static class Sails
         if (!Any(w, f)) return null;
         var ignore = f.OrbitBodyId ?? NearBody(w, f.Position);
         var sun = Sunlight(w, f.Position, ignore);
-        var lasers = w.Stations.Count > 0 ? Lasers(w, f.Side, f.Position, ignore).Select(b => b.Name).ToList() : new List<string>();
+        var lasers = w.Stations.Count > 0 || w.Starbases.Count > 0 ? Lasers(w, f.Side, f.Position, ignore).Select(b => b.Name).ToList() : new List<string>();
         var au = Vec2.Distance(f.Position, Star(w)?.Position ?? Vec2.Zero) / Physics.MmPerAu;
         var parts = new List<string>();
         parts.Add(sun <= 0 ? "IN SHADOW: no sunlight" : $"sunlight {sun:P0} ({au:0.##} AU)");
@@ -471,6 +471,9 @@ public static class Lift
             foreach (var st in w.Stations)
                 if (st.Side == side && st.BodyId == b.Id && w.Hour >= st.ReadyHour && Economy.StationKind(st.Kind) is { LiftCut: > 0 } k && k.LiftCut < best.Item1)
                     best = (k.LiftCut, k.Name.ToLowerInvariant());
+            // An orbital ring is an elevator head: the same cut as a space elevator.
+            if (Starbases.WorkingAt(w, b.Id, side) is Starbase ring && Starbases.LiftCut(ring) is > 0 and var cut && cut < best.Item1)
+                best = (cut, "orbital ring");
             if (D.MassDriver < best.Item1 && Colonies.Built(b).Any(p => Planets.BuildingKind(p.Kind)?.LaunchPerDay > 0 && p.Powered))
                 best = (D.MassDriver, "mass driver");
         }

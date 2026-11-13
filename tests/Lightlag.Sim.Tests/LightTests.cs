@@ -208,9 +208,12 @@ public class LightTests
         pale.Owner = Side.Player;
         var bare = Sensors.PlanetSensorOf(w, Side.Player, pale);
         var before = Economy.Of(w, Side.Player).Industry;
-        sim.Issue(new BuildStationCommand(Side.Player, pale.Id, Economy.SensorStation));
+        // A sensor station is now a watch bay on the station line.
+        Assert.Contains("watch bay", Economy.CanBuildStation(w, Side.Player, pale.Id, Economy.SensorStation));
+        sim.Issue(new BuildStarbaseCommand(Side.Player, pale.Id, "station-platform"));
         sim.Step();
-        Assert.Single(w.Stations);
+        var st = Assert.Single(w.Starbases);
+        st.Fit[2] = "watch-bay";
         Assert.True(Economy.Of(w, Side.Player).Industry < before);
         Assert.Equal(bare, Sensors.PlanetSensorOf(w, Side.Player, pale));
         sim.StepMany(6 * GameTime.TicksPerDay);
@@ -219,7 +222,7 @@ public class LightTests
         // Lost with the moon.
         pale.Owner = Side.Rival;
         sim.StepMany(1);
-        Assert.Empty(w.Stations);
+        Assert.Empty(w.Starbases);
     }
 
     [Fact]

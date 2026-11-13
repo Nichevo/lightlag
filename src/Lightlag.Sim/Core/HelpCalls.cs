@@ -446,6 +446,12 @@ public static class HelpCalls
     /// </summary>
     public static string? WhyNot(World w, Fleet f, HelpCall c, bool checkFree = true)
     {
+        // A fleet holding low orbit under the calling planet's station answers at once, whatever its role.
+        if (c.BodyId is int at && Starbases.StationedAt(w, f)?.Id == at)
+        {
+            if (checkFree && !Free(w, f)) return "it is busy";
+            return Combat.Armed(w, f) ? null : "it has no working weapons";
+        }
         if (f.Role == FleetRole.None) return "it has no role";
         if (!Covers(f.Role, c.Reasons)) return $"{RoleName(f.Role)} does not answer this kind of call";
         if (c.FleetId == f.Id) return "it is the fleet in trouble";
@@ -482,7 +488,7 @@ public static class HelpCalls
         foreach (var f in picked)
         {
             // Each fleet's own odds rule, counting everyone going.
-            if (total < enemy * OddsRatio(f.RoleRules.Odds)) continue;
+            if (total < enemy * OddsRatio(f.RoleRules.Odds) && !(c.BodyId is int at && Starbases.StationedAt(w, f)?.Id == at)) continue;
             Go(sim, f, c, s);
         }
     }

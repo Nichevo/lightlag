@@ -78,10 +78,11 @@ public class PlanetDefenceTests
         var w = sim.World;
         var vela = RivalColony(sim);
         Economy.Of(w, Side.Rival).Industry = 1000;
-        new BuildStationCommand(Side.Rival, vela.Id, Economy.DefenceStation).Apply(w, sim);
-        var fort = w.Stations.Single(st => st.Kind == Economy.DefenceStation);
+        Economy.Of(w, Side.Rival).Researched.Add("ground-launchers");
+        new BuildStarbaseCommand(Side.Rival, vela.Id, "station-defence").Apply(w, sim);
+        var fort = w.Starbases.Single();
         fort.ReadyHour = w.Hour;
-        var data = Economy.StationKind(Economy.DefenceStation)!;
+        var data = GameData.ShipClass("station-defence");
         Assert.Equal(data.Armour, fort.Armour);
         var enemy = InOrbit(sim, Side.Player, vela, "missile-destroyer", "missile-destroyer", "gun-frigate");
         enemy.OrbitHeight = OrbitHeight.High;
@@ -93,7 +94,7 @@ public class PlanetDefenceTests
         // Worn right down, it is wrecked and the blockade can start.
         fort.Armour = 1;
         sim.StepMany(12);
-        Assert.DoesNotContain(w.Stations, st => st.Kind == Economy.DefenceStation);
+        Assert.Empty(w.Starbases);
         Assert.Equal(1, Economy.Of(w, Side.Player).Totals.FortsWrecked);
         Assert.True(Economy.Blockaded(w, vela));
     }

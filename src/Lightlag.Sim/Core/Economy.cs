@@ -33,7 +33,7 @@ public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDa
 /// be blockaded.
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days, string? Needs = null,
     List<string>? OnTypes = null, Dictionary<string, double>? Makes = null, double LiftCut = 0, bool Ground = false,
-    double Armour = 0, double GunDamage = 0, double RepairPerDay = 0.05);
+    double Armour = 0, double GunDamage = 0, double RepairPerDay = 0.05, string? Bay = null);
 
 /// <summary>
 /// A station in orbit of a body: a relay passes signals round planets that block them; a sensor
@@ -496,6 +496,20 @@ public static class Economy
                 yield return (st, b);
     }
 
+    /// <summary>
+    /// Bodies where this side has a working station of this kind: an old stand-alone one, or a station of the line
+    /// with the bay that took its place (relay: relay bay, sensor: watch bay, laser: laser bay).
+    /// </summary>
+    public static IEnumerable<Body> StationBodies(World w, Side side, string kind)
+    {
+        foreach (var (_, b) in Stations(w, side, kind)) yield return b;
+        if (StationKind(kind)?.Bay is not { Length: > 0 } bayModule || GameData.Module(bayModule) is not ModuleData bay) yield break;
+        foreach (var st in w.Starbases)
+            if (st.Side == side && Starbases.Working(w, st) && Starbases.HasBay(st, bay.Bay) && w.FindBody(st.BodyId) is Body b
+                && !w.Stations.Any(x => x.Side == side && x.Kind == kind && x.BodyId == b.Id))
+                yield return b;
+    }
+
     public static bool HasStation(World w, Side side, int bodyId, string kind) =>
         w.Stations.Any(st => st.Side == side && st.Kind == kind && st.BodyId == bodyId);
 
@@ -506,6 +520,7 @@ public static class Economy
         if (w.Winner != null) return "The game is over";
         if (StationKind(kind) is not StationData data) return $"Unknown station '{kind}'";
         if (w.FindBody(bodyId) is not Body b || b.Owner != side) return "Only on a body you hold";
+        if (data.Bay is { Length: > 0 } bay) return $"Now a bay on the station line: fit a {GameData.Module(bay)?.Name.ToLowerInvariant() ?? bay} to a station over {b.Name}";
         if (HasStation(w, side, bodyId, kind)) return $"{b.Name} already has a {data.Name.ToLowerInvariant()}";
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
         if (data.OnTypes is { Count: > 0 } types && !types.Contains(b.Type)) return types.All(x => x is "gas" or "ice-giant") ? "Only over a gas giant" : $"Only over a {string.Join(" or ", types)} world";
@@ -547,6 +562,7 @@ public static class Economy
         Sparks.Check(sim);
         Claims(sim);
         LoseStations(sim);
+        Starbases.Update(sim);
         Bombard(sim);
         CheckWin(sim);
     }
@@ -555,12 +571,22 @@ public static class Economy
     private static void Work(Simulation sim, Side side)
     {
         var w = sim.World;
-        if (ShipyardOf(w, side) is Body main) Work(sim, side, main, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null));
-        foreach (var dock in w.Bodies.Where(b => b.Owner == side && Colonies.DockBuilds(w, b, side)).ToList())
-            Work(sim, side, dock, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == dock.Id));
-        // Orders for a dock that is gone go back to the shipyard.
-        foreach (var o in w.Orders.Where(o => o.Side == side && o.YardBodyId is int id && !(w.FindBody(id) is Body b && Colonies.DockBuilds(w, b, side))))
+        // Orders for a yard that is gone (or can no longer take the hull) go to the shipyard, or another yard that takes it.
+        var main = ShipyardOf(w, side);
+        foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && !o.Paid && o.YardBodyId is int id
+                                              && !(w.FindBody(id) is Body b && Starbases.Builds(w, b, side) && Starbases.Fits(w, side, b, o.Key))))
+            o.YardBodyId = Starbases.YardFor(w, side, o.Key) is Body to && to != main ? to.Id : null;
+        foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.Paid && o.YardBodyId is int id && !(w.FindBody(id) is Body b && Starbases.Builds(w, b, side))))
             o.YardBodyId = null;
+        if (main != null)
+        {
+            // The shipyard works on the first order that fits it; ones too long for any yard wait (and say why).
+            foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && !o.Paid && !Starbases.Fits(w, side, main, o.Key)))
+                o.Waiting = GameData.ShipClasses.TryGetValue(o.Key, out var cls) ? Starbases.NeedsYard(cls) : "No yard takes it";
+            Work(sim, side, main, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && (o.Paid || Starbases.Fits(w, side, main, o.Key))));
+        }
+        foreach (var yard in w.Bodies.Where(b => Starbases.Builds(w, b, side)).ToList())
+            Work(sim, side, yard, w.Orders.Find(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == yard.Id));
     }
 
     private static void Work(Simulation sim, Side side, Body yard, WorkOrder? order)
@@ -740,8 +766,9 @@ public static class Economy
             var need = ClaimHoursFor(b);
             // Shipyards can't be claimed, only destroyed; a peopled planet held by a side must surrender or be taken by troops.
             if (b.Shipyard || b.Owner != null && b.PopK > 0) { b.ClaimSide = null; b.ClaimHours = 0; continue; }
-            var sides = w.Fleets.Where(f => InOrbitAt(f, b)).Select(f => f.Side).Distinct().ToList();
-            if (sides.Count != 1 || b.Owner == sides[0])
+            var sides = w.Fleets.Where(f => Starbases.Besieging(f, b)).Select(f => f.Side).Distinct().ToList();
+            // A moon under an enemy planet's guns can't be held while the planet still shoots.
+            if (sides.Count != 1 || b.Owner == sides[0] || Starbases.CoveredBy(w, b, sides[0]) != null)
             {
                 b.ClaimSide = null;
                 b.ClaimHours = 0;
@@ -809,11 +836,10 @@ public static class Economy
     /// fire, the orbit is contested, not blockaded).
     /// </summary>
     public static bool Blockaded(World w, Body yard) =>
-        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard) && Combat.Armed(w, f)) && !Planets.Contested(w, yard);
+        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && Starbases.Besieging(f, yard) && Combat.Armed(w, f)) && !Planets.Contested(w, yard);
 
-    /// <summary>The working defence station over this body, if any.</summary>
-    public static Station? Fort(World w, Body b) =>
-        b.Owner is Side owner ? w.Stations.FirstOrDefault(st => st.Side == owner && st.BodyId == b.Id && w.Hour >= st.ReadyHour && st.Armour > 0 && StationKind(st.Kind)?.GunDamage > 0) : null;
+    /// <summary>The working armed station over this body guarding it for its holder, if any (see Starbases).</summary>
+    public static Starbase? Fort(World w, Body b) => Starbases.Fort(w, b);
 
     /// <summary>
     /// Damage a ship does in an hour of bombardment from orbit: its railguns (using ammunition) every hour,
@@ -964,6 +990,7 @@ public static class Economy
             if (!GameData.ShipClasses.TryGetValue(key, out var cls)) return $"Unknown ship class '{key}'";
             if (cls.Needs.Length > 0 && !Tech.Has(w, side, cls.Needs)) return $"Needs {GameData.Research(cls.Needs).Name}";
             if (ShipyardOf(w, side) == null) return "No shipyard";
+            if (key != Planets.SettlerClass && Starbases.YardFor(w, side, key) == null) return Starbases.NeedsYard(cls);
             return null;
         }
         if (!GameData.ResearchById.TryGetValue(key, out var idea)) return $"Unknown research '{key}'";
@@ -997,6 +1024,8 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
         var order = new WorkOrder { Id = world.NextId++, Side = Side, Kind = Kind, Key = Key, TotalHours = Economy.HoursFor(world, Side, Kind, Key) };
         if (Kind == OrderKind.Ship && JoinFleetId is int j && world.FindFleet(j)?.Side == Side) order.JoinFleetId = j;
         if (Kind == OrderKind.Ship) Economy.PriceShip(world, order, DesignId);
+        // A hull too long for the shipyard goes to the nearest yard that takes it (a station's slipway).
+        if (Kind == OrderKind.Ship && Starbases.YardFor(world, Side, Key) is Body yard && yard != Economy.ShipyardOf(world, Side)) order.YardBodyId = yard.Id;
         if (Kind == OrderKind.Research) order.TeamId = TeamId ?? Research.BestTeamFor(world, Side, Key)?.Id;
         order.HoursLeft = order.TotalHours;
         var at = Front && Kind == OrderKind.Ship ? world.Orders.FindIndex(o => o.Side == Side && o.Kind == OrderKind.Ship && !o.Paid) : -1;
