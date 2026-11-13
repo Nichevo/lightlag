@@ -145,7 +145,7 @@ public static class Stats
         if (!w.Loop) return;
         var day = w.Day;
         if (w.History.Count > 0 && w.History[^1].Day == day) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var t = Of(w, side);
             var ships = w.Ships.Where(s => s.Side == side).ToList();
@@ -192,10 +192,10 @@ public static class Stats
     public static string Summary(World w)
     {
         var sb = new StringBuilder();
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var t = Of(w, side);
-            var who = side == Side.Player ? "You" : "Rival";
+            var who = Sides.Label(w, side);
             sb.AppendLine($"{who}: built {t.ShipsBuilt} ships, lost {t.ShipsLost}, destroyed {t.ShipsKilled}; "
                           + $"{t.Battles} battles; took {t.PlanetsClaimed} planets, lost {t.PlanetsLost}; "
                           + $"earned {t.IndustryEarned:0} Industry, spent {t.IndustrySpent:0}.");

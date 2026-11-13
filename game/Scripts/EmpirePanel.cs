@@ -255,8 +255,11 @@ public partial class EmpirePanel : PanelContainer
     /// <summary>The tab row along the top; the Needs you tab shows how many items wait (red with urgent ones).</summary>
     private void Tabs(World w)
     {
-        var row = Row();
-        row.AddThemeConstantOverride("separation", 3);
+        // Wraps onto a second line rather than pushing tabs off a scaled screen.
+        var row = new HFlowContainer { CustomMinimumSize = new Vector2(Width, 0) };
+        row.AddThemeConstantOverride("h_separation", 3);
+        row.AddThemeConstantOverride("v_separation", 3);
+        _box.AddChild(row);
         foreach (var tab in Enum.GetValues<Tab>())
         {
             var t = tab;
@@ -277,7 +280,6 @@ public partial class EmpirePanel : PanelContainer
         research.CustomMinimumSize = new Vector2(0, 28);
         research.AddThemeFontSizeOverride("font_size", 13);
         row.AddChild(research);
-        row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var close = Ui.SmallButton("✕", () => _screen.ShowEmpire = false, "Close (E, or click the Needs you badge again)");
         close.CustomMinimumSize = new Vector2(28, 28);
         row.AddChild(close);
@@ -355,7 +357,8 @@ public partial class EmpirePanel : PanelContainer
     private static string RaceLine(World w)
     {
         var me = Races.Of(w, Side.Player);
-        var line = $"You are {me.Name}; the rival is {Races.Of(w, Side.Rival).Name}.";
+        var them = Sides.Enemies(w, Side.Player).Select(r => Races.Of(w, r).Name + (Sides.Out(w, r) ? " (out)" : "")).ToList();
+        var line = them.Count > 1 ? $"You are {me.Name}; the rivals are {string.Join(" and ", them)}." : $"You are {me.Name}; the rival is {them[0]}.";
         if (me.Grown && Economy.ShipyardOf(w, Side.Player) is Body yard)
             line += yard.Hungry ? " Your planets are STARVING: the brood yard grows no ships until they are fed."
                 : $" Biomass (food) in store at {yard.Name}: {Races.BiomassAt(w, yard):0.#}; each ship takes {me.BiomassPerIndustry * 100:0.#} per 100 Industry of its price.";
@@ -367,12 +370,13 @@ public partial class EmpirePanel : PanelContainer
         var d = Planets.D;
         var c = Planets.Control(w, Side.Player);
         var mine = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
-        var theirs = Economy.Claimable(w).Count(b => b.Owner == Side.Rival);
+        var rivals = string.Join(", ", Sides.Enemies(w, Side.Player).Select(r =>
+            $"{(Sides.Three(w) ? Races.Of(w, r).Name : "rival")} {Economy.Claimable(w).Count(b => b.Owner == r)} planets, {Planets.PopulationOf(w, r):0}k people"));
         var line = $"Control: you {c.Share:P0} (people {c.People:P0}, Industry {c.Industry:P0}, planets {c.Bodies:P0}, fleets {c.Fleets:P0}). "
-                   + $"Planets held: you {mine}, rival {theirs}, of {Economy.Claimable(w).Count()}. People: you {Planets.PopulationOf(w, Side.Player):0}k, rival {Planets.PopulationOf(w, Side.Rival):0}k.\n"
+                   + $"Held: you {mine} planets of {Economy.Claimable(w).Count()}, {Planets.PopulationOf(w, Side.Player):0}k people; {rivals}.\n"
                    + $"At {d.TipShare:P0} control a side has tipped the game: planets it blockades give up sooner (below happiness {d.SurrenderBelowTipped:0}, not {d.SurrenderBelow:0}). "
-                   + $"Hold {d.TipShare:P0} for {d.WinAfterDays:0} days, or reach {d.WinShare:P0}, to win. Destroying the rival shipyard also wins.";
-        foreach (var side in new[] { Side.Player, Side.Rival })
+                   + $"Hold {d.TipShare:P0} for {d.WinAfterDays:0} days, or reach {d.WinShare:P0}, to win. Destroying the rival shipyard also wins (with two rivals, it puts that rival out; the last one standing wins).";
+        foreach (var side in Sides.InPlay(w))
             if (Economy.Of(w, side).MajoritySinceHour is double since)
                 line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + d.WinAfterDays * 24)} if nothing changes.";
         return line;
@@ -451,13 +455,13 @@ public partial class EndPanel : PanelContainer
         var won = w.Winner == Side.Player;
         _title.Text = won ? "Victory" : "Defeat";
         _title.AddThemeColorOverride("font_color", won ? Ui.Player : Ui.Rival);
-        var who = won ? "You" : "The rival";
+        var who = won ? "You" : w.Winner is Side ws ? (Sides.Three(w) ? Races.Of(w, ws).Name : "The rival") : "The rival";
         var mine = w.Ships.Count(s => s.Side == Side.Player);
-        var theirs = w.Ships.Count(s => s.Side == Side.Rival);
+        var theirs = w.Ships.Count(s => s.Side is Side.Rival or Side.Third);
         _text.Text = $"{who} {w.WinReason} on {GameTime.Format(w.WinHour ?? w.Hour)}.\n"
                      + $"Ships left: you {mine}, rival {theirs}. Planets: you {w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0)}, "
-                     + $"rival {w.Bodies.Count(b => b.Owner == Side.Rival && b.Industry > 0)}.\n\n"
+                     + $"rival {w.Bodies.Count(b => b.Owner is Side.Rival or Side.Third && b.Industry > 0)}.\n\n"
                      + Stats.Summary(w)
-                     + (Mind.Of(w, Side.Rival) is MindState m ? $"\n\nThe rival was a {m.Personality} on {m.Difficulty}." : "");
+                     + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{(Sides.Three(w) ? Races.Of(w, m.Side).Name : "The rival")} was a {m.Personality} on {m.Difficulty}."));
     }
 }

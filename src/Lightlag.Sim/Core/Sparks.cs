@@ -83,10 +83,9 @@ public static class Sparks
     {
         var w = sim.World;
         if (!w.Loop || w.Tick % 6 != 0) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var t = Economy.Of(w, side).Totals;
-            var enemy = Combat.Other(side);
             var mine = w.Bodies.Where(b => b.Owner == side).ToList();
             if (t.Overheats >= 1) Fire(sim, side, "overheat");
             if (t.Overheats >= 6) Fire(sim, side, "heat-shutdown");
@@ -94,15 +93,16 @@ public static class Sparks
             if (t.MissilesStopped >= 24) Fire(sim, side, "missiles-stopped");
             if (t.Deliveries >= 10) Fire(sim, side, "freighter-trips");
             if (t.MissilesShotDown >= 20) Fire(sim, side, "missile-salvage");
-            if (w.Bodies.Any(b => b.Owner == enemy && Planets.Blockader(w, b) == side)) Fire(sim, side, "blockading");
+            if (w.Bodies.Any(b => b.Owner != null && b.Owner != side && Planets.Blockader(w, b) == side)) Fire(sim, side, "blockading");
             if (mine.Any(b => Economy.Blockaded(w, b))) Fire(sim, side, "blockaded");
             if (mine.Any(b => b.Hungry && b.PopK > 0)) Fire(sim, side, "hungry");
             if (w.Rules.Happiness && mine.Any(b => b.PopK > 0 && b.Happiness < 40)) Fire(sim, side, "unhappy");
             if (w.Day >= 365 && mine.Any(b => b.PopK > 0 && b.Kind is BodyKind.Asteroid or BodyKind.Moon && Planets.TypeOf(b).Cap <= 30)) Fire(sim, side, "small-body-year");
             if (mine.Any(b => Colonies.Built(b).Any(p => p.Kind == "power-plant") && Colonies.Held(b, "uranium") < 0.01 && Colonies.Held(b, "helium-3") < 0.01))
                 Fire(sim, side, "uranium-out");
-            if (w.Battles.Count > 0 && w.MissileBrain[(int)enemy] >= 3) Fire(sim, side, "sight-brain-3");
-            if (w.Battles.Count > 0 && w.MissileBrain[(int)enemy] >= 4) Fire(sim, side, "sight-brain-4");
+            var brain = Sides.Enemies(w, side).Max(e => w.MissileBrain[(int)e]);
+            if (w.Battles.Count > 0 && brain >= 3) Fire(sim, side, "sight-brain-3");
+            if (w.Battles.Count > 0 && brain >= 4) Fire(sim, side, "sight-brain-4");
             if (Economy.Of(w, side).FlagshipId is int flag && w.FindShip(flag) is Ship fs && fs.Armour < Tech.MaxArmour(w, fs) * 0.95) Fire(sim, side, "flagship-targeted");
             if (Economy.HomeOf(w, side) is Body home)
                 foreach (var f in w.Fleets.Where(f => f.Side == side && f.ShipIds.Count > 0))

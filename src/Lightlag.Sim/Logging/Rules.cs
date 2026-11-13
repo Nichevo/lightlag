@@ -71,13 +71,26 @@ public sealed class RuleBook
                     || Lightlag.Sim.Core.Races.All.All(r => Math.Abs(p.HoursLeft - d.Days * 24 * r.DigDays) > 1e-6)))
             .Select(p => $"{b.Name} piece {p.Id} ({p.Kind}) is queued but has {p.HoursLeft:0.#} hours left")))
         .Add("war-sane", WarSane)
+        // Three sides (Plan 3 build 7): two or three sides in order; everything belongs to a side in play; the Lattice crews nothing.
+        .Add("sides-sane", w => (w.Sides.Length is < 2 or > Lightlag.Sim.Core.Sides.Max ? new[] { $"{w.Sides.Length} sides in play" } : Array.Empty<string>())
+            .Concat(w.Sides.Select((s, i) => (s, i)).Where(x => (int)x.s.Side != x.i).Select(x => $"side slot {x.i} holds {x.s.Side}"))
+            .Concat(w.Ships.Where(s => !Lightlag.Sim.Core.Sides.InGame(w, s.Side)).Select(s => $"ship {s.Id} belongs to {s.Side}, not in play"))
+            .Concat(w.Fleets.Where(f => !Lightlag.Sim.Core.Sides.InGame(w, f.Side)).Select(f => $"fleet {f.Id} belongs to {f.Side}, not in play"))
+            .Concat(w.Bodies.Where(b => b.Owner is Side o && !Lightlag.Sim.Core.Sides.InGame(w, o)).Select(b => $"{b.Name} is held by {b.Owner}, not in play"))
+            .Concat(w.Loop ? w.Ships.Where(s => Lightlag.Sim.Core.Sides.InGame(w, s.Side) && Lightlag.Sim.Core.Races.Of(w, s.Side).AiOnly && !s.AiRun)
+                .Select(s => $"ship {s.Id} {s.Name} of a machine race has a crew") : Enumerable.Empty<string>()))
+        // Contact (Plan 3 build 7): language scores 0 to 100 per side, offers between two different sides in play, none landing before it was sent.
+        .Add("contact-sane", w => w.Sides.Where(s => s.Language.Length != Lightlag.Sim.Core.Sides.Max || s.Language.Any(x => !(x >= 0 && x <= 100 + 1e-9)))
+                .Select(s => $"{s.Side} language scores [{string.Join(", ", s.Language)}]")
+            .Concat(w.Offers.Where(o => o.From == o.To || !Lightlag.Sim.Core.Sides.InGame(w, o.From) || !Lightlag.Sim.Core.Sides.InGame(w, o.To) || o.LandHour < o.SentHour || o.Amount < 0)
+                .Select(o => $"offer {o.Id} from {o.From} to {o.To}, sent {o.SentHour}, lands {o.LandHour}, amount {o.Amount}")))
         // Races (Plan 3 build 3): every side plays a known race, and drone crews never gain or lose experience.
         .Add("races-sane", w => w.Sides.Where(s => !Lightlag.Sim.Core.Races.Known(s.Race)).Select(s => $"{s.Side} plays unknown race '{s.Race}'")
             .Concat(w.Loop ? w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId) && Lightlag.Sim.Core.Crews.Crewed(s)
                     && !Lightlag.Sim.Core.Races.Of(w, s.Side).CrewRanks && Math.Abs(s.Xp - Lightlag.Sim.Core.Crews.DroneXp) > 1e-9)
                 .Select(s => $"drone-crewed ship {s.Id} {s.Name} has {s.Xp} experience") : Enumerable.Empty<string>()))
         // Weapons and counters (Plan 3 build 2).
-        .Add("minefields-sane", w => w.Minefields.Where(m => !(m.Mines >= 0 && m.RadiusMm > 0 && m.Position.IsFinite && m.Velocity.IsFinite && m.Known.Length == 2)
+        .Add("minefields-sane", w => w.Minefields.Where(m => !(m.Mines >= 0 && m.RadiusMm > 0 && m.Position.IsFinite && m.Velocity.IsFinite && m.Known.Length == Lightlag.Sim.Core.Sides.Max)
                 || m.BodyId is int b && w.FindBody(b) == null)
             .Select(m => $"minefield {m.Id} has {m.Mines} mines, radius {m.RadiusMm}, body {m.BodyId}"))
         .Add("squadrons-sane", w => w.Bodies.Where(b => b.FightersLost < 0 || b.BombersLost < 0 || b.FightersLost > StrikeCraft.Bases(b) + 1 || b.BombersLost > StrikeCraft.Bases(b) + 1)
@@ -213,7 +226,7 @@ public sealed class RuleBook
     private static IEnumerable<string> DesignsSane(World w)
     {
         if (!w.Loop) yield break;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var state = Economy.Of(w, side);
             foreach (var g in state.Designs.Where(d => d.Id > 0).GroupBy(d => d.Id).Where(g => g.Count() > 1))
@@ -245,7 +258,7 @@ public sealed class RuleBook
             if (!(s.Strain >= -1e-9 && s.Strain <= 1 + 1e-9)) yield return $"ship {s.Id} {s.Name} has strain {s.Strain}";
             if (s.AiRun && s.Strain > 1e-9) yield return $"AI-run ship {s.Id} {s.Name} has strain {s.Strain}";
             if (s.AiRun && s.Food > 1e-9) yield return $"AI-run ship {s.Id} {s.Name} carries {s.Food} days of food for nobody";
-            if (s.AiRun && !GameData.ShipClass(s.ClassId).AiRunAllowed) yield return $"ship {s.Id} {s.Name} is AI-run but its class always has a crew";
+            if (s.AiRun && !GameData.ShipClass(s.ClassId).AiRunAllowed && !Lightlag.Sim.Core.Races.Of(w, s.Side).AiOnly) yield return $"ship {s.Id} {s.Name} is AI-run but its class always has a crew";
         }
     }
 
@@ -259,7 +272,7 @@ public sealed class RuleBook
             // Once the game is over the hourly loop stops, and boats still out stay as they were.
             if (w.Winner == null && w.Hour > b.AirUntilHour + 1 + 1e-9) yield return $"lifeboat {b.Id} is still out {w.Hour - b.AirUntilHour:0.#} hours after its air ran out";
             if (!double.IsFinite(b.Position.X) || !double.IsFinite(b.Position.Y)) yield return $"lifeboat {b.Id} is at {b.Position}";
-            if (b.Side != Side.Player && b.Side != Side.Rival) yield return $"lifeboat {b.Id} has side {b.Side}";
+            if (!Lightlag.Sim.Core.Sides.InGame(w, b.Side)) yield return $"lifeboat {b.Id} has side {b.Side}";
         }
         foreach (var g in w.Lifeboats.GroupBy(b => b.Id).Where(g => g.Count() > 1)) yield return $"lifeboat id {g.Key} is used {g.Count()} times";
     }

@@ -176,7 +176,7 @@ public static class HelpCalls
     public static void Update(Simulation sim)
     {
         var w = sim.World;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             FitRoles(sim, side);
             if (Mind.Of(w, side) != null) continue;
@@ -201,6 +201,7 @@ public static class HelpCalls
             sim.Log.Info("fleet", "Fleet role changed to fit its ships", new { fleetId = f.Id, fleet = f.Name, from = f.Role.ToString(), to = fit.ToString() });
             if (f.AnsweringCallId != null) Dropped(f);
             f.Role = fit;
+            FleetNames.Refresh(w, f);
         }
     }
 
@@ -554,6 +555,7 @@ public sealed record SetFleetRoleCommand(int FleetId, FleetRole Role, RoleRules?
         fleet.Role = Role;
         if (Rules != null) fleet.RoleRules = Rules.Copy();
         if (Role == FleetRole.None && fleet.AnsweringCallId != null) HelpCalls.Dropped(fleet);
+        FleetNames.Refresh(world, fleet);
         sim.Log.Info("fleet", "Fleet role set", new { FleetId, fleet = fleet.Name, Role, Rules, Source });
     }
 }

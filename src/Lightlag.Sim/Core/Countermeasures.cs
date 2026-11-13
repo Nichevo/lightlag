@@ -15,11 +15,12 @@ public static class Countermeasures
     private static CountersData C => GameData.Weapons.C;
 
     /// <summary>Chance a missile of this brain from this side is hijacked by the other side (0 if the target can't).</summary>
-    public static double HijackChance(World w, Side launcher, int brain)
+    public static double HijackChance(World w, Side launcher, int brain, Side? targetSide = null)
     {
-        var target = Combat.Other(launcher);
+        var target = targetSide ?? Sides.MainEnemy(w, launcher);
         if (!w.Loop || brain < 2 || !Tech.Has(w, target, Hijack)) return 0;
-        return C.Hijack(brain) * (Tech.Has(w, launcher, Iff) ? 1 - C.IffHijackCut : 1);
+        // Machine missiles (the Lattice) are easier to talk round.
+        return Math.Min(0.95, C.Hijack(brain) * (Tech.Has(w, launcher, Iff) ? 1 - C.IffHijackCut : 1) * Races.Of(w, launcher).Cyber);
     }
 
     /// <summary>
@@ -29,7 +30,7 @@ public static class Countermeasures
     public static Ship? TryHijack(Simulation sim, Battle battle, Missile m, Ship target)
     {
         var w = sim.World;
-        var chance = HijackChance(w, m.Side, m.Brain);
+        var chance = HijackChance(w, m.Side, m.Brain, target.Side);
         if (chance <= 0 || sim.Rng.NextDouble() >= chance) return null;
         var from = m.Side;
         var turned = w.FindShip(m.FromShipId) is Ship shooter && shooter.Side == from ? shooter

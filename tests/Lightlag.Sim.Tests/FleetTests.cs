@@ -193,7 +193,7 @@ public class FleetTests
         Assert.Equal(new[] { leaving }, created.ShipIds);
         Assert.Equal(2, fleet.ShipIds.Count);
         Assert.Equal(HoldStyle.Orbit, created.Hold);
-        Assert.StartsWith("Fleet ", created.Name);
+        Assert.Equal("Battle fleet", FleetNames.KindOf(created.Name));
 
         sim.Issue(new MergeFleetsCommand(fleet.Id, created.Id));
         sim.Step();

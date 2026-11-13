@@ -286,6 +286,12 @@ public sealed class Fleet
     public FleetRole Role { get; set; }
     public RoleRules RoleRules { get; set; } = new();
 
+    /// <summary>The player named it, so it keeps its name when its role or ships change (see FleetNames).</summary>
+    public bool NamedByPlayer { get; set; }
+
+    /// <summary>A fleet roaming its zone (ZoneHold.Roam) picks its next spot at this hour.</summary>
+    public double NextRoamHour { get; set; }
+
     /// <summary>The call for help it is answering now, and the post and mission it goes back to after.</summary>
     public int? AnsweringCallId { get; set; }
     public int? PostBodyId { get; set; }
@@ -339,9 +345,10 @@ public sealed class Flight
     public IEnumerable<Waypoint> ChosenWaypointsAhead(double hour) => WaypointsAhead(hour).Where(p => !p.Auto);
 
     /// <summary>
-    /// The body the fleet was orbiting when it left. Flights leave orbit and arrive at one from rest
-    /// (not moving with the planet), so in the first and last LaunchHours the planet itself can sweep
-    /// past the fleet; that is not counted as flying into it.
+    /// The body the fleet was orbiting when it left. Flights between planets leave orbit and arrive at one
+    /// from rest relative to the sun (not moving with the planet; trips within one planet's system do move
+    /// with it), so in the first and last LaunchHours the planet itself can sweep past the fleet; that is
+    /// not counted as flying into it.
     /// </summary>
     public int? FromBodyId { get; set; }
 
@@ -354,6 +361,18 @@ public sealed class Flight
 
     /// <summary>Speed change burned at the closest pass of the slingshot (charged as it passes).</summary>
     public double FlybyBurn { get; set; }
+
+    /// <summary>
+    /// The frame the trip was planned in: it starts at FrameStart moving at FrameVelocity (the planet the
+    /// fleet left, so a trip to its own moon does not first have to catch up with the planet) and
+    /// changes speed steadily by FrameAccel to match the target's motion on arrival.
+    /// </summary>
+    public double FrameStart { get; set; }
+    public Vec2 FrameVelocity { get; set; }
+    public Vec2 FrameAccel { get; set; }
+
+    /// <summary>How fast the trip's frame moves at this hour (zero for trips planned at rest).</summary>
+    public Vec2 FrameVelocityAt(double hour) => FrameVelocity + FrameAccel * (Math.Clamp(hour, FrameStart, EndHour) - FrameStart);
 
     /// <summary>A chase flight that first goes round a body in the way; the chase is aimed again when it ends.</summary>
     public bool Detour { get; set; }
@@ -402,7 +421,23 @@ public sealed record FlightLeg(double Start, double End, Vec2 P0, Vec2 V0, Vec2 
         return V0 + A * t;
     }
 
-    public bool IsBurn => A.X != 0 || A.Y != 0;
+    /// <summary>
+    /// The part of A that only matches speed with the frame the trip is planned in (the home planet's
+    /// motion changing gently to the target's). It burns fuel but is a low, steady push, not a main burn.
+    /// </summary>
+    public Vec2 Match { get; init; }
+
+    /// <summary>How fast the trip's frame moved when this leg began (zero for trips planned at rest).</summary>
+    public Vec2 FrameV0 { get; init; }
+
+    /// <summary>Velocity relative to the trip's frame: what the engines have added (speeding up or braking).</summary>
+    public Vec2 RelativeVelocityAt(double hour) => VelocityAt(hour) - FrameV0 - Match * (Math.Clamp(hour, Start, End) - Start);
+
+    /// <summary>A main burn (more than the gentle speed-matching push).</summary>
+    public bool IsBurn => A.X != Match.X || A.Y != Match.Y;
+
+    /// <summary>Any thrust at all (main burn or speed matching): what uses fuel.</summary>
+    public bool IsThrust => A.X != 0 || A.Y != 0;
 
     public FlightLeg Shifted(Vec2 by) => this with { P0 = P0 + by };
 }
@@ -478,7 +513,7 @@ public static class Fleets
         var fleet = new Fleet
         {
             Id = w.NextId++,
-            Name = side == Side.Player ? $"Fleet {number}" : $"Rival fleet {number}",
+            Name = side == Side.Player ? $"Fleet {number}" : side == Side.Third ? $"{Races.Of(w, side).Short} fleet {number}" : $"Rival fleet {number}",
             Side = side,
             Position = position,
             Autonomy = w.Sides[(int)side].DefaultAutonomy,
@@ -504,6 +539,7 @@ public static class Fleets
             if (f.AnsweringCallId != null) HelpCalls.Dropped(f);
             f.Role = fit;
         }
+        FleetNames.Refresh(w, f);
     }
 
     public static Vec2 SlotOffset(int slot)

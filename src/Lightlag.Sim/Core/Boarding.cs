@@ -133,7 +133,8 @@ public static class Boarders
         // Swarm boarding (the Hive): its parties fight harder, but a cyber attack is no swarm.
         var swarm = b.Approach == BoardApproach.Cyber ? 1 : Races.Of(w, b.Side).Boarding;
         var att = b.Marines * Crews.At(War.D.Crews.Boarding, Crews.RankOf(b.MarineRank)) * tech * approach * b.Edge * swarm;
-        var def = b.Approach == BoardApproach.Cyber ? b.Marines * 0.8 : b.Defenders * (target != null ? Crews.BoardFactor(target) : 1) * b.DefEdge;
+        // Machine minds (the Lattice) are open to cyber attack: they hold out less against one.
+        var def = b.Approach == BoardApproach.Cyber ? b.Marines * 0.8 / (target != null ? Races.Of(w, target.Side).Cyber : 1) : b.Defenders * (target != null ? Crews.BoardFactor(target) : 1) * b.DefEdge;
         return (att, def);
     }
 
@@ -287,9 +288,10 @@ public static class Boarders
         var prize = Math.Min(b.Marines, War.CrewK(target) * D.PrizeCrew);
         b.Marines -= prize;
         Capture(sim, target, f, b.MarineRank * 0.7);
-        Spoils.TakePrisoners(sim, b.Side, prisoners, target.Name);
-        Spoils.Scrap(sim, b.Side, $"the fittings of {target.Name}", IntelSource.Capture, Intel.BattlePoints, part: true);
-        RivalTech.FromCapture(sim, b.Side, target);
+        Spoils.TakePrisoners(sim, b.Side, prisoners, target.Name, loser);
+        Spoils.Scrap(sim, b.Side, $"the fittings of {target.Name}", IntelSource.Capture, Intel.BattlePoints, part: true, from: loser);
+        RivalTech.FromCapture(sim, b.Side, target, loser);
+        Contact.Learn(w, b.Side, loser, Contact.D.CapturePoints, "captured ship");
         Economy.Of(w, b.Side).Totals.ShipsCaptured++;
         Economy.Of(w, loser).Totals.ShipsLost++;
         End(sim, b, "taken", $"{target.Name} is taken: {prisoners * 1000:0} prisoners, a prize crew aboard");

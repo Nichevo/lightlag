@@ -75,6 +75,18 @@ public partial class FleetPanel : PanelContainer
         _tuckButton = HeaderToggle("◂ Tuck", "Shrink the panel to its name and what the fleet is doing; click again to bring it back", () => _tucked = !_tucked);
         header.AddChild(_tuckButton);
         box.AddChild(header);
+        _renameRow = new HBoxContainer { Visible = false };
+        _renameRow.AddThemeConstantOverride("separation", 4);
+        _rename = new LineEdit { PlaceholderText = "Fleet name (Enter)", MaxLength = FleetNames.MaxLength, CustomMinimumSize = new Vector2(170, 26) };
+        _rename.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _rename.TextSubmitted += _ => RenameFleet(_rename.Text);
+        _renameRow.AddChild(_rename);
+        _renameRow.AddChild(Ui.SmallButton("Rename", () => RenameFleet(_rename.Text), "Give the fleet your own name: it keeps it when its role or ships change"));
+        _renameRow.AddChild(Ui.SmallButton("Auto", () => RenameFleet(""), "Name it for its role or ships again (e.g. Defence fleet)"));
+        box.AddChild(_renameRow);
+        _renameProblem = Ui.Label("", 12, Ui.Rival);
+        _renameProblem.Visible = false;
+        box.AddChild(_renameProblem);
         _job = Ui.Label("", 14, Ui.Dim);
         _job.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _job.CustomMinimumSize = new Vector2(330, 0);
@@ -440,6 +452,23 @@ public partial class FleetPanel : PanelContainer
         box.MoveChild(_buttons, -1);
     }
 
+    private HBoxContainer _renameRow = null!;
+    private LineEdit _rename = null!;
+    private Label _renameProblem = null!;
+    private int? _renameFleetId;
+
+    private void RenameFleet(string name)
+    {
+        var sim = Main.Instance.Sim;
+        if (sim == null || _screen.SelectedFleet is not Fleet f || f.Side != Side.Player) return;
+        if (FleetNames.Problem(sim.World, f, name) is string problem) { _renameProblem.Text = problem; _renameProblem.Visible = true; return; }
+        _screen.IssueNow(new RenameFleetCommand(Side.Player, f.Id, name.Trim()), "rename fleet");
+        _renameRow.Visible = false;
+        _renameProblem.Visible = false;
+        _rename.ReleaseFocus();
+    }
+
+    private const int MoreRename = 30;
     private const int MoreRoute = 1, MoreMerge = 2, MoreEngagement = 3, MoreFittings = 4, MoreSinks = 5, MoreDrone = 6, MorePull = 7,
         MoreSections = 8, MoreMines = 9, MoreSalvo = 20, MoreDrop = 10, MoreJoin = 1000;
 
@@ -456,6 +485,8 @@ public partial class FleetPanel : PanelContainer
             popup.SetItemDisabled(popup.ItemCount - 1, !enabled);
             if (tip.Length > 0) popup.SetItemTooltip(popup.ItemCount - 1, tip);
         }
+        if (f.Side == Side.Player)
+            Add("Rename fleet", MoreRename, true, f.NamedByPlayer ? "You named it; Auto in the rename row names it for its role again" : "It is named for its role or ships; give it your own name");
         Add("Change route (C)", MoreRoute, _screen.CanEditRoute, "Open the route in the planner; you can also drag waypoints on the map");
         var candidate = _screen.MergeCandidate();
         Add(candidate != null ? $"Merge {candidate.Name} into this fleet (M)" : "Merge (M): no fleet close by and stopped", MoreMerge, candidate != null);
@@ -494,6 +525,13 @@ public partial class FleetPanel : PanelContainer
         if (_screen.SelectedFleet is not Fleet f) return;
         switch (id)
         {
+            case MoreRename:
+                _renameRow.Visible = true;
+                _renameFleetId = f.Id;
+                _rename.Text = f.Name;
+                _rename.GrabFocus();
+                _rename.SelectAll();
+                break;
             case MoreRoute: _screen.EditRoute(); break;
             case MoreMerge: _screen.OrderMerge(); break;
             case MoreEngagement: _screen.ToggleEngagement(); break;
@@ -761,6 +799,7 @@ public partial class FleetPanel : PanelContainer
         if (_supplyRun.Visible)
             _supplyRun.Text = f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t ? $"Supply run: {t.Name} ▾" : "Supply run ▾";
         _title.Text = f.Name + (mine ? "" : "  (rival)");
+        if (_renameRow.Visible && _renameFleetId != f.Id) { _renameRow.Visible = false; _renameProblem.Visible = false; }
         _title.AddThemeColorOverride("font_color", mine ? Ui.Player : Ui.Rival);
         var seen = mine || _screen.RevealAll || Sensors.Sees(w, Side.Player, f, seat: true);
         var lines = new List<string>();
@@ -1663,7 +1702,7 @@ public partial class ReportPanel : PanelContainer
         _shown = b;
         _watch.Disabled = b.Frames.Count == 0;
         var p = b.For(Side.Player);
-        var r = b.For(Side.Rival);
+        var r = b.Foes(Side.Player);
         var end = b.EndHour is double e ? GameTime.Format(e) : "still going";
         var length = (b.EndHour ?? Main.Instance.Sim!.World.Hour) - b.StartHour;
         _title.Text = $"Combat report: {GameTime.Format(b.StartHour)} to {end} ({Format.Hours(length)})";

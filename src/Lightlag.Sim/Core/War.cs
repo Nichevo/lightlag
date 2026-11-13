@@ -178,13 +178,14 @@ public static class Spoils
     };
 
     /// <summary>One scrap of intel: a research the other side has and this side lacks is sparked (in view, or a quarter off if queued).</summary>
-    public static void Scrap(Simulation sim, Side side, string why, IntelSource source, double points = 0, bool part = false)
+    public static void Scrap(Simulation sim, Side side, string why, IntelSource source, double points = 0, bool part = false, Side? from = null)
     {
         var w = sim.World;
         if (!w.Loop) return;
         var state = Economy.Of(w, side);
         state.Spoils.Scraps++;
-        var theirs = Economy.Of(w, Combat.Other(side)).Researched;
+        var them = from is Side f && f != side ? f : Sides.MainEnemy(w, side);
+        var theirs = Economy.Of(w, them).Researched;
         var options = theirs.Where(id => !state.Researched.Contains(id) && GameData.ResearchById.ContainsKey(id)).OrderBy(id => id, StringComparer.Ordinal).ToList();
         string text;
         if (options.Count > 0)
@@ -199,7 +200,7 @@ public static class Spoils
             text = $"{why}: the rival has {idea.Name}";
         }
         else text = $"{why}: nothing new on the rival's research";
-        Learn(sim, side, source, text, points, part ? Parts[sim.Rng.Range(0, Parts.Length)] : null);
+        Learn(sim, side, source, text, points, part ? Parts[sim.Rng.Range(0, Parts.Length)] : null, them);
         sim.Log.Info("intel", "Intel scrap", new { side = side.ToString(), why, text, scraps = state.Spoils.Scraps });
     }
 
@@ -207,18 +208,18 @@ public static class Spoils
     private static readonly string[] Parts = { "railguns", "missiles", "point-defence", "shields", "engines", "armour" };
 
     /// <summary>The one hook where war spoils become intel: a note here (for the War tab) and in the intel file on the rival.</summary>
-    public static void Learn(Simulation sim, Side side, IntelSource source, string text, double points = 0, string? part = null)
+    public static void Learn(Simulation sim, Side side, IntelSource source, string text, double points = 0, string? part = null, Side? about = null)
     {
         var spoils = Economy.Of(sim.World, side).Spoils;
         spoils.Notes.Add(text);
         if (spoils.Notes.Count > 20) spoils.Notes.RemoveAt(0);
-        Intel.Note(sim.World, side, source, text, points, part);
+        Intel.Note(sim.World, side, source, text, points, part, about);
     }
 
     /// <summary>Prisoners taken (k): they talk, a scrap for every PrisonersPerScrapK.</summary>
-    public static void TakePrisoners(Simulation sim, Side side, double k, string where)
+    public static void TakePrisoners(Simulation sim, Side side, double k, string where, Side? from = null)
     {
-        if (k <= 1e-9 || !sim.World.Loop) return;
+        if (k <= 1e-9 || !sim.World.Loop || Races.Of(sim.World, side).NoCaptures) return; // machines take no prisoners
         var intel = Economy.Of(sim.World, side).Spoils;
         intel.PrisonersK += k;
         intel.PrisonerProgressK += k;
@@ -229,7 +230,8 @@ public static class Spoils
         {
             intel.PrisonerProgressK -= per;
             scraps++;
-            Scrap(sim, side, $"prisoners from {where}", IntelSource.Prisoners, Intel.SalvagePoints);
+            Scrap(sim, side, $"prisoners from {where}", IntelSource.Prisoners, Intel.SalvagePoints, from: from);
+            Contact.Learn(sim.World, side, from ?? Sides.MainEnemy(sim.World, side), Contact.D.PrisonerPoints, "prisoners");
         }
         if (intel.PrisonerProgressK >= per) intel.PrisonerProgressK = 0; // more than three at once teaches no more
     }
@@ -388,10 +390,10 @@ public static class Crews
     {
         var w = sim.World;
         if (!w.Loop) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
         {
             var mine = b.For(side);
-            var theirs = b.For(Combat.Other(side));
+            var theirs = b.Foes(side);
             if (mine.RailShots + mine.MissilesFired == 0 && theirs.RailShots + theirs.MissilesFired == 0) continue;
             var won = !mine.Withdrew && (theirs.Withdrew || theirs.ShipsIn > 0 && theirs.ShipsLost.Count >= theirs.ShipsIn);
             foreach (var r in b.Roster.Where(r => r.Side == side).OrderBy(r => r.Id))
@@ -427,7 +429,7 @@ public static class Crews
             }
         }
         if (w.Tick % GameTime.TicksPerDay != 0) return;
-        foreach (var side in new[] { Side.Player, Side.Rival })
+        foreach (var side in Sides.InPlay(w))
             if (Mind.Of(w, side) != null) Steward(sim, side, (_, _, _, act, _, _, _, _) => { (act with { Source = "ai" }).Apply(w, sim); return true; });
     }
 
