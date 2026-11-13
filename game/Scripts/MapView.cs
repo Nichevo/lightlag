@@ -983,7 +983,7 @@ public partial class MapView : Node2D
     private bool DrawShipDrawing(Vector2 at, Ship s, float heading, bool known)
     {
         if (!GameData.ShipClasses.TryGetValue(s.ClassId, out var cls)) return false;
-        var art = ShipArt.For(cls);
+        var art = ShipArt.For(cls, Races.Of(Sim.World, s.Side).Id);
         if (Art.Texture("Ships", art) is not Texture2D tex) return false;
         var spacingPx = (float)(Fleets.FormationSpacing * Camera.Scale);
         var hullPx = Mathf.Clamp(spacingPx * 0.75f * (float)(cls.LengthM / 260.0), 10f, 900f);
@@ -1034,13 +1034,32 @@ public partial class MapView : Node2D
         var shape = ShipIcons.For(GameData.ShipClasses.TryGetValue(s.ClassId, out var cls) ? cls.Icon : "frigate");
         // A crippled ship fades and gets a cross.
         if (s.Crippled) color = new Color(color.Darkened(0.3f), 0.45f);
+        // Same shape per class for every race; the race shows in the fill (board 28): humans solid, the Hive
+        // rounded and swollen with a dark centre, the Lattice a hollow frame with a bright core. The colour stays the side's.
+        var race = Races.Of(Sim.World, s.Side).Id;
+        var swell = race == Races.Hive ? 1.15f : 1f;
         var pts = new Vector2[shape.Length];
-        for (var i = 0; i < shape.Length; i++) pts[i] = at + shape[i].Rotated(heading);
-        DrawColoredPolygon(pts, color);
+        for (var i = 0; i < shape.Length; i++) pts[i] = at + (shape[i] * swell).Rotated(heading);
         var outline = new Vector2[pts.Length + 1];
         pts.CopyTo(outline, 0);
         outline[^1] = pts[0];
-        DrawPolyline(outline, color.Darkened(0.5f), 1, true);
+        if (race == Races.Lattice)
+        {
+            DrawColoredPolygon(pts, new Color(0.043f, 0.059f, 0.082f, color.A));
+            DrawPolyline(outline, color, 1.2f, true);
+            DrawCircle(at, 1.6f, color);
+        }
+        else if (race == Races.Hive)
+        {
+            DrawColoredPolygon(pts, color);
+            DrawPolyline(outline, color.Darkened(0.55f), 2.4f, true);
+            DrawCircle(at, 1.5f, color.Darkened(0.7f));
+        }
+        else
+        {
+            DrawColoredPolygon(pts, color);
+            DrawPolyline(outline, color.Darkened(0.5f), 1, true);
+        }
         if (s.Crippled) DrawCross(at, 7, Ui.Danger, 1.6f);
     }
 

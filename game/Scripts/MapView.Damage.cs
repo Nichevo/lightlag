@@ -136,9 +136,10 @@ public partial class MapView
             GameData.ShipClasses.TryGetValue(wr.ClassId, out var cls);
             var hullPx = cls != null ? Mathf.Clamp(spacingPx * 0.75f * (float)(cls.LengthM / 260.0), 4f, 900f) : 8f;
             var color = Ui.SideColor(wr.Side);
-            if (cls != null && hullPx >= 24 && Art.Texture("Ships", ShipArt.For(cls)) is Texture2D tex)
+            var wreckArt = cls != null ? ShipArt.For(cls, Races.Of(w, wr.Side).Id) : "";
+            if (cls != null && hullPx >= 24 && Art.Texture("Ships", wreckArt) is Texture2D tex)
             {
-                var art = ShipArt.For(cls);
+                var art = wreckArt;
                 var width = hullPx / ShipArt.HullShare(art);
                 var height = width * tex.GetHeight() / tex.GetWidth();
                 var left = -(width - hullPx) - hullPx / 2;
