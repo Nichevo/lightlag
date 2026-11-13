@@ -819,6 +819,12 @@ public partial class GameScreen : Node2D
         if (last != null && last.Id > _lastReportShown)
         {
             _lastReportShown = last.Id;
+            if (!last.Fought)
+            {
+                // Came within range and parted with no shots: a News line, not a battle report.
+                _main.AddNews($"Contact ended, no shots fired: {string.Join(", ", last.For(Side.Player).Fleets)} and {string.Join(", ", last.For(Side.Rival).Fleets)}");
+                return;
+            }
             if (Replay?.Id != last.Id) Report = last;
             // Keep the result in the News menu: who fought, losses on each side; click to reopen the report.
             var us = last.For(Side.Player);

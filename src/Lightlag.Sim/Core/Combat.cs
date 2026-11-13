@@ -107,6 +107,13 @@ public sealed class Battle
     /// <summary>When the fighting last started: the battle's start, or the end of its last standoff.</summary>
     public double FightingSinceHour { get; set; }
 
+    /// <summary>
+    /// Anyone actually fought: shots or missiles, damage, ships lost or hurt, cargo caught. A contact where the
+    /// fleets only came within range and parted again is not a fight (no battle report for it).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore] public bool Fought => Sides.Any(s => s.RailShots > 0 || s.MissilesFired > 0 || s.DamageDealt > 0 || s.ShipsLost.Count > 0
+                                         || s.Knocked.Count > 0 || s.Crippled.Count > 0 || s.CargoCaught > 0 || s.Hijacked > 0);
+
     /// <summary>Something happened at this hour (a shot, a launch, a missile flying, a fleet closing in).</summary>
     public void Action(double hour)
     {

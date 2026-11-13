@@ -6,6 +6,12 @@ namespace Lightlag.Game;
 public static class Ui
 {
     /// <summary>
+    /// Menu id for a "none" choice (no escort, Auto, end the run). Not -1: PopupMenu.AddItem treats -1 as "use the
+    /// item's index", so a -1 item came back as id 0 and was read as the first fleet, plan or fuel.
+    /// </summary>
+    public const int MenuNone = 999_999_999;
+
+    /// <summary>
     /// True while a mouse button is held down. Screens that rebuild their buttons when the game moves on put
     /// the rebuild off until the button is let go: a button only fires on release, so a rebuild between press
     /// and release (easy at high speed) swallowed the click.

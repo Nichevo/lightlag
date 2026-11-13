@@ -53,7 +53,12 @@ public partial class ShipsScreen : PanelContainer
         var w = sim.World;
         var view = GetViewportRect().Size;
         if (Position != Vector2.Zero || Size != view) { Position = Vector2.Zero; Size = view; }
-        if (!GameData.ShipClasses.ContainsKey(_classId)) _classId = GameData.ShipClasses.Keys.OrderBy(k => k, StringComparer.Ordinal).First();
+        if (!GameData.ShipClasses.TryGetValue(_classId, out var picked) || !Unlocked(w, picked))
+        {
+            _classId = ClassOrder(w).FirstOrDefault()?.Id ?? GameData.ShipClasses.Keys.OrderBy(k => k, StringComparer.Ordinal).First();
+            _designId = Designer.StandardId;
+            _working = null;
+        }
         if (_designId != Designer.StandardId && Designer.Find(w, Me, _designId)?.ClassId != _classId) { _designId = Designer.StandardId; _working = null; }
         var me = Economy.Of(w, Me);
         var shape = $"{_tab}|{view}|{_classId}|{_designId}|{(_working == null ? "" : string.Join(",", _working))}|{me.Researched.Count}"
@@ -147,8 +152,9 @@ public partial class ShipsScreen : PanelContainer
         _ => slot.Type,
     };
 
+    /// <summary>The classes you can build (their research done), smallest first. Locked hulls show only on the Class tree tab.</summary>
     private static IEnumerable<ShipClass> ClassOrder(World w) =>
-        GameData.ShipClasses.Values.OrderBy(c => Unlocked(w, c) ? 0 : 1).ThenBy(c => c.LengthM).ThenBy(c => c.Id, StringComparer.Ordinal);
+        GameData.ShipClasses.Values.Where(c => Unlocked(w, c)).OrderBy(c => c.LengthM).ThenBy(c => c.Id, StringComparer.Ordinal);
 
     /// <summary>Back (-1) or Next (+1): the previous or next class in the Classes list, opened on Designs. Wraps around; works while paused.</summary>
     public void Step(World w, int dir)
@@ -262,6 +268,13 @@ public partial class ShipsScreen : PanelContainer
                 Click(row, did == def ? "Yards build this variant (●)" : "Show this variant", () => { _classId = id; _designId = d2; _working = null; });
                 list.AddChild(row);
             }
+        }
+        var locked = GameData.ShipClasses.Values.Count(c => !Unlocked(w, c));
+        if (locked > 0)
+        {
+            var more = Ui.Label($"{locked} more hull{(locked == 1 ? "" : "s")} open with research: see Class tree", 12, Ui.Dim);
+            Click(more, "Every hull and the research it needs", () => _tab = "tree");
+            list.AddChild(more);
         }
         scroll.AddChild(list);
         col.AddChild(scroll);
