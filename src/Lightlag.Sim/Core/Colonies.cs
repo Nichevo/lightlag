@@ -118,6 +118,18 @@ public sealed class FixedRun
     public double EveryDays { get; set; } = 20;
     public int? EscortFleetId { get; set; }
     public double NextHour { get; set; }
+
+    /// <summary>Set up by transport automation for a planet short of the good (see ShortRuns); stopped by it when the shortage ends.</summary>
+    public bool Auto { get; set; }
+
+    /// <summary>Why automation set it up, for the screens ("uses 1.2 iron a day more than it makes").</summary>
+    public string? Why { get; set; }
+
+    /// <summary>The last time a load was due and nothing went, why (null: the last load went).</summary>
+    public string? LastSkip { get; set; }
+
+    /// <summary>Loads in a row that found nothing to spare at the source.</summary>
+    public int DrySkips { get; set; }
 }
 
 public sealed record BonusData(string Next, double Share);
@@ -1238,7 +1250,8 @@ public static class Colonies
         {
             var other = bring ? from : to;
             var (risk, why) = SupplyChain.RiskOf(w, side, from.Position, to.Position, null, false);
-            var doing = ShipmentTo(w, side, to.Id, good) != null || (auto && Asks(to, good, out _) && AutoSource(to, good)?.Id == from.Id);
+            var doing = ShipmentTo(w, side, to.Id, good) != null || (auto && Asks(to, good, out _) && AutoSource(to, good)?.Id == from.Id)
+                        || w.FixedRuns.Any(r => r.Side == side && r.FromBodyId == from.Id && r.ToBodyId == to.Id && (r.Good == good || r.Good == ""));
             return new TransportIdea(bring, other.Id, other.Name, good, amount, Vec2.Distance(from.Position, to.Position) / Math.Max(1, speed) / 24, risk, why, doing);
         }
 
@@ -1301,7 +1314,8 @@ public static class Colonies
     private static void FixedRuns(Simulation sim, Side side)
     {
         var w = sim.World;
-        foreach (var run in w.FixedRuns.Where(r => r.Side == side && w.Hour >= r.NextHour).ToList())
+        // Most overdue first, so one freighter serves the runs one after another until more are built.
+        foreach (var run in w.FixedRuns.Where(r => r.Side == side && w.Hour >= r.NextHour).OrderBy(r => r.NextHour).ThenBy(r => r.Id).ToList())
         {
             if (w.FindBody(run.FromBodyId) is not Body from || w.FindBody(run.ToBodyId) is not Body to || from.Owner != side || to.Owner != side)
             {
@@ -1310,19 +1324,36 @@ public static class Colonies
             }
             if (w.Shipments.Any(s => s.RunId == run.Id)) continue;
             var fleet = FreeHaulers(w, side).OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).FirstOrDefault();
-            if (fleet == null) continue;
+            if (fleet == null)
+            {
+                run.LastSkip = ShortRuns.NoFreighter;
+                continue;
+            }
             var cargo = new Dictionary<string, double>();
             var room = Hold(w, fleet);
+            var spareSeen = false;
             foreach (var good in run.Good == "" ? Goods.Select(g => g.Id) : new[] { run.Good })
             {
-                var amount = Math.Min(room, SpareOf(from, good));
+                var spare = SpareOf(from, good);
+                if (spare >= 0.5) spareSeen = true;
+                // An Auto run fills the planet up to its line, no further (see ShortRuns.FillLine).
+                var amount = Math.Min(room, run.Auto ? Math.Min(spare, ShortRuns.Room(w, side, to, good, run.EveryDays)) : spare);
                 if (amount < 0.5) continue;
                 cargo[good] = amount;
                 room -= amount;
             }
             run.NextHour = w.Hour + run.EveryDays * 24;
-            if (cargo.Count == 0) continue;
+            if (cargo.Count == 0)
+            {
+                run.DrySkips = spareSeen ? 0 : run.DrySkips + 1;
+                run.LastSkip = spareSeen ? $"{to.Name} was full" : $"nothing spare at {from.Name}";
+                continue;
+            }
+            run.DrySkips = 0;
+            run.LastSkip = null;
             Start(sim, side, fleet, from, to, cargo, run.Id);
+            if (run.Auto && run.EscortFleetId == null && (SupplyChain.RiskOf(w, side, from.Position, to.Position, null, false).Risk == RouteRisk.High || Lanes.RiskyRun(w, side, from, to)))
+                EscortRisky(sim, fleet);
             if (run.EscortFleetId is int e && w.FindFleet(e) is Fleet escort && escort.Side == side && escort.Id != fleet.Id)
             {
                 escort.Mission = Mission.Escort;
@@ -1510,7 +1541,8 @@ public sealed record SetAutoTransportCommand(Side Side, bool On) : GameCommand
 }
 
 /// <summary>Add a fixed run (or, with RunId, remove one).</summary>
-public sealed record FixedRunCommand(Side Side, int FromBodyId, int ToBodyId, string Good, double EveryDays, int? EscortFleetId = null, int? RemoveRunId = null) : GameCommand
+public sealed record FixedRunCommand(Side Side, int FromBodyId, int ToBodyId, string Good, double EveryDays, int? EscortFleetId = null, int? RemoveRunId = null,
+    bool Auto = false, string? Why = null) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
@@ -1518,7 +1550,14 @@ public sealed record FixedRunCommand(Side Side, int FromBodyId, int ToBodyId, st
     {
         if (RemoveRunId is int id)
         {
-            world.FixedRuns.RemoveAll(r => r.Id == id && r.Side == Side);
+            if (world.FixedRuns.Find(r => r.Id == id && r.Side == Side) is FixedRun gone)
+            {
+                world.FixedRuns.Remove(gone);
+                // An Auto run stopped by hand is not set up again for a while (Needs you can still offer it later).
+                if (gone.Auto && Source == "player")
+                    Economy.Of(world, Side).Dismissed[$"run:{gone.ToBodyId}:{gone.Good}"] = world.Hour + ShortRuns.StoppedDays * 24;
+                sim.Log.Info("planets", $"{Side} stops a run", new { side = Side.ToString(), run = id, gone.Auto, Source });
+            }
             return;
         }
         if (world.FindBody(FromBodyId) is not Body from || world.FindBody(ToBodyId) is not Body to || from.Owner != Side || to.Owner != Side || from.Id == to.Id
@@ -1531,7 +1570,25 @@ public sealed record FixedRunCommand(Side Side, int FromBodyId, int ToBodyId, st
         {
             Id = world.NextId++, Side = Side, FromBodyId = FromBodyId, ToBodyId = ToBodyId, Good = Good, EveryDays = EveryDays,
             EscortFleetId = EscortFleetId is int e && world.FindFleet(e)?.Side == Side ? e : null, NextHour = world.Hour,
+            Auto = Auto, Why = Why,
         });
-        sim.Log.Info("planets", $"{Side} sets a fixed run {from.Name} to {to.Name}", new { side = Side.ToString(), Good, EveryDays, EscortFleetId });
+        sim.Log.Info("planets", $"{Side} sets a fixed run {from.Name} to {to.Name}", new { side = Side.ToString(), Good, EveryDays, EscortFleetId, Auto, Source });
+    }
+}
+
+/// <summary>Keep an Auto run as the player's own: automation no longer stops it when the shortage ends.</summary>
+public sealed record KeepRunCommand(Side Side, int RunId) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (world.FixedRuns.Find(r => r.Id == RunId && r.Side == Side) is not FixedRun run || !run.Auto)
+        {
+            sim.Log.Warn("transport", "No Auto run to keep", new { side = Side.ToString(), RunId, Source });
+            return;
+        }
+        run.Auto = false;
+        sim.Log.Info("transport", "Run kept by hand", new { side = Side.ToString(), RunId, Source });
     }
 }

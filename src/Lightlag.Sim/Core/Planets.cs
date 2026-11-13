@@ -853,6 +853,7 @@ public static class Planets
                     foreach (var s in ships)
                     {
                         if (from.Owner == f.Side) from.PopK = Math.Min(Math.Max(from.PopK, Cap(from)), from.PopK + s.CargoPeople);
+                        if (from.PopK > 0) from.Abandoned = false; // people live there again
                         s.CargoPeople = 0;
                         w.Ships.Remove(s);
                         f.ShipIds.Remove(s.Id);
@@ -918,6 +919,7 @@ public static class Planets
         // Settlers are the holder's own people: they raise the share who are loyal.
         to.OwnShare = (to.OwnShare * to.PopK + landed) / Math.Max(1e-9, to.PopK + landed);
         to.PopK += landed;
+        if (to.PopK > 0) to.Abandoned = false; // people live here again
     }
 
     private static void Fly(Simulation sim, Fleet f, Body body)

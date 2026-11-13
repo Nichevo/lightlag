@@ -173,4 +173,23 @@ public class HeadingForTests
         Sensors.Reveal(sim.World, Side.Player, theirs);
         Assert.Null(Sensors.HeadingFor(Sensors.Find(sim.World, Side.Player, theirs.Id)!, mine, sim.World.Hour));
     }
+
+    [Fact]
+    public void A_fleet_chasing_one_enemy_does_not_close_on_another_that_pulls_back()
+    {
+        // It may not fire at the one pulling back (MayFireAt), so closing on it would shadow it for ever.
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 5, GameLog.Memory(),
+            sandbox: new SandboxSetup(2, 0, 1, 0, 1, 1, Stance.Hold, Stance.Hold, 20));
+        var mine = sim.World.Fleets.First(f => f.Side == Side.Player);
+        var theirs = sim.World.Fleets.First(f => f.Side == Side.Rival);
+        Sensors.Reveal(sim.World, Side.Player, theirs);
+        mine.Stance = Stance.Engage;
+        theirs.Retreating = true;
+        mine.Chase = new ChaseOrder { TargetFleetId = 99999, Mode = ChaseMode.GunRange };
+        Assert.False(Combat.WouldEngage(sim.World, mine, theirs));
+        Assert.False(Combat.MayFireAt(sim.World, mine, sim.World.ShipsOf(theirs).First()));
+        mine.Chase = new ChaseOrder { TargetFleetId = theirs.Id, Mode = ChaseMode.GunRange };
+        Assert.True(Combat.WouldEngage(sim.World, mine, theirs));
+        Assert.True(Combat.MayFireAt(sim.World, mine, sim.World.ShipsOf(theirs).First()));
+    }
 }

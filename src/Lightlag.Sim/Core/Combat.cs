@@ -442,7 +442,9 @@ public static class Combat
     /// </summary>
     public static bool WouldEngage(World w, Fleet f, Fleet enemy) =>
         (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && !f.Resupplying && Chases.LetsEngage(f)
-        && (!enemy.Retreating || f.Chase != null) // a fleet pulling back is let go (no chase) unless told to chase it
+        // A fleet pulling back is let go unless this fleet was told to chase that one (MayFireAt holds fire the same
+        // way): closing on a fleet it may not shoot would shadow it for ever and keep the battle going.
+        && (!enemy.Retreating || f.Chase?.TargetFleetId == enemy.Id)
         && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
         && HasWorking(w, f, Module.Railguns) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
         && (f.Stance == Stance.Engage || Stronger(w, f));
