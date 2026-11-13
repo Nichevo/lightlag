@@ -122,6 +122,9 @@ public sealed class SideTotals
     public double SiegeHelpSentAfterDays { get; set; }
     public double SiegeHelpLateDays { get; set; }
 
+    /// <summary>Sieges this side gave up (it left the planet's orbit with the planet still the enemy's), by why its fleets left.</summary>
+    public Dictionary<string, int> SiegeLeftWhy { get; set; } = new();
+
     /// <summary>The computer's reason, once per siege, for sending no relief: where the power it needed was.</summary>
     public Dictionary<string, int> ReliefWhyNot { get; set; } = new();
 

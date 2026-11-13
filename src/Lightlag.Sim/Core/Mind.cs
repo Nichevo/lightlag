@@ -93,6 +93,9 @@ public sealed class FleetJob
     /// <summary>The supply lane an ambush party lies on; the run an escort guards starts here (BodyId is where it goes).</summary>
     public int? LaneId { get; set; }
     public int? FromBodyId { get; set; }
+
+    /// <summary>A siege paused: the fleet stands off near the planet (out of reach of the relief) until this hour, then goes home; it goes back in when the relief has gone.</summary>
+    public double? StandOffUntil { get; set; }
 }
 
 public sealed record Thought(double Hour, string Text);
@@ -720,8 +723,9 @@ public static class Mind
                 if (supply.Count == 0 || supply.Count == f.ShipIds.Count) continue;
                 if (SplitOff(f, supply) is Fleet run) Note($"{run.Name} splits off to run supplies");
             }
+            // A fleet holding a siege comes first (supplies keep the siege going), then the largest fleet out on a job.
             var served = Mine().Where(f => _m.JobOf(f.Id) is { Kind: not JobKind.Refit } && !AtHome(f))
-                .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
+                .OrderByDescending(OnSiege).ThenByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
                 ?? Mine().Where(AtHome).OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault();
             foreach (var run in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip)
                                                      && !_w.ShipsOf(f).All(SupplyLines.IsFreighter)).ToList())
@@ -805,7 +809,7 @@ public static class Mind
                     _ => false,
                 };
                 // A flight that ended somewhere else (an order it could not finish): think again.
-                if (!done && f.Flight == null && !Busy(f) && job.Kind is JobKind.Claim or JobKind.Break or JobKind.Strike
+                if (!done && f.Flight == null && !Busy(f) && job.Kind is JobKind.Claim or JobKind.Break or JobKind.Strike && job.StandOffUntil == null
                     && body != null && !Economy.InOrbitAt(f, body))
                     done = true;
                 if (!done) continue;
@@ -827,15 +831,22 @@ public static class Mind
             if (Busy(f)) return;
             var job = _m.JobOf(f.Id);
             if (job?.Kind == JobKind.Refit) return;
-            if (NeedsRefit(f) && !AtHome(f))
+            // On a siege, short only of supplies with a supply run coming: it holds on for the run.
+            var holdForSupplies = OnSiege(f) && Combat.ArmourShare(_w, f) >= A.RefitArmour && Missiles(f) >= 0.3 && Supplies(f) >= SiegeHoldSupplies
+                                  && _w.Fleets.Any(r => r.Side == _side && r.SupplyRunFor == f.Id && r.ShipIds.Count > 0);
+            if (NeedsRefit(f) && !AtHome(f) && !holdForSupplies)
             {
                 GoHome(f, $"low on supplies, armour or missiles ({Supplies(f):P0} supplies, {Combat.ArmourShare(_w, f):P0} armour)");
                 return;
             }
             if (job == null || job.Kind == JobKind.Guard || Slip()) return;
             var mine = War(f);
-            // Being chased: run hard from a stronger chaser, turn and fight a weaker one (scouts always run).
-            if (ChaserOf(f) is Sighting chaser && f.Chase?.TargetFleetId != chaser.FleetId)
+            // Being chased: run hard from a stronger chaser, turn and fight a weaker one (scouts always run). A fleet in
+            // orbit on a siege doesn't count relief heading for the planet as a chaser until it is close (see below).
+            var onSiege = job.Kind == JobKind.Claim && job.BodyId is int cb && _w.FindBody(cb) is Body cbody && cbody.Owner is Side co && co != _side
+                          && (Economy.InOrbitAt(f, cbody) || job.StandOffUntil != null);
+            if (ChaserOf(f) is Sighting chaser && f.Chase?.TargetFleetId != chaser.FleetId
+                && !(onSiege && Vec2.Distance(chaser.Guess(_w.Hour), f.Position) > SiegeWatchAu * _au))
             {
                 var theirs = SightingPower(chaser);
                 if (theirs > mine * A.DangerRatio || job.Kind == JobKind.Probe || !Combat.HasWorking(_w, f, Module.Railguns))
@@ -867,19 +878,102 @@ public static class Mind
                 Note($"{f.Name} engages {seen.Name} ({mine:0} against about {SightingPower(seen):0})");
                 return;
             }
+            // A fast pass goes through whatever is there: it never stops to fight, so it never turns back.
+            if (job.Kind == JobKind.Strafe) return;
+            var siege = job.Kind == JobKind.Claim && job.BodyId is int sid && _w.FindBody(sid) is Body sb && sb.Owner is Side so && so != _side ? sb : null;
+            if (siege != null && job.StandOffUntil != null) { StandingOff(f, job, siege, mine); return; }
+            var besieging = siege != null && Economy.InOrbitAt(f, siege);
             // Pull back from a fight it expects to lose.
             // A scout only runs from what comes close to it; others also from what was just seen where they are going.
+            // A fleet in orbit on a siege only minds what is close (about a day and a half out), not relief still days
+            // away, and holds on harder the more the siege has already won.
             var near = job.Kind == JobKind.Probe
                 ? EnemyNear(f.Position, 0.5 * A.DangerRadiusAu * _au, 12)
+                : besieging ? EnemyNear(f.Position, SiegeWatchAu * _au, 24)
                 : Math.Max(EnemyNear(f.Position, A.DangerRadiusAu * _au), EnemyNear(job.Point, A.DangerRadiusAu * _au, 24));
             var limit = job.Kind == JobKind.Strike ? TurnBackRatio * 1.3 : TurnBackRatio;
             if (job.Kind == JobKind.Strike && Desperate()) limit *= 1.5;
+            if (besieging) limit *= 1 + SiegeStakeHold * SiegeStake(siege!);
+            if (near > mine * limit && besieging && Supplies(f) >= 0.5 && StandOff(f, job, siege!, near, mine)) return;
             if (near > mine * limit)
             {
                 Note($"{f.Name} pulls back from {Describe(job)}: enemy power about {near:0} nearby against its {mine:0}");
                 _m.Jobs.Remove(job);
                 if (job.Kind == JobKind.Probe) _m.LastProbeEndHour = _w.Hour;
                 GoHome(f, "outgunned");
+            }
+        }
+
+        /// <summary>In orbit of an enemy planet on a claim job (a siege), or standing off from one.</summary>
+        private bool OnSiege(Fleet f) =>
+            _m.JobOf(f.Id) is { Kind: JobKind.Claim } j && j.BodyId is int id && _w.FindBody(id) is Body b && b.Owner is Side o && o != _side
+            && (Economy.InOrbitAt(f, b) || j.StandOffUntil != null);
+
+        /// <summary>A besieger with a supply run on its way holds on down to this share of supplies.</summary>
+        private const double SiegeHoldSupplies = 0.15;
+
+        /// <summary>A fleet in orbit on a siege only reacts to enemies within this many AU (about a day and a half out).</summary>
+        private const double SiegeWatchAu = 0.12;
+
+        /// <summary>How much harder it holds on at full stake (1 = twice the usual odds before it backs off).</summary>
+        private const double SiegeStakeHold = 1.0;
+
+        /// <summary>How far from the planet it stands off (AU), and the longest it waits there (days) before going home.</summary>
+        private const double StandOffAu = 0.3;
+        private const double StandOffDays = 15;
+
+        /// <summary>
+        /// What a siege has already won, 0 to 1: the planet's guns and forts silenced, blockade days towards a landing,
+        /// troops of its own down on the planet.
+        /// </summary>
+        private double SiegeStake(Body b)
+        {
+            if (b.LandingSide == _side) return 1;
+            var silenced = Planets.Contested(_w, b) ? 0 : 0.3;
+            var days = Economy.Blockaded(_w, b) && b.BlockadedBy == _side ? b.BlockadeHours / 24 / Math.Max(1, Planets.D.LandAfterBlockadeDays) : 0;
+            return Math.Clamp(silenced + 0.7 * days, 0, 1);
+        }
+
+        /// <summary>
+        /// Relief too strong to face is coming: instead of going home, it backs off from the planet, away from the
+        /// relief, and waits there, keeping the siege's job (it comes back when the relief has gone).
+        /// </summary>
+        private bool StandOff(Fleet f, FleetJob job, Body b, double near, double mine)
+        {
+            var threat = _known.Where(s => _w.Hour - s.Hour <= 24 && Vec2.Distance(s.Guess(_w.Hour), f.Position) <= SiegeWatchAu * _au)
+                .OrderBy(s => Vec2.Distance(s.Guess(_w.Hour), f.Position)).Select(s => s.Guess(_w.Hour)).FirstOrDefault(b.Position);
+            var away = (b.Position - threat).Normalized();
+            if (away.Length < 0.5) away = (b.Position - (_home?.Position ?? Vec2.Zero)).Normalized() * -1;
+            var spot = b.Position + away * (StandOffAu * _au);
+            if (!Fly(f, new FlightRequest(null, spot, Burn(f), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick))) return false;
+            job.StandOffUntil = _w.Hour + StandOffDays * 24;
+            Orders(f, Core.Stance.Hold);
+            Note($"{f.Name} stands off from {b.Name}: relief about {near:0} coming against its {mine:0}; it waits nearby to go back in");
+            return true;
+        }
+
+        /// <summary>
+        /// Standing off from a siege: goes back in once the planet's orbit is clear of enemy warships it can't beat,
+        /// home when the wait runs out, supplies run low or it is chased (the usual checks).
+        /// </summary>
+        private void StandingOff(Fleet f, FleetJob job, Body b, double mine)
+        {
+            var there = EnemyNear(b.Position, SiegeWatchAu * _au, 24);
+            if (there <= mine / Fight)
+            {
+                job.StandOffUntil = null;
+                if (Fly(f, new FlightRequest(b.Id, b.Position, Burn(f), ArrivalStyle.Brake, HoldStyle.Orbit, _w.Tick)))
+                {
+                    Orders(f, Core.Stance.Engage);
+                    Note($"{f.Name} goes back to the siege of {b.Name}: the relief has gone");
+                }
+                return;
+            }
+            if (_w.Hour >= job.StandOffUntil || Supplies(f) < 0.5)
+            {
+                Note($"{f.Name} gives up the siege of {b.Name}: the relief stayed ({there:0} power there)");
+                _m.Jobs.Remove(job);
+                GoHome(f, "siege given up");
             }
         }
 

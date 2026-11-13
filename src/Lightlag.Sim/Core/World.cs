@@ -328,6 +328,8 @@ public sealed class Body
     public double? SiegeHelpHour { get; set; }
     public double SiegeHelpDays { get; set; }
     public bool SiegeHelpArrived { get; set; }
+    /// <summary>The besiegers' fleets in orbit last hour (to tell, when they leave, why).</summary>
+    public List<int> SiegeFleetIds { get; set; } = new();
 
     /// <summary>Auto top-up: settle orders fill this planet up, one at a time.</summary>
     public bool AutoTopUp { get; set; }

@@ -492,6 +492,7 @@ public static class Planets
                 if (b.SiegeHelpHour != null && w.Fleets.Any(f => f.Side == owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
                                                                && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2))
                     b.SiegeHelpArrived = true;
+                b.SiegeFleetIds = w.Fleets.Where(f => f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).Select(f => f.Id).OrderBy(x => x).ToList();
                 continue;
             }
             if (b.SiegeOwner is Side held && b.SiegeHours >= 24)
@@ -510,6 +511,12 @@ public static class Planets
                     if (b.SiegeHelpArrived) { t.SiegesRelieved++; how = "relieved"; }
                     else if (sent) { t.SiegesLeftHelpSent++; how = "attackers left, help on its way"; }
                     else { t.SiegesLeftNoHelp++; how = "attackers left"; }
+                    if (!b.SiegeHelpArrived && SiegeLeftWhy(w, b) is var (by, why))
+                    {
+                        var lw = Economy.Of(w, by).Totals.SiegeLeftWhy;
+                        lw[why] = lw.GetValueOrDefault(why) + 1;
+                        how += $" ({why})";
+                    }
                 }
                 else if (!sent) { t.SiegesLostNoHelp++; how = "fell, no help sent"; }
                 else if (b.SiegeHelpArrived) { t.SiegesLostHelpThere++; how = "fell with help there"; }
@@ -528,7 +535,41 @@ public static class Planets
             b.SiegeHelpHour = null;
             b.SiegeHelpDays = 0;
             b.SiegeHelpArrived = false;
+            b.SiegeFleetIds = under ? w.Fleets.Where(f => f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).Select(f => f.Id).OrderBy(x => x).ToList() : new();
         }
+    }
+
+    /// <summary>
+    /// Why the besiegers left a planet still held by its owner (for the reports): what became of the fleets that
+    /// were in its orbit. Destroyed or crippled, pulled back after a fight, gone for supplies or a refit, or the
+    /// computer gave them another job (or none).
+    /// </summary>
+    private static (Side By, string Why)? SiegeLeftWhy(World w, Body b)
+    {
+        string? why = null;
+        Side? by = null;
+        foreach (var id in b.SiegeFleetIds)
+        {
+            var f = w.FindFleet(id);
+            if (f == null || f.ShipIds.Count == 0) { why ??= "destroyed"; continue; }
+            by ??= f.Side;
+            var job = Mind.Of(w, f.Side)?.JobOf(f.Id);
+            var dest = f.Flight?.TargetBodyId is int to ? w.FindBody(to) : null;
+            why = job is { StandOffUntil: not null } ? "stood off to wait out the relief"
+                : f.Retreating ? "pulled back after a fight"
+                : f.Maneuvering ? "left orbit to fight"
+                : w.ShipsOf(f).Any(s => s.Crippled) && !Combat.Armed(w, f) ? "crippled"
+                : f.Resupplying || f.SupplyRunFor != null ? "low on supplies"
+                : f.Refit != null || job is { Kind: JobKind.Refit } ? "gone for a refit"
+                : job == null && dest != null && dest.Shipyard && dest.Owner == f.Side ? "going home (no job)"
+                : job == null ? "no job (stopped)"
+                : job.BodyId != b.Id ? $"new job: {job.Kind.ToString().ToLowerInvariant()}"
+                : "other";
+            break;
+        }
+        if (why == null) return null;
+        by ??= b.BlockadedBy ?? (b.SiegeOwner is Side o ? Sides.MainEnemy(w, o) : null);
+        return by is Side s ? (s, why) : null;
     }
 
     /// <summary>

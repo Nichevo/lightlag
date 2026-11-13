@@ -85,6 +85,9 @@ public static class WarReport
             if (sent > 0)
                 md.AppendLine($"\nHelp was sent in {sent / sieges:P0} of sieges, {Sum(r => r.T.SiegeHelpSentAfterDays) / sent:0.0} days in, from {Sum(r => r.T.SiegeHelpDays) / sent:0.0} days away"
                               + (late > 0 ? $"; where the planet fell first, help was still {Sum(r => r.T.SiegeHelpLateDays) / late:0.0} days out." : "."));
+            var left = Rows.SelectMany(r => r.T.SiegeLeftWhy).GroupBy(kv => kv.Key).Select(g => (g.Key, N: g.Sum(kv => kv.Value))).OrderByDescending(x => x.N).ThenBy(x => x.Key).ToList();
+            if (left.Count > 0)
+                md.AppendLine($"\nWhy besiegers gave up (help not there yet): " + string.Join(", ", left.Select(x => $"{x.Key} {x.N}")) + ".");
             var why = Rows.SelectMany(r => r.T.ReliefWhyNot).GroupBy(kv => kv.Key).Select(g => (g.Key, N: g.Sum(kv => kv.Value))).OrderByDescending(x => x.N).ThenBy(x => x.Key).ToList();
             if (why.Count > 0)
                 md.AppendLine($"\nWhy the computer sent no relief (sieges, where most of its power was): " + string.Join(", ", why.Select(x => $"{x.Key} {x.N}")) + ".");
