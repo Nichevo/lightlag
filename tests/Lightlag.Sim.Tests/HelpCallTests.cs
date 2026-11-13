@@ -220,6 +220,39 @@ public class HelpCallTests
     }
 
     /// <summary>A tanker of ours in open space, an enemy raider (1 ship) beside it, and our 3-ship anti-piracy fleet within reach.</summary>
+    [Fact]
+    public void A_fleet_of_supply_ships_only_takes_the_Supply_role_and_supplies_fleets_running_short()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var main = w.Fleets.First(f => f.Side == Side.Player);
+        new SetFleetRoleCommand(main.Id, FleetRole.Support).Apply(w, sim);
+        var support = w.ShipsOf(main).Where(SupplyLines.IsSupplyShip).Select(s => s.Id).ToList();
+        Assert.NotEmpty(support);
+        Assert.DoesNotContain(FleetRole.Supply, HelpCalls.RolesFor(w, main));
+        new SplitFleetCommand(main.Id, support).Apply(w, sim);
+        var tender = w.Fleets.Last(f => f.Side == Side.Player);
+        // Split off a Support fleet, the supply ships take Supply; the warships keep Support.
+        Assert.Equal(FleetRole.Supply, tender.Role);
+        Assert.Equal(FleetRole.Support, main.Role);
+        Assert.Equal(new[] { FleetRole.None, FleetRole.Supply }, HelpCalls.RolesFor(w, tender));
+        new SetFleetRoleCommand(tender.Id, FleetRole.Defence).Apply(w, sim);
+        Assert.Equal(FleetRole.Supply, tender.Role);
+
+        // The warships fly off and run short: the loaded tender at home sets out to supply them.
+        foreach (var s in w.ShipsOf(tender)) SupplyLines.FillCargo(s);
+        main.Flight = null;
+        main.Chase = null;
+        Fleets.EnterDrift(main);
+        main.Velocity = Vec2.Zero;
+        main.Position = tender.Position + new Vec2(0.2 * Physics.MmPerAu, 0);
+        foreach (var s in w.ShipsOf(main)) { s.Position = main.Position + s.FormationOffset; s.Supplies = Fitting.MaxSupplies(w, s) * 0.3; }
+        Assert.True(SupplyLines.Short(w, main));
+        for (var i = 0; i < 3 && tender.SupplyRunFor == null; i++) sim.Step();
+        Assert.Equal(main.Id, tender.SupplyRunFor);
+        Assert.True(tender.SupplyRunByRole);
+    }
+
     private static (Fleet Hunters, Fleet Tanker, Fleet Pirate, Fleet Pack) PirateSetup(Simulation sim)
     {
         var w = sim.World;

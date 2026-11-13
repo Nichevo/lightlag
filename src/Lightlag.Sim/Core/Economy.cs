@@ -622,7 +622,7 @@ public static class Economy
         if (target != null && waiting != target)
         {
             waiting.JoinFleetId = target.Id;
-            if (Fleets.FlyToJoin(w, waiting, target, ReinforceSpeed) is string problem)
+            if (Fleets.FlyToJoin(w, waiting, target, JoinSpeed(w, waiting)) is string problem)
                 sim.Log.Info("economy", $"{waiting.Name} waits at {yard.Name} to join {target.Name}", new { fleetId = waiting.Id, target = target.Id, problem });
             else
                 sim.Log.Info("economy", $"{waiting.Name} flies out to join {target.Name}",
@@ -632,6 +632,9 @@ public static class Economy
 
     /// <summary>Speed (share of top speed) new ships fly at to reach the fleet they were built for.</summary>
     public const double ReinforceSpeed = 0.7;
+
+    /// <summary>Troop ships fly out at full speed: a siege won't wait for them. Other new ships save fuel.</summary>
+    public static double JoinSpeed(World w, Fleet f) => w.ShipsOf(f).All(Planets.IsTroopShip) ? 1.0 : ReinforceSpeed;
 
     /// <summary>Makes a ship with full supplies and armour, numbered after the side's earlier ships of its class.</summary>
     public static Ship NewShip(World w, Side side, string classId, Body? yard = null, int? designId = null)
@@ -884,7 +887,8 @@ public static class Economy
 // ---- Commands -------------------------------------------------------------------------------
 
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
-public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null, int? DesignId = null) : GameCommand
+/// <remarks>Front puts a ship ahead of the ship orders not yet started (troops for a siege that won't wait).</remarks>
+public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null, int? DesignId = null, bool Front = false) : GameCommand
 {
     /// <summary>Home orders take effect at once (no light lag), so they work while paused.</summary>
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
@@ -902,7 +906,9 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
         if (Kind == OrderKind.Ship) Economy.PriceShip(world, order, DesignId);
         if (Kind == OrderKind.Research) order.TeamId = TeamId ?? Research.BestTeamFor(world, Side, Key)?.Id;
         order.HoursLeft = order.TotalHours;
-        world.Orders.Add(order);
+        var at = Front && Kind == OrderKind.Ship ? world.Orders.FindIndex(o => o.Side == Side && o.Kind == OrderKind.Ship && !o.Paid) : -1;
+        if (at >= 0) world.Orders.Insert(at, order);
+        else world.Orders.Add(order);
         if (Kind == OrderKind.Research) Choices.Note(world, Side, "research", Key);
         sim.Log.Info("economy", $"{Side} queues {Economy.NameOf(order)}", new { side = Side.ToString(), order.Id, Kind, Key, Source });
     }

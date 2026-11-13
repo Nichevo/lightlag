@@ -84,6 +84,44 @@ public class ChaseTests
     }
 
     [Fact]
+    public void A_chase_against_a_fleet_coming_to_our_planet_waits_for_it_there()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var w = sim.World;
+        w.Minds.Clear(); // the rival's mind would give its fleet orders of its own
+        var mine = w.Fleets.First(f => f.Side == Side.Player && f.OrbitBodyId != null);
+        var home = w.FindBody(mine.OrbitBodyId!.Value)!;
+        Assert.Equal(Side.Player, home.Owner);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        theirs.Flight = null;
+        theirs.Chase = null;
+        Fleets.EnterDrift(theirs);
+        theirs.Position = home.Position + new Vec2(3000, 0);
+        // Aimed at where the planet will be in 30 hours (it moves on its orbit meanwhile).
+        theirs.Velocity = (FlightPlanner.PredictBody(w, home, w.Hour + 30) - theirs.Position) * (1.0 / 30);
+        foreach (var sh in w.ShipsOf(theirs)) sh.Position = theirs.Position + sh.FormationOffset;
+        Sensors.Reveal(w, Side.Player, theirs);
+        Assert.Equal(home.Id, Chases.HeadingFor(w, Side.Player, Sensors.Find(w, Side.Player, theirs.Id)!, home.Id)?.Body.Id);
+        sim.Issue(new PlanFlightCommand(mine.Id, new FlightRequest(null, theirs.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick,
+            TargetFleetId: theirs.Id, Chase: ChaseMode.GunRange)));
+        sim.Step();
+        // It stays in orbit, waiting: flying out to meet it would leave the planet to it.
+        Assert.Equal(home.Id, mine.Chase!.WaitBodyId);
+        Assert.Null(mine.Flight);
+        Assert.Equal(home.Id, mine.OrbitBodyId);
+        sim.StepMany(10);
+        Assert.Equal(home.Id, mine.Chase?.WaitBodyId);
+
+        // The quarry turns away: the wait ends and the chase goes after it.
+        theirs.Velocity = new Vec2(100, 0);
+        Sensors.Reveal(w, Side.Player, theirs);
+        sim.StepMany(2);
+        Assert.NotNull(mine.Chase);
+        Assert.True(mine.Chase!.WaitBodyId == null, $"{theirs.Position - home.Position} v {theirs.Velocity} seen {Sensors.Find(w, Side.Player, theirs.Id)?.Velocity}");
+        Assert.NotNull(mine.Flight);
+    }
+
+    [Fact]
     public void Too_slow_to_chase_says_which_ship_holds_it_back()
     {
         var (sim, mine, theirs) = Setup(1, 1, new Vec2(500, 0));
@@ -131,7 +169,7 @@ public class HeadingForTests
         Assert.NotNull(eta);
         Assert.InRange(eta!.Value, 9, 11);
 
-        theirs.Velocity = new Vec2(0, 100);
+        theirs.Velocity = new Vec2(100, 0);
         Sensors.Reveal(sim.World, Side.Player, theirs);
         Assert.Null(Sensors.HeadingFor(Sensors.Find(sim.World, Side.Player, theirs.Id)!, mine, sim.World.Hour));
     }

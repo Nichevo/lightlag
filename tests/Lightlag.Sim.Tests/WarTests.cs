@@ -240,9 +240,12 @@ public class WarTests
 
     // ---- Ground war ------------------------------------------------------------------------------
 
+    /// <summary>The game the last Invade ran in.</summary>
+    private static Simulation? LastInvasion;
+
     private static (Fleet Troops, double Days, Body Planet) Invade(ulong seed, GroundPlan plan, double troopShare = 2.2)
     {
-        var sim = NewGame(seed);
+        var sim = LastInvasion = NewGame(seed);
         ClearSide(sim, Side.Rival);
         var vela = RivalPlanet(sim);
         var garrison = Planets.GarrisonOf(vela);
@@ -271,6 +274,41 @@ public class WarTests
         Assert.True(blitz < methodical);
         // Methodical spares the mine.
         Assert.Contains(Planets.Mine, m.Buildings);
+    }
+
+    [Theory]
+    [InlineData(GroundPlan.Methodical)]
+    [InlineData(GroundPlan.Blitz)]
+    public void A_methodical_capture_starts_content_and_a_blitz_sullen(GroundPlan plan)
+    {
+        var (f, _, vela) = Invade(8, plan);
+        Assert.Equal(Side.Player, vela.Owner);
+        // The overnight tally keeps the happiness at the moment of capture (later days move it on).
+        var tally = Economy.Of(LastInvasion!.World, Side.Player).Totals.Captures[plan.ToString()];
+        Assert.Equal(1, tally.Count);
+        if (plan == GroundPlan.Methodical) Assert.Equal(50, tally.Happiness, 6);
+        else Assert.True(tally.Happiness <= 25 + 1e-9);
+        Assert.True(tally.PeopleK > 0);
+        Assert.True(tally.Days >= tally.FightDays && tally.FightDays > 0);
+        Assert.NotNull(f);
+    }
+
+    [Fact]
+    public void Troop_ships_can_jump_the_yard_queue_and_fly_out_at_full_speed()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        w.Orders.RemoveAll(o => o.Side == Side.Player);
+        new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate").Apply(w, sim);
+        new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate").Apply(w, sim);
+        w.Orders.First(o => o.Side == Side.Player).Paid = true; // the first is under way: troops go after it
+        Economy.Of(w, Side.Player).Industry = 1000;
+        new QueueOrderCommand(Side.Player, OrderKind.Ship, "troop-ship", Front: true).Apply(w, sim);
+        Assert.Equal(new[] { "gun-frigate", "troop-ship", "gun-frigate" }, w.Orders.Where(o => o.Side == Side.Player).Select(o => o.Key));
+        var troops = NewFleet(sim, Side.Player, Vec2.Zero, "troop-ship");
+        var mixed = NewFleet(sim, Side.Player, Vec2.Zero, "troop-ship", "gun-frigate");
+        Assert.Equal(1.0, Economy.JoinSpeed(w, troops));
+        Assert.Equal(Economy.ReinforceSpeed, Economy.JoinSpeed(w, mixed));
     }
 
     [Fact]

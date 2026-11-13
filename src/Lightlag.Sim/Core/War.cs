@@ -73,7 +73,10 @@ public sealed class GroundData
     public double[] PlanAttack { get; set; } = { 1.8, 1.0, 0.35 };
     public double[] PlanLoss { get; set; } = { 1.3, 0.9, 0.4 };
     public double[] PlanDamage { get; set; } = { 0.6, 0.15, 0.05 };
-    public double[] PlanHappiness { get; set; } = { -10, -3, 0 };
+    public double[] PlanHappiness { get; set; } = { -10, 0, 3 };
+
+    /// <summary>Happiness a captured planet starts at, per plan: a Blitz no happier than this, the others at it (before PlanHappiness).</summary>
+    public double[] PlanStartHappiness { get; set; } = { 35, 50, 50 };
     /// <summary>Militia from habitats: k per k of housing, scaled by happiness.</summary>
     public double MilitiaPerHousingK { get; set; } = 0.02;
     /// <summary>Planet guns shoot at landers: troops (k) lost per point of gun damage when they land.</summary>

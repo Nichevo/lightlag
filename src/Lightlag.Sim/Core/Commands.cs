@@ -101,6 +101,11 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetSalvoGuidanceCommand), "setSalvoGuidance")]
 [JsonDerivedType(typeof(EjectShipSinkCommand), "ejectShipSink")]
 [JsonDerivedType(typeof(LayMinesCommand), "layMines")]
+[JsonDerivedType(typeof(SetFleetFuelCommand), "setFleetFuel")]
+[JsonDerivedType(typeof(SetPlantModeCommand), "setPlantMode")]
+[JsonDerivedType(typeof(SetLeaveSupportCommand), "setLeaveSupport")]
+[JsonDerivedType(typeof(SetMissileBudgetCommand), "setMissileBudget")]
+[JsonDerivedType(typeof(SendShipHomeCommand), "sendShipHome")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
@@ -145,6 +150,20 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
     public override void Apply(World world, Simulation sim)
     {
         if (GetFleet(world, sim, FleetId, "Flight order") is not Fleet fleet) return;
+        // A chase against a fleet on its way to one of our planets: wait for it there (or go there first).
+        if (Request.TargetFleetId is int quarry && Chases.MeetAt(world, fleet, quarry, Request.Chase, Request.SpeedFraction) is var (meet, meetFlight))
+        {
+            fleet.Refused = null;
+            fleet.JoinFleetId = null;
+            if (meetFlight != null) fleet.Flight = meetFlight;
+            fleet.Chase = Chases.Order(world, fleet, quarry, Request.Chase, Request.SpeedFraction);
+            fleet.Chase.WaitBodyId = meet.Id;
+            sim.Log.Info("fleet", $"{fleet.Name} waits for {world.FindFleet(quarry)?.Name} at {meet.Name}", new
+            {
+                fleetId = fleet.Id, targetFleetId = quarry, bodyId = meet.Id, flies = meetFlight != null, arrive = meetFlight?.ArriveHour, Source,
+            });
+            return;
+        }
         // Going in to fight with "leave support ships behind" on: the tenders stay back first, so the burn is planned without them.
         if (fleet.LeaveSupportBehind && Request.TargetFleetId is int foe && world.FindFleet(foe) is Fleet enemy && enemy.Side != fleet.Side
             && Request.Chase is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.Overtake)
@@ -310,7 +329,7 @@ public sealed record SplitFleetCommand(int FleetId, List<int> ShipIds) : GameCom
         created.Autonomy = fleet.Autonomy;
         created.Cover = fleet.Cover;
         created.FireAt = fleet.FireAt;
-        created.Role = fleet.Role;
+        created.Role = HelpCalls.FitRole(world, created, fleet.Role);
         created.RoleRules = fleet.RoleRules.Copy();
         Fleets.Arrange(world, fleet);
         Fleets.SetApart(world, created);

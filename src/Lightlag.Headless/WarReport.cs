@@ -22,6 +22,9 @@ public static class WarReport
 
     public static readonly List<Row> Rows = new();
 
+    /// <summary>The ways a planet is taken, in the order the report lists them.</summary>
+    private static readonly string[] Methods = { "Blockade", "Blitz", "Methodical", "Starve" };
+
     public static void Append(StringBuilder md)
     {
         if (Rows.Count == 0) return;
@@ -39,6 +42,20 @@ public static class WarReport
                       + $"{Avg(r => r.T.TroopsLostK) * 1000:0} troops, {Avg(r => r.T.InvasionBuildingsLost):0.0} buildings lost |");
         md.AppendLine($"| Blockade | {Avg(r => r.T.BlockadeWins):0.00} | {(blkWins > 0 ? Sum(r => r.T.BlockadeDays) / blkWins : 0):0.0} (30-60) | "
                       + $"{(blkWins > 0 ? Sum(r => r.T.BlockadeHappiness) / blkWins : 0):0} | fleet time only |");
+        md.AppendLine();
+        md.AppendLine("Value on capture, by method (averages per planet taken):");
+        md.AppendLine();
+        md.AppendLine("| Method | Taken per side per game | Days to take (of it fighting) | People | Buildings intact (damaged, wrecked) | Happiness after |");
+        md.AppendLine("|---|---|---|---|---|---|");
+        foreach (var how in Methods)
+        {
+            var all = Rows.Select(r => r.T.Captures.GetValueOrDefault(how)).OfType<CaptureTally>().ToList();
+            var n = all.Sum(c => c.Count);
+            if (n == 0) { md.AppendLine($"| {how} | 0.00 | - | - | - | - |"); continue; }
+            double Per(Func<CaptureTally, double> f) => all.Sum(f) / n;
+            md.AppendLine($"| {how} | {(double)n / Rows.Count:0.00} | {Per(c => c.Days):0.0} ({Per(c => c.FightDays):0.0}) | {Per(c => c.PeopleK):0.0}k | "
+                          + $"{Per(c => c.BuildingsKept):0.0} ({Per(c => c.BuildingsDamaged):0.0}, {Per(c => c.BuildingsWrecked):0.0}) | {Per(c => c.Happiness):0} |");
+        }
         if (invWins + blkWins > 0 && (invWins == 0 || blkWins == 0))
             md.AppendLine($"\n**Only {(invWins == 0 ? "blockades" : "invasions")} took planets: both ways should be worth using.**");
         md.AppendLine();

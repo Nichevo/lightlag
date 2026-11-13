@@ -18,6 +18,9 @@ public partial class ColonyScreen : PanelContainer
     private string _shape = "";
     private readonly List<Action<World>> _live = new();
     private readonly List<(Button Button, BuildingData Kind)> _buildButtons = new();
+
+    /// <summary>Where each scrolling box was scrolled to (by planet and box), so a rebuild keeps the place.</summary>
+    private readonly Dictionary<string, double> _scrolled = new();
     private string? _hoverGood, _shownGood;
     private BoardView? _board;
 
@@ -427,6 +430,24 @@ public partial class ColonyScreen : PanelContainer
 
     // ---- The planet screen ---------------------------------------------------------------------
 
+    /// <summary>
+    /// The screen is rebuilt when what it shows changes (a building done, Industry passing a step): this puts a
+    /// scrolling box back where the player left it instead of jumping to the top. The place is set once the new
+    /// content is laid out (the scroll bar's range changes), and recorded whenever the player scrolls.
+    /// </summary>
+    private void KeepScroll(ScrollContainer scroll, string key)
+    {
+        var bar = scroll.GetVScrollBar();
+        var restoring = _scrolled.TryGetValue(key, out var want) && want > 0;
+        bar.Changed += () =>
+        {
+            if (!restoring) return;
+            bar.Value = want;
+            if (bar.Value >= want - 0.5 || bar.MaxValue - bar.Page >= want) restoring = false;
+        };
+        bar.ValueChanged += v => { if (!restoring) _scrolled[key] = v; };
+    }
+
     private string PlanetShape(World w, Body b) =>
         $"planet|{b.Id}|{string.Join(",", b.Pieces.Select(p => $"{p.Id}:{p.Built}"))}|{b.Preset}|{string.Join(",", Colonies.Priority(b))}|{b.SiegeDays}"
         + $"|{Economy.Of(w, Side.Player).AutoTransport}|{string.Join(",", w.FixedRuns.Where(r => r.Side == Side.Player).Select(r => r.Id))}"
@@ -474,6 +495,7 @@ public partial class ColonyScreen : PanelContainer
         var left = Column(8);
         left.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         var leftScroll = new ScrollContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsStretchRatio = 1.4f, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        KeepScroll(leftScroll, $"{b.Id}:left");
         leftScroll.AddChild(left);
         main.AddChild(leftScroll);
         var board = b.Board!;
@@ -508,6 +530,7 @@ public partial class ColonyScreen : PanelContainer
 
         // Right: storage and transport.
         var rightScroll = new ScrollContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        KeepScroll(rightScroll, $"{b.Id}:right");
         var right = Column(10);
         right.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         rightScroll.AddChild(right);
@@ -633,6 +656,7 @@ public partial class ColonyScreen : PanelContainer
             _ => kinds.OrderBy(k => Array.IndexOf(Colonies.Areas, k.Area)).ThenBy(k => k.Name),
         };
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        KeepScroll(scroll, $"{b.Id}:build");
         var list = Column(4);
         list.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         var busy = b.Pieces.Any(p => !p.Built);
