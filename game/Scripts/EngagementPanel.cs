@@ -16,7 +16,10 @@ public partial class EngagementPanel : Control
     private VBoxContainer _options = null!;
     private readonly List<(Button Button, string Key)> _optionButtons = new();
     private Label _defence = null!, _ships = null!, _deadline = null!;
-    private VBoxContainer _shipBox = null!;          // your fleet's ships: one row each with heat and quick buttons
+    private VBoxContainer _shipBox = null!;
+    private Label _spot = null!;
+    private Button _spotButton = null!;
+    private static bool _spotOpen;                   // Spotting details folded away by default          // your fleet's ships: one row each with heat and quick buttons
     private string _shipKey = "";
     private readonly List<Action<World, Fleet>> _shipLive = new();
     private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
@@ -143,6 +146,15 @@ public partial class EngagementPanel : Control
         _shipBox.AddThemeConstantOverride("separation", 3);
         left.AddChild(_shipBox);
         left.AddChild(_ships);
+        _spotButton = new Button { Flat = true, Alignment = HorizontalAlignment.Left, FocusMode = FocusModeEnum.None, ClipText = true,
+            TooltipText = "How far each side can see the other (click to open or fold)" };
+        _spotButton.AddThemeFontSizeOverride("font_size", 12);
+        _spotButton.Pressed += () => { _spotOpen = !_spotOpen; if (_screen.EngagementNow is EngagementInfo e2) Refresh(Main.Instance.Sim!, e2); };
+        left.AddChild(_spotButton);
+        _spot = Ui.Label("", 12, Ui.Dim);
+        _spot.CustomMinimumSize = new Vector2(300, 0);
+        _spot.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        left.AddChild(_spot);
         _legend = new VBoxContainer();
         _legend.AddThemeConstantOverride("separation", 2);
         left.AddChild(_legend);
@@ -476,24 +488,37 @@ public partial class EngagementPanel : Control
         // Ships: your fleet as rows with heat and quick buttons, then the enemy and spotting as text.
         RefreshShipRows(w, f, ships);
         var shipLines = new List<string> { $"{e.EnemyName}: {e.EnemyShips} ships" };
-        shipLines.Add(e.EnemyClasses is string kinds
-            ? $"  {kinds}" + (e.ClassesSeenHoursAgo > 1 ? $" (on a close look {When(e.ClassesSeenHoursAgo)} ago)" : "")
-            : $"  types unknown: come within {Km(Sensors.IdentifyRange(w, Lightlag.Sim.Core.Side.Player))} to tell");
+        // One row per kind of ship once identified: how many, what it carries, and its burn.
+        if (Sensors.Find(w, Lightlag.Sim.Core.Side.Player, e.EnemyId) is { Classes.Count: > 0 } seenShips)
+        {
+            foreach (var g in seenShips.Classes.GroupBy(c => c).OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                if (!GameData.ShipClasses.TryGetValue(g.Key, out var k)) { shipLines.Add($"  {g.Count()}× {g.Key}"); continue; }
+                var arms = new List<string>();
+                if (k.Railguns > 0) arms.Add($"{k.Railguns} railgun{(k.Railguns == 1 ? "" : "s")}");
+                if (k.Lances > 0) arms.Add($"{k.Lances} lance{(k.Lances == 1 ? "" : "s")}");
+                if (k.Missiles > 0) arms.Add("missiles");
+                if (k.PointDefence > 0) arms.Add("point defence");
+                shipLines.Add($"  {g.Count()}× {k.Name} ({k.Short}): {(arms.Count > 0 ? string.Join(", ", arms) : "unarmed")}, burns {k.AccelMmPerHour2 / 3.6:0.#} km/s each hour");
+            }
+            if (e.ClassesSeenHoursAgo > 1) shipLines.Add($"  (from a close look {When(e.ClassesSeenHoursAgo)} ago: may have changed)");
+        }
+        else
+            shipLines.Add($"  types unknown: come within {Km(Sensors.IdentifyRange(w, Lightlag.Sim.Core.Side.Player))} to tell");
         if (e.TheyHaveRailguns != null || e.TheyHaveMissiles != null)
             shipLines.Add($"  carry: {Carries(e)}");
         var reach = RivalTech.Guess(w, Lightlag.Sim.Core.Side.Player, e.EnemyId);
         shipLines.Add($"  reach: railguns {reach.Rail:0} Mm, missiles {reach.Missile:0} Mm{(reach.Lance > 0 ? $", lances {reach.Lance:0} Mm" : "")} ({reach.How}{(reach.Plus > 0 ? $", ±{reach.Plus:P0}" : "")})");
         shipLines.Add($"  moving at {Format.Speed(e.EnemyVelocity.Length)}" + (e.InSight ? "" : " when last seen"));
         shipLines.Add($"  this fleet's top speed: {Format.Speed(e.OurTopSpeed)}");
-        shipLines.Add("");
-        shipLines.Add("Spotting");
-        shipLines.Add($"  You see them within {Km(e.SpotCold)} coasting cold, {Km(e.SpotWarm)} with warm engines, {Km(e.SpotBurn)} burning.");
+        var spotLines = new List<string>();
+        spotLines.Add($"  You see them within {Km(e.SpotCold)} coasting cold, {Km(e.SpotWarm)} with warm engines, {Km(e.SpotBurn)} burning.");
         if (e.Cued)
-            shipLines.Add(e.InSight
+            spotLines.Add(e.InSight
                 ? $"  That is holding a contact you already have; a fleet never seen shows up only within {Km(e.SpotColdUncued)} cold."
                 : $"  That is with your sensors searching their predicted track: if they changed course, only {Km(e.SpotColdUncued)} cold.");
         if (!e.InSight)
-            shipLines.Add(e.SpotWindow is TimeWindow sw
+            spotLines.Add(e.SpotWindow is TimeWindow sw
                 ? $"  If they keep coasting you spot them in {When(sw.From)}."
                 : $"  They are {Km(e.Gap)} away: too far to spot while they coast cold.");
         var us = e.OurState switch
@@ -503,8 +528,12 @@ public partial class EngagementPanel : Control
             SignatureState.Orbit => "you are holding orbit",
             _ => "you are coasting cold",
         };
-        shipLines.Add($"  They see you from at least {Km(e.TheySeeUsAt)}: {us}" + (e.Gap <= e.TheySeeUsAt ? ", so expect they can see you now." : "."));
+        spotLines.Add($"  They see you from at least {Km(e.TheySeeUsAt)}: {us}" + (e.Gap <= e.TheySeeUsAt ? ", so expect they can see you now." : "."));
         _ships.Text = string.Join("\n", shipLines);
+        _spotButton.Text = _spotOpen ? "▾ Spotting" : $"▸ Spotting: you see them {Km(e.SpotCold)} cold · they see you from {Km(e.TheySeeUsAt)}";
+        _spotButton.Modulate = e.Gap <= e.TheySeeUsAt ? new Color("ffd166") : Colors.White;
+        _spot.Text = string.Join("\n", spotLines);
+        _spot.Visible = _spotOpen;
         RefreshLegend(e);
 
         _timeline.Info = e;
@@ -577,6 +606,17 @@ public partial class EngagementPanel : Control
         orders.AddChild(hold);
         orders.AddChild(Small("Pull back now", "Break off and leave the fight now, by the fleet's pull-back rule", () => _screen.IssueNow(new PullBackNowCommand(id), "pull back now")));
         _shipBox.AddChild(orders);
+        var budget = new HBoxContainer();
+        budget.AddThemeConstantOverride("separation", 4);
+        budget.AddChild(Ui.Label("Missiles per target", 11, Ui.Dim));
+        var budgetButtons = new List<(Button B, int N)>();
+        foreach (var (n, text) in new[] { (2, "2"), (4, "4"), (0, "All") })
+        {
+            var b = Small(text, n == 0 ? "No limit: salvos keep going at a target until it is finished" : $"At most {n} missiles in flight at one ship; the rest wait for another target", () => _screen.IssueNow(new SetMissileBudgetCommand(id, n), "missile budget"));
+            budget.AddChild(b);
+            budgetButtons.Add((b, n));
+        }
+        _shipBox.AddChild(budget);
         _shipLive.Add((_, f) =>
         {
             rad.Text = f.Radiators switch { RadiatorMode.Out => "Radiators out", RadiatorMode.Cold => "Running cold", _ => "Radiators auto" };
@@ -584,6 +624,8 @@ public partial class EngagementPanel : Control
             support.SetPressedNoSignal(f.LeaveSupportBehind);
             support.Visible = Main.Instance.Sim!.World.ShipsOf(f).Any(Fleets.Unarmed) || f.LeaveSupportBehind;
             hold.Modulate = f.HoldOn ? Ui.Player : Colors.White;
+            foreach (var (b, n) in budgetButtons) b.Modulate = f.MissilesPerTarget == n ? Ui.Player : Colors.White;
+            budget.Visible = Main.Instance.Sim!.World.ShipsOf(f).Any(x => Fitting.Spec(x).Missiles > 0);
         });
     }
 
@@ -598,7 +640,38 @@ public partial class EngagementPanel : Control
         name.ClipText = true;
         name.MouseFilter = MouseFilterEnum.Stop;
         name.TooltipText = "Click for this ship's card";
-        name.GuiInput += ev => { if (ev is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) _screen.ShipCardId = shipId; };
+        name.TooltipText = "Click for this ship's card; right-click for its orders";
+        var menu = new PopupMenu();
+        menu.AddItem("Send home (to the nearest yard, rejoins when mended)", 1);
+        menu.AddItem("Eject a heat sink", 2);
+        menu.AddItem("Split off as its own fleet", 3);
+        menu.AddItem("Ship card", 4);
+        menu.IdPressed += mid => Main.Instance.RunGuarded("ship order", () =>
+        {
+            if (Main.Instance.Sim!.World.FindShip(shipId) is not Ship sh) return;
+            switch (mid)
+            {
+                case 1: _screen.IssueNow(new SendShipHomeCommand(sh.FleetId, shipId), "send ship home"); break;
+                case 2: _screen.IssueNow(new EjectShipSinkCommand(sh.FleetId, shipId), "eject heat sink"); break;
+                case 3: _screen.IssueNow(new SplitFleetCommand(sh.FleetId, new List<int> { shipId }), "split off ship"); break;
+                case 4: _screen.ShipCardId = shipId; break;
+            }
+        });
+        v.AddChild(menu);
+        void OnClick(InputEvent ev)
+        {
+            if (ev is not InputEventMouseButton { Pressed: true } mb) return;
+            if (mb.ButtonIndex == MouseButton.Left) _screen.ShipCardId = shipId;
+            if (mb.ButtonIndex == MouseButton.Right)
+            {
+                var world = Main.Instance.Sim!.World;
+                var together = world.FindShip(shipId) is Ship sh && world.FindFleet(sh.FleetId) is Fleet ff ? ff.ShipIds.Count : 0;
+                menu.SetItemDisabled(2, together < 2);
+                menu.Position = (Vector2I)GetGlobalMousePosition();
+                menu.Popup();
+            }
+        }
+        name.GuiInput += OnClick;
         top.AddChild(name);
         var eject = Small("Eject sink", "Dump a heat sink from this ship now: drops its heat at once", () =>
         {
@@ -659,6 +732,12 @@ public partial class EngagementPanel : Control
     {
         if (_screen.EngagementNow is not EngagementInfo e) return;
         var o = e.Options.FirstOrDefault(x => x.Key == key);
+        if (key == Engagement.LetGoKey)
+        {
+            _screen.IssueNow(new StopFleetCommand(e.Mine.Id), "let them go");
+            Main.Instance.Toast($"{e.Mine.Name}: lets them go");
+            return;
+        }
         if (o?.Request is not FlightRequest req) return;
         Main.Instance.Sim!.Issue(new PlanFlightCommand(e.Mine.Id, req with { DepartTick = Main.Instance.Sim!.World.Tick }));
         Main.Instance.Toast($"{e.Mine.Name}: {o.Label.ToLowerInvariant()}");

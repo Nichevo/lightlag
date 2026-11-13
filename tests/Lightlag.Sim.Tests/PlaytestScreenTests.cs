@@ -81,4 +81,83 @@ public class PlaytestScreenTests
         Assert.False(held.HeldBack);
         Assert.Equal(f.Id, held.JoinFleetId);
     }
+
+    private static (Fleet Mine, Fleet Enemy, List<Ship> Ships) TwoFleets(Simulation sim, string[] mine, double apartMm)
+    {
+        var w = sim.World;
+        var at = w.Bodies.Single(b => b.Key == "verdant").Position * 1.3;
+        var ships = mine.Select(c => Economy.NewShip(w, Side.Player, c)).ToList();
+        var f = Fleets.Create(w, Side.Player, ships, at);
+        foreach (var s in ships) s.Position = f.Position + s.FormationOffset;
+        var foes = new[] { Economy.NewShip(w, Side.Rival, "gun-frigate") }.ToList();
+        var enemy = Fleets.Create(w, Side.Rival, foes, at + new Vec2(apartMm, 0));
+        foreach (var s in foes) s.Position = enemy.Position + s.FormationOffset;
+        return (f, enemy, ships);
+    }
+
+    [Fact]
+    public void The_missile_budget_caps_missiles_in_flight_at_one_ship()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 3, GameLog.Memory(), sandbox: new SandboxSetup(PlayerFrigates: 0, PlayerDestroyers: 3, RivalFrigates: 1, RivalDestroyers: 0,
+            RivalStance: Stance.Hold, DistanceMm: 45));
+        var w = sim.World;
+        var f = w.Fleets.First(x => x.Side == Side.Player);
+        sim.Issue(new SetMissileBudgetCommand(f.Id, 2));
+        sim.ApplyPending();
+        Assert.Equal(2, f.MissilesPerTarget);
+        var most = 0;
+        var fired = false;
+        var end = w.Tick + 48;
+        while (w.Tick < end && (w.Battles.Count == 0 || w.ActiveBattle != null))
+        {
+            sim.Step();
+            var counts = w.Missiles.Where(m => m.Side == Side.Player).GroupBy(m => m.TargetShipId).Select(g => g.Count()).ToList();
+            if (counts.Count > 0) { fired = true; most = Math.Max(most, counts.Max()); }
+        }
+        Assert.True(fired, "no missiles were fired");
+        Assert.True(most <= 2, $"{most} missiles flew at one ship");
+    }
+
+    [Fact]
+    public void Sending_one_ship_home_splits_it_off_to_retreat_and_rejoin_later()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var (f, _, ships) = TwoFleets(sim, new[] { "gun-frigate", "gun-frigate" }, 500);
+        sim.Issue(new SendShipHomeCommand(f.Id, ships[1].Id));
+        sim.ApplyPending();
+        var alone = w.Fleets.Single(x => x.ShipIds.Contains(ships[1].Id));
+        Assert.NotEqual(f.Id, alone.Id);
+        Assert.True(alone.Retreating);
+        Assert.Equal(f.Id, alone.RejoinFleetId);
+        Assert.Single(f.ShipIds);
+    }
+
+    [Fact]
+    public void Chasing_offers_let_them_go_and_trip_times_without_the_tender()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 3, GameLog.Memory(), sandbox: new SandboxSetup(PlayerFrigates: 2, PlayerDestroyers: 0, RivalFrigates: 1, RivalDestroyers: 0,
+            PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 150));
+        var w = sim.World;
+        var f = w.Fleets.First(x => x.Side == Side.Player);
+        var enemy = w.Fleets.First(x => x.Side == Side.Rival);
+        var tender = Economy.NewShip(w, Side.Player, "supply-tender");
+        var tf = Fleets.Create(w, Side.Player, new List<Ship> { tender }, f.Position);
+        tender.Position = f.Position;
+        Fleets.Absorb(w, f, tf);
+        sim.Step();
+        Assert.True(Sensors.Find(w, Side.Player, enemy.Id) != null, "the enemy was not seen");
+        var before = Engagement.Of(w, f, enemy.Id)!;
+        Assert.DoesNotContain(before.Options, o => o.Key == Engagement.LetGoKey);
+        var engage = before.Options.Single(o => o.Key == "engage");
+        sim.Issue(new PlanFlightCommand(f.Id, engage.Request! with { DepartTick = w.Tick }));
+        sim.ApplyPending();
+        var chasing = Engagement.Of(w, f, enemy.Id)!;
+        Assert.Contains(chasing.Options, o => o.Key == Engagement.LetGoKey);
+
+        f.LeaveSupportBehind = true;
+        var lean = Engagement.Of(w, f, enemy.Id)!.Options.Single(o => o.Key == "engage");
+        Assert.Contains("warships only", lean.Summary);
+        Assert.Equal(3, f.ShipIds.Count); // planning leaves the fleet as it was
+    }
 }

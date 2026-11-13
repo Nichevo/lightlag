@@ -328,6 +328,9 @@ public static class Engagement
             .OrderBy(x => x.ImpactHours).ToList();
     }
 
+    /// <summary>The "Let them go" option: the screen sends a stop order for it (it has no flight request).</summary>
+    public const string LetGoKey = "letgo";
+
     private static List<ApproachOption> Options(World w, Fleet mine, int enemyId, Sighting s, FleetPerformance perf, double burn)
     {
         var list = new List<ApproachOption>();
@@ -346,9 +349,36 @@ public static class Engagement
                 return;
             }
             var plan = FlightPlanner.Plan(w, mine, req);
+            // With "leave support behind" the warships go in alone: show the trip as they will fly it.
+            var withAll = "";
+            if (mode is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.Overtake && WithoutSupport(req) is { Ok: true, Flight: Flight lean } leanPlan)
+            {
+                if (plan is { Ok: true, Flight: Flight slow }) withAll = $" (warships only; with the support ships: {When(slow.ArriveHour - w.Hour)})";
+                plan = leanPlan;
+            }
             list.Add(plan is { Ok: true, Flight: Flight f }
-                ? new ApproachOption(key, label, summary(plan) + (current && Chases.PullingAway(w, mine) is string away ? $" NOW: {away}." : ""), null, req, current)
+                ? new ApproachOption(key, label, summary(plan) + withAll + (current && Chases.PullingAway(w, mine) is string away ? $" NOW: {away}." : ""), null, req, current)
                 : new ApproachOption(key, label, "", plan.Problem ?? "Cannot do that", null, current));
+        }
+
+        // The plan for the fleet without its unarmed ships, when it leaves them behind (null otherwise).
+        // The ship list is put back exactly as it was: nothing in the world changes.
+        FlightPlan? WithoutSupport(FlightRequest req)
+        {
+            if (!mine.LeaveSupportBehind) return null;
+            var support = w.ShipsOf(mine).Where(Fleets.Unarmed).Select(x => x.Id).ToHashSet();
+            if (support.Count == 0 || support.Count == mine.ShipIds.Count) return null;
+            var saved = mine.ShipIds.ToList();
+            try
+            {
+                mine.ShipIds.RemoveAll(support.Contains);
+                return FlightPlanner.Plan(w, mine, req);
+            }
+            finally
+            {
+                mine.ShipIds.Clear();
+                mine.ShipIds.AddRange(saved);
+            }
         }
 
         double Peak(Flight f) => f.Legs.Count == 0 ? 0 : f.Legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
@@ -358,7 +388,7 @@ public static class Engagement
 
         // Say which ship holds the burn back (a slow tender or freighter drags the whole fleet).
         var held = mine.LeaveSupportBehind && w.ShipsOf(mine).Any(Fleets.Unarmed) && !w.ShipsOf(mine).All(Fleets.Unarmed)
-            ? " Support ships stay behind and rejoin after (the burn shown still counts them)."
+            ? " Support ships stay behind and rejoin after."
             : FleetPerformance.HeldBackBy(w, mine) is { } hb
             ? $" Burn held to {hb.Ship}'s {hb.Accel / 3.6:0.#} km/s each hour (the others could do {hb.Others / 3.6:0.#}): tick Leave support behind (ships panel) or split it off."
             : "";
@@ -377,6 +407,15 @@ public static class Engagement
         });
         Chase("shadow", "Shadow them", ChaseMode.ShadowMissiles, burn,
             p => $"Keep pace just outside their missile range ({C.Missile.LaunchRangeMm * 1.1 * 1000:#,0} km): watch without being shot at, {Fuel(p)}.");
+
+        // Chasing them now: stop, brake and let them go (what it costs and what it saves).
+        if (mine.Chase is { } chasing && chasing.TargetFleetId == enemyId)
+        {
+            var brake = FlightPlanner.BrakeToStop(w, mine);
+            var cost = brake == null ? "no fuel left to brake: drifts on" : $"brakes to a stop, uses {brake.DeltaV / Math.Max(1e-9, perf.DeltaVLeft):P0} of its fuel";
+            var why = Chases.PullingAway(w, mine) != null ? " They are getting away anyway." : "";
+            list.Add(new ApproachOption(LetGoKey, "Let them go", $"Stop the chase: {cost}, and saves the fuel the chase would burn.{why}", null, null, false));
+        }
 
         // Running: home, or straight away from them.
         var faster = theirSpeed > perf.MaxSpeed * 1.001;

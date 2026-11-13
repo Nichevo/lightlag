@@ -226,6 +226,9 @@ public sealed class Fleet
     /// <summary>Fire dumb (brain 1) salvos: they can't be hijacked or jammed, but are easier to dodge and shoot down.</summary>
     public bool DumbSalvos { get; set; }
 
+    /// <summary>Missile budget: at most this many of the fleet's missiles in flight at one target ship (0: no limit).</summary>
+    public int MissilesPerTarget { get; set; }
+
     /// <summary>Keeping tech secret (see Secrecy): the rule, when advanced weapons come out, whether they are out in this fight, and enemy fleets when it began.</summary>
     public WeaponsShown Shown { get; set; }
     public SecrecyRules Secrecy { get; set; } = new();
