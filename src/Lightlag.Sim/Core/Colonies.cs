@@ -1351,6 +1351,8 @@ public static class Colonies
                     from.Stock[good] = Held(from, good) - take;
                     s.Cargo[good] = take;
                 }
+                // The climb to orbit is paid for what was loaded (see Lift).
+                if (from.Owner == s.Side) Lift.Pay(w, s.Side, from, s.Cargo.Values.Sum());
                 s.Loaded = true;
             }
             if (s.ViaBodyId is int via && !s.ViaDone)

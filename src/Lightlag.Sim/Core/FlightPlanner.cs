@@ -57,6 +57,8 @@ public static partial class FlightPlanner
             if (p.Flight != null) p.Flight.FromBodyId = from;
             return p;
         }
+        if (req.Route == RouteKind.Slingshot && Sails.Any(w, fleet))
+            return FlightPlan.Fail("Sails can't slingshot: a flyby needs a hard burn at the right moment");
         if (req.Route == RouteKind.Slingshot && req.TargetFleetId == null)
             return req.FlybyBodyId != null ? Straight(req) : BestSlingshot(w, fleet, req).Plan;
         var plan = Straight(req);
@@ -84,7 +86,9 @@ public static partial class FlightPlanner
     /// <summary>Plans the flight in straight stretches, without looking for planets in the way.</summary>
     private static FlightPlan PlanStraight(World w, Fleet fleet, FlightRequest req)
     {
-        var perf = FleetPerformance.Of(w, fleet);
+        // Sail ships fly with the average push of sunlight (and laser stations) along the way.
+        var perf = Sails.ForRoute(w, fleet, req, out var push);
+        if (Sails.RouteProblem(w, fleet, push) is string dark) return FlightPlan.Fail(dark, perf.DeltaVLeft);
         if (perf.MaxSpeed <= 0 || perf.Accel <= 0) return FlightPlan.Fail("The fleet has no ships that can fly");
         var now = w.Hour;
         var legs = new List<FlightLeg>();

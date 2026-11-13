@@ -130,6 +130,14 @@ public static class Light
             var hours = (Vec2.Distance(seat, b.Position) + Vec2.Distance(b.Position, at)) / MmPerHour(w) + hop;
             if (best == null || hours < best) best = hours;
         }
+        // Relay satellites do the same from wherever they sit (see Satellites).
+        if (w.Satellites.Count > 0)
+            foreach (var (p, anchor) in Satellites.Relays(w, side))
+            {
+                if (!Sensors.LineOfSight(w, seat, p, anchor, home) || !Sensors.LineOfSight(w, p, at, anchor)) continue;
+                var hours = (Vec2.Distance(seat, p) + Vec2.Distance(p, at)) / MmPerHour(w) + hop;
+                if (best == null || hours < best) best = hours;
+            }
         return best;
     }
 

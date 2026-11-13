@@ -389,11 +389,25 @@ public sealed record FlightLeg(double Start, double End, Vec2 P0, Vec2 V0, Vec2 
 /// <summary>What a fleet can do: the slowest ship sets the pace, the thirstiest ship sets the range.</summary>
 public readonly record struct FleetPerformance(double MaxSpeed, double Accel, double DeltaVLeft)
 {
-    public static FleetPerformance Of(World w, Fleet f)
+    /// <summary>
+    /// The fleet's slowest top speed and acceleration, and the least speed change its fuel buys. Sail ships
+    /// accelerate by the push on their sails (sailPush, or where the fleet is now; see Sails).
+    /// </summary>
+    public static FleetPerformance Of(World w, Fleet f, double? sailPush = null)
     {
         double speed = double.MaxValue, accel = double.MaxValue, dv = double.MaxValue;
+        double? push = null;
         foreach (var s in w.ShipsOf(f))
         {
+            if (Sails.Is(s))
+            {
+                push ??= sailPush ?? Sails.PushOn(w, f);
+                var e = Wounds.SpeedFactor(s);
+                speed = Math.Min(speed, s.MaxSpeed * e);
+                accel = Math.Min(accel, s.Accel * e * push.Value);
+                dv = Math.Min(dv, s.Supplies / Tech.SuppliesPerDeltaV(w, s));
+                continue;
+            }
             // Engines damage slows a ship; knocked out it limps at half speed, crippled at a quarter.
             var engines = Wounds.SpeedFactor(s);
             speed = Math.Min(speed, s.MaxSpeed * engines);

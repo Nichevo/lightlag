@@ -107,6 +107,8 @@ public static class Sensors
     public static double Signature(World w, Fleet f)
     {
         var state = StateOf(f);
+        // Sails make no plume: a fleet of sail ships under sail shows like a cold one.
+        if (state is SignatureState.Burn or SignatureState.Warm && Sails.All(w, f)) state = SignatureState.Cold;
         var quiet = state == SignatureState.Burn ? Tech.Factor(w, f.Side, Tech.QuietDrives) * Fuels.Signature(w, f) : 1;
         var solo = state == SignatureState.Cold && f.ShipIds.Count == 1 ? S.SoloCold : 1;
         return SizeOf(w, f) * solo * StateFactor(state) * quiet * (state == SignatureState.Burn ? 1 : Heat.SignatureFactor(w, f))
@@ -268,6 +270,7 @@ public static class Sensors
                 if (f.Position.IsFinite) observers.Add((f.Position, SensorOf(w, f), null));
             foreach (var b in w.Bodies.Where(b => b.Owner == side))
                 observers.Add((b.Position, PlanetSensorOf(w, side, b), b.Id));
+            if (w.Satellites.Count > 0) observers.AddRange(Satellites.Observers(w, side));
 
             foreach (var enemy in w.Fleets.Where(f => f.Side != side))
             {

@@ -69,10 +69,43 @@ public partial class MapView
             var at = Camera.ToScreen(p);
             if (!Camera.OnScreen(at, 100)) continue;
             row[b.Id] = row.GetValueOrDefault(b.Id) + 1;
-            var name = st.Kind == Economy.Relay ? "relay" : "sensors";
+            var name = st.Kind switch
+            {
+                Economy.Relay => "relay",
+                Economy.SensorStation => "sensors",
+                _ => Economy.StationKind(st.Kind)?.Name.ToLowerInvariant() ?? st.Kind,
+            };
             var text = w.Hour >= st.ReadyHour ? $"◆ {name}" : $"◇ {name} (building)";
             var y = (float)Math.Max(8, b.Radius * Camera.Scale) + 12 * row[b.Id] + 6;
             DrawString(_font, at + new Vector2(-24, y), text, HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
+        }
+    }
+
+    /// <summary>
+    /// Satellites: yours always (a small diamond, hollow on its way, crossed when lost, with a dotted line to where it
+    /// is going); the rival's only where your sensors have found one (or in the debug view).
+    /// </summary>
+    private void DrawSatellites()
+    {
+        var w = Sim.World;
+        foreach (var s in w.Satellites)
+        {
+            var mine = s.Side == Side.Player;
+            if (!mine && !(s.Seen && s.LostHour == null) && !RevealAll) continue;
+            var p = Satellites.PositionOf(w, s);
+            var at = Camera.ToScreen(p);
+            if (!Camera.OnScreen(at, 60)) continue;
+            var color = mine ? Ui.Player : Ui.Rival;
+            if (s.LostHour != null) color = new Color(color, 0.4f);
+            var d = new[] { at + new Vector2(0, -4), at + new Vector2(4, 0), at + new Vector2(0, 4), at + new Vector2(-4, 0), at + new Vector2(0, -4) };
+            if (s.Arrived && s.LostHour == null) DrawColoredPolygon(d[..4], color);
+            DrawPolyline(d, color, 1, true);
+            if (s.LostHour != null) DrawCross(at, 5, Ui.Danger, 1.2f);
+            if (!s.Arrived && s.LostHour == null && w.FindBody(s.BodyId) is Body b)
+                DrawDashedLine(at, Camera.ToScreen(Satellites.SpotAt(w, b, s.Spot, s.Id)), new Color(color, 0.3f), 1, 3);
+            if (Camera.Scale * Physics.MmPerAu > 300 || s.LostHour != null)
+                DrawString(_font, at + new Vector2(6, -4), Satellites.KindOf(s.Kind)?.Short + (s.LostHour != null ? " (lost)" : mine && s.Seen ? " (seen)" : ""),
+                    HorizontalAlignment.Left, -1, 10, new Color(color, 0.8f));
         }
     }
 
@@ -80,6 +113,7 @@ public partial class MapView
     {
         var w = Sim.World;
         DrawStations();
+        DrawSatellites();
         if (!w.Light.On) return;
         if (Light.Flagship(w, Side.Player) is Ship flag && _drawn.TryGetValue(flag.Id, out var fp))
         {

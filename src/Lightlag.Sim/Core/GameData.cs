@@ -62,7 +62,7 @@ public sealed record ShipClass(
     double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
     string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null,
     double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false,
-    bool Lifeboats = false, bool AiRunAllowed = true, int Lances = 0)
+    bool Lifeboats = false, bool AiRunAllowed = true, int Lances = 0, bool Sail = false)
 {
     /// <summary>The class's slots (none for old data).</summary>
     public IReadOnlyList<SlotData> SlotList => Slots ?? (IReadOnlyList<SlotData>)Array.Empty<SlotData>();
@@ -174,6 +174,10 @@ public static class GameData
     public static FormationData Formations => _file.Value.Formations ?? new FormationData();
     public static EconomyData Economy => _economy.Value;
     public static AiData Ai => _ai.Value;
+    private static readonly Lazy<TransportData> _transport = new(LoadTransport);
+
+    /// <summary>Sails, satellites and the lift to orbit (Data/transport.json).</summary>
+    public static TransportData Transport => _transport.Value;
     private static readonly Lazy<HazardsData> _hazards = new(LoadHazards);
     public static HazardsData Hazards => _hazards.Value;
     public static IReadOnlyDictionary<string, ResearchData> ResearchById => _research.Value;
@@ -241,6 +245,26 @@ public static class GameData
         foreach (var k in h.Events.Weights.Keys)
             if (Array.IndexOf(Core.Events.Kinds, k) < 0) throw new InvalidDataException($"hazards.json: unknown event kind '{k}'");
         return h;
+    }
+
+    private static TransportData LoadTransport()
+    {
+        var t = Json.Deserialize<TransportData>(ReadText("transport.json"));
+        if (t.Sails is { } s && !(s.SunAu > 0 && s.MaxLight > 0 && s.LaserPush >= 0 && s.LaserRangeMm > 0 && s.MinPush >= 0 && s.Samples >= 2))
+            throw new InvalidDataException("transport.json: sails needs sunAu, maxLight and laserRangeMm above 0, laserPush and minPush of 0 or more, samples of at least 2");
+        if (t.Satellites is { } sat)
+        {
+            if (!(sat.SpeedMmPerHour > 0 && sat.MaxPerSide >= 1 && sat.SeenMm > 0 && sat.KillRangeMm >= 0 && sat.KillPerHour is >= 0 and <= 1 && sat.LiftGoods >= 0))
+                throw new InvalidDataException("transport.json: satellites needs speedMmPerHour and seenMm above 0, maxPerSide of at least 1, killPerHour in [0, 1]");
+            var kinds = new HashSet<string>();
+            foreach (var k in sat.Kinds ?? new List<SatelliteKind>())
+                if (!kinds.Add(k.Id) || !(k.Cost > 0) || k.SensorMm < 0 || k.Short.Length == 0)
+                    throw new InvalidDataException($"transport.json: satellite kind '{k.Id}' is listed twice, or needs a cost above 0 and a short name");
+            if (sat.Needs.Length > 0 && !ResearchById.ContainsKey(sat.Needs)) throw new InvalidDataException($"transport.json: satellites need unknown research '{sat.Needs}'");
+        }
+        if (t.Lift is { } l && !(l.IndustryPerGood >= 0 && l.RefRadiusMm > 0 && l.MaxWell > 0 && l.MassDriver is > 0 and <= 1))
+            throw new InvalidDataException("transport.json: lift needs industryPerGood of 0 or more, refRadiusMm and maxWell above 0, massDriver in (0, 1]");
+        return t;
     }
 
     private static AiData LoadAi()

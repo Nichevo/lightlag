@@ -1106,6 +1106,7 @@ public partial class FleetPanel : PanelContainer
     {
         var list = new List<string>();
         if (f.Refused != null && w.Hour - f.RefusedHour < 24) list.Add($"Can't: {f.Refused}");
+        if (Sails.Status(w, f) is string sails) list.Add(sails);
         if (f.SupplyRunFor == null && SupplyLines.RunStatus(w, f) is string supply) list.Add(supply);
         if (f.SupplyRunFor is int servedId && w.FindFleet(servedId) is Fleet served && SupplyLines.RunStatus(w, served) is string run)
             list.Add($"Supply run for {served.Name}: " + run.Replace($"Tanker {f.Name}", "").TrimStart(':', ' '));

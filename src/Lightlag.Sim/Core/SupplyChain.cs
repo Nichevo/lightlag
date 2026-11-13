@@ -463,7 +463,7 @@ public static class SupplyChain
     /// <summary>A freighter from the shipyard (bulk once researched), if one can be queued.</summary>
     private static ChainFix? FreighterFix(World w, Side side)
     {
-        var cls = Economy.CanQueue(w, side, OrderKind.Ship, "bulk-freighter") == null ? "bulk-freighter" : "freighter";
+        var cls = SupplyLines.HaulerClass(w, side);
         if (Economy.CanQueue(w, side, OrderKind.Ship, cls) != null) return null;
         var data = GameData.ShipClass(cls);
         return new ChainFix($"Build {data.Name.ToLowerInvariant()}", Industry(data.Cost), new QueueOrderCommand(side, OrderKind.Ship, cls));

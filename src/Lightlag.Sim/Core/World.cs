@@ -80,6 +80,9 @@ public sealed class World
     /// <summary>Relays and sensor stations, built and being built (see Economy).</summary>
     public List<Station> Stations { get; set; } = new();
 
+    /// <summary>Sensor and relay satellites, on their way, in place and lately lost (see Satellites).</summary>
+    public List<Satellite> Satellites { get; set; } = new();
+
     /// <summary>Freighters carrying goods, and fixed runs set by the player (see Colonies).</summary>
     public List<Shipment> Shipments { get; set; } = new();
     public List<FixedRun> FixedRuns { get; set; } = new();

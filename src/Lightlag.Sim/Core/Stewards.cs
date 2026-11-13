@@ -307,7 +307,7 @@ public static class Planner
 
     /// <summary>Only supply ships (tankers), not freighter-only fleets.</summary>
     public static bool SupplyFleet(World w, Fleet f) =>
-        f.ShipIds.Count > 0 && w.ShipsOf(f).All(SupplyLines.IsSupplyShip) && !w.ShipsOf(f).All(s => s.ClassId == "freighter" || s.ClassId == "bulk-freighter");
+        f.ShipIds.Count > 0 && w.ShipsOf(f).All(SupplyLines.IsSupplyShip) && !w.ShipsOf(f).All(SupplyLines.IsFreighter);
 
     /// <summary>Share of missiles left across the fleet's racks (1 with none fitted).</summary>
     public static double MissileShare(World w, Fleet f)
@@ -807,10 +807,10 @@ public static class Stewards
             if (_unserved.Count > 0 && !queued.Any(o => o.Key == "tanker") && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null)
                 Offer(AutoArea.Shipyard, "yard:tanker", $"Build a tanker: {_unserved[0].Name} waits for supplies", new QueueOrderCommand(_side, OrderKind.Ship, "tanker"), "Build it");
             var waiting = Colonies.TransportWanted(_w, _side).Any() && !Colonies.FreeHaulers(_w, _side).Any();
-            var haulers = _w.Fleets.Where(f => f.Side == _side).Sum(f => _w.ShipsOf(f).Count(s => s.ClassId is "freighter" or "bulk-freighter"));
+            var haulers = _w.Fleets.Where(f => f.Side == _side).Sum(f => _w.ShipsOf(f).Count(SupplyLines.IsFreighter));
             var planets = _w.Bodies.Count(b => b.Owner == _side && b.Board != null);
-            var cls = Economy.CanQueue(_w, _side, OrderKind.Ship, "bulk-freighter") == null ? "bulk-freighter" : "freighter";
-            if (waiting && haulers < planets && !queued.Any(o => o.Key is "freighter" or "bulk-freighter") && Economy.CanQueue(_w, _side, OrderKind.Ship, cls) == null)
+            var cls = SupplyLines.HaulerClass(_w, _side);
+            if (waiting && haulers < planets && !queued.Any(o => o.Key is "freighter" or "bulk-freighter" or "sail-freighter") && Economy.CanQueue(_w, _side, OrderKind.Ship, cls) == null)
                 Offer(AutoArea.Shipyard, "yard:freighter", $"Build a {GameData.ShipClass(cls).Name.ToLowerInvariant()}: planets wait for goods and no freighter is free",
                     new QueueOrderCommand(_side, OrderKind.Ship, cls), "Build it");
         }

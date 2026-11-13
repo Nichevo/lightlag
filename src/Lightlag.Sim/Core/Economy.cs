@@ -25,8 +25,10 @@ public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDa
     TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
+/// LiftCut: the share of the lift to orbit still paid at its body (skyhook, space elevator; see Lift). Ground: only over
+/// a world with ground to build on (a space elevator is anchored to it).
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days, string? Needs = null,
-    List<string>? OnTypes = null, Dictionary<string, double>? Makes = null);
+    List<string>? OnTypes = null, Dictionary<string, double>? Makes = null, double LiftCut = 0, bool Ground = false);
 
 /// <summary>
 /// A station in orbit of a body: a relay passes signals round planets that block them; a sensor
@@ -452,7 +454,8 @@ public static class Economy
         if (w.FindBody(bodyId) is not Body b || b.Owner != side) return "Only on a body you hold";
         if (HasStation(w, side, bodyId, kind)) return $"{b.Name} already has a {data.Name.ToLowerInvariant()}";
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
-        if (data.OnTypes is { Count: > 0 } types && !types.Contains(b.Type)) return $"Only over a gas giant";
+        if (data.OnTypes is { Count: > 0 } types && !types.Contains(b.Type)) return types.All(x => x is "gas" or "ice-giant") ? "Only over a gas giant" : $"Only over a {string.Join(" or ", types)} world";
+        if (data.Ground && b.Board == null) return $"Only on a world with ground to anchor it ({b.Name} has none)";
         if (Of(w, side).Industry < data.Cost) return $"Needs {data.Cost:0} Industry";
         return null;
     }

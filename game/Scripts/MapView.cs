@@ -1239,12 +1239,16 @@ public static class ShipIcons
     private static readonly Vector2[] Cruiser = { new(14, 0), new(6, 5.5f), new(-11, 5.5f), new(-8, 0), new(-11, -5.5f), new(6, -5.5f) };
     private static readonly Vector2[] Hauler = { new(9, 0), new(6, 4), new(-9, 4), new(-9, -4), new(6, -4) };
 
+    /// <summary>A sail ship: a wide square sail across a thin hull.</summary>
+    private static readonly Vector2[] Sail = { new(9, 0), new(3, 1.5f), new(3, 8), new(0, 8), new(0, 1.5f), new(-8, 1.5f), new(-8, -1.5f), new(0, -1.5f), new(0, -8), new(3, -8), new(3, -1.5f) };
+
     public static Vector2[] For(string icon) => icon switch
     {
         "destroyer" => Destroyer,
         "escort" => Escort,
         "cruiser" => Cruiser,
         "tanker" or "freighter" => Hauler,
+        "sail" => Sail,
         _ => Frigate,
     };
 }

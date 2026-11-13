@@ -641,7 +641,7 @@ public static class Mind
                 .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
                 ?? Mine().Where(AtHome).OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault();
             foreach (var run in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip)
-                                                     && !_w.ShipsOf(f).All(s => s.ClassId == "freighter")).ToList())
+                                                     && !_w.ShipsOf(f).All(SupplyLines.IsFreighter)).ToList())
             {
                 var current = run.SupplyRunFor is int id ? _w.FindFleet(id) : null;
                 if (current is { ShipIds.Count: > 0 } && current.Side == _side && !SupplyOnly(current)
@@ -1207,9 +1207,10 @@ public static class Mind
             var tankers = mine.Count(s => s.ClassId == "tanker") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "tanker");
             var warships = mine.Count(s => !SupplyLines.IsSupplyShip(s) && Fitting.Spec(s).Railguns + Fitting.Spec(s).Missiles > 0);
             if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
-            var freighters = mine.Count(s => s.ClassId == "freighter") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "freighter");
+            var freighters = mine.Count(SupplyLines.IsFreighter) + orders.Count(o => o.Kind == OrderKind.Ship && o.Key is "freighter" or "bulk-freighter" or "sail-freighter");
             var colonies = _w.Bodies.Count(b => b.Owner == _side && b.Board != null && !b.Home);
-            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 + _p.ExtraFreighters && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") == null) return "freighter";
+            var hauler = SupplyLines.HaulerClass(_w, _side) is var h && h == "bulk-freighter" ? "freighter" : h;
+            if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 + _p.ExtraFreighters && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, hauler) == null) return hauler;
             if (!Easy && _rng.Chance(0.25 * _m.Lean.BigShips) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
             if (!Easy && _rng.Chance(0.15 * _m.Lean.Escorts) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
             var frigateShare = Easy ? 0.6 : Math.Clamp(_p.FrigateShare - _m.Lean.Missiles, 0.1, 0.9);
@@ -1448,6 +1449,7 @@ public static class Mind
                 Note($"Builds a helium-3 skimmer at {giant.Name}");
                 return;
             }
+            if (_home != null && Transport(spare)) return;
             var relay = Economy.StationKind(Economy.Relay);
             if (!_w.Light.On || relay == null || spare < relay.Cost * 2 || _home == null) return;
             if (_w.Stations.Any(st => st.Side == _side && st.Kind == Economy.Relay)) return;
@@ -1457,6 +1459,46 @@ public static class Mind
                 Do(new BuildStationCommand(_side, far.Id, Economy.Relay));
                 Note($"Builds a relay at {far.Name}");
             }
+        }
+
+        /// <summary>
+        /// Transport and orbit, with Industry to spare: the best lift-to-orbit station it has researched over
+        /// home; a laser station at home once it has sail ships; and up to three sensor satellites (home's
+        /// leading and trailing points, then over the enemy's yard). One thing a think. True when it did one.
+        /// </summary>
+        private bool Transport(double spare)
+        {
+            var home = _home!;
+            foreach (var kind in new[] { "space-elevator", "skyhook" })
+            {
+                if (Economy.StationKind(kind) is not StationData lift || spare < lift.Cost * 1.5) continue;
+                if (Economy.HasStation(_w, _side, home.Id, kind)) break;
+                if (Economy.CanBuildStation(_w, _side, home.Id, kind) != null) continue;
+                Do(new BuildStationCommand(_side, home.Id, kind));
+                Note($"Builds a {lift.Name.ToLowerInvariant()} at {home.Name}: cheaper lift to orbit");
+                return true;
+            }
+            if (Economy.StationKind(Sails.LaserStation) is StationData laser && spare >= laser.Cost * 1.5
+                && _w.Ships.Any(s => s.Side == _side && Sails.Is(s)) && !_w.Stations.Any(st => st.Side == _side && st.Kind == Sails.LaserStation)
+                && Economy.CanBuildStation(_w, _side, home.Id, Sails.LaserStation) == null)
+            {
+                Do(new BuildStationCommand(_side, home.Id, Sails.LaserStation));
+                Note($"Builds a laser station at {home.Name} for its sail ships");
+                return true;
+            }
+            const string sensor = "sensor-sat";
+            if (Satellites.KindOf(sensor) is not SatelliteKind sat || spare < sat.Cost * 3) return false;
+            var spots = new List<(int Body, SatSpot Spot)> { (home.Id, SatSpot.Leading), (home.Id, SatSpot.Trailing) };
+            if (_enemyYard != null) spots.Add((_enemyYard.Id, SatSpot.Orbit));
+            foreach (var (body, spot) in spots)
+            {
+                // A spot where one was lately shot down waits until the loss is old news.
+                if (_w.Satellites.Any(x => x.Side == _side && x.BodyId == body && x.Spot == spot) || Satellites.CanLaunch(_w, _side, sensor, body, spot) != null) continue;
+                Do(new LaunchSatelliteCommand(_side, sensor, body, spot));
+                Note($"Launches a sensor satellite to {Satellites.SpotName(_w.FindBody(body)!.Name, spot)}");
+                return true;
+            }
+            return false;
         }
 
         // ---- Orders -----------------------------------------------------------------------------

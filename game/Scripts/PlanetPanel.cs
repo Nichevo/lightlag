@@ -14,7 +14,7 @@ public partial class PlanetPanel : PanelContainer
     private readonly GameScreen _screen;
     private Label _title = null!, _body = null!;
     private HBoxContainer _build = null!, _people = null!, _war = null!;
-    private MenuButton _settle = null!;
+    private MenuButton _settle = null!, _satellite = null!;
     private CheckButton _topUp = null!;
     private int _bodyId;
 
@@ -40,6 +40,15 @@ public partial class PlanetPanel : PanelContainer
             "The planet screen: lay out buildings on its map, set priorities, storage and transport"));
         _build.AddChild(Ui.SmallButton("Planets list", () => _screen.ShowPlanets = true, "All worlds in one list (Y)"));
         box.AddChild(_build);
+
+        // Satellites (Plan 3 build 4): over any planet or moon, or at its leading or trailing point.
+        var sats = new HBoxContainer();
+        _satellite = new MenuButton { Text = "Satellite ▾", Flat = false, FocusMode = FocusModeEnum.None };
+        _satellite.AddThemeFontSizeOverride("font_size", 14);
+        _satellite.AboutToPopup += FillSatelliteMenu;
+        _satellite.GetPopup().IdPressed += id => Main.Instance.RunGuarded("satellite", () => LaunchSatellite((int)id));
+        sats.AddChild(_satellite);
+        box.AddChild(sats);
 
         _war = new HBoxContainer();
         _war.AddChild(Ui.SmallButton("Ground fight ▸", () => _screen.GroundScreenId = _bodyId,
@@ -71,6 +80,39 @@ public partial class PlanetPanel : PanelContainer
         popup.AddItem("Send settlers (no escort)", -1);
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player && f.PeopleRun == null && Combat.Armed(w, f)).OrderBy(f => f.Id))
             popup.AddItem($"Send settlers, escorted by {f.Name} ({f.ShipIds.Count} ships)", f.Id);
+    }
+
+    /// <summary>Menu ids: kind index times 3 plus the spot.</summary>
+    private void FillSatelliteMenu()
+    {
+        var popup = _satellite.GetPopup();
+        popup.Clear();
+        var w = Main.Instance.Sim!.World;
+        var b = w.FindBody(_bodyId);
+        if (b == null) return;
+        for (var k = 0; k < Satellites.Kinds.Count; k++)
+        {
+            var kind = Satellites.Kinds[k];
+            foreach (var spot in Enum.GetValues<SatSpot>())
+            {
+                var id = k * 3 + (int)spot;
+                var why = Satellites.CanLaunch(w, Side.Player, kind.Id, b.Id, spot);
+                var from = Satellites.LaunchSite(w, Side.Player, b.Position);
+                var cost = Satellites.CostOf(w, kind, from);
+                popup.AddItem($"{kind.Name} to {Satellites.SpotName(b.Name, spot)} · {cost:0}" + (why != null ? $" ({why})" : ""), id);
+                popup.SetItemDisabled(popup.GetItemIndex(id), why != null);
+                popup.SetItemTooltip(popup.GetItemIndex(id), $"{kind.Effect}. Launched from {from?.Name ?? "your nearest world"}: {kind.Cost:0} Industry plus {cost - kind.Cost:0.#} for the lift to orbit");
+            }
+        }
+    }
+
+    private void LaunchSatellite(int id)
+    {
+        var k = id / 3;
+        if (k < 0 || k >= Satellites.Kinds.Count) return;
+        var cmd = new LaunchSatelliteCommand(Side.Player, Satellites.Kinds[k].Id, _bodyId, (SatSpot)(id % 3));
+        if (Satellites.CanLaunch(Main.Instance.Sim!.World, Side.Player, cmd.Kind, cmd.BodyId, cmd.Spot) is string problem) { Main.Instance.Toast(problem); return; }
+        _screen.IssueNow(cmd, "launching a satellite");
     }
 
     private static string Signed(double v) => v >= 0 ? $"+{v:0}" : $"−{-v:0}";
@@ -155,10 +197,17 @@ public partial class PlanetPanel : PanelContainer
             lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it" + (cap > 0 && owner == null ? ", or land settlers to take it at once" : ""));
         if (b.Shipyard && owner == Side.Rival && Economy.BombardStatus(w, b, Side.Player) is string attack) lines.Add("Shipyard: " + attack);
         if (w.Loop && Planets.SettlerStatus(w, Side.Player, b.Id) is string settlers) lines.Add("SETTLERS: " + settlers);
+        if (w.Loop && mine && b.Board != null) lines.Add(Lift.Describe(w, b));
+        var here = w.Satellites.Where(s => s.Side == Side.Player && s.BodyId == b.Id).ToList();
+        if (here.Count > 0) lines.Add("Satellites: " + string.Join("; ", here.Select(s => Satellites.Describe(w, s))));
         _body.Text = string.Join("\n", lines);
 
         _build.Visible = mine && b.Board != null;
         _war.Visible = b.Front != null && b.Board != null;
+        _satellite.GetParent<Control>().Visible = w.Loop && b.Kind != BodyKind.Star;
+        var satWhy = Satellites.D.Needs.Length > 0 && !Tech.Has(w, Side.Player, Satellites.D.Needs) ? $"Research {GameData.Research(Satellites.D.Needs).Name} first (research screen, T)" : null;
+        _satellite.Disabled = satWhy != null;
+        _satellite.TooltipText = satWhy ?? "Launch a sensor or relay satellite to this body's orbit, or to its leading or trailing point (60° ahead or behind on its orbit)";
         _people.Visible = cap > 0 && (mine || owner == null && b.PopK <= 0);
         if (_people.Visible)
         {

@@ -51,16 +51,17 @@ public static class Fuels
 
     // ---- How a fuel burns -----------------------------------------------------------------------
 
-    public static double Thrust(World w, Ship s) => Of(w, s).Thrust;
+    /// <summary>Sail ships burn nothing: no thrust factor from fuel, and no burn heat (see Sails).</summary>
+    public static double Thrust(World w, Ship s) => Sails.Is(s) ? 1 : Of(w, s).Thrust;
     public static double Reach(World w, Ship s) => Of(w, s).Reach;
-    public static double BurnHeat(World w, Ship s) => Of(w, s).BurnHeat;
+    public static double BurnHeat(World w, Ship s) => Sails.Is(s) ? 0 : Of(w, s).BurnHeat;
 
     /// <summary>How bright the fleet's burn shows: the brightest plume among its ships.</summary>
     public static double Signature(World w, Fleet f)
     {
         if (!On(w)) return 1;
         var most = 0.0;
-        foreach (var s in w.ShipsOf(f)) most = Math.Max(most, Of(w, s).Signature);
+        foreach (var s in w.ShipsOf(f)) if (!Sails.Is(s)) most = Math.Max(most, Of(w, s).Signature);
         return most > 0 ? most : 1;
     }
 
@@ -200,6 +201,7 @@ public static class Fuels
             b.Stock[fuel.Id] = have - take;
             Ledger.Out(w, b.Owner, fuel.Id, take, "ship fuel");
             NoteDraw(b, fuel.Id, take);
+            if (b.Owner == s.Side) Lift.Pay(w, s.Side, b, take);
         }
         if (take >= need - 1e-12) return 1;
         var slow = !On(w) || fuel.Anywhere ? Colonies.C.NoFuelRefill : Colonies.C.NoFuelRefill * 0.25;
@@ -318,6 +320,7 @@ public static class Fuels
                 at.Stock[fuel] = have - take;
                 Ledger.Out(w, at.Owner, fuel, take, "tanker fuel");
                 NoteDraw(at, fuel, take);
+                if (at.Owner == s.Side) Lift.Pay(w, s.Side, at, take);
             }
             var slow = !On(w) || data.Anywhere ? Colonies.C.NoFuelRefill : Colonies.C.NoFuelRefill * 0.25;
             AddCargo(s, fuel, want * (take >= need - 1e-12 ? 1 : Math.Max(slow, take / need)));
