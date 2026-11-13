@@ -61,7 +61,7 @@ public partial class PlanetPanel : PanelContainer
         _settle.AddThemeFontSizeOverride("font_size", 14);
         _settle.AboutToPopup += FillSettleMenu;
         _settle.GetPopup().IdPressed += id => Main.Instance.RunGuarded("settle", () =>
-            _screen.IssueNow(new SettleCommand(Side.Player, _bodyId, id < 0 ? null : (int)id), "settle"));
+            _screen.IssueNow(new SettleCommand(Side.Player, _bodyId, id == Ui.MenuNone ? null : (int)id), "settle"));
         _people.AddChild(_settle);
         _topUp = new CheckButton { Text = "Auto top-up", FocusMode = FocusModeEnum.None,
             TooltipText = "Settlers are ordered for this planet by themselves, one ship at a time, until it is nearly full" };
@@ -77,7 +77,14 @@ public partial class PlanetPanel : PanelContainer
         var popup = _settle.GetPopup();
         popup.Clear();
         var w = Main.Instance.Sim!.World;
-        popup.AddItem("Send settlers (no escort)", -1);
+        // Say where they leave from: the shipyard planet builds the ship and gives the people.
+        if (Planets.SettleSource(w, Side.Player, _bodyId) is { } src)
+        {
+            popup.AddItem($"From {src.From.Name} (your shipyard): about {src.PeopleK:0.#}k people, {Format.Distance(src.DistanceMm)} away", Ui.MenuNone - 1);
+            popup.SetItemDisabled(popup.ItemCount - 1, true);
+            popup.AddSeparator();
+        }
+        popup.AddItem("Send settlers (no escort)", Ui.MenuNone);
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player && f.PeopleRun == null && Combat.Armed(w, f)).OrderBy(f => f.Id))
             popup.AddItem($"Send settlers, escorted by {f.Name} ({f.ShipIds.Count} ships)", f.Id);
     }
@@ -214,6 +221,7 @@ public partial class PlanetPanel : PanelContainer
             var why = Planets.CanSettle(w, Side.Player, b.Id);
             var cls = GameData.ShipClass(Planets.SettlerClass);
             _settle.Disabled = why != null;
+            _settle.Text = Planets.SettleSource(w, Side.Player, b.Id) is { } from ? $"Settle from {from.From.Name} ▾" : "Settle ▾";
             _settle.TooltipText = (why != null ? why + ". " : "")
                 + $"The shipyard builds a settler ship ({cls.Cost:0} Industry, {cls.Cost / GameData.Economy.BuildIndustryPerDay:0.#} days). It takes up to {cls.Cargo:0}k people from "
                 + $"{Economy.ShipyardOf(w, Side.Player)?.Name ?? "the shipyard planet"}, flies here and lands for good. On the way it can be blockaded or shot down: "

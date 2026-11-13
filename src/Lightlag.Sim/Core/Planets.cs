@@ -606,6 +606,21 @@ public static class Planets
         return Economy.CanQueue(w, side, OrderKind.Ship, SettlerClass);
     }
 
+    /// <summary>
+    /// Where settlers for this body would come from, before ordering: the shipyard planet, about how many people
+    /// (the ship's hold, the room here and the people that planet can spare), and how far. Null if there's no shipyard.
+    /// </summary>
+    public sealed record SettleFrom(Body From, double PeopleK, double DistanceMm);
+
+    public static SettleFrom? SettleSource(World w, Side side, int bodyId)
+    {
+        if (Economy.ShipyardOf(w, side) is not Body yard || w.FindBody(bodyId) is not Body to) return null;
+        var hold = GameData.ShipClass(SettlerClass).Cargo * (Tech.Has(w, side, "cryo-sleep") ? GameData.Research("cryo-sleep").Factor : 1);
+        var spare = Math.Max(0, yard.PopK - Math.Max(D.KeepAtSourceK, StaffNeeded(yard)));
+        var room = Math.Max(0, Cap(to) - to.PopK);
+        return new SettleFrom(yard, Math.Min(hold, Math.Min(spare, room)), Vec2.Distance(yard.Position, to.Position));
+    }
+
     /// <summary>Puts a settle order on the shipyard queue (checked first with CanSettle).</summary>
     public static WorkOrder QueueSettlers(Simulation sim, Side side, Body to, int? escortFleetId, bool auto)
     {

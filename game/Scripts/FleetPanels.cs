@@ -268,7 +268,7 @@ public partial class FleetPanel : PanelContainer
         _supplyRun.AboutToPopup += FillSupplyRunMenu;
         _supplyRun.GetPopup().IdPressed += id => Main.Instance.RunGuarded("supply run", () =>
         {
-            if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id < 0 ? null : (int)id), "supply run");
+            if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id == Ui.MenuNone ? null : (int)id), "supply run");
         });
         box.AddChild(_supplyRun);
         _getSupplies = new MenuButton { Text = "Get supplies out here ▾", Flat = false, FocusMode = FocusModeEnum.None,
@@ -289,7 +289,7 @@ public partial class FleetPanel : PanelContainer
         _fuel.GetPopup().IdPressed += id => Main.Instance.RunGuarded("fuel", () =>
         {
             if (_screen.SelectedFleet is Fleet sf)
-                _screen.IssueNow(new SetFleetFuelCommand(Side.Player, sf.Id, id < 0 || id >= Fuels.All.Count ? null : Fuels.All[(int)id].Id), "fuel");
+                _screen.IssueNow(new SetFleetFuelCommand(Side.Player, sf.Id, id == Ui.MenuNone || id >= Fuels.All.Count ? null : Fuels.All[(int)id].Id), "fuel");
         });
         box.AddChild(_fuel);
         _fittings = Ui.SmallButton("Ships and fittings", () => _screen.FittingFleetId = _screen.FittingFleetId == null ? _screen.SelectedFleet?.Id : null,
@@ -323,13 +323,13 @@ public partial class FleetPanel : PanelContainer
         _planetRow.AddChild(_bomb);
         _land = new MenuButton { Text = "Land troops ▾", Flat = false, FocusMode = FocusModeEnum.None };
         _land.AddThemeFontSizeOverride("font_size", 13);
-        _land.GetPopup().AddItem("Land, Auto picks the plan", -1);
+        _land.GetPopup().AddItem("Land, Auto picks the plan", Ui.MenuNone);
         foreach (var plan in Enum.GetValues<GroundPlan>())
             _land.GetPopup().AddItem($"Land: {Ground.PlanName(plan)} ({Ground.PlanWhat(plan)})", (int)plan);
         _land.GetPopup().IdPressed += id => Main.Instance.RunGuarded("landing", () =>
         {
             if (_screen.SelectedFleet is Fleet sf && sf.OrbitBodyId is int b)
-                _screen.IssueNow(new LandTroopsCommand(sf.Id, b, id < 0 ? null : (GroundPlan)(int)id), "landing");
+                _screen.IssueNow(new LandTroopsCommand(sf.Id, b, id == Ui.MenuNone ? null : (GroundPlan)(int)id), "landing");
         });
         _planetRow.AddChild(_land);
         _board = Ui.SmallButton("Board slipway", () =>
@@ -634,7 +634,7 @@ public partial class FleetPanel : PanelContainer
         popup.Clear();
         if (_screen.SelectedFleet is not Fleet f || Main.Instance.Sim is not Simulation sim) return;
         var w = sim.World;
-        popup.AddItem("Auto (for the job)", -1);
+        popup.AddItem("Auto (for the job)", Ui.MenuNone);
         var burns = w.ShipsOf(f).SelectMany(s => Fuels.Burns(w, s)).Distinct().ToList();
         for (var i = 0; i < Fuels.All.Count; i++)
         {
@@ -672,7 +672,7 @@ public partial class FleetPanel : PanelContainer
         popup.Clear();
         var w = Main.Instance.Sim!.World;
         if (_screen.SelectedFleet is not Fleet f) return;
-        if (f.SupplyRunFor != null) popup.AddItem("End the supply run", -1);
+        if (f.SupplyRunFor != null) popup.AddItem("End the supply run", Ui.MenuNone);
         foreach (var other in w.Fleets.Where(o => o.Side == Side.Player && o.Id != f.Id && !w.ShipsOf(o).All(SupplyLines.IsSupplyShip)))
             popup.AddItem($"Keep {other.Name} supplied" + (f.SupplyRunFor == other.Id ? " (now)" : ""), other.Id);
     }
