@@ -7,8 +7,9 @@ namespace Lightlag.Game;
 /// <summary>
 /// Sight shadows: the grey areas behind planets, moons and the star that none of your ships or planets
 /// can see into. A point is shaded when it is inside the reach of at least one of your sensors (for a
-/// ship burning its engines, the farthest anything is seen) but every sensor that reaches it has a body in the way. Worked out on a coarse screen grid
-/// a few times a second, using the same straight-line test as the simulation.
+/// ship burning its engines, the farthest anything is seen) but every sensor that reaches it has a body in the way.
+/// Worked out along screen rows, cut wherever a row crosses a sensor's reach or a shadow's edge, and only
+/// when the view or the world has changed; each piece uses the same straight-line test as the simulation.
 /// </summary>
 public partial class MapView
 {
@@ -17,9 +18,10 @@ public partial class MapView
 
     public enum SightView { Shadows, Coverage, Off }
 
-    private const int ShadowCell = 4;          // grid step in pixels
-    private const int CoverageCell = 6;        // the coverage tint is soft, so a coarser grid will do
-    private const ulong ShadowRefreshMs = 120; // how often the grid is worked out again
+    private const int ShadowCell = 4;          // margin round a shadow cone's box, in pixels
+    private const int ShadowRow = 4;           // height of each screen row the shadows are worked out on
+    private const int CoverageRow = 3;         // the coverage tint is soft, so taller rows will do
+    private const ulong ShadowRefreshMs = 120; // how often the shadows are worked out again while time runs
     private static readonly Color ShadowColor = new(0.62f, 0.64f, 0.72f, 0.2f);
     private static readonly Color SeesCold = new(Ui.Player, 0.11f);
     private static readonly Color SeesWarm = new(Ui.Player, 0.05f);
@@ -31,7 +33,8 @@ public partial class MapView
     private readonly List<(Vector2 A, Vector2 B)> _shadowEdges = new();
     private readonly List<(Vector2 At, float Radius)> _burnRings = new();
     private ulong _shadowAt;
-    private (double Scale, double X, double Y, Vector2 Size) _shadowView;
+    private (double Scale, double X, double Y, Vector2 Size, SightView Sight) _shadowView;
+    private (double Hour, int Fleets, int Ships) _shadowWorld;
 
     /// <summary>One sensor: how far it sees a warm ship (Reach), a cold one and a burning one.</summary>
     private readonly record struct Observer(Vec2 At, double Reach, double ColdReach, double BurnReach, int? Body, List<int> Blockers);
@@ -40,10 +43,13 @@ public partial class MapView
     {
         if (Sight == SightView.Off || !PlayerInfo.Has(MapLayer.Shadows)) return;
         var now = Time.GetTicksMsec();
-        var view = (Camera.Scale, Camera.Center.X, Camera.Center.Y, Camera.ScreenSize);
-        if (view != _shadowView || now - _shadowAt >= ShadowRefreshMs)
+        var view = (Camera.Scale, Camera.Center.X, Camera.Center.Y, Camera.ScreenSize, Sight);
+        // While paused nothing moves, so the shadows stay as they are until the view changes.
+        var world = (DrawHour, Sim.World.Fleets.Count, Sim.World.Ships.Count);
+        if (view != _shadowView || (world != _shadowWorld && now - _shadowAt >= ShadowRefreshMs))
         {
             _shadowView = view;
+            _shadowWorld = world;
             _shadowAt = now;
             WorkOutShadows();
         }
@@ -181,7 +187,7 @@ public partial class MapView
 
         if (Sight == SightView.Coverage)
         {
-            WorkOutCoverage(sensors, Clear);
+            WorkOutCoverage(sensors, Clear, centres, bodies);
             // The edge of where a burning ship is seen: the outer line of the union of all sensors' reach.
             for (var i = 0; i < sensors.Count; i++)
             {
@@ -194,123 +200,166 @@ public partial class MapView
             return;
         }
 
-        var cols = (int)Math.Ceiling(size.X / ShadowCell);
-        var rows = (int)Math.Ceiling(size.Y / ShadowCell);
-        var hidden = new bool[cols * rows];
-        var tested = new bool[cols * rows];
-
-        // Only cells inside some sensor's shadow cone need testing: walk each cone's rows on screen.
+        // Only points inside some sensor's shadow cone (from a body big enough to show) can be hidden.
+        var shown = new List<(Observer O, int Body)>();
+        var boxes = new List<Rect2>();
         foreach (var (o, i, outline, box, edgeA, edgeB, tiny) in cones)
         {
             if (tiny) continue;
             // The two edges of the cone, from the body's limb out to the sensor's reach.
             _shadowEdges.Add((outline[0], edgeA));
             _shadowEdges.Add((outline[^1], edgeB));
-
-            var r0 = (int)(box.Position.Y / ShadowCell);
-            var r1 = Math.Min(rows - 1, (int)(box.End.Y / ShadowCell));
-            for (var row = r0; row <= r1; row++)
-            {
-                // Walk only the cells where this row crosses the cone, not the cone's whole box.
-                if (!SpanAt(outline, (row + 0.5) * ShadowCell, out var x0, out var x1)) continue;
-                x0 = Math.Max(x0, -ShadowCell);
-                x1 = Math.Min(x1, size.X + ShadowCell);
-                var c0 = Math.Max(0, (int)Math.Floor(x0 / ShadowCell) - 1);
-                var c1 = Math.Min(cols - 1, (int)Math.Floor(x1 / ShadowCell) + 1);
-                for (var col = c0; col <= c1; col++)
-                {
-                    var k = row * cols + col;
-                    if (tested[k]) continue;
-                    var at = Camera.ToWorld(new Vector2((col + 0.5f) * ShadowCell, (row + 0.5f) * ShadowCell));
-                    // Only this cone's own body matters here; other bodies have their own cones.
-                    if (!Within(at, o.At, o.BurnReach) || !Blocks(o, i, at)) continue;
-                    tested[k] = true;
-                    var seen = false;
-                    foreach (var other in sensors)
-                        if (Within(at, other.At, other.BurnReach) && Clear(other, at)) { seen = true; break; }
-                    hidden[k] = !seen;
-                }
-            }
+            shown.Add((o, i));
+            boxes.Add(box);
         }
-
-        // Join each row's hidden cells into strips, so a big shadow is a handful of rectangles.
-        for (var row = 0; row < rows; row++)
+        if (shown.Count > 0)
         {
-            var start = -1;
-            for (var col = 0; col <= cols; col++)
+            bool Hidden(Vec2 at)
             {
-                var on = col < cols && hidden[row * cols + col];
-                if (on && start < 0) start = col;
-                else if (!on && start >= 0)
-                {
-                    _shadowRuns.Add((new Rect2(start * ShadowCell, row * ShadowCell, (col - start) * ShadowCell, ShadowCell), ShadowColor));
-                    start = -1;
-                }
+                var inCone = false;
+                foreach (var (o, i) in shown)
+                    if (Within(at, o.At, o.BurnReach) && Blocks(o, i, at)) { inCone = true; break; }
+                if (!inCone) return false;
+                foreach (var other in sensors)
+                    if (Within(at, other.At, other.BurnReach) && Clear(other, at)) return false;
+                return true;
             }
+            var edges = ShadowEdgesOf(sensors, centres, bodies, coverage: false);
+            ScanRows(ShadowRow, edges, at => Hidden(at) ? 1 : 0, _ => ShadowColor, boxes);
         }
         // Edges are only worth drawing where the shadow itself shows.
         if (_shadowRuns.Count == 0) _shadowEdges.Clear();
     }
 
-    /// <summary>Where a horizontal line crosses a convex outline: its left and right ends, if it does.</summary>
-    private static bool SpanAt(List<Vector2> outline, double y, out double x0, out double x1)
+    /// <summary>
+    /// Every circle and straight line on which "seen" or "hidden" can change: each sensor's reach, and for
+    /// each body that could block it, the two sides of its shadow cone, the line across the sensor where the
+    /// body goes from in front to behind, and the circle through the sensor and the body's centre (inside
+    /// it, a point is nearer than the body). Between two crossings of a screen row, the answer is the same.
+    /// </summary>
+    private static (List<(Vec2 At, double R)> Circles, List<(Vec2 At, Vec2 Dir)> Lines) ShadowEdgesOf(
+        List<Observer> sensors, Vec2[] centres, List<Body> bodies, bool coverage)
     {
-        x0 = double.MaxValue;
-        x1 = double.MinValue;
-        for (var i = 0; i < outline.Count; i++)
+        var circles = new List<(Vec2, double)>();
+        var lines = new List<(Vec2, Vec2)>();
+        foreach (var o in sensors)
         {
-            var a = outline[i];
-            var b = outline[(i + 1) % outline.Count];
-            if ((a.Y > y) == (b.Y > y)) continue;
-            var x = a.X + (y - a.Y) / ((double)b.Y - a.Y) * ((double)b.X - a.X);
-            x0 = Math.Min(x0, x);
-            x1 = Math.Max(x1, x);
+            circles.Add((o.At, o.BurnReach));
+            if (coverage)
+            {
+                circles.Add((o.At, o.Reach));
+                circles.Add((o.At, o.ColdReach));
+            }
+            foreach (var i in o.Blockers)
+            {
+                var gap = centres[i] - o.At;
+                var d = gap.Length;
+                if (d <= 0) continue;
+                var half = Math.Asin(Math.Min(1, bodies[i].Radius / d));
+                var dir = Math.Atan2(gap.Y, gap.X);
+                lines.Add((o.At, new Vec2(Math.Cos(dir - half), Math.Sin(dir - half))));
+                lines.Add((o.At, new Vec2(Math.Cos(dir + half), Math.Sin(dir + half))));
+                lines.Add((o.At, new Vec2(-gap.Y, gap.X)));
+                circles.Add(((o.At + centres[i]) * 0.5, d / 2));
+            }
         }
-        return x0 <= x1;
+        return (circles, lines);
     }
 
     /// <summary>
-    /// Every cell on screen: seen well enough to spot a ship coasting cold, a warm ship, or only a ship
-    /// burning its engines; hidden behind a body from every sensor that reaches it; or out of reach (dark).
+    /// Fills _shadowRuns one screen row at a time: cuts the row where it crosses any of the edges, asks
+    /// stateOf once in the middle of each piece (0 = nothing to draw), and joins neighbours in the same
+    /// state into one strip. The work depends on how many edges cross the screen, not on how big the
+    /// shadows are, so a shadow filling the screen (zoomed right in) costs no more than a small one.
     /// </summary>
-    private void WorkOutCoverage(List<Observer> sensors, Func<Observer, Vec2, bool> clear)
+    private void ScanRows(int rowPx, (List<(Vec2 At, double R)> Circles, List<(Vec2 At, Vec2 Dir)> Lines) edges,
+        Func<Vec2, int> stateOf, Func<int, Color> colorOf, List<Rect2>? only = null)
     {
-        const int cell = CoverageCell;
         var size = Camera.ScreenSize;
-        var cols = (int)Math.Ceiling(size.X / cell);
-        var rows = (int)Math.Ceiling(size.Y / cell);
-        var colors = new[] { (Color?)null, SeesBurn, SeesWarm, SeesCold, ShadowColor };
+        var scale = Camera.Scale;
+        var centre = Camera.Center;
+        var half = Camera.ScreenCenter;
+        var rows = (int)Math.Ceiling(size.Y / rowPx);
+        var cuts = new List<double>();
         for (var row = 0; row < rows; row++)
         {
-            var start = 0;
-            var last = -1;
-            for (var col = 0; col <= cols; col++)
+            // Where on this row anything can show: the whole row, or only across the given boxes.
+            double lo = 0, hi = size.X;
+            if (only != null)
             {
-                var state = 0;
-                if (col < cols)
-                {
-                    var at = Camera.ToWorld(new Vector2((col + 0.5f) * cell, (row + 0.5f) * cell));
-                    var reached = false;
-                    foreach (var o in sensors)
+                var mid = (row + 0.5f) * rowPx;
+                lo = double.MaxValue;
+                hi = double.MinValue;
+                foreach (var box in only)
+                    if (mid >= box.Position.Y && mid <= box.End.Y)
                     {
-                        var gap = at - o.At;
-                        var d2 = Vec2.Dot(gap, gap);
-                        if (d2 > o.BurnReach * o.BurnReach) continue;
-                        reached = true;
-                        var could = d2 <= o.ColdReach * o.ColdReach ? 3 : d2 <= o.Reach * o.Reach ? 2 : 1;
-                        if (could <= state || !clear(o, at)) continue; // can't improve on what's already seen
-                        state = could;
-                        if (state == 3) break;
+                        lo = Math.Min(lo, box.Position.X);
+                        hi = Math.Max(hi, box.End.X);
                     }
-                    if (state == 0 && reached) state = 4;
-                }
-                else state = -1;
+                if (lo >= hi) continue;
+            }
+            var y = centre.Y + ((row + 0.5) * rowPx - half.Y) / scale; // the row, as a line across the world
+            cuts.Clear();
+            cuts.Add(lo);
+            cuts.Add(hi);
+            void Cut(double worldX)
+            {
+                var x = (worldX - centre.X) * scale + half.X;
+                if (x > lo && x < hi) cuts.Add(x);
+            }
+            foreach (var (at, r) in edges.Circles)
+            {
+                var dy = y - at.Y;
+                if (Math.Abs(dy) >= r) continue;
+                var dx = Math.Sqrt(r * r - dy * dy);
+                Cut(at.X - dx);
+                Cut(at.X + dx);
+            }
+            foreach (var (at, dir) in edges.Lines)
+                if (Math.Abs(dir.Y) > 1e-12) Cut(at.X + (y - at.Y) * dir.X / dir.Y);
+            cuts.Sort();
+
+            var start = lo;
+            var last = 0;
+            for (var k = 0; k + 1 < cuts.Count; k++)
+            {
+                var x0 = cuts[k];
+                var x1 = cuts[k + 1];
+                if (x1 - x0 < 1e-6) continue;
+                var state = stateOf(new Vec2(centre.X + ((x0 + x1) / 2 - half.X) / scale, y));
                 if (state == last) continue;
-                if (last > 0 && colors[last] is Color c)
-                    _shadowRuns.Add((new Rect2(start * cell, row * cell, (col - start) * cell, cell), c));
-                start = col;
+                if (last != 0) _shadowRuns.Add((new Rect2((float)start, row * rowPx, (float)(x0 - start), rowPx), colorOf(last)));
+                start = x0;
                 last = state;
             }
+            if (last != 0) _shadowRuns.Add((new Rect2((float)start, row * rowPx, (float)(hi - start), rowPx), colorOf(last)));
         }
+    }
+
+    /// <summary>
+    /// Every point on screen: seen well enough to spot a ship coasting cold, a warm ship, or only a ship
+    /// burning its engines; hidden behind a body from every sensor that reaches it; or out of reach (dark).
+    /// </summary>
+    private void WorkOutCoverage(List<Observer> sensors, Func<Observer, Vec2, bool> clear, Vec2[] centres, List<Body> bodies)
+    {
+        var colors = new[] { default, SeesBurn, SeesWarm, SeesCold, ShadowColor };
+        int StateOf(Vec2 at)
+        {
+            var state = 0;
+            var reached = false;
+            foreach (var o in sensors)
+            {
+                var gap = at - o.At;
+                var d2 = Vec2.Dot(gap, gap);
+                if (d2 > o.BurnReach * o.BurnReach) continue;
+                reached = true;
+                var could = d2 <= o.ColdReach * o.ColdReach ? 3 : d2 <= o.Reach * o.Reach ? 2 : 1;
+                if (could <= state || !clear(o, at)) continue; // can't improve on what's already seen
+                state = could;
+                if (state == 3) break;
+            }
+            return state == 0 && reached ? 4 : state;
+        }
+        ScanRows(CoverageRow, ShadowEdgesOf(sensors, centres, bodies, coverage: true), StateOf, state => colors[state]);
     }
 }
