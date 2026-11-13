@@ -10,7 +10,7 @@ public sealed record PlanetTypeData(double Cap = 0, double Farm = 0, int Plots =
 
 /// <summary>The pulls on a planet's happiness (see Planets.TargetHappiness).</summary>
 public sealed record HappinessData(double Base = 55, double Fed = 10, double Hungry = -30, double Blockaded = -20, double Bombed = -30,
-    double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5);
+    double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5, double Newcomers = 8);
 
 /// <summary>
 /// A building on a planet: a W×H piece on the board, paid when ordered (Industry) and standing after Days
@@ -26,13 +26,13 @@ public sealed record BuildingData(string Id, string Name, string Effect, double 
     string? Needs = null, bool AnyAir = false, bool Solar = false, bool Buildable = true, string[]? RefitBy = null, List<BonusData>? Bonus = null,
     Dictionary<string, double>? Materials = null, double Happiness = 0, double Growth = 0, Dictionary<string, double>? TouchHappiness = null,
     double LaunchPerDay = 0, bool Hot = false, double TrainScientists = 0, bool Repairs = false, bool BombProof = false, double TroopRate = 0,
-    bool Sees = false, double Ammo = 0, int Squadrons = 0);
+    bool Sees = false, double Ammo = 0, int Squadrons = 0, double Battery = 0);
 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
     double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
-    double LeaveAfterHungryDays = 20, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
+    double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
     double HappinessPerDay = 2, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
     double GroundLossPerHour = 0.05, double BoardTroopsK = 0.5, double BuildingArmour = 40, double PeopleKPerDamage = 0.02,
@@ -136,7 +136,7 @@ public static class Planets
     {
         if (b.Owner == null || b.Kind == BodyKind.Star) return 0;
         if (Economy.Blockaded(w, b)) return 0;
-        if (b.PopK <= 0) return b.Industry * D.UnsettledShare;
+        if (b.PopK <= 0) return b.Abandoned ? 0 : b.Industry * D.UnsettledShare;
         var mines = Colonies.Sum(w, b, k => k.Industry);
         return (b.Industry * b.BaseStaff + mines) * HappyFactor(w, b);
     }
@@ -289,8 +289,69 @@ public static class Planets
             else if (cap > 0) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * Races.Get(b.PeopleRace).Growth * b.PopK * (1 - b.PopK / cap) / 24;
             if (cap <= 0 || b.PopK > cap) b.PopK = Math.Max(0, Math.Min(b.PopK, cap));
             if (b.PopK < 0.05) { b.PopK = 0; continue; }
-            if (b.Owner is Side side && b.HungryHours >= D.LeaveAfterHungryDays * 24) Leave(sim, b, side);
+            b.Abandoned = false; // people live here again
+            b.LeavingK = 0;
+            // Hungry people leave for fed worlds: a trickle at first, then everyone. A blockaded world has no way out.
+            if (b.Owner is Side side && b.Hungry && !Economy.Blockaded(w, b))
+            {
+                var hungryDays = b.HungryHours / 24;
+                if (hungryDays >= D.LeaveAfterHungryDays || (hungryDays >= D.LeaveStartHungryDays && b.PopK < 0.5)) Leave(sim, b, side);
+                else if (hungryDays >= D.LeaveStartHungryDays)
+                {
+                    var moved = Migrate(w, b, side, b.PopK * D.LeaveSharePerDay / 24);
+                    b.LeavingK = moved * 24;
+                    if (moved > 0 && b.HungryHours - GameTime.HoursPerTick < D.LeaveStartHungryDays * 24)
+                        sim.Log.Info("planets", "Hungry people start leaving", new { body = b.Name, side = side.ToString(), perDayK = b.LeavingK, to = b.LeavingTo });
+                }
+            }
         }
+        foreach (var b in w.Bodies.Where(b => b.NewcomersK > 0))
+            b.NewcomersK = b.NewcomersK < 0.01 ? 0 : b.NewcomersK * (1 - GameTime.HoursPerTick / (D.NewcomersFadeDays * 24));
+    }
+
+    /// <summary>
+    /// Where hungry people of a side go: its other worlds with room that are not blockaded, those that are fed
+    /// first, then those that grow more food than they eat, then the rest; nearest first within each.
+    /// </summary>
+    public static IEnumerable<Body> RefugeWorlds(World w, Body from, Side side) =>
+        w.Bodies.Where(o => o.Owner == side && o.Id != from.Id && o.PopK > 0 && !o.Abandoned && !Economy.Blockaded(w, o) && Cap(o) > o.PopK + 1e-6)
+            .OrderBy(o => !o.Hungry ? 0 : FoodMadePerDay(o) > FoodNeedPerDay(o) ? 1 : 2)
+            .ThenBy(o => Vec2.Distance(o.Position, from.Position)).ThenBy(o => o.Id);
+
+    /// <summary>Move up to this many thousand people from a planet to the side's refuge worlds. Returns how many moved.</summary>
+    public static double Migrate(World w, Body b, Side side, double amount)
+    {
+        amount = Math.Min(amount, b.PopK);
+        var moved = 0.0;
+        foreach (var to in RefugeWorlds(w, b, side).ToList())
+        {
+            var m = Math.Min(amount - moved, Cap(to) - to.PopK);
+            if (m <= 1e-9) continue;
+            to.OwnShare = (to.OwnShare * to.PopK + b.OwnShare * m) / Math.Max(1e-9, to.PopK + m);
+            to.PopK += m;
+            to.NewcomersK += m;
+            if (moved == 0) b.LeavingTo = to.Name;
+            moved += m;
+            if (amount - moved <= 1e-9) break;
+        }
+        b.PopK -= moved;
+        Stats.Of(w, side).PeopleLeftK += moved;
+        return moved;
+    }
+
+    /// <summary>How the planet's people stand on leaving, for the planet screen and Needs you (null: nothing to say).</summary>
+    public static string? LeavingNote(World w, Body b)
+    {
+        if (b.Owner == null) return null;
+        if (b.Abandoned && b.PopK <= 0) return "ABANDONED: its hungry people left. It makes nothing until settlers land";
+        if (!b.Hungry || b.PopK <= 0) return null;
+        var days = b.HungryHours / 24;
+        if (Economy.Blockaded(w, b)) return "HUNGRY and blockaded: nobody can leave, so people starve";
+        if (days < D.LeaveStartHungryDays)
+            return $"HUNGRY {days:0.#} days: people start leaving in {D.LeaveStartHungryDays - days:0.#} days unless food arrives";
+        if (b.LeavingK > 0)
+            return $"HUNGRY: {b.LeavingK:0.##}k people a day leave for {b.LeavingTo}; everyone goes in {Math.Max(0, D.LeaveAfterHungryDays - days):0.#} days";
+        return $"HUNGRY: people want to leave but no fed world of yours has room; everyone goes in {Math.Max(0, D.LeaveAfterHungryDays - days):0.#} days";
     }
 
     /// <summary>The hungry people of a planet give up on it and move to the nearest of their side's planets that can feed them.</summary>
@@ -331,20 +392,16 @@ public static class Planets
     private static void Leave(Simulation sim, Body b, Side side)
     {
         var w = sim.World;
-        var to = w.Bodies.Where(o => o.Owner == side && o.Id != b.Id && o.PopK > 0 && !Economy.Blockaded(w, o) && Cap(o) > o.PopK)
-            .OrderBy(o => Vec2.Distance(o.Position, b.Position)).ThenBy(o => o.Id).FirstOrDefault();
         var people = b.PopK;
-        if (to != null)
-        {
-            var moved = Math.Min(people, Cap(to) - to.PopK);
-            to.OwnShare = (to.OwnShare * to.PopK + b.OwnShare * moved) / Math.Max(1e-9, to.PopK + moved);
-            to.PopK += moved;
-            to.Happiness = Math.Max(0, to.Happiness - 5);
-        }
+        b.LeavingTo = null;
+        var moved = Migrate(w, b, side, people);
         b.PopK = 0;
         b.HungryHours = 0;
         b.Hungry = false;
-        sim.Log.Info("planets", $"The hungry people of {b.Name} abandon it", new { bodyId = b.Id, side = side.ToString(), people, to = to?.Name });
+        b.LeavingK = 0;
+        b.Abandoned = true;
+        Stats.Of(w, side).WorldsAbandoned++;
+        sim.Log.Info("planets", "Hungry people abandon a planet", new { bodyId = b.Id, body = b.Name, side = side.ToString(), people, moved, lost = people - moved, to = b.LeavingTo });
     }
 
     /// <summary>What a planet's happiness is moving towards, and the reasons, for the planet screen.</summary>
@@ -359,6 +416,7 @@ public static class Planets
         if (b.OwnShare < 0.995) parts.Add(("Not your people", H.Foreign * (1 - b.OwnShare)));
         if (b.Owner is Side owner && w.Fleets.Any(f => f.Side == owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f))) parts.Add(("Guarded by a fleet", H.Guarded));
         if (ClinicHappiness(w, b) is var clinics && clinics > 0) parts.Add(("Clinics", clinics));
+        if (b.NewcomersK > 0.05 && b.PopK > 0) parts.Add(("Hungry newcomers", -Math.Min(H.Newcomers, H.Newcomers * 4 * b.NewcomersK / b.PopK)));
         return (Math.Clamp(parts.Sum(p => p.Item2), 0, 100), parts);
     }
 
@@ -526,6 +584,7 @@ public static class Planets
         var w = sim.World;
         var before = b.Owner;
         b.Owner = side;
+        b.Abandoned = false;
         b.OwnShare = b.PopK > 0 ? 0 : 1;
         b.Happiness = Math.Min(b.Happiness, 35);
         b.ClaimSide = null;

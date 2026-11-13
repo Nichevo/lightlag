@@ -144,11 +144,13 @@ public partial class PlanetPanel : PanelContainer
         });
         var cap = Planets.Cap(b);
         if (cap <= 0) lines.Add("Nobody can live here (a giant): it can be held, but not settled");
+        else if (b.PopK <= 0 && b.Abandoned && owner != null)
+            lines.Add("ABANDONED: its hungry people left. It makes nothing until settlers land" + (mine ? " (settle it from here)" : ""));
         else if (b.PopK <= 0)
             lines.Add($"Empty: room for {cap:0}k people. " + (mine ? $"Makes half its industry ({b.Industry * Planets.D.UnsettledShare:0.#}/day) until settlers arrive" : "Settle it from here (a settler ship is built at your shipyard)"));
         else
         {
-            var growth = b.Hungry ? "shrinking: HUNGRY" : b.PopK >= cap * 0.99 ? "full" : "growing";
+            var growth = b.Hungry ? (b.LeavingK > 0 ? "shrinking: HUNGRY, people leaving" : "shrinking: HUNGRY") : b.PopK >= cap * 0.99 ? "full" : "growing";
             lines.Add($"People: {b.PopK:0.#}k of {cap:0}k ({growth})" + (b.OwnShare < 0.995 && owner != null ? $" · {b.OwnShare:P0} are the holder's own" : ""));
         }
         if (b.PopK > 0 && owner != null)
@@ -163,6 +165,8 @@ public partial class PlanetPanel : PanelContainer
             var cut = Economy.Blockaded(w, b);
             lines.Add($"Food: grows {made:0.##}, eats {need:0.##} a day · store {(need > 0 ? b.FoodStock / need : 0):0} days"
                       + (cut ? " · BLOCKADED: living off its own farms and store" : " · shared with your other planets"));
+            if (mine && Planets.LeavingNote(w, b) is string leaving) lines.Add(leaving);
+            if (mine && b.NewcomersK > 0.05) lines.Add($"Newcomers: {b.NewcomersK:0.#}k hungry people from other worlds settling in");
             lines.Add($"Industry {Planets.IndustryPerDay(w, b):0.#} a day · staffed {Planets.Staffing(b):P0} (needs {Planets.StaffNeeded(b):0.#}k)"
                       + (cut ? " · nothing while blockaded" : ""));
         }
@@ -187,6 +191,7 @@ public partial class PlanetPanel : PanelContainer
             lines.Add($"Power {b.PowerUsed:0}/{b.PowerMade:0}" + (b.PowerWanted > b.PowerMade + 1e-6 ? $" (SHORT: wants {b.PowerWanted:0})" : "")
                       + $" · priorities: {Colonies.PresetName(b.Preset)}"
                       + (Colonies.HoldsOutDays(b) is double days ? $" · holds out {days:0} days if cut off" : ""));
+            if (b.BatteryRoom > 0 || b.InShadow || Grid.Shedding(w, b)) lines.Add(Grid.Summary(w, b));
             if (Colonies.PowerNote(w, b) is string powerNote) lines.Add("POWER: " + powerNote);
             var held = Colonies.Goods.Where(g => Colonies.Held(b, g.Id) >= 0.5).Select(g => $"{g.Short} {Colonies.Held(b, g.Id):0}");
             lines.Add("Goods: " + (held.Any() ? string.Join(" · ", held) : "none"));

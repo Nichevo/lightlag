@@ -23,6 +23,11 @@ public sealed class SideTotals
     public double LiftSpent { get; set; }
     public int SatellitesLaunched { get; set; }
     public int SatellitesLost { get; set; }
+
+    /// <summary>People and power: thousands of hungry people who moved away, worlds abandoned, planet-hours of shedding.</summary>
+    public double PeopleLeftK { get; set; }
+    public int WorldsAbandoned { get; set; }
+    public int ShedHours { get; set; }
     public int PlanetsClaimed { get; set; }
     public int PlanetsLost { get; set; }
     public int Battles { get; set; }

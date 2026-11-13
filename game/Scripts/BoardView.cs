@@ -163,7 +163,7 @@ public partial class BoardView : Control
         var colour = AreaColors.GetValueOrDefault(data?.Area ?? "", Colors.White);
         var rect = new Rect2(p.X * c + 3, p.Y * c + 3, p.W * c - 6, p.H * c - 6);
         var tex = Art.Texture("Buildings", p.Kind, 2f);
-        var idle = p.Built && (!p.Powered || p.Staff < 0.5);
+        var idle = p.Built && (!p.Powered || p.Staff < 0.5 || p.PowerShare < 0.5); // shed, short of people, or a deep brownout
         if (tex != null)
         {
             var tint = !p.Built ? new Color(1, 1, 1, 0.45f) : idle ? new Color(0.5f, 0.5f, 0.55f) : Colors.White;
