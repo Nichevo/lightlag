@@ -12,6 +12,17 @@ namespace Lightlag.Sim.Tests;
 /// </summary>
 public class HardeningTests
 {
+    [Fact]
+    public void Every_command_type_can_be_saved()
+    {
+        // A command missing from GameCommand's JsonDerivedType list crashes the autosave once it is in the replay.
+        var known = typeof(GameCommand).GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonDerivedTypeAttribute), false)
+            .Cast<System.Text.Json.Serialization.JsonDerivedTypeAttribute>().Select(a => a.DerivedType).ToHashSet();
+        var all = typeof(GameCommand).Assembly.GetTypes().Where(t => t.IsSubclassOf(typeof(GameCommand)) && !t.IsAbstract).ToList();
+        Assert.NotEmpty(all);
+        Assert.Empty(all.Where(t => !known.Contains(t)).Select(t => t.Name));
+    }
+
     private static Body BodyNamed(Simulation sim, string key) => sim.World.Bodies.Single(b => b.Key == key);
 
     private static Fleet NewFleet(Simulation sim, Side side, Vec2 at, params string[] classes)

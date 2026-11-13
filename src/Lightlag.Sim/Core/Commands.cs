@@ -101,6 +101,11 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetSalvoGuidanceCommand), "setSalvoGuidance")]
 [JsonDerivedType(typeof(EjectShipSinkCommand), "ejectShipSink")]
 [JsonDerivedType(typeof(LayMinesCommand), "layMines")]
+[JsonDerivedType(typeof(SetFleetFuelCommand), "setFleetFuel")]
+[JsonDerivedType(typeof(SetPlantModeCommand), "setPlantMode")]
+[JsonDerivedType(typeof(SetLeaveSupportCommand), "setLeaveSupport")]
+[JsonDerivedType(typeof(SetMissileBudgetCommand), "setMissileBudget")]
+[JsonDerivedType(typeof(SendShipHomeCommand), "sendShipHome")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
