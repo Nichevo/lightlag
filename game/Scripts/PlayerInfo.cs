@@ -29,8 +29,8 @@ public enum MapLayer
 /// <summary>The menu bar (row two of the top bar): always there, slides away when idle, or off (keys only).</summary>
 public enum MenuBarMode { Always, HideWhenIdle, Off }
 
-/// <summary>The Needs you tray: opens from the badge, opens itself on something urgent, or off (badge count and "." only).</summary>
-public enum TrayMode { OnBadge, OnUrgent, Off }
+/// <summary>The Needs you tray: opens from the badge (it never opens itself; a new urgent item flashes the badge), or off (badge count and "." only).</summary>
+public enum TrayMode { OnBadge, Off }
 
 /// <summary>Advice from automation: a folded strip in the tray, its own list in the tray, or off (only trouble reaches you).</summary>
 public enum AdviceMode { Folded, OwnList, Off }

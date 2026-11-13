@@ -467,7 +467,7 @@ public partial class Hud : CanvasLayer
     private AutomationMenu _automation = null!;
     private NeedCards _cards = null!;
 
-    /// <summary>The tray is down (set by the badge, a pin, the "." key or an urgent item with Opens itself on urgent).</summary>
+    /// <summary>The tray is down (set by the badge, a pin or the "." key; never by itself).</summary>
     public bool TrayOpen { get; set; }
 
     /// <summary>The tray row the mouse is over (its pin rings), and the selected one (lit with its pin).</summary>
@@ -541,7 +541,17 @@ public partial class Hud : CanvasLayer
         var urgent = me.Needs.Where(n => n.Level == NeedLevel.Urgent).ToList();
         var trouble = me.Needs.Count(n => n.Level != NeedLevel.Advice);
         _needsBadge.Text = me.Needs.Count == 0 ? "✓ Nothing needs you" : trouble == 0 ? $"✓ {me.Needs.Count} advice" : $"⚠ {trouble} need{(trouble == 1 ? "s" : "")} you" + (urgent.Count > 0 ? $" ({urgent.Count} urgent)" : "");
-        _needsBadge.Modulate = urgent.Count > 0 ? Ui.Danger : me.Needs.Count > 0 ? new Color("ffd34d") : new Color(1, 1, 1, 0.6f);
+        var badgeColor = urgent.Count > 0 ? Ui.Danger : me.Needs.Count > 0 ? new Color("ffd34d") : new Color(1, 1, 1, 0.6f);
+        // A new urgent item flashes the badge (the tray never opens by itself) until you open the tray or the list.
+        if (urgent.Count == 0 || TrayOpen || _empire.Visible && _empire.Current == EmpirePanel.Tab.Needs) _flashing = false;
+        if (_flashing)
+        {
+            var on = Time.GetTicksMsec() / 450 % 2 == 0;
+            badgeColor = on ? Ui.Danger : Colors.White;
+            _needsBadge.SelfModulate = on ? Colors.White : new Color(1, 1, 1, 0.55f);
+        }
+        else _needsBadge.SelfModulate = Colors.White;
+        _needsBadge.Modulate = badgeColor;
         _needsBadge.TooltipText = me.Needs.Count == 0 ? "Nothing waits for you" : string.Join("\n", me.Needs.OrderBy(n => n.Level).Take(6).Select(n => $"{n.Level}: {n.Text}"))
                                                                                + (PlayerInfo.Tray == TrayMode.Off ? "\nClick for the Needs you list" : "\nClick for the Needs you tray (. next item)");
         foreach (var n in urgent)
@@ -549,11 +559,14 @@ public partial class Hud : CanvasLayer
             if (!_toasted.Add(n.Key) || !_needsPrimed) continue;
             var need = n;
             Main.Instance.Toast(n.Text, onClick: () => PickNeed(need));
-            if (PlayerInfo.Tray == TrayMode.OnUrgent) { TrayOpen = true; SelectedNeed = n.Key; }
+            _flashing = true; // the badge flashes until you look
+
         }
         _needsPrimed = true; // items already there when the game opens don't pop up
         _toasted.IntersectWith(me.Needs.Select(n => n.Key)); // an item that clears and comes back pops up again
     }
+
+    private bool _flashing;
 
     private int _nextNeed;
 
