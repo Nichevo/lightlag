@@ -169,7 +169,7 @@ public partial class MapView
             if (age < -1e-9 || age > EffectLife) continue;
             var t = (float)(age / EffectLife);
             var fade = 1 - t;
-            var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var mine = Ui.SideColor(e.Side);
             var from = Camera.ToScreen(e.From);
             var to = Camera.ToScreen(e.To);
             if (!Camera.OnScreen(to, 200) && !Camera.OnScreen(from, 200)) continue;

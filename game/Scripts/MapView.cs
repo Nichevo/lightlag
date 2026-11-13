@@ -220,7 +220,7 @@ public partial class MapView : Node2D
             if (!Camera.OnScreen(at, 100)) continue;
             var r = (float)ScreenRadius(b);
             // Held planets take their side's colour; a shipyard is marked; a claim shows as a filling ring.
-            var side = b.Owner is Side o ? (o == Side.Player ? Ui.Player : Ui.Rival) : (Color?)null;
+            var side = b.Owner is Side o ? Ui.SideColor(o) : (Color?)null;
             var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
             var name = b.Name + (b.Shipyard ? " · shipyard" : "");
             if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
@@ -229,7 +229,7 @@ public partial class MapView : Node2D
             if (b.ClaimSide is Side claimer)
             {
                 var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
-                var cc = claimer == Side.Player ? Ui.Player : Ui.Rival;
+                var cc = Ui.SideColor(claimer);
                 DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
                 DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
                 name += $" · claiming {share * 100:0} %";
@@ -279,7 +279,7 @@ public partial class MapView : Node2D
     {
         if (!_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) return;
         var at = Camera.ToScreen(p);
-        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var color = Ui.SideColor(f.Side);
         var c = GameData.Combat;
         var ships = Sim.World.ShipsOf(f).ToList();
         void Ring(double mm, float alpha, string label)
@@ -316,7 +316,7 @@ public partial class MapView : Node2D
             var age = DrawHour - e.Hour;
             if (age < -1e-9 || age > life) continue;
             var fade = (float)(1 - age / life);
-            var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var mine = Ui.SideColor(e.Side);
             var from = Camera.ToScreen(e.From);
             var to = Camera.ToScreen(e.To);
             if (!Camera.OnScreen(to, 200) && !Camera.OnScreen(from, 200)) continue;
@@ -365,7 +365,7 @@ public partial class MapView : Node2D
     /// <summary>Pulse lance beams, mine blasts and squadron sorties (simple shapes; the same at every graphics level).</summary>
     private void DrawNewEffect(CombatEffect e, Vector2 from, Vector2 to, float fade)
     {
-        var mine = e.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var mine = Ui.SideColor(e.Side);
         switch (e.Kind)
         {
             case EffectKind.Beam:
@@ -418,7 +418,7 @@ public partial class MapView : Node2D
             if (_prevMissile.TryGetValue(m.Id, out var prev)) p = prev + (p - prev) * Blend;
             var at = Camera.ToScreen(p);
             if (!Camera.OnScreen(at, 20)) continue;
-            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(m.Side);
             // A short tail pointing back along its path relative to the target, so salvos read as streaks.
             var tail = Camera.ToScreen(p - m.Velocity.Normalized() * (12 / Camera.Scale));
             DrawLine(tail, at, new Color(color, 0.5f), 1.2f, true);
@@ -432,7 +432,7 @@ public partial class MapView : Node2D
             if (m.Side != Side.Player && !RevealAll) continue;
             var at = Camera.ToScreen(m.Position);
             if (!Camera.OnScreen(at, 20)) continue;
-            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(m.Side);
             DrawArc(at, 3, 0, Mathf.Tau, 10, new Color(color, 0.6f), 1);
             if (shown++ == 0 || Camera.Scale > 2)
                 DrawString(_font, at + new Vector2(6, 4), m.WakeHour > w.Hour ? $"wakes in {Format.Hours(m.WakeHour - w.Hour)}" : "armed",
@@ -552,7 +552,7 @@ public partial class MapView : Node2D
         if (!_drawn.TryGetValue(f.Id, out var world) || !world.IsFinite) return;
         var at = Camera.ToScreen(world);
         if (!Camera.OnScreen(at, 400)) return;
-        var color = f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var color = Ui.SideColor(f.Side);
         var heading = (float)(_shownFacing.TryGetValue(f.Id, out var shown) ? shown : f.Facing);
         var apart = ShipsApart;
         var ships = Sim.World.ShipsOf(f).ToList();
@@ -661,7 +661,7 @@ public partial class MapView : Node2D
         var w = Sim.World;
         foreach (var m in w.Minds)
         {
-            var color = m.Side == Side.Player ? Ui.Player : Ui.Rival;
+            var color = Ui.SideColor(m.Side);
             foreach (var job in m.Jobs)
             {
                 if (w.FindFleet(job.FleetId) is not Fleet f || !_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) continue;
@@ -1050,7 +1050,7 @@ public partial class MapView : Node2D
     private void DrawRoute(Fleet f, Flight? flight, bool preview, bool ok = true)
     {
         if (flight == null || flight.Legs.Count == 0) return;
-        var baseColor = !ok ? Ui.Danger : f.Side == Side.Player ? Ui.Player : Ui.Rival;
+        var baseColor = !ok ? Ui.Danger : Ui.SideColor(f.Side);
         var alpha = preview ? 0.9f : f.Id == SelectedId ? 0.6f : 0.35f;
         var now = DrawHour;
         if (!flight.Started && _drawn.TryGetValue(f.Id, out var here))

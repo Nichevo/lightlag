@@ -695,7 +695,7 @@ public partial class Hud : CanvasLayer
                 lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days");
             else if (w.Loop && b.Industry > 0 && b.Owner != Side.Player && !b.Shipyard)
                 lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it");
-            else if (b.Shipyard && b.Owner == Side.Rival && Economy.BombardStatus(w, b, Side.Player) is string attack)
+            else if (b.Shipyard && b.Owner is Side.Rival or Side.Third && Economy.BombardStatus(w, b, Side.Player) is string attack)
                 lines.Add("Shipyards can't be claimed, only destroyed. " + attack);
             if (_screen.SelectedFleet == null && sim.World.Fleets.Any(f => f.Side == Side.Player)) lines.Add("Select a fleet, then right-click here to fly");
             lines.Add(b.Owner == Side.Player && b.Board != null && w.Loop

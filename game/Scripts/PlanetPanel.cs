@@ -134,7 +134,7 @@ public partial class PlanetPanel : PanelContainer
         var owner = b.Owner;
         var mine = owner == Side.Player;
         _title.Text = $"{b.Name} · {Format.Title(b.Kind.ToString().ToLowerInvariant())}, {b.Type}" + (b.Home ? " · home world" : "");
-        _title.AddThemeColorOverride("font_color", mine ? Ui.Player : owner == Side.Rival ? Ui.Rival : Ui.Text);
+        _title.AddThemeColorOverride("font_color", mine ? Ui.Player : owner is Side.Rival or Side.Third ? Ui.Rival : Ui.Text);
         var lines = new List<string>();
         lines.Add(owner switch
         {
@@ -204,7 +204,7 @@ public partial class PlanetPanel : PanelContainer
             lines.Add($"Blockaded {b.BlockadeHours / 24:0} days: the garrison is down to {Ground.BlockadeFactor(b):P0} of its strength");
         if (b.Grudge is Side g)
             lines.Add(g == Side.Player ? "Holds a grudge against you (you bombed its people): it will never surrender to you, only to troops" : "Holds a grudge against the rival: it will never surrender to it");
-        if (owner == Side.Rival && b.PopK > 0)
+        if (owner is Side.Rival or Side.Third && b.PopK > 0)
         {
             var line = Planets.SurrenderLine(w, Side.Player);
             lines.Add(Planets.Blockader(w, b) == Side.Player
@@ -215,7 +215,7 @@ public partial class PlanetPanel : PanelContainer
             lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days");
         else if (owner != Side.Player && b.Industry > 0 && b.PopK <= 0 && !b.Shipyard)
             lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it" + (cap > 0 && owner == null ? ", or land settlers to take it at once" : ""));
-        if (b.Shipyard && owner == Side.Rival && Economy.BombardStatus(w, b, Side.Player) is string attack) lines.Add("Shipyard: " + attack);
+        if (b.Shipyard && owner is Side.Rival or Side.Third && Economy.BombardStatus(w, b, Side.Player) is string attack) lines.Add("Shipyard: " + attack);
         if (w.Loop && Planets.SettlerStatus(w, Side.Player, b.Id) is string settlers) lines.Add("SETTLERS: " + settlers);
         if (w.Loop && mine && b.Board != null) lines.Add(Lift.Describe(w, b));
         var here = w.Satellites.Where(s => s.Side == Side.Player && s.BodyId == b.Id).ToList();

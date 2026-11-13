@@ -456,7 +456,7 @@ public partial class EndPanel : PanelContainer
         var theirs = w.Ships.Count(s => s.Side == Side.Rival);
         _text.Text = $"{who} {w.WinReason} on {GameTime.Format(w.WinHour ?? w.Hour)}.\n"
                      + $"Ships left: you {mine}, rival {theirs}. Planets: you {w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0)}, "
-                     + $"rival {w.Bodies.Count(b => b.Owner == Side.Rival && b.Industry > 0)}.\n\n"
+                     + $"rival {w.Bodies.Count(b => b.Owner is Side.Rival or Side.Third && b.Industry > 0)}.\n\n"
                      + Stats.Summary(w)
                      + (Mind.Of(w, Side.Rival) is MindState m ? $"\n\nThe rival was a {m.Personality} on {m.Difficulty}." : "");
     }

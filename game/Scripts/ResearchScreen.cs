@@ -25,6 +25,9 @@ public partial class ResearchScreen : PanelContainer
     private Sort _sort = Sort.Quickest;
     private string? _selected;                 // idea lit up in the discovery web
     private ScrollContainer? _ideaScroll;
+    private bool _revealPicked;                // an idea was picked in the web: show and scroll to its card in Ideas
+    private Control? _pickedCard;
+    private string? _webPick;                  // the idea last picked in the web (kept in Ideas while it stays picked)
     private (int Ideas, int WebV, int WebH)? _keepScroll; // scroll places to put back after a rebuild
     private static bool _allSkills;            // team cards show every field's skill, not only the kept ones (folded by default)
     private static int? _openTeam;             // the team whose full card (skills, queue, train, split) is unfolded
@@ -64,6 +67,13 @@ public partial class ResearchScreen : PanelContainer
             if (_ideaScroll != null && IsInstanceValid(_ideaScroll))
                 _keepScroll = (_ideaScroll.ScrollVertical, 0, 0);
             Rebuild(w);
+        }
+        else if (_revealPicked && _pickedCard != null && IsInstanceValid(_pickedCard) && _ideaScroll != null && IsInstanceValid(_ideaScroll))
+        {
+            // Picked in the discovery web: bring its card into view in Ideas (a frame after the rebuild, once laid out).
+            _ideaScroll.EnsureControlVisible(_pickedCard);
+            _revealPicked = false;
+            _keepScroll = null;
         }
         else if (_keepScroll is var (ideas, _, _) && _ideaScroll != null && IsInstanceValid(_ideaScroll))
         {
@@ -245,12 +255,20 @@ public partial class ResearchScreen : PanelContainer
             name.ClipText = true;
             row.AddChild(name);
             var days = Ui.Label("", 13, Ui.Dim);
+            // A long reason ("WAITING: needs ...") is cut to fit the card (the whole reason is in the tooltip), so the
+            // queue never pushes the team cards off the screen.
+            days.ClipText = true;
+            days.MouseFilter = MouseFilterEnum.Pass;
+            days.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            days.SizeFlagsStretchRatio = 0.8f;
+            days.HorizontalAlignment = HorizontalAlignment.Right;
             _live.Add(w2 =>
             {
                 // The first idea is paid for when the team starts it: say plainly when it is held up for Industry.
                 var stuck = !order.Paid && first && order.Waiting != null;
                 days.Text = order.Paid || !first ? $"{Research.DaysUntilDone(w2, order):0.#} d"
                     : stuck ? $"WAITING: {order.Waiting}" : "starts next hour";
+                days.TooltipText = days.Text;
                 days.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
             });
             row.AddChild(days);
@@ -313,15 +331,27 @@ public partial class ResearchScreen : PanelContainer
         var now = new HBoxContainer();
         now.AddThemeConstantOverride("separation", 10);
         var first = queue.FirstOrDefault();
-        now.AddChild(Ui.Label(first == null ? "Nothing queued" : GameData.Research(first.Key).Name, 13, first == null ? Ui.Dim : new Color("f2f5fa")));
+        var nowName = Ui.Label(first == null ? "Nothing queued" : GameData.Research(first.Key).Name, 13, first == null ? Ui.Dim : new Color("f2f5fa"));
+        nowName.ClipText = true;
+        nowName.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        nowName.TooltipText = nowName.Text;
+        nowName.MouseFilter = MouseFilterEnum.Pass;
+        now.AddChild(nowName);
         var bar = Bar(80, Ui.Player, () => first == null ? 0 : 1 - first.HoursLeft / Math.Max(1e-6, first.TotalHours), _live);
         bar.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        bar.SizeFlagsStretchRatio = 0.6f;
         now.AddChild(bar);
         var left = Ui.Label("", 12, Ui.Dim);
+        // Cut to fit (whole text in the tooltip): a long WAITING reason used to push the team strip off the screen.
+        left.ClipText = true;
+        left.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        left.HorizontalAlignment = HorizontalAlignment.Right;
+        left.MouseFilter = MouseFilterEnum.Pass;
         _live.Add(w2 =>
         {
             var stuck = first != null && !first.Paid && first.Waiting != null;
             left.Text = first == null ? "idle" : first.Paid ? $"{Research.DaysUntilDone(w2, first):0.#} d" : stuck ? $"WAITING: {first.Waiting}" : "starts next hour";
+            left.TooltipText = left.Text;
             left.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
         });
         now.AddChild(left);
@@ -433,6 +463,8 @@ public partial class ResearchScreen : PanelContainer
                                    && _states.Contains(StateOf(w, r.Id))
                                    && (_search.Length == 0 || r.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
                                        || r.Effect.Contains(_search, StringComparison.OrdinalIgnoreCase))).ToList();
+        // An idea picked in the discovery web always shows in Ideas, first, even if the filters would hide it.
+        var pinned = _selected != null && _webPick == _selected && shown.All(r => r.Id != _selected) ? all.Find(r => r.Id == _selected) : null;
         shown = _sort switch
         {
             Sort.Cheapest => shown.OrderBy(r => r.Days * Research.Pace(r.Tier)).ThenBy(r => r.Name).ToList(),
@@ -498,7 +530,14 @@ public partial class ResearchScreen : PanelContainer
         grid.AddThemeConstantOverride("h_separation", 12);
         grid.AddThemeConstantOverride("v_separation", 12);
         var cardWidth = width / grid.Columns - 12;
-        foreach (var r in shown) grid.AddChild(IdeaCard(w, r, cardWidth));
+        _pickedCard = null;
+        if (pinned != null) shown.Insert(0, pinned);
+        foreach (var r in shown)
+        {
+            var c = IdeaCard(w, r, cardWidth);
+            if (r.Id == _selected) _pickedCard = c;
+            grid.AddChild(c);
+        }
         if (shown.Count == 0) grid.AddChild(Ui.Label("No ideas match these filters", 13, Ui.Dim));
         scroll.AddChild(grid);
         v.AddChild(scroll);
@@ -598,6 +637,7 @@ public partial class ResearchScreen : PanelContainer
         var head = new HBoxContainer();
         var name = Ui.Label(r.Name, 14, new Color("f2f5fa"));
         name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        name.ClipText = true;
         head.AddChild(name);
         var status = Ui.Label("", 12, Ui.Dim);
         _live.Add(w2 =>
@@ -649,6 +689,10 @@ public partial class ResearchScreen : PanelContainer
             () => _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id, TeamId: best.Id), "queueing research"),
             $"Queue with {best.Name}, the team that would finish it first (double-clicking the card does the same)");
         quick.AddThemeColorOverride("font_color", Ui.Player);
+        quick.AddThemeFontSizeOverride("font_size", 13);
+        quick.ClipText = true;
+        quick.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        quick.CustomMinimumSize = new Vector2(60, 30);
         row.AddChild(quick);
         var others = Economy.Of(w, Side.Player).Teams.Where(t => t != best).ToList();
         if (others.Count > 0)
@@ -681,7 +725,7 @@ public partial class ResearchScreen : PanelContainer
         head.AddChild(Ui.SmallButton("Fit", DiscoveryWeb.Refit, "Fit the whole web in view"));
         head.AddChild(Ui.SmallButton("▸ Hide", () => _webOpen = false, "Slide the web away so the ideas get the room"));
         v.AddChild(head);
-        var web = new DiscoveryWeb(w, _selected, id => _selected = _selected == id ? null : id)
+        var web = new DiscoveryWeb(w, _selected, id => { _selected = _selected == id ? null : id; _webPick = _selected; _revealPicked = _selected != null; })
         {
             SizeFlagsVertical = SizeFlags.ExpandFill, SizeFlagsHorizontal = SizeFlags.ExpandFill, ClipContents = true,
         };

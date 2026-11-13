@@ -258,7 +258,7 @@ public partial class SidePanel : PanelContainer
             var attention = b.Owner != Side.Player || !w.Loop ? 0
                 : (b.Hungry || b.LandingSide != null ? 2 : 0) + (Economy.Blockaded(w, b) ? 2 : 0) + (b.PowerWanted > b.PowerMade + 1e-6 ? 1 : 0);
             rows.Add(new Row("Outward from the star", b.Id, true, new string(' ', depth * 4) + b.Name, badge, color, string.Join(" · ", tags),
-                b.Owner == Side.Player ? Ui.Player : b.Owner == Side.Rival ? Ui.Rival : Ui.Text, b.Owner, Vec2.Distance(b.Position, home), attention, b.Name));
+                b.Owner == Side.Player ? Ui.Player : b.Owner is Side.Rival or Side.Third ? Ui.Rival : Ui.Text, b.Owner, Vec2.Distance(b.Position, home), attention, b.Name));
             foreach (var child in w.Bodies.Where(c => c.ParentId == b.Id).OrderBy(c => c.OrbitRadius)) Add(child, depth + 1);
         }
         foreach (var root in w.Bodies.Where(b => b.ParentId == null || w.FindBody(b.ParentId.Value) == null)) Add(root, 0);

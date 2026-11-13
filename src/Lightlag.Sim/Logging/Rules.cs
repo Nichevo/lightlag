@@ -69,6 +69,14 @@ public sealed class RuleBook
                     || Lightlag.Sim.Core.Races.All.All(r => Math.Abs(p.HoursLeft - d.Days * 24 * r.DigDays) > 1e-6)))
             .Select(p => $"{b.Name} piece {p.Id} ({p.Kind}) is queued but has {p.HoursLeft:0.#} hours left")))
         .Add("war-sane", WarSane)
+        // Three sides (Plan 3 build 7): two or three sides in order; everything belongs to a side in play; the Lattice crews nothing.
+        .Add("sides-sane", w => (w.Sides.Length is < 2 or > Lightlag.Sim.Core.Sides.Max ? new[] { $"{w.Sides.Length} sides in play" } : Array.Empty<string>())
+            .Concat(w.Sides.Select((s, i) => (s, i)).Where(x => (int)x.s.Side != x.i).Select(x => $"side slot {x.i} holds {x.s.Side}"))
+            .Concat(w.Ships.Where(s => !Lightlag.Sim.Core.Sides.InGame(w, s.Side)).Select(s => $"ship {s.Id} belongs to {s.Side}, not in play"))
+            .Concat(w.Fleets.Where(f => !Lightlag.Sim.Core.Sides.InGame(w, f.Side)).Select(f => $"fleet {f.Id} belongs to {f.Side}, not in play"))
+            .Concat(w.Bodies.Where(b => b.Owner is Side o && !Lightlag.Sim.Core.Sides.InGame(w, o)).Select(b => $"{b.Name} is held by {b.Owner}, not in play"))
+            .Concat(w.Loop ? w.Ships.Where(s => Lightlag.Sim.Core.Sides.InGame(w, s.Side) && Lightlag.Sim.Core.Races.Of(w, s.Side).AiOnly && !s.AiRun)
+                .Select(s => $"ship {s.Id} {s.Name} of a machine race has a crew") : Enumerable.Empty<string>()))
         // Races (Plan 3 build 3): every side plays a known race, and drone crews never gain or lose experience.
         .Add("races-sane", w => w.Sides.Where(s => !Lightlag.Sim.Core.Races.Known(s.Race)).Select(s => $"{s.Side} plays unknown race '{s.Race}'")
             .Concat(w.Loop ? w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId) && Lightlag.Sim.Core.Crews.Crewed(s)
@@ -243,7 +251,7 @@ public sealed class RuleBook
             if (!(s.Strain >= -1e-9 && s.Strain <= 1 + 1e-9)) yield return $"ship {s.Id} {s.Name} has strain {s.Strain}";
             if (s.AiRun && s.Strain > 1e-9) yield return $"AI-run ship {s.Id} {s.Name} has strain {s.Strain}";
             if (s.AiRun && s.Food > 1e-9) yield return $"AI-run ship {s.Id} {s.Name} carries {s.Food} days of food for nobody";
-            if (s.AiRun && !GameData.ShipClass(s.ClassId).AiRunAllowed) yield return $"ship {s.Id} {s.Name} is AI-run but its class always has a crew";
+            if (s.AiRun && !GameData.ShipClass(s.ClassId).AiRunAllowed && !Lightlag.Sim.Core.Races.Of(w, s.Side).AiOnly) yield return $"ship {s.Id} {s.Name} is AI-run but its class always has a crew";
         }
     }
 

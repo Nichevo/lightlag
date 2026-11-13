@@ -349,12 +349,12 @@ public partial class ProgressChart : Control
         for (var i = 1; i < b.Count; i++) DrawDashedLine(P(b[i - 1].Day, b[i - 1].V), P(b[i].Day, b[i].V), Ui.Rival, 2, 5);
 
         // The moments that moved it: battles you fought.
-        foreach (var battle in w.Battles.Where(x => x.For(Side.Player).ShipsIn > 0 && x.For(Side.Rival).ShipsIn > 0))
+        foreach (var battle in w.Battles.Where(x => x.For(Side.Player).ShipsIn > 0 && x.Foes(Side.Player).ShipsIn > 0))
         {
             var day = GameTime.DayOf((long)(battle.StartHour / GameTime.HoursPerTick));
             if (day < firstDay || day > lastDay) continue;
             var x = P(day, 0).X;
-            var lost = battle.For(Side.Player).ShipsLost.Count > battle.For(Side.Rival).ShipsLost.Count;
+            var lost = battle.For(Side.Player).ShipsLost.Count > battle.Foes(Side.Player).ShipsLost.Count;
             DrawLine(new Vector2(x, rect.End.Y), new Vector2(x, rect.End.Y - 8), lost ? Ui.Danger : new Color("7fd67f"), 2);
         }
     }

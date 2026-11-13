@@ -69,7 +69,7 @@ public static class Races
     {
         foreach (var side in Sides.InPlay(w))
         {
-            var asked = side == Side.Player ? options?.PlayerRace : options?.RivalRace;
+            var asked = side switch { Side.Player => options?.PlayerRace, Side.Rival => options?.RivalRace, _ => options?.ThirdRace };
             var id = asked ?? Human;
             if (id == Random)
             {

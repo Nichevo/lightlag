@@ -327,7 +327,7 @@ public partial class ColonyScreen : PanelContainer
     private void AddRow(GridContainer grid, World w, Body b)
     {
         var mine = b.Owner == Side.Player;
-        var rival = b.Owner == Side.Rival;
+        var rival = b.Owner is Side.Rival or Side.Third;
         var colour = mine ? Ui.Player : rival ? Ui.Rival : Ui.Text;
         var cells = new List<Control>();
         cells.Add(new PlanetPicture(b));

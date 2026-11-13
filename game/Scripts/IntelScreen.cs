@@ -221,7 +221,7 @@ public partial class IntelScreen : PanelContainer
             Line(l.Stage == RivalStage.Seen ? $"Something new in their kit · {l.Progress:P0}" : $"{GameData.Research(l.Id).Name} · {RivalTech.StageName(l.Stage)} · {l.Progress:P0}"
                  + (l.Stage == RivalStage.Unlocked ? " · queue it without its prerequisites" : ""), l.Stage == RivalStage.Unlocked ? Gold : Ui.Text, 13);
         Section("Their weapon reach");
-        var fleets = w.Fleets.Where(x => x.Side == Side.Rival && Sensors.Sees(w, Side.Player, x)).OrderBy(x => x.Id).ToList();
+        var fleets = w.Fleets.Where(x => x.Side is Side.Rival or Side.Third && Sensors.Sees(w, Side.Player, x)).OrderBy(x => x.Id).ToList();
         if (fleets.Count == 0) Line("No rival fleet in sight", Ui.Dim, 13);
         foreach (var x in fleets)
         {
