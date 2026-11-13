@@ -197,6 +197,9 @@ public class PlanetTests
         var fleet = Home(sim);
         PlaceInOrbit(sim, fleet, vela);
         Assert.True(Economy.Blockaded(sim.World, vela));
+        // However unhappy, it holds out MinBlockadeDays: time for its holder to send a fleet.
+        Days(sim, (int)Planets.D.MinBlockadeDays - 2);
+        Assert.Equal(Side.Rival, vela.Owner);
         Days(sim, 5);
         Assert.Equal(Side.Player, vela.Owner);
         Assert.Equal(0, vela.OwnShare);

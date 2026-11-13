@@ -56,6 +56,14 @@ public static class WarReport
             md.AppendLine($"| {how} | {(double)n / Rows.Count:0.00} | {Per(c => c.Days):0.0} ({Per(c => c.FightDays):0.0}) | {Per(c => c.PeopleK):0.0}k | "
                           + $"{Per(c => c.BuildingsKept):0.0} ({Per(c => c.BuildingsDamaged):0.0}, {Per(c => c.BuildingsWrecked):0.0}) | {Per(c => c.Happiness):0} |");
         }
+        var started = Sum(r => r.T.BlockadesStarted);
+        if (started > 0)
+        {
+            var broken = Sum(r => r.T.BlockadesBroken);
+            md.AppendLine();
+            md.AppendLine($"Blockades (a day or more): {started / Rows.Count:0.00} per side per game; {broken / started:P0} broken by a relief fleet (target 50 %), "
+                          + $"{Sum(r => r.T.BlockadesLeft) / started:P0} left by the blockaders, {blkWins / started:P0} ended in surrender, the rest in an invasion or still going.");
+        }
         if (invWins + blkWins > 0 && (invWins == 0 || blkWins == 0))
             md.AppendLine($"\n**Only {(invWins == 0 ? "blockades" : "invasions")} took planets: both ways should be worth using.**");
         md.AppendLine();

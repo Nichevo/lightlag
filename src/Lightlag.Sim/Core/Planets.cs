@@ -33,7 +33,7 @@ public sealed record PlanetsData(
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
     double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
-    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50,
+    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
     double GroundLossPerHour = 0.05, double BoardTroopsK = 0.5, double BuildingArmour = 40, double PeopleKPerDamage = 0.02,
     double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
@@ -435,6 +435,23 @@ public static class Planets
     }
 
     /// <summary>
+    /// A blockade of a day or more ended with the planet still its holder's: broken by a fleet of the holder's
+    /// near the planet, or else the blockaders left (pulled away, called off, or beaten elsewhere).
+    /// </summary>
+    private static void Lifted(Simulation sim, Body b)
+    {
+        var w = sim.World;
+        var by = Combat.Other(b.BlockadedOwner!.Value);
+        var t = Economy.Of(w, by).Totals;
+        var relief = w.Fleets.Any(f => f.Side == b.Owner && f.ShipIds.Count > 0 && Combat.Armed(w, f)
+                                        && Vec2.Distance(f.Position, b.Position) <= GameData.Combat.ContactRangeMm * 2);
+        if (relief) t.BlockadesBroken++;
+        else t.BlockadesLeft++;
+        sim.Log.Info("planets", relief ? "Blockade broken by a relief fleet" : "Blockade ends",
+            new { bodyId = b.Id, body = b.Name, by = by.ToString(), days = Math.Round(b.BlockadeHours / 24, 1), relief });
+    }
+
+    /// <summary>
     /// Under a long blockade, buildings that have worn right down for want of spare parts fail one by one
     /// (the lowest priority first). Wear itself is in Colonies.
     /// </summary>
@@ -442,8 +459,17 @@ public static class Planets
     {
         foreach (var b in sim.World.Bodies.Where(b => b.Owner != null))
         {
-            if (!Economy.Blockaded(sim.World, b)) { b.BlockadeHours = 0; continue; }
+            if (!Economy.Blockaded(sim.World, b))
+            {
+                if (b.BlockadeHours >= 24 && b.BlockadedOwner == b.Owner) Lifted(sim, b);
+                b.BlockadeHours = 0;
+                b.BlockadedOwner = null;
+                continue;
+            }
+            if (b.BlockadeHours < 24 && b.BlockadeHours + GameTime.HoursPerTick >= 24 && b.Owner is Side held)
+                Economy.Of(sim.World, Combat.Other(held)).Totals.BlockadesStarted++;
             b.BlockadeHours += GameTime.HoursPerTick;
+            b.BlockadedOwner = b.Owner;
             var over = b.BlockadeHours - D.DecayAfterDays * 24;
             if (over <= 0 || Math.Abs(over % (D.DecayEveryDays * 24)) > 1e-6) continue;
             var worn = Colonies.Built(b).Where(p => p.Condition <= 0.05 && p.Kind != Colonies.Shipyard)
@@ -568,6 +594,8 @@ public static class Planets
         foreach (var b in w.Bodies.Where(b => b.Owner != null && b.PopK > 0).ToList())
         {
             if (Blockader(w, b) is not Side by || b.Grudge == by) continue;
+            // Never before MinBlockadeDays, however unhappy: time for its holder to send a fleet to break the blockade.
+            if (b.BlockadeHours < D.MinBlockadeDays * 24) continue;
             var gives = w.Rules.Happiness ? b.Happiness < SurrenderLine(w, by) : b.HungryHours >= D.HungryDaysToSurrender * 24;
             if (!gives) continue;
             var t = Economy.Of(w, by).Totals;

@@ -868,16 +868,52 @@ public static class Mind
                 if (Slip()) continue;
                 var there = Math.Max(EnemyNear(b.Position, 0.05 * _au, 10 * 24), 2 * A.EnemyShipValue);
                 // Its own planets are always worth a fight, even at somewhat worse odds; a neutral one needs better.
-                var need = there * (ours ? A.DefendOwnRatio * _m.Lean.Odds : Math.Max(Want, 1.3));
+                // The longer one of its own planets is held under blockade, the worse the odds it will go in at:
+                // the planet's people hold out about MinBlockadeDays, and a relief fleet late is no relief.
+                var held = ours ? Math.Clamp(b.BlockadeHours / 24 / Math.Max(1, Planets.D.MinBlockadeDays), 0, 1) : 0;
+                var need = there * (ours ? A.DefendOwnRatio * _m.Lean.Odds * (1 - 0.35 * held) : Math.Max(Want, 1.3));
                 var group = TakeFromPool(need, $"break the enemy claim on {b.Name}");
                 if (group == null)
                 {
-                    Note($"Can't spare enough to stop the enemy claiming {b.Name} (needs about {need:0})");
+                    if (ours && Rally(b, need)) continue;
+                    Note(ours ? $"Can't spare enough to relieve our {b.Name} (needs about {need:0}; {Pool().Where(Ready).Sum(f => War(f)):0} ready at home, {Mine().Sum(f => War(f)):0} in all, the rest busy, refitting or too far)"
+                        : $"Can't spare enough to stop the enemy claiming {b.Name} (needs about {need:0})");
                     continue;
                 }
                 Send(group, b, JobKind.Break, 0.8, Core.Stance.Engage,
                     $"enemy is claiming {(ours ? "our" : "neutral")} {b.Name}; about {there:0} enemy power there");
             }
+        }
+
+        /// <summary>
+        /// Not enough at home to relieve one of its blockaded planets: send the fleets that are out and can get
+        /// there before it is likely to give up (hunters, probes, guards, claim groups, a campaign still on its
+        /// way), nearest first, until they add up to enough. Fleets already sitting on a blockade of their own,
+        /// striking, refitting or busy are left alone.
+        /// </summary>
+        private bool Rally(Body b, double need)
+        {
+            if (Easy) return false;
+            var daysLeft = Math.Max(5, Planets.D.MinBlockadeDays - b.BlockadeHours / 24);
+            var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && Ready(f) && War(f) > 0)
+                .Where(f => _m.JobOf(f.Id) is not { } j
+                            || j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort
+                            || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null))
+                .Select(f => (Fleet: f, Days: TravelDays(f, b, 0.8)))
+                .Where(x => x.Days <= daysLeft).OrderBy(x => x.Days).ToList();
+            var sent = new List<Fleet>();
+            double sum = 0;
+            foreach (var (f, _) in near)
+            {
+                if (sum >= need) break;
+                sent.Add(f);
+                sum += War(f);
+            }
+            if (sum < need) return false;
+            SetGoal("Relieve", $"{sent.Count} fleet(s), {sum:0} power, to break the blockade of {b.Name} (needs about {need:0})");
+            foreach (var f in sent)
+                Send(f, b, JobKind.Break, 0.8, Core.Stance.Engage, $"relieve our {b.Name}: blockaded {b.BlockadeHours / 24:0} days");
+            return true;
         }
 
         // ---- Offence and expansion ------------------------------------------------------------

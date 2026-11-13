@@ -307,6 +307,9 @@ public sealed class Body
     /// <summary>Hours this planet has been blockaded without a break (buildings start to fail after a while).</summary>
     public double BlockadeHours { get; set; }
 
+    /// <summary>Who held the planet while the current blockade went on (to tell a lifted blockade from a capture).</summary>
+    public Side? BlockadedOwner { get; set; }
+
     /// <summary>Auto top-up: settle orders fill this planet up, one at a time.</summary>
     public bool AutoTopUp { get; set; }
 
