@@ -64,6 +64,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetPowerUseCommand), "setPowerUse")]
 [JsonDerivedType(typeof(SetSiegeStockCommand), "setSiegeStock")]
 [JsonDerivedType(typeof(SetAutoTransportCommand), "setAutoTransport")]
+[JsonDerivedType(typeof(KeepRunCommand), "keepRun")]
 [JsonDerivedType(typeof(FixedRunCommand), "fixedRun")]
 [JsonDerivedType(typeof(ShipGoodsCommand), "shipGoods")]
 [JsonDerivedType(typeof(SendForRefitCommand), "sendForRefit")]

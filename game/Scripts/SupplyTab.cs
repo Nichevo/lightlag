@@ -148,7 +148,9 @@ public sealed class SupplyTab
             var name = r.Name + (r.ViaBodyId is int via && w.FindBody(via) is Body v ? $" (by {v.Name})" : "");
             grid.AddChild(Cell(name, Ui.Text, r.RiskWhy));
             grid.AddChild(Cell(string.Join(", ", r.Goods.Select(GoodName)), Ui.Dim));
-            grid.AddChild(Cell(r.Ships + (r.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" + {escort.Name}" : ""), Ui.Dim));
+            // A run shows where it stands (its freighter, the next load, or why it waits) in place of only the ship names.
+            var ships = (r.Status ?? r.Ships) + (r.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" + {escort.Name}" : "");
+            grid.AddChild(Cell(ships, r.Status?.StartsWith("WAITING", StringComparison.Ordinal) == true ? Ui.Rival : Ui.Dim, r.Why ?? ""));
             grid.AddChild(Cell(r.HowOften, Ui.Dim));
             grid.AddChild(Cell(r.Risk.ToString(), RiskColor(r.Risk), r.RiskWhy));
             grid.AddChild(SetBy(w, r));
@@ -183,6 +185,16 @@ public sealed class SupplyTab
     private Control SetBy(World w, RouteRow r)
     {
         if (r.ToFleetId != null) return Cell(r.Fixed ? "By hand" : "Auto", Ui.Dim, "Supply runs to fleets are set from the fleet panel");
+        if (r.AutoRun && r.FixedRunId is int autoId)
+        {
+            var both = new HBoxContainer();
+            both.AddThemeConstantOverride("separation", 4);
+            both.AddChild(Small("Keep", () => Issue(new KeepRunCommand(Side.Player, autoId), "keeping a run"),
+                $"Auto run{(r.Why != null ? $": {r.Why}" : "")}. Keep it as your own run: Auto will not stop it when the shortage ends"));
+            both.AddChild(Small("✕", () => Issue(new FixedRunCommand(Side.Player, 0, 0, "", 1, RemoveRunId: autoId), "stopping an Auto run"),
+                $"Stop this Auto run; Auto won't set it up again for {ShortRuns.StoppedDays:0} days"));
+            return both;
+        }
         if (r.Fixed && r.FixedRunId is int runId)
             return Small("Fixed run", () => Issue(new FixedRunCommand(Side.Player, 0, 0, "", 1, RemoveRunId: runId), "dropping a fixed run"),
                 "Drop the fixed run: Auto carries goods here again when the planet asks");

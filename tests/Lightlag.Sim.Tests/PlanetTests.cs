@@ -316,7 +316,7 @@ public class PlanetTests
         Assert.Equal(armour, sim.World.ShipsOf(fleet).Sum(s => s.Armour), 6);
         sim.Issue(new SetOrbitHeightCommand(fleet.Id, OrbitHeight.Low));
         Days(sim, 1);
-        Assert.True(sim.World.Ships.Where(s => s.Side == Side.Player).Sum(s => s.Armour) < armour);
+        Assert.True(sim.World.ShipsOf(fleet).Sum(s => s.Armour) < armour);
     }
 
     [Fact]
