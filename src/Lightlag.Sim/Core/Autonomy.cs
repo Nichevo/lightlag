@@ -71,6 +71,8 @@ public static class Autonomy
             sim.Log.Info("fleet", "Off its call for help: new orders", new { fleetId = f.Id, callId = f.AnsweringCallId });
             HelpCalls.Dropped(f);
         }
+        // A forward guard sent somewhere by hand is no longer just going to its post (it goes back there once free).
+        if (f.GuardPosting && command is PlanFlightCommand or StopFleetCommand or SetHoldCommand or GatherFleetsCommand or SendAheadCommand or HuntCommand) f.GuardPosting = false;
         if ((f.Mission != Mission.None || f.ZoneId != null) && command is PlanFlightCommand or StopFleetCommand or SetHoldCommand or GatherFleetsCommand or SendAheadCommand)
         {
             // A direct move also takes it off its zone, or the zone would pull it straight back once it got there.

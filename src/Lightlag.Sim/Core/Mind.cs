@@ -184,6 +184,9 @@ public sealed class MindState
     /// <summary>Until this hour it is pulling fleets home to gather for a strike, so it starts no new claims.</summary>
     public double GatherUntilHour { get; set; } = -1e9;
 
+    /// <summary>When it last looked at stationing guards out among its far colonies (see the Thinker's StationGuards).</summary>
+    public double LastStationHour { get; set; } = -1e9;
+
     /// <summary>When the planets may next have a building ahead of the next ship (see Mind.Build).</summary>
     public double NextBuildHour { get; set; }
 
@@ -472,6 +475,7 @@ public static class Mind
             if (!threatened)
             {
                 DefendClaims();
+                StationGuards(); // before strikes and campaigns: its far colonies come first
                 if (!Strike())
                 {
                     Campaign();
@@ -791,6 +795,7 @@ public static class Mind
                     JobKind.Hunt => job.EnemyFleetId is not int e || Sensors.Find(_w, _side, e, seat: true) is not Sighting s || _w.Hour - s.Hour > 48,
                     JobKind.Probe => f.Flight == null && _w.Hour - job.Since > A.ProbeDays * 24,
                     JobKind.Refit => AtHome(f) && Ready(f),
+                    JobKind.Guard => body == null || body.Owner != _side,
                     JobKind.Ambush => f.ZoneId == null || _w.Hour - job.Since > AmbushDays * 24 || Supplies(f) < 0.4,
                     JobKind.Escort => body == null || body.Owner != _side || _w.Hour - job.Since > EscortDays * 24 || Supplies(f) < 0.4,
                     _ => false,
@@ -956,10 +961,67 @@ public static class Mind
         /// way), nearest first, until they add up to enough. Fleets already sitting on a blockade of their own,
         /// striking, refitting or busy are left alone.
         /// </summary>
+        /// <summary>A colony this many days or more from home (at a relief burn) is "far": relief from home would come too late.</summary>
+        private const double FarColonyDays = 20;
+
+        /// <summary>At most this many forward guards (one per two far colonies).</summary>
+        private const int MaxGuards = 3;
+
+        /// <summary>Share of the ready home fleet a new forward guard takes (at least two ships' worth).</summary>
+        private const double GuardPoolShare = 0.3;
+
+        /// <summary>How often (days) it looks at its forward guards.</summary>
+        private const double StationEveryDays = 10;
+
+        /// <summary>
+        /// Forward guards: relief from home takes far longer than a blockaded colony holds out (troops take one in
+        /// 3 to 13 days), so with colonies far from home it keeps a guard fleet stationed at the most valuable far
+        /// colony, central to the others (one guard per two far colonies, up to three). It looks at this before strikes
+        /// and campaigns: its own far colonies come first. Guards stay in orbit there, answer blockades
+        /// nearby (Rally) and go home only to refit. Only spare power goes: the home guard share stays.
+        /// </summary>
+        private void StationGuards()
+        {
+            if (Easy || _home == null || _w.Hour - _m.LastStationHour < StationEveryDays * 24 || Slip()) return;
+            _m.LastStationHour = _w.Hour;
+            var pool = Pool().Where(Ready).OrderByDescending(f => War(f)).ToList();
+            if (pool.Count == 0) return;
+            var probe = pool[0];
+            var far = Economy.Claimable(_w).Where(b => b.Owner == _side && b.Id != _home.Id && b.PopK > 0)
+                .Select(b => (Body: b, Days: TravelDays(probe, b, Burn(probe)))).Where(x => x.Days >= FarColonyDays).Select(x => x.Body).ToList();
+            if (far.Count == 0) return;
+            var guards = Mine().Where(f => _m.JobOf(f.Id) is { Kind: JobKind.Guard } j && j.BodyId != _home.Id).ToList();
+            var wanted = Math.Clamp((far.Count + 1) / 2, 1, MaxGuards);
+            if (guards.Count >= wanted) return;
+            double Value(Body b) => b.Industry + 0.05 * b.PopK + 1;
+            // The hub: the far colony closest (value-weighted) to the others not already near a guard.
+            var open = far.Where(b => !guards.Any(g => Vec2.Distance(g.Position, b.Position) <= 0.5 * _au)).ToList();
+            if (open.Count == 0) return;
+            var hub = open.OrderBy(h => open.Sum(b => Value(b) * Vec2.Distance(h.Position, b.Position)) / Value(h)).ThenBy(h => h.Id).First();
+            var poolPower = pool.Sum(f => War(f));
+            var power = Math.Max(2 * A.EnemyShipValue, poolPower * GuardPoolShare);
+            if (poolPower * (1 - _p.GuardShare) < power) return; // not enough to spare yet
+            var group = TakeFromPool(power, $"guard the colonies around {hub.Name}", minShips: 2);
+            if (group == null) return;
+            Send(group, hub, JobKind.Guard, 0.6, Core.Stance.Engage, $"stationed at {hub.Name} to guard {open.Count} far colonies (relief from home takes too long)");
+        }
+
+        /// <summary>Days past the planet's expected holding-out time a relief fleet may still arrive: a planet often holds on a little longer, and a late fleet can still retake it.</summary>
+        private const double ReliefLateDays = 10;
+
         private bool Rally(Body b, double need)
         {
             if (Easy) return false;
             var daysLeft = Math.Max(5, Planets.D.MinBlockadeDays - b.BlockadeHours / 24);
+            if (System.Environment.GetEnvironmentVariable("RALLY_DEBUG") == "1")
+            {
+                var why = Mine().Where(f => War(f) > 0).GroupBy(f =>
+                    Busy(f) ? (f.Refit != null ? "busy-refit" : f.Resupplying ? "busy-resupply" : f.Maneuvering ? "busy-fight" : f.Retreating ? "busy-retreat" : "busy-other")
+                    : NeedsRefit(f) ? "needs-refit" : !FitToRelieve(f) ? "unfit"
+                    : _m.JobOf(f.Id) is { } j && !(j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort or JobKind.Refit || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null)) ? "job-" + j.Kind + (j.Campaign ? "-campaign" : "")
+                    : TravelDays(f, b, Burn(f)) > daysLeft + ReliefLateDays ? "too-far" + (TravelDays(f, b, Burn(f)) > daysLeft + 30 ? "30+" : "") : "ok").Select(g => $"{g.Key}={g.Sum(f => War(f)):0}");
+                _sim.Log.Info("ai", "RALLYDBG", new { need, daysLeft, why = string.Join(" ", why) });
+            }
             // Its own people come first: a fleet fit to fight (not only fresh from a refit) goes, and so does one
             // flying home only because its last job ended.
             var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && FitToRelieve(f) && War(f) > 0)
@@ -967,8 +1029,8 @@ public static class Mind
                             || j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort
                             || j.Kind == JobKind.Refit
                             || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null))
-                .Select(f => (Fleet: f, Days: TravelDays(f, b, 0.8)))
-                .Where(x => x.Days <= daysLeft).OrderBy(x => x.Days).ToList();
+                .Select(f => (Fleet: f, Days: TravelDays(f, b, Burn(f))))
+                .Where(x => x.Days <= daysLeft + ReliefLateDays).OrderBy(x => x.Days).ToList();
             var sent = new List<Fleet>();
             double sum = 0;
             foreach (var (f, _) in near)
@@ -980,7 +1042,7 @@ public static class Mind
             if (sum < need) return false;
             SetGoal("Relieve", $"{sent.Count} fleet(s), {sum:0} power, to break the blockade of {b.Name} (needs about {need:0})");
             foreach (var f in sent)
-                Send(f, b, JobKind.Break, 0.8, Core.Stance.Engage, $"relieve our {b.Name}: blockaded {b.BlockadeHours / 24:0} days");
+                Send(f, b, JobKind.Break, Burn(f), Core.Stance.Engage, $"relieve our {b.Name}: blockaded {b.BlockadeHours / 24:0} days");
             return true;
         }
 

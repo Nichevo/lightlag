@@ -1,6 +1,10 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 namespace Lightlag.Game;
+/// <summary>
+/// Lap timer for the --panel-bench developer check: Hud.Refresh marks a lap after each part it refreshes.
+/// Off (and nearly free) unless the bench is running.
+/// </summary>
 public static class BenchProbe
 {
     public static bool On;

@@ -365,9 +365,36 @@ public partial class FleetScreen : PanelContainer
             var grid = new GridContainer { Columns = 2 };
             grid.AddThemeConstantOverride("h_separation", 12);
             grid.AddThemeConstantOverride("v_separation", 6);
-            grid.AddChild(Ui.Label("Goes up to", 13, Ui.Dim));
-            grid.AddChild(Pick(Enum.GetValues<RoleRange>().Select(r => (r, HelpCalls.RangeName(r))).ToList(), rules.Range,
-                r => SetRule(id, x => x.Range = r), f.Role == FleetRole.Supply ? "How far away a fleet running short may be and still be supplied" : "How far from the trouble the fleet may be and still go"));
+            if (f.Role == FleetRole.ForwardGuard)
+            {
+                // Which planets it guards: it waits at a post central to them and answers any of them, however far.
+                col.AddChild(Ui.Label("Planets it guards (it waits at a post central to them):", 13, Ui.Dim));
+                var flow = new HFlowContainer();
+                flow.AddThemeConstantOverride("h_separation", 10);
+                foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player && b.Kind != BodyKind.Star).OrderBy(b => b.Name, StringComparer.Ordinal))
+                {
+                    var bid = b.Id;
+                    var box = new CheckBox { Text = b.Name, ButtonPressed = f.GuardBodyIds.Contains(bid), FocusMode = FocusModeEnum.None,
+                        TooltipText = b.Shipyard ? "Your shipyard world" : $"{b.PopK:0}k people" };
+                    box.AddThemeFontSizeOverride("font_size", 13);
+                    box.Toggled += on =>
+                    {
+                        if (_screen.World.FindFleet(id) is not Fleet g) return;
+                        var ids = g.GuardBodyIds.Where(x => x != bid).ToList();
+                        if (on) ids.Add(bid);
+                        _screen.IssueNow(new SetGuardPlanetsCommand(id, ids), "guard planets");
+                    };
+                    flow.AddChild(box);
+                }
+                col.AddChild(flow);
+                col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? HelpCalls.GuardStatus(w2, g) : "", 13, new Color("9fd6ff"), wrap: true));
+            }
+            else
+            {
+                grid.AddChild(Ui.Label("Goes up to", 13, Ui.Dim));
+                grid.AddChild(Pick(Enum.GetValues<RoleRange>().Select(r => (r, HelpCalls.RangeName(r))).ToList(), rules.Range,
+                    r => SetRule(id, x => x.Range = r), f.Role == FleetRole.Supply ? "How far away a fleet running short may be and still be supplied" : "How far from the trouble the fleet may be and still go"));
+            }
             if (f.Role == FleetRole.Supply)
             {
                 col.AddChild(grid);
@@ -382,12 +409,12 @@ public partial class FleetScreen : PanelContainer
             var wear = new (double, string)[] { (0, "Never"), (0.25, "Hull or supplies below 25 %"), (0.5, "Hull or supplies below 50 %"), (0.75, "Hull or supplies below 75 %") };
             grid.AddChild(Pick(wear, wear.OrderBy(x => Math.Abs(x.Item1 - rules.MinHealth)).First().Item1,
                 v => SetRule(id, x => x.MinHealth = v), "Too worn or too short of supplies to answer"));
-            grid.AddChild(Ui.Label("Afterwards", 13, Ui.Dim));
+            if (f.Role != FleetRole.ForwardGuard) grid.AddChild(Ui.Label("Afterwards", 13, Ui.Dim));
             var back = new CheckBox { Text = "Go back to its post and mission", ButtonPressed = rules.ReturnAfter, FocusMode = FocusModeEnum.None,
                 TooltipText = "When the call is over, fly back to where it was (and carry on with its patrol or hold). Off: it stays where the fight ended" };
             back.AddThemeFontSizeOverride("font_size", 13);
             back.Toggled += on => SetRule(id, x => x.ReturnAfter = on);
-            grid.AddChild(back);
+            if (f.Role != FleetRole.ForwardGuard) grid.AddChild(back); // a guard always goes back to its post
             col.AddChild(grid);
         }
         col.AddChild(Live(w2 =>

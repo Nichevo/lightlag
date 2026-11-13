@@ -252,6 +252,7 @@ public class WarTests
         var ships = Enumerable.Repeat("troop-ship", (int)Math.Ceiling(garrison * troopShare / GameData.ShipClass("troop-ship").Cargo)).Prepend("gun-frigate").ToArray();
         var f = NewFleet(sim, Side.Player, vela.Position, ships);
         PlaceInOrbit(sim, f, vela);
+        Starts.BlockadedLongEnough(vela, Side.Player);
         f.OrbitHeight = OrbitHeight.Low;
         new LandTroopsCommand(f.Id, vela.Id, plan).Apply(sim.World, sim);
         Assert.Equal(Side.Player, vela.LandingSide);
@@ -319,6 +320,7 @@ public class WarTests
         var vela = RivalPlanet(sim);
         var f = NewFleet(sim, Side.Player, vela.Position, "gun-frigate", "troop-ship", "troop-ship");
         PlaceInOrbit(sim, f, vela);
+        Starts.BlockadedLongEnough(vela, Side.Player);
         f.OrbitHeight = OrbitHeight.Low;
         new LandTroopsCommand(f.Id, vela.Id, GroundPlan.Methodical).Apply(sim.World, sim);
         var front = vela.Front!;
@@ -339,6 +341,7 @@ public class WarTests
         Put(sim, vela, Planets.Guns);
         var f = NewFleet(sim, Side.Player, vela.Position, "missile-destroyer", "troop-ship", "troop-ship");
         PlaceInOrbit(sim, f, vela);
+        Starts.BlockadedLongEnough(vela, Side.Player);
         f.OrbitHeight = OrbitHeight.Low;
         var aboard = Planets.TroopsAboard(sim.World, f);
         new LandTroopsCommand(f.Id, vela.Id).Apply(sim.World, sim);

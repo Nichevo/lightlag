@@ -79,7 +79,7 @@ public partial class Main : Node
             CallDeferred(MethodName.RunSmokeTest);
             return;
         }
-        if (OS.GetCmdlineUserArgs().Contains("--bench")) { _ = RunBench(); return; }
+        if (OS.GetCmdlineUserArgs().Contains("--panel-bench")) { _ = RunBench(); return; }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--screenshots=")) is string shots)
         {
             _ = TakeScreenshots(shots["--screenshots=".Length..].Trim('"'));
@@ -354,6 +354,11 @@ public partial class Main : Node
     /// <summary>
     /// CI runs the game under a virtual screen with --screenshots=DIR to photograph a set of map views,
     /// so changes to how the map looks can be checked without a person at the PC.
+    /// </summary>
+    /// <summary>
+    /// Developer check (--panel-bench): plays a game for BENCH_DAYS (default 150) days, then opens each screen in
+    /// turn and prints how long each part of the HUD's refresh takes per frame (see BenchProbe), and the frame's
+    /// process time. Run it under a virtual screen; it quits when done.
     /// </summary>
     private async Task RunBench()
     {

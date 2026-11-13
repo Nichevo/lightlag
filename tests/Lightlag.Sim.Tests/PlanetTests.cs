@@ -281,7 +281,7 @@ public class PlanetTests
         vela.PopK = 40;
         vela.Happiness = 90;
         vela.Grudge = Side.Player;
-        var troops = NewFleet(sim, Side.Player, verdant, "troop-ship", "troop-ship");
+        var troops = NewFleet(sim, Side.Player, verdant, "gun-frigate", "troop-ship", "troop-ship");
         Days(sim, 1);
         Assert.Equal(2 * GameData.ShipClass("troop-ship").Cargo, Planets.TroopsAboard(sim.World, troops), 6);
         PlaceInOrbit(sim, troops, vela);
@@ -290,6 +290,10 @@ public class PlanetTests
         sim.StepMany(2); // under light lag the order takes a few minutes to get there
         Assert.NotNull(Planets.CanLand(sim.World, troops, vela));
         sim.Issue(new SetOrbitHeightCommand(troops.Id, OrbitHeight.Low));
+        sim.StepMany(2);
+        // A held world has to be cut off for a while first, so its holder has time to send relief.
+        Assert.StartsWith("Blockade it", Planets.CanLand(sim.World, troops, vela));
+        Starts.BlockadedLongEnough(vela, Side.Player);
         sim.Issue(new LandTroopsCommand(troops.Id, vela.Id));
         sim.StepMany(2);
         Assert.Equal(Side.Player, vela.LandingSide);

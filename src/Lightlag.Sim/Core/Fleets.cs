@@ -298,6 +298,10 @@ public sealed class Fleet
     public Mission PostMission { get; set; }
     public int? PostMissionBodyId { get; set; }
 
+    /// <summary>Forward guard role: the planets it guards (see GuardPosts), and whether its flight now is only the trip to its post.</summary>
+    public List<int> GuardBodyIds { get; set; } = new();
+    public bool GuardPosting { get; set; }
+
     public bool InFlight => Flight != null;
 }
 

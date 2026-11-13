@@ -21,6 +21,7 @@ public static class FleetNames
             case FleetRole.AntiPiracy: return "Pirate patrol";
             case FleetRole.Support: return "Support fleet";
             case FleetRole.Supply: return "Supply fleet";
+            case FleetRole.ForwardGuard: return "Guard fleet";
         }
         var specs = w.ShipsOf(f).Select(Fitting.Spec).ToList();
         if (specs.Count == 0) return "Fleet";

@@ -33,7 +33,7 @@ public sealed record PlanetsData(
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
     double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
-    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30,
+    double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30, double LandAfterBlockadeDays = 20,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
     double GroundLossPerHour = 0.05, double BoardTroopsK = 0.5, double BuildingArmour = 40, double PeopleKPerDamage = 0.02,
     double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
@@ -981,7 +981,21 @@ public static class Planets
         if (b.Owner == f.Side) return "It is already yours";
         if (b.PopK <= 0 && b.Owner == null) return "Nobody there to fight: claim or settle it instead";
         if (w.Fleets.Any(o => o.Side != f.Side && Economy.InOrbitAt(o, b) && Combat.Armed(w, o))) return "Enemy warships hold orbit here";
+        // A held world must first be cut off for a while (its holder gets time to send relief); more troops may
+        // join a landing already fighting there.
+        if (b.Owner != null && b.LandingSide != f.Side && LandWaitDays(w, f.Side, b) is double wait and > 0)
+            return Economy.Blockaded(w, b) && b.BlockadedBy == f.Side
+                ? $"Blockade it {D.LandAfterBlockadeDays:0} days first ({b.BlockadeHours / 24:0} so far, {wait:0.#} to go)"
+                : $"Blockade it {D.LandAfterBlockadeDays:0} days first (armed ships in orbit cut it off)";
         return null;
+    }
+
+    /// <summary>Days this side's blockade of a held world must still last before its troops may land (0: they may land now).</summary>
+    public static double LandWaitDays(World w, Side side, Body b)
+    {
+        if (b.Owner == null || b.Owner == side) return 0;
+        var held = Economy.Blockaded(w, b) && b.BlockadedBy == side ? b.BlockadeHours / 24 : 0;
+        return Math.Max(0, D.LandAfterBlockadeDays - held);
     }
 
     /// <summary>Bombing damage that knocks out one building here (dug-in Hive buildings take more).</summary>
