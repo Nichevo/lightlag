@@ -115,6 +115,7 @@ public partial class Hud : CanvasLayer
         bar.AddChild(_news);
         _pauseOnContact = SmallButton("Pause on contact", () => _screen.PauseOnContact = !_screen.PauseOnContact, "Pause when an enemy fleet comes into sight (P)");
         bar.AddChild(_pauseOnContact);
+        bar.AddChild(SmallButton("Pauses…", () => _screen.OpenMenu("pause"), "Pause settings: for each kind of event, pause, slow to 1x, pop up or only a News line, with presets"));
         _silence = SmallButton("Radio silence", () => _screen.ToggleRadioSilence(),
             "No orders leave your flagship (they wait until you lift it), so the rival can't follow your signal traffic to find it. Fleets in command range still get orders");
         bar.AddChild(_silence);
@@ -404,7 +405,7 @@ public partial class Hud : CanvasLayer
         if (_plannerPanel.Visible && _fleetPanel.Visible && _plannerPanel.GetGlobalRect().End.Y > _fleetPanel.GetGlobalRect().Position.Y)
             _fleetPanel.Visible = false;
 
-        if (_screen.MenuOpen && !_menu.Visible) _menu.Open();
+        if (_screen.MenuOpen && !_menu.Visible) { _menu.Open(_screen.MenuPage); _screen.MenuPage = null; }
         else if (!_screen.MenuOpen) _menu.Visible = false;
 
         var engagement = _screen.EngagementNow;

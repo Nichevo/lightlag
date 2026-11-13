@@ -140,6 +140,8 @@ public partial class TitleScreen : Control
         events.Selected = (int)main.EventsChoice;
         events.ItemSelected += i => main.EventsChoice = (Lightlag.Sim.Core.EventRate)(int)i;
         row.AddChild(events);
+        Box("Ironman", main.IronmanChoice, v => main.IronmanChoice = v,
+            "One save for the whole game, written over as you play and when you quit. No loading back, no quick load: every choice sticks");
         return row;
     }
 

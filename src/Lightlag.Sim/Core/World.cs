@@ -164,6 +164,9 @@ public sealed class GameRules
 
     /// <summary>How often events come (see Events): the same for both sides.</summary>
     public EventRate Events { get; set; } = EventRate.Normal;
+
+    /// <summary>Ironman: one save per game, written over as you play; no loading back (see SaveSlots).</summary>
+    public bool Ironman { get; set; }
 }
 
 public enum EventRate { Off, Rare, Normal, Lively }

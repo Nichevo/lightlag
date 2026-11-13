@@ -1,4 +1,5 @@
 using Godot;
+using Lightlag.Sim;
 using Lightlag.Sim.Core;
 using Engagement_ = Lightlag.Sim.Core.Engagement;
 using Lightlag.Sim.Save;
@@ -32,6 +33,7 @@ public partial class GameScreen : Node2D
     public static readonly double[] Speeds = { 6, 12, 24, 48 };
     public static readonly string[] SpeedNames = { "1x", "2x", "4x", "8x" };
     private const double AutosaveEverySeconds = 300; // real time spent playing (not paused)
+    private const double IronmanSaveEverySeconds = 60;
 
     private Main _main = null!;
     private readonly MapCamera _camera = new();
@@ -96,8 +98,37 @@ public partial class GameScreen : Node2D
     /// <summary>The same fleets meeting again within this many hours of their last contact ending do not pause the game again.</summary>
     private const double RecontactQuietHours = 48;
 
-    /// <summary>Pause the game when an enemy fleet comes into sight.</summary>
-    public bool PauseOnContact { get; set; } = true;
+    /// <summary>Pause the game when an enemy fleet comes into sight (the Enemy spotted line of the pause settings: Pause or Pop-up).</summary>
+    public bool PauseOnContact
+    {
+        get => PauseSettings.Rules[PauseEvent.EnemySpotted] == PauseResponse.Pause;
+        set => PauseSettings.Set(PauseEvent.EnemySpotted, value ? PauseResponse.Pause : PauseResponse.Notice);
+    }
+
+    /// <summary>
+    /// Something happened: pause, slow to 1x, pop up or only a News line, as the pause settings say for it
+    /// (PauseSettings, Pause settings button). With <paramref name="inNews"/> the caller has already put it in News.
+    /// </summary>
+    private void Alert(PauseEvent e, string text, Action? onClick = null, bool inNews = false)
+    {
+        switch (PauseSettings.Rules[e])
+        {
+            case PauseResponse.Pause:
+                _main.Toast(text + ". Paused.", onClick: onClick);
+                _paused = true;
+                break;
+            case PauseResponse.Slow:
+                _main.Toast(text + (_speed > 0 ? ". Slowed to 1x." : ""), onClick: onClick);
+                _speed = 0;
+                break;
+            case PauseResponse.Notice:
+                _main.Toast(text, onClick: onClick);
+                break;
+            default:
+                if (!inNews) _main.AddNews(text, onClick);
+                break;
+        }
+    }
 
     /// <summary>Skip those pauses when a role fleet is already dealing with the enemy within its rules (see HelpCalls).</summary>
     public bool QuietWhenHandled { get; set; } = true;
@@ -202,9 +233,13 @@ public partial class GameScreen : Node2D
     public bool MenuOpen { get; private set; }
     private bool _pausedBeforeMenu;
 
-    public void OpenMenu()
+    /// <summary>The menu page to open on next ("pause" for the pause settings), taken by the HUD.</summary>
+    public string? MenuPage { get; set; }
+
+    public void OpenMenu(string? page = null)
     {
         if (MenuOpen) return;
+        MenuPage = page;
         MenuOpen = true;
         _pausedBeforeMenu = _paused;
         _paused = true;
@@ -221,7 +256,7 @@ public partial class GameScreen : Node2D
     {
         var path = SaveSlots.WriteManual(_main.Paths, Sim);
         _main.Log.Info("save", "Game saved", new { file = System.IO.Path.GetFileName(path) });
-        _main.Toast($"Saved: {GameTime.Format(Sim.World.Tick)}");
+        _main.Toast(Sim.World.Rules.Ironman ? $"Saved (Ironman, the game's one save): {GameTime.Format(Sim.World.Tick)}" : $"Saved: {GameTime.Format(Sim.World.Tick)}");
         CloseMenu();
     }
 
@@ -291,16 +326,15 @@ public partial class GameScreen : Node2D
             WatchNotes();
             WatchChasers();
             WatchEconomy();
-            if (WarTab.WatchCalls(Sim.World, _warCallsSeen, text => _main.Toast(text + ". Paused.", onClick: () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.War; })))
-                _paused = true;
-            if (EmpireTabs.WatchEvents(Sim.World, _eventsSeen, (text, stop) => _main.Toast(text + (stop ? ". Paused." : ""),
-                    onClick: () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.Needs; })))
-                _paused = true;
+            WarTab.WatchCalls(Sim.World, _warCallsSeen, text => Alert(PauseEvent.CommandCall, text, () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.War; }));
+            EmpireTabs.WatchEvents(Sim.World, _eventsSeen, (text, stop) => Alert(stop ? PauseEvent.EventCall : PauseEvent.EventAutoPicked, text,
+                () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.Needs; }));
             // Pausing, or switching in or out of battle time: show where things really are now, so the
             // map neither stops part way back to the last step nor jumps when time runs again.
             if (switched || _paused) SnapToNow();
         }
-        if (_sinceAutosave >= AutosaveEverySeconds)
+        // Ironman keeps its one save fresh, so a crash or a closed window loses little.
+        if (_sinceAutosave >= (Sim.World.Rules.Ironman ? IronmanSaveEverySeconds : AutosaveEverySeconds))
         {
             _sinceAutosave = 0;
             _main.RunGuarded("autosave", () => SaveSlots.WriteAutosave(_main.Paths, Sim));
@@ -799,10 +833,9 @@ public partial class GameScreen : Node2D
                 _main.AddNews($"Battle far away ({Format.Hours(b.For(Side.Player).LagHours)} of light): {string.Join(", ", b.For(Side.Player).Fleets)} and "
                               + $"{string.Join(", ", b.For(Side.Rival).Fleets)}. Out of command range: your fleets fight on their standing orders ({FarOrders(battle)}), "
                 + "and anything they decide for themselves shows as ON ITS OWN. Click to watch as the light arrives", () => OpenReplay(battle), keep: true);
-                if (!(again || quiet)) _paused = true;
                 if (!(again || quiet))
-                    _main.Toast($"Light from a far battle: {string.Join(", ", b.For(Side.Player).Fleets)} met {string.Join(", ", b.For(Side.Rival).Fleets)} "
-                                + $"{Format.Hours(Sim.World.Hour - b.StartHour)} ago. Paused; click to watch.", onClick: () => OpenReplay(battle));
+                    Alert(PauseEvent.FarBattle, $"Light from a far battle: {string.Join(", ", b.For(Side.Player).Fleets)} met {string.Join(", ", b.For(Side.Rival).Fleets)} "
+                                + $"{Format.Hours(Sim.World.Hour - b.StartHour)} ago; click to watch", () => OpenReplay(battle), inNews: true);
             }
             else if (again || quiet)
             {
@@ -810,9 +843,8 @@ public partial class GameScreen : Node2D
             }
             else
             {
-                _paused = true;
-                _main.Toast($"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time; paused.",
-                    onClick: FocusBattle);
+                Alert(PauseEvent.BattleStarts, $"Contact: {string.Join(", ", b.For(Side.Player).Fleets)} and {string.Join(", ", b.For(Side.Rival).Fleets)}. Battle time",
+                    FocusBattle);
             }
         }
         var last = w.Battles.LastOrDefault(x => x.EndHour is double end && Heard(end, x.Where));
@@ -864,7 +896,7 @@ public partial class GameScreen : Node2D
                 _ => "SUPPLIES: ",
             };
             _main.AddNews(who + n.Text + ago, GoToFleet(n.FleetId));
-            if (n.Kind == NoteKind.Supply) _main.Toast(n.Text + ago, onClick: GoToFleet(n.FleetId));
+            if (n.Kind == NoteKind.Supply) Alert(PauseEvent.SupplyNote, n.Text + ago, GoToFleet(n.FleetId), inNews: true);
         }
         WatchOrbits();
     }
@@ -913,9 +945,7 @@ public partial class GameScreen : Node2D
             var nearest = w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => Vec2.Distance(f.Position, s.Position)).FirstOrDefault();
             var where = nearest != null ? $", {Vec2.Distance(nearest.Position, s.Position) * 1000:#,0} km from {nearest.Name}" : "";
             var fleetId = s.FleetId;
-            _main.Toast($"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}" + (PauseOnContact ? ". Paused." : ""),
-                onClick: () => GoToSighting(fleetId));
-            if (PauseOnContact) _paused = true;
+            Alert(PauseEvent.EnemySpotted, $"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}", () => GoToSighting(fleetId));
         }
     }
 
@@ -934,8 +964,8 @@ public partial class GameScreen : Node2D
                 _chaseWarned[key] = w.Hour;
                 var enemyId = s.FleetId;
                 var mineId = mine.Id;
-                _main.Toast($"{s.Name} ({s.Ships} ships) is heading for {mine.Name}: about {Format.Hours(eta)} away at {Format.Speed((s.Velocity - mine.Velocity).Length)} closing",
-                    onClick: () => OpenEngagement(mineId, enemyId));
+                Alert(PauseEvent.EnemyClosing, $"{s.Name} ({s.Ships} ships) is heading for {mine.Name}: about {Format.Hours(eta)} away at {Format.Speed((s.Velocity - mine.Velocity).Length)} closing",
+                    () => OpenEngagement(mineId, enemyId));
             }
     }
 
@@ -947,14 +977,14 @@ public partial class GameScreen : Node2D
         var first = _researchSeen < 0;
         var me = Economy.Of(w, Side.Player);
         if (!first && me.Researched.Count > _researchSeen)
-            _main.Toast($"Research done: {GameData.Research(me.Researched[^1]).Name}", onClick: () => ShowResearch = true);
+            Alert(PauseEvent.ResearchDone, $"Research done: {GameData.Research(me.Researched[^1]).Name}", () => ShowResearch = true);
         _researchSeen = me.Researched.Count;
 
         foreach (var s in w.Ships.Where(s => s.Side == Side.Player))
             if (_knownShips.Add(s.Id) && !first && w.FleetOf(s) is Fleet f)
-                _main.Toast(f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
+                Alert(PauseEvent.ShipLaunched, f.JoinFleetId is int j && w.FindFleet(j) is Fleet to && f.ShipIds.Count == 1
                     ? $"New {Fitting.Spec(s).Name} {s.Name} launched: flying out to join {to.Name}"
-                    : $"New {Fitting.Spec(s).Name} {s.Name} joins {f.Name}", onClick: GoToFleet(f.Id));
+                    : $"New {Fitting.Spec(s).Name} {s.Name} joins {f.Name}", GoToFleet(f.Id));
 
         foreach (var b in Economy.Claimable(w))
         {
@@ -962,19 +992,19 @@ public partial class GameScreen : Node2D
             if (!first && had != b.Owner)
             {
                 var text = b.Owner == Side.Player ? $"You claimed {b.Name}" : had == Side.Player ? $"You lost {b.Name} to the rival" : $"The rival claimed {b.Name}";
-                _main.Toast(text, onClick: GoToBody(b.Id));
+                Alert(PauseEvent.PlanetChangedHands, text, GoToBody(b.Id));
             }
             _owners[b.Id] = b.Owner;
             if (b.ClaimSide == Side.Rival && b.Owner == Side.Player)
             {
-                if (_claimsWarned.Add(b.Id)) { _main.Toast($"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days", onClick: GoToBody(b.Id)); _paused = true; }
+                if (_claimsWarned.Add(b.Id)) Alert(PauseEvent.PlanetClaimed, $"The rival is claiming {b.Name}: drive it out within {Economy.ClaimHoursFor(b) / 24:0} days", GoToBody(b.Id));
             }
             else _claimsWarned.Remove(b.Id);
         }
 
         if (Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double hit } yard && (_yardAttackSeen == null || hit - _yardAttackSeen > 24))
         {
-            if (!first) { _main.Toast($"Your shipyard at {yard.Name} is under attack!", onClick: GoToBody(yard.Id)); _paused = true; }
+            if (!first) Alert(PauseEvent.ShipyardAttacked, $"Your shipyard at {yard.Name} is under attack", GoToBody(yard.Id));
             _yardAttackSeen = hit;
         }
 
@@ -1519,9 +1549,12 @@ public partial class GameScreen : Node2D
             case Key.Escape when ShowPlanets: ShowPlanets = false; break;
             case Key.Escape when FittingFleetId != null: FittingFleetId = null; break;
             case Key.F5:
-                Sim.ToSave().WriteTo(SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave));
-                _main.Log.Info("save", "Quick save");
-                _main.Toast("Quick saved");
+                SaveSlots.WriteQuick(_main.Paths, Sim);
+                _main.Log.Info("save", "Quick save", new { ironman = Sim.World.Rules.Ironman });
+                _main.Toast(Sim.World.Rules.Ironman ? "Saved (Ironman: one save, no quick load)" : "Quick saved");
+                break;
+            case Key.F9 when Sim.World.Rules.Ironman:
+                _main.Toast("Ironman: no loading back. The game saves itself as you play");
                 break;
             case Key.F9:
                 var path = SaveSlots.PathFor(_main.Paths, SaveSlots.QuickSave);

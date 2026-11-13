@@ -72,6 +72,7 @@ public partial class Main : Node
         var args = OS.GetCmdlineUserArgs();
         Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=")));
         PlayerInfo.Load(Paths.Root);
+        PauseSettings.Load(Paths.Root);
         if (OS.GetCmdlineUserArgs().Contains("--smoke-test"))
         {
             CallDeferred(MethodName.RunSmokeTest);
@@ -107,6 +108,7 @@ public partial class Main : Node
     public bool HazardsChoice { get; set; } = true;
     public EventRate EventsChoice { get; set; } = EventRate.Normal;
     public bool RandomStartsChoice { get; set; } = true;
+    public bool IronmanChoice { get; set; }
 
     /// <summary>Races for the next new game: yours, and the rival's (human, hive or random; see Races).</summary>
     public string PlayerRaceChoice { get; set; } = Races.Human;
@@ -122,7 +124,9 @@ public partial class Main : Node
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
+                Ironman = IronmanChoice,
             });
+            if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());
         });
     }

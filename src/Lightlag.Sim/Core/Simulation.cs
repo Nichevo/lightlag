@@ -74,6 +74,7 @@ public sealed class Simulation
             world.Rules.FuelTypes = options?.FuelTypes ?? true;
             world.Rules.Hazards = options?.Hazards ?? true;
             world.Rules.Events = options?.Events ?? EventRate.Normal;
+            world.Rules.Ironman = options?.Ironman ?? false;
             Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
         }

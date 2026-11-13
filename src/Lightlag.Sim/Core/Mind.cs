@@ -19,7 +19,8 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 /// </summary>
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
-    bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null)
+    bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null,
+    bool? Ironman = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 

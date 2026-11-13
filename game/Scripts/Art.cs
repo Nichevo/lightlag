@@ -5,7 +5,8 @@ namespace Lightlag.Game;
 /// <summary>
 /// The approved drawings (game/Art, SVG), built into the game and turned into textures on first use.
 /// Ships: Art/Ships/{escort,frigate,destroyer,cruiser,tanker,freighter}[-cutaway].svg, nose right.
-/// Idea cards: Art/Ideas/{picture}.svg, 560 x 192.
+/// Idea cards: Art/Ideas/{idea id}.svg, 560 x 192 (drawn by tools/idea-art/make_ideas.py), else the shared
+/// Art/Ideas/{picture}.svg named in economy.json.
 /// </summary>
 public static class Art
 {
@@ -29,4 +30,8 @@ public static class Art
         _cache[key] = tex;
         return tex;
     }
+
+    /// <summary>An idea card's picture: its own drawing, else the shared one its data names, else the engine.</summary>
+    public static Texture2D? IdeaPicture(string id, string? picture) =>
+        Texture("Ideas", id) ?? Texture("Ideas", string.IsNullOrEmpty(picture) ? "engine" : picture);
 }

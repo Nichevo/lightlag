@@ -479,7 +479,7 @@ public partial class ResearchScreen : PanelContainer
 
         var pic = new TextureRect
         {
-            Texture = Art.Texture("Ideas", string.IsNullOrEmpty(r.Picture) ? "engine" : r.Picture),
+            Texture = Art.IdeaPicture(r.Id, r.Picture),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
             CustomMinimumSize = new Vector2(width, width * 12 / 35), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore,
         };
