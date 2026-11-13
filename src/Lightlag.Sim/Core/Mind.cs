@@ -1488,8 +1488,11 @@ public static class Mind
             }
             const string sensor = "sensor-sat";
             if (Satellites.KindOf(sensor) is not SatelliteKind sat || spare < sat.Cost * 3) return false;
+            // Losses teach it: after two it stops spying over the enemy's yard, after six it stops launching.
+            var lost = Economy.Of(_w, _side).Totals.SatellitesLost;
+            if (lost >= 6) return false;
             var spots = new List<(int Body, SatSpot Spot)> { (home.Id, SatSpot.Leading), (home.Id, SatSpot.Trailing) };
-            if (_enemyYard != null) spots.Add((_enemyYard.Id, SatSpot.Orbit));
+            if (_enemyYard != null && lost < 2) spots.Add((_enemyYard.Id, SatSpot.Orbit));
             foreach (var (body, spot) in spots)
             {
                 // A spot where one was lately shot down waits until the loss is old news.
