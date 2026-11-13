@@ -45,7 +45,7 @@ public static class ResearchValue
             0.4 + 0.8 * p.Aggression,                    // war
             0.4 + 0.8 * p.Defence,                       // defence
             0.5 + 0.3 * p.Expansion + 0.3 * p.Raiding,   // supply: far colonies and far raids
-            0.4 + 0.5 * p.Raiding + 0.3 * p.Risk,        // intel
+            0.6 + 0.4 * p.Raiding + 0.3 * p.Risk,        // intel: everyone needs to see
             0.4 + 0.5 * p.Expansion + 0.3 * p.Defence,   // people
         };
     }
@@ -192,8 +192,10 @@ public static class ResearchValue
             if (counters.Contains(id)) value *= 1.5;
             if (state.Sparked.Contains(id)) value *= 1.15;
             if (Planner.HelpsMaterials(w, side, id)) value *= 3;
-            var speed = o.Team != null ? Research.Speed(o.Team, r.Field)
-                : teams?.Max(t => Research.Speed(t, r.Field)) ?? 1;
+            // Time at the quickest team. Skill counts only a little (its cube root), or a side would keep to the fields
+            // it already knows (skill grows with every idea finished) and never pick up another.
+            double Pace(ResearchTeam t) => Research.SizeFactor(t.Scientists) * DetMath.Cbrt(t.Skill[Math.Max(0, Research.FieldIndex(r.Field))]);
+            var speed = o.Team != null ? Pace(o.Team) : teams?.Max(Pace) ?? 1;
             var days = Research.BaseHours(w, side, id) / 24 / Math.Max(0.05, speed);
             ranked.Add((id, value / Math.Sqrt(1 + days / DaysScale)));
         }
