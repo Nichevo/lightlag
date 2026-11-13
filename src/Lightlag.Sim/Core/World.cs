@@ -299,6 +299,12 @@ public sealed class Body
     /// <summary>People cap factor from research (Low-gravity medicine on small bodies), worked out each hour.</summary>
     public double CapFactor { get; set; } = 1;
 
+    /// <summary>Research factors worked out each hour (see Tech.Refresh): farm food (Hydroponics), food eaten (Nutrition
+    /// science) and mine output (Mineral surveys).</summary>
+    public double FarmTech { get; set; } = 1;
+    public double EatTech { get; set; } = 1;
+    public double MineTech { get; set; } = 1;
+
     /// <summary>Goods waited for here (building materials, ships at the yard, research at home), worked out each hour: freighters bring them.</summary>
     public Dictionary<string, double> Wants { get; set; } = new();
 

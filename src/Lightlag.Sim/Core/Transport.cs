@@ -341,7 +341,7 @@ public static class Satellites
             var k = KindOf(o.Kind);
             if (k == null || k.SensorMm <= 0) continue;
             var p = PositionOf(w, o);
-            if (Vec2.Distance(p, at) <= k.SensorMm * Tech.Factor(w, side, Tech.LongSensors) * D.SeenMm && Sensors.LineOfSight(w, p, at, Anchor(o), anchor)) return true;
+            if (Vec2.Distance(p, at) <= k.SensorMm * Tech.SensorReach(w, side) * D.SeenMm && Sensors.LineOfSight(w, p, at, Anchor(o), anchor)) return true;
         }
         return false;
     }
@@ -361,7 +361,7 @@ public static class Satellites
     {
         foreach (var s in Working(w, side))
             if (KindOf(s.Kind) is { SensorMm: > 0 } k)
-                yield return (PositionOf(w, s), k.SensorMm * Tech.Factor(w, side, Tech.LongSensors) * Races.Of(w, side).Sensors, Anchor(s));
+                yield return (PositionOf(w, s), k.SensorMm * Tech.SensorReach(w, side) * Races.Of(w, side).Sensors, Anchor(s));
     }
 
     /// <summary>The side's working relay satellites, for signals (see Light): where each is and the body it sits by.</summary>

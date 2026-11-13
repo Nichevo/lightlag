@@ -18,7 +18,8 @@ public sealed record ShipyardData(double Armour, double RepairPerDay, double Rai
 /// </summary>
 public sealed record ResearchData(string Id, string Name, string Effect, double Cost, double Days, double Factor,
     string Field = "drives", List<string>? Needs = null, string Unlocks = "", string Picture = "", string Description = "",
-    int Tier = 1, Dictionary<string, double>? Materials = null, string? Spark = null, bool Later = false);
+    int Tier = 1, Dictionary<string, double>? Materials = null, string? Spark = null, bool Later = false,
+    List<string>? Aims = null, double Worth = 1);
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
@@ -272,6 +273,32 @@ public static class Tech
 
     public const string MissileBrain5 = "missile-brain-5";
 
+    // Smaller steps split from the big early ideas, and small % ideas (research review).
+    public const string Automation2 = "automation-2";
+    public const string Automation3 = "automation-3";
+    public const string LongSensors2 = "long-sensors-2";
+    public const string ShieldHarmonics = "shield-harmonics";
+    public const string TrackingRadars = "tracking-radars";
+    public const string Hydroponics = "hydroponics";
+    public const string NutritionScience = "nutrition-science";
+    public const string FrontierMedicine = "frontier-medicine";
+    public const string CivicPlanning = "civic-planning";
+    public const string CrewDrills = "crew-drills";
+    public const string ShoreLeave = "shore-leave";
+    public const string CompactHousing = "compact-housing";
+    public const string MineralSurveys = "mineral-surveys";
+    public const string GridBalancing = "grid-balancing";
+    public const string YardTooling = "yard-tooling";
+
+    /// <summary>Sensor reach from research: Long sensors I and II.</summary>
+    public static double SensorReach(World w, Side side) => Factor(w, side, LongSensors) * Factor(w, side, LongSensors2);
+
+    /// <summary>Industry from research: Automation I, II and III.</summary>
+    public static double IndustryFactor(World w, Side side) => Factor(w, side, Automation) * Factor(w, side, Automation2) * Factor(w, side, Automation3);
+
+    /// <summary>Shield strength from research: Deflector grid, Shield harmonics and Shields Mk III.</summary>
+    public static double ShieldFactor(World w, Side side) => Factor(w, side, DeflectorGrid) * Factor(w, side, ShieldHarmonics) * Factor(w, side, ShieldsMk3);
+
     /// <summary>Missile guidance level from research: 1, or the highest brain researched.</summary>
     public static int MissileBrain(World w, Side side) =>
         Has(w, side, MissileBrain5) ? 5 : Has(w, side, MissileBrain4) ? 4 : Has(w, side, MissileBrain3) ? 3 : Has(w, side, MissileBrain2) ? 2 : 1;
@@ -301,8 +328,12 @@ public static class Tech
         {
             b.BunkerFactor = b.Owner is Side side && Has(w, side, "hardened-bunkers") ? 1.5 : 1;
             // Low-gravity medicine: asteroids and small moons hold half again as many people.
-            b.CapFactor = b.Owner is Side holder && Has(w, holder, "low-g-medicine") && b.Kind is BodyKind.Asteroid or BodyKind.Moon
-                          && Planets.TypeOf(b).Cap <= 30 ? GameData.Research("low-g-medicine").Factor : 1;
+            b.CapFactor = (b.Owner is Side holder && Has(w, holder, "low-g-medicine") && b.Kind is BodyKind.Asteroid or BodyKind.Moon
+                          && Planets.TypeOf(b).Cap <= 30 ? GameData.Research("low-g-medicine").Factor : 1)
+                          * (b.Owner is Side housed ? Factor(w, housed, CompactHousing) : 1);
+            b.FarmTech = b.Owner is Side farmer ? Factor(w, farmer, Hydroponics) : 1;
+            b.EatTech = b.Owner is Side eater ? Factor(w, eater, NutritionScience) : 1;
+            b.MineTech = b.Owner is Side digger ? Factor(w, digger, MineralSurveys) : 1;
         }
     }
 
@@ -340,7 +371,7 @@ public static class Tech
     /// fleet data links, predictive fire control (brain 3 and up), capacitor banks (faster recharge) and free-electron lasers.
     /// </summary>
     public static double PointDefence(World w, Side side, int brain) =>
-        Factor(w, side, PointDefence2) * Factor(w, side, PointDefence3) * Factor(w, side, CounterMissiles) * Factor(w, side, "fleet-data-links")
+        Factor(w, side, PointDefence2) * Factor(w, side, TrackingRadars) * Factor(w, side, PointDefence3) * Factor(w, side, CounterMissiles) * Factor(w, side, "fleet-data-links")
         * (brain >= 3 ? Factor(w, side, "predictive-fire-control") : 1) * (Has(w, side, "capacitor-banks") ? 1.1 : 1) * Factor(w, side, "free-electron-lasers");
 
     /// <summary>Signature factor from research for a fleet seen by the enemy: Jamming (seen from 30 % closer) and Stealth coatings when cold.</summary>
@@ -375,7 +406,7 @@ public static class Economy
     public static IEnumerable<Body> Claimable(World w) => w.Bodies.Where(b => b.Industry > 0);
 
     public static double IncomePerDay(World w, Side side) =>
-        w.Bodies.Where(b => b.Owner == side).Sum(b => Planets.IndustryPerDay(w, b)) * Tech.Factor(w, side, Tech.Automation);
+        w.Bodies.Where(b => b.Owner == side).Sum(b => Planets.IndustryPerDay(w, b)) * Tech.IndustryFactor(w, side);
 
     /// <summary>A ship order's variant and its price (the bill of its fit, and an AI core if the class is AI-run), set when it is queued.</summary>
     public static void PriceShip(World w, WorkOrder o, int? designId)
@@ -423,7 +454,7 @@ public static class Economy
     }
 
     public static double HoursFor(World w, Side side, OrderKind kind, string key) => kind == OrderKind.Ship
-        ? GameData.ShipClass(key).Cost / (E.BuildIndustryPerDay * Tech.Factor(w, side, Tech.FastShipyard)) * 24
+        ? GameData.ShipClass(key).Cost / (E.BuildIndustryPerDay * Tech.Factor(w, side, Tech.FastShipyard) * Tech.Factor(w, side, Tech.YardTooling)) * 24
         : Research.BaseHours(w, side, key);
 
     public static string NameOf(WorkOrder o) => o.SettleBodyId != null ? $"Settlers for {o.SettleName}" : o.Kind == OrderKind.Ship ? GameData.ShipClass(o.Key).Name : GameData.Research(o.Key).Name;

@@ -110,6 +110,7 @@ public static class Planets
         BuildingKind(p.Kind) is BuildingData data && data.Food > 0
             ? data.Food * D.FarmFoodPerDay * (data.AnyAir || data.Terrain == "ocean" ? 1 : FarmFactor(b)) * Colonies.Output(null!, b, p, data)
               * (data.Uses != null && !Colonies.Supplied(b, p, data) ? 0 : 1) // food vats need their water
+              * b.FarmTech // Hydroponics
             : 0);
 
     /// <summary>Happiness from clinics (each +Happiness while it works, more beside a habitat).</summary>
@@ -122,7 +123,7 @@ public static class Planets
     /// <summary>Growth factor from clinics: 1 plus each working clinic's Growth.</summary>
     public static double GrowthFactor(World w, Body b) => 1 + Colonies.Built(b).Sum(p =>
         BuildingKind(p.Kind) is BuildingData data && data.Growth > 0 ? data.Growth * Math.Min(1, Colonies.Output(w, b, p, data)) : 0);
-    public static double FoodNeedPerDay(Body b) => b.PopK * D.FoodPerKPerDay * Races.Get(b.PeopleRace).FoodNeed;
+    public static double FoodNeedPerDay(Body b) => b.PopK * D.FoodPerKPerDay * Races.Get(b.PeopleRace).FoodNeed * b.EatTech;
 
     /// <summary>Each planet's people take their holder's race (neutral planets: human).</summary>
     public static void SyncRaces(World w)
@@ -305,7 +306,7 @@ public static class Planets
         {
             var cap = Cap(b);
             if (b.Hungry) b.PopK -= D.StarvePerDay * b.PopK / 24;
-            else if (cap > 0 && !(Races.Get(b.PeopleRace).NeedsPowerToGrow && b.PowerWanted > b.PowerUsed + 1e-6)) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * Races.Get(b.PeopleRace).Growth * b.PopK * (1 - b.PopK / cap) / 24;
+            else if (cap > 0 && !(Races.Get(b.PeopleRace).NeedsPowerToGrow && b.PowerWanted > b.PowerUsed + 1e-6)) b.PopK += D.GrowthPerDay * GrowthFactor(w, b) * (b.Owner is Side grower ? Tech.Factor(w, grower, Tech.FrontierMedicine) : 1) * Races.Get(b.PeopleRace).Growth * b.PopK * (1 - b.PopK / cap) / 24;
             if (cap <= 0 || b.PopK > cap) b.PopK = Math.Max(0, Math.Min(b.PopK, cap));
             if (b.PopK < 0.05) { b.PopK = 0; continue; }
             b.Abandoned = false; // people live here again
@@ -436,6 +437,7 @@ public static class Planets
         if (b.OwnShare < 0.995) parts.Add(("Not your people", H.Foreign * (1 - b.OwnShare)));
         if (b.Owner is Side owner && w.Fleets.Any(f => f.Side == owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f))) parts.Add(("Guarded by a fleet", H.Guarded));
         if (ClinicHappiness(w, b) is var clinics && clinics > 0) parts.Add(("Clinics", clinics));
+        if (b.Owner is Side planner && Tech.Has(w, planner, Tech.CivicPlanning)) parts.Add(("Civic planning", GameData.Research(Tech.CivicPlanning).Factor));
         if (b.NewcomersK > 0.05 && b.PopK > 0) parts.Add(("Hungry newcomers", -Math.Min(H.Newcomers, H.Newcomers * 4 * b.NewcomersK / b.PopK)));
         return (Math.Clamp(parts.Sum(p => p.Item2), 0, 100), parts);
     }

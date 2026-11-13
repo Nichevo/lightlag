@@ -195,6 +195,17 @@ public sealed class MindState
     /// <summary>When the planets may next have a building ahead of the next ship (see Mind.Build).</summary>
     public double NextBuildHour { get; set; }
 
+    /// <summary>
+    /// Research (see ResearchValue): this game's taste per broad aim (rolled at the start), and the direction it
+    /// has turned to for now ("" for none), why, since and until when. Something pressing (a blockade, hunger,
+    /// the enemy's missiles) turns it at once; otherwise it picks a new direction now and then.
+    /// </summary>
+    public double[] ResearchTaste { get; set; } = Array.Empty<double>();
+    public string ResearchFocus { get; set; } = "";
+    public string ResearchFocusWhy { get; set; } = "";
+    public double ResearchFocusSinceHour { get; set; }
+    public double ResearchFocusUntilHour { get; set; }
+
     /// <summary>An opportunist's current focus (take, raid, hunt or expand) and when it looks again.</summary>
     public string Focus { get; set; } = "";
     public double FocusUntilHour { get; set; }
@@ -281,9 +292,12 @@ public static class Mind
             mind.PullLeaning = lean < 0.7 ? PresetOf(pd.PullBack) : lean < 0.8 ? PullPreset.Cautious : lean < 0.9 ? PullPreset.Standard : PullPreset.FightOn;
             mind.Lean = Leanings.Roll(rng);
             mind.Spread = setup.Difficulty == Difficulty.Easy ? 0 : options.ChoiceSpread ?? NormalSpread;
+            // Research taste: how much this game's side cares for each broad aim, on top of its personality.
+            mind.ResearchTaste = ResearchValue.Broad.Select(_ => Math.Round(rng.Range(0.75, 1.3), 3)).ToArray();
             Choices.Note(w, setup.Side, "lean", $"personality {personality}");
             Choices.Note(w, setup.Side, "lean", $"race {Races.Of(w, setup.Side).Id}");
             foreach (var band in mind.Lean.Bands(mind.PullLeaning)) Choices.Note(w, setup.Side, "lean", band);
+            Choices.Note(w, setup.Side, "lean", $"research taste {ResearchValue.Broad[Array.IndexOf(mind.ResearchTaste, mind.ResearchTaste.Max())]}");
             mind.Random = rng.Save();
             w.Minds.Add(mind);
         }
@@ -339,6 +353,9 @@ public static class Mind
             sb.AppendLine($"- Attack ratio now {m.Ratio:0.00} (rolled {m.BaseRatio:0.00}); first probe from day {m.FirstProbeDay:0}");
             sb.AppendLine($"- Own power {m.OwnPower:0}; guesses the enemy at {m.EnemyPowerGuess:0}");
             sb.AppendLine($"- Goal: {m.Goal}");
+            sb.AppendLine($"- Research: " + (m.ResearchFocus != "" ? $"leans to {m.ResearchFocus} ({m.ResearchFocusWhy})" : "no lean") + " until "
+                          + GameTime.Format(m.ResearchFocusUntilHour)
+                          + (m.ResearchTaste.Length == ResearchValue.Broad.Length ? "; taste " + string.Join(", ", ResearchValue.Broad.Select((a, i) => $"{a} {m.ResearchTaste[i]:0.00}")) : ""));
             sb.AppendLine();
             sb.AppendLine("## Fleet jobs");
             sb.AppendLine();
@@ -1577,22 +1594,7 @@ public static class Mind
             // Keep every ready team busy: one idea queued per team.
             var teams = Economy.Of(_w, _side).Teams;
             if (orders.Count(o => o.Kind == OrderKind.Research) < Math.Max(1, teams.Count(t => Research.Ready(_w, t))))
-            {
-                var open = _p.Research.Where(r => GameData.ResearchById.ContainsKey(r) && Economy.CanQueue(_w, _side, OrderKind.Research, r) == null
-                                                  && (_w.Light.On || !Tech.LagOnly(r))).ToList();
-                // Materials first: with electronics short, the way to an electronics plant jumps the queue.
-                if (Planner.NextIdea(_w, _side, null) is string urgent && Planner.HelpsMaterials(_w, _side, urgent)) open.Insert(0, urgent);
-                if (open.Count == 0 && Planner.NextIdea(_w, _side, null) is string idea) open.Add(idea);
-                if (open.Count > 0)
-                {
-                    // Near the top of its list, leaning to its favoured field: one of those close to the best.
-                    var pick = Easy ? open[_rng.Range(0, open.Count)]
-                        : Planner.HelpsMaterials(_w, _side, open[0]) ? open[0]
-                        : Choices.Band(open.Take(6).Select((r, i) => (r, Score: 1 - 0.03 * i + (GameData.Research(r).Field == _m.Lean.Field ? 0.04 : 0))).ToList(), _rng, _m.Spread);
-                    // Research costs no Industry (only scientist time), so it never holds up the shipyard.
-                    Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
-                }
-            }
+                PickResearch();
             if (!Easy) Stations(orders);
             if (!Easy) RefitAtHome(orders);
             // Munitions plants: eager rivals tool up for the latest at once, the rest when the enemy pulls ahead.
@@ -1604,6 +1606,75 @@ public static class Mind
             }, Munitions.Eager(_p));
             if (!Easy) Teams(orders);
             Build(orders);
+        }
+
+        /// <summary>Spread for research picks: a little wider than for other choices, so sides drift apart.</summary>
+        private const double ResearchSpread = 0.1;
+
+        /// <summary>
+        /// The next idea (see ResearchValue): each open idea scored for this personality, race, taste and
+        /// direction, and for what is happening; one of those close to the best is queued. Easy picks at random.
+        /// </summary>
+        private void PickResearch()
+        {
+            var needs = ResearchValue.Read(_w, _side);
+            Direction(needs);
+            var outlook = ResearchValue.For(_w, _side, P, _m.ResearchTaste, _m.ResearchFocus == "" ? null : _m.ResearchFocus,
+                _p.Research.ToHashSet(), _m.Lean.Field, needs: needs);
+            var ranked = ResearchValue.Rank(_w, _side, outlook);
+            if (ranked.Count == 0) return;
+            var pick = Easy ? ranked[_rng.Range(0, ranked.Count)].Id
+                : Choices.Band(ranked.Take(8).ToList(), _rng, Math.Max(_m.Spread, ResearchSpread));
+            // Research costs no Industry (only scientist time), so it never holds up the shipyard.
+            Do(new QueueOrderCommand(_side, OrderKind.Research, pick));
+        }
+
+        /// <summary>
+        /// Which way research leans for now. Something pressing (factor 1.5 or more) turns it at once, unless it
+        /// turned less than 30 days ago; otherwise, when the time is up, a new direction is rolled from its
+        /// weights and taste (or none, a third of the time).
+        /// </summary>
+        private void Direction(List<ResearchValue.Need> needs)
+        {
+            if (Easy) return;
+            var settled = _w.Hour - _m.ResearchFocusSinceHour < 30 * 24 && _m.ResearchFocus != "";
+            if (ResearchValue.Pressing(needs) is var (aim, why) && aim != _m.ResearchFocus && !settled)
+            {
+                Turn(aim, why, _rng.Range(60, 120));
+                return;
+            }
+            if (_w.Hour < _m.ResearchFocusUntilHour) return;
+            if (_rng.NextDouble() < 1.0 / 3)
+            {
+                if (_m.ResearchFocus != "") Turn("", "no pull either way", _rng.Range(60, 120));
+                else _m.ResearchFocusUntilHour = _w.Hour + _rng.Range(60, 120) * 24;
+                return;
+            }
+            var weights = ResearchValue.Weights(P);
+            var taste = _m.ResearchTaste;
+            var total = 0.0;
+            for (var i = 0; i < weights.Length; i++) total += weights[i] * (i < taste.Length ? taste[i] : 1);
+            var roll = _rng.NextDouble() * total;
+            for (var i = 0; i < weights.Length; i++)
+            {
+                roll -= weights[i] * (i < taste.Length ? taste[i] : 1);
+                if (roll >= 0 && i < weights.Length - 1) continue;
+                Turn(ResearchValue.Broad[i], "a change of course", _rng.Range(90, 180));
+                return;
+            }
+        }
+
+        private void Turn(string aim, string why, double days)
+        {
+            if (aim != _m.ResearchFocus)
+            {
+                Note(aim == "" ? "Research no longer leans any way" : $"Research turns to {aim}: {why}");
+                Choices.Note(_w, _side, "research-focus", aim == "" ? "none" : aim, "", why);
+            }
+            _m.ResearchFocus = aim;
+            _m.ResearchFocusWhy = why;
+            _m.ResearchFocusSinceHour = _w.Hour;
+            _m.ResearchFocusUntilHour = _w.Hour + days * 24;
         }
 
         /// <summary>Fleets idle at home refit to the current designs when a bay is free and Industry spare after the next ship.</summary>
@@ -1646,7 +1717,7 @@ public static class Mind
             var turn = _w.Hour >= _m.NextBuildHour;
             foreach (var b in mine)
             {
-                var want = Planner.PlanetWant(_w, _side, b, hungry, sparesShort, Easy) ?? Fortify(b);
+                var want = Planner.PlanetWant(_w, _side, b, hungry, sparesShort, Easy, labs: Easy ? 0 : P.Research >= 0.6 ? 2 : 1) ?? Fortify(b);
                 if (want is not var (kind, x, y, urgent) || Planets.BuildingKind(kind) is not BuildingData data) continue;
                 var budget = urgent || turn ? industry : Spare(orders) - (Easy ? 120 : 60);
                 if (budget < data.Cost || Planets.CanBuild(_w, _side, b.Id, kind, x, y) != null) continue;
@@ -1773,18 +1844,45 @@ public static class Mind
         }
 
         /// <summary>
-        /// With Industry to spare after the next ship, a second team is founded in the field the
-        /// personality's research list leans on most; it keeps that field.
+        /// Research teams: a second team from day 30 (ahead of the next ship), a third from day 120 with Industry
+        /// to spare after the next ship, each in the field its best open ideas are in (one no team keeps yet); then scientists trained for
+        /// the smallest team, up to a total set by how research-minded the personality is.
         /// </summary>
         private void Teams(List<WorkOrder> orders)
         {
             var state = Economy.Of(_w, _side);
-            if (_w.Day < 15 || state.Teams.Count >= 2) return;
+            if (_w.Day < 15) return;
             var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
-            if (state.Industry < Research.T.FoundCost + shipWaiting + 60) return;
-            var field = _p.Research.Where(GameData.ResearchById.ContainsKey).GroupBy(r => GameData.Research(r).Field)
+            var spare = state.Industry - shipWaiting;
+            // The second team is worth about a ship, so from day 30 it may go ahead of the next one; the third waits for spare Industry.
+            if (state.Teams.Count < Research.T.Slots && (state.Teams.Count < 2 ? _w.Day >= 30 && state.Industry >= Research.T.FoundCost
+                                                                              : _w.Day >= 120 && spare >= Research.T.FoundCost + 60))
+            {
+                var field = FieldToFound(state);
+                if (Research.CanFound(_w, _side, field) == null)
+                {
+                    Do(new FoundTeamCommand(_side, field));
+                    Note($"Founds a research team for {Research.FieldName(field).ToLowerInvariant()}");
+                }
+                return;
+            }
+            var cap = 40 + 40 * P.Research;
+            if (state.Teams.Sum(t => t.Scientists + t.TrainingScientists) >= cap || spare < Research.TrainCost(_w, _side) + 80) return;
+            if (state.Teams.Where(t => t.TrainingUntilHour == null && Research.Ready(_w, t)).OrderBy(t => t.Scientists).ThenBy(t => t.Id).FirstOrDefault() is ResearchTeam team
+                && Research.CanTrain(_w, _side, team.Id) == null)
+                Do(new TrainTeamCommand(_side, team.Id));
+        }
+
+        /// <summary>The field of its best open ideas that no team keeps yet (else the personality list's main field).</summary>
+        private string FieldToFound(SideState state)
+        {
+            var kept = state.Teams.SelectMany(t => t.Kept).ToHashSet();
+            var outlook = ResearchValue.For(_w, _side, P, _m.ResearchTaste, _m.ResearchFocus == "" ? null : _m.ResearchFocus, _p.Research.ToHashSet(), _m.Lean.Field);
+            var best = ResearchValue.Rank(_w, _side, outlook).Take(12)
+                .GroupBy(x => GameData.Research(x.Id).Field).Where(g => !kept.Contains(g.Key))
+                .OrderByDescending(g => g.Sum(x => x.Score)).ThenBy(g => Research.FieldIndex(g.Key)).Select(g => g.Key).FirstOrDefault();
+            return best ?? _p.Research.Where(GameData.ResearchById.ContainsKey).GroupBy(r => GameData.Research(r).Field)
                 .OrderByDescending(g => g.Count()).ThenBy(g => Research.FieldIndex(g.Key)).Select(g => g.Key).FirstOrDefault() ?? "weapons";
-            if (Research.CanFound(_w, _side, field) == null) Do(new FoundTeamCommand(_side, field));
         }
 
         /// <summary>

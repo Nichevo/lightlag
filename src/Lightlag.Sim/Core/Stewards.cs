@@ -107,7 +107,7 @@ public static class Planner
     }
 
     /// <summary>What this planet most needs next (and where, for a mine on a given mineral), if anything fits.</summary>
-    public static (string Kind, int? X, int? Y, bool Urgent)? PlanetWant(World w, Side side, Body b, bool hungry, bool sparesShort, bool easy = false)
+    public static (string Kind, int? X, int? Y, bool Urgent)? PlanetWant(World w, Side side, Body b, bool hungry, bool sparesShort, bool easy = false, int labs = 0)
     {
         var fits = new Dictionary<string, bool>();
         bool Fits(string kind)
@@ -164,6 +164,12 @@ public static class Planner
         if (b.Home && Colonies.Built(b).Count(p => p.Kind == "dry-dock") == 0 && Planets.Count(b, Planets.Mine) >= 3 && Staffed("dry-dock") && Pick("dry-dock") is string dock)
             return (dock, null, null, false);
         if (w.Rules.Happiness && b.Happiness < 45 && Planets.Count(b, "clinic") == 0 && Pick("clinic") is string clinic) return (clinic, null, null, false);
+        // A research-minded computer side puts up its labs (and an academy once it can train) before yet another mine.
+        if (labs > 0 && b.Home && Planets.Count(b, Planets.Mine) >= 2)
+        {
+            if (Planets.Count(b, "research-lab") < labs && Staffed("research-lab") && Pick("research-lab") is string firstLab) return (firstLab, null, null, false);
+            if (Planets.Count(b, "academy") == 0 && Staffed("academy") && Pick("academy") is string academy) return (academy, null, null, false);
+        }
         // Another mine: on the mineral the side has least of for what it uses, and never one whose stores are already full.
         if (Staffed(Planets.Mine) && Pick(Planets.Mine) != null && LeastHeldMineral(w, side, b) is var (lx, ly)) return (Planets.Mine, lx, ly, false);
         if (b.PopK > Planets.Cap(b) * 0.85 && Pick("habitat") is string home) return (home, null, null, false);
@@ -287,20 +293,13 @@ public static class Planner
     }
 
     /// <summary>
-    /// The next idea for a team: a sparked idea first, then one in a field the team keeps, then the lowest
-    /// tier and cheapest. Only ideas that can be queued now (seen, needs done, not a later build).
+    /// The next idea for a team (the player's research automation): the best by ResearchValue with even
+    /// weights on every aim, read against what is happening (counters to what the enemy fields, food when
+    /// hungry, defence when blockaded...), ideas in a field the team keeps raised. Only ideas that can be
+    /// queued now (seen, needs done, not a later build).
     /// </summary>
-    public static string? NextIdea(World w, Side side, ResearchTeam? team)
-    {
-        var state = Economy.Of(w, side);
-        return GameData.Economy.Research
-            .Where(r => Economy.CanQueue(w, side, OrderKind.Research, r.Id) == null && (w.Light.On || !Tech.LagOnly(r.Id)))
-            .OrderByDescending(r => HelpsMaterials(w, side, r.Id))
-            .ThenByDescending(r => state.Sparked.Contains(r.Id))
-            .ThenByDescending(r => team != null && team.Kept.Contains(r.Field))
-            .ThenBy(r => r.Tier).ThenBy(r => r.Cost).ThenBy(r => r.Id, StringComparer.Ordinal)
-            .Select(r => r.Id).FirstOrDefault();
-    }
+    public static string? NextIdea(World w, Side side, ResearchTeam? team) =>
+        ResearchValue.Rank(w, side, ResearchValue.For(w, side, team: team)).Select(x => x.Id).FirstOrDefault();
 
     /// <summary>Research that gets materials flowing: the electronics plant when electronics run short, freighters once colonies dig.</summary>
     public static bool HelpsMaterials(World w, Side side, string id) => id switch

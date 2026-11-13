@@ -38,7 +38,7 @@ public static class Heat
 
     public static double Capacity(Ship s) => Fitting.Spec(s).HeatCapacity * s.TechHeat;
 
-    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Wounds.DefenceFactor(s) * Tech.Factor(w, s.Side, Tech.DeflectorGrid) * Tech.Factor(w, s.Side, Tech.ShieldsMk3)
+    public static double MaxShield(World w, Ship s) => Fitting.Spec(s).Shield * Wounds.DefenceFactor(s) * Tech.ShieldFactor(w, s.Side)
                                                        * Tech.Factor(w, s.Side, "adaptive-shields");
 
     /// <summary>Is this fleet in the battle being fought (so Auto radiators are in)?</summary>

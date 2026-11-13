@@ -11,8 +11,11 @@ public sealed record RaceData(string Id, string Name, string Short = "", string 
     List<string>? StartBuildings = null, Dictionary<string, double>? Personalities = null,
     bool AiOnly = false, double PowerUse = 1, double Precision = 1, double MineralIndustry = 1, double AirlessCap = 1,
     double Cyber = 1, bool NoCaptures = false, bool NeedsPowerToGrow = false, bool ListenOnly = true, string Colour = "",
-    string? Drawings = null)
+    string? Drawings = null, Dictionary<string, double>? ResearchLean = null)
 {
+    /// <summary>The race's lean on a research aim (see ResearchValue): 1 when it has none.</summary>
+    public double Lean(string aim) => ResearchLean != null && ResearchLean.TryGetValue(aim, out var f) ? f : 1;
+
     /// <summary>Machines: no people to feed (see FoodNeed 0).</summary>
     public bool Eats => FoodNeed > 0;
 

@@ -77,6 +77,7 @@ public static class Batch
 
         var results = new List<GameResult>();
         WhatMatters.Rows.Clear();
+        ResearchReport.Rows.Clear();
         _report = null;
         Overnight.Fights.Clear();
         Audit.Clear();
@@ -214,6 +215,7 @@ public static class Batch
                 foreach (var side in Sides.InPlay(w))
                 {
                     WhatMatters.Rows.Add(WhatMatters.Row.Of(w, side));
+                    ResearchReport.Rows.Add(ResearchReport.Of(w, side));
                     WarReport.Rows.Add(WarReport.Row.Of(w, side));
                 }
             Overnight.Collect(w);
@@ -385,6 +387,7 @@ public static class Batch
         AppendFights(md, ai);
         WarReport.Append(md);
         WhatMatters.Append(md);
+        ResearchReport.Append(md);
         md.AppendLine();
         md.AppendLine($"Per game: average {ai.Average(r => r.Player!.Battles + r.Rival!.Battles) / 2:0.0} battles, "
                       + $"{ai.Average(r => r.Player!.ShipsLost + r.Rival!.ShipsLost):0.0} ships lost, "

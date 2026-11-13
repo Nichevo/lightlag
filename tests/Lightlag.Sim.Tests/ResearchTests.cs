@@ -169,9 +169,10 @@ public class ResearchTests
     [Fact]
     public void Every_idea_has_a_known_field_and_needs()
     {
-        // The research web: 121 ideas in six fields, 14 of them "later" nodes (transport and orbit built solar and laser sails and the
-        // space elevator, and added satellites and the skyhook; the Lattice build brought in Decode alien signals for contact).
-        Assert.Equal(121, GameData.Economy.Research.Count);
+        // The research web: 136 ideas in six fields, 14 of them "later" nodes (transport and orbit built solar and laser sails and the
+        // space elevator, and added satellites and the skyhook; the Lattice build brought in Decode alien signals for contact; the
+        // research review split four big ideas into smaller steps and added ten small % ideas).
+        Assert.Equal(136, GameData.Economy.Research.Count);
         Assert.Equal(14, GameData.Economy.Research.Count(r => r.Later));
         Assert.All(Research.Fields, f => Assert.Contains(GameData.Economy.Research, r => r.Field == f));
         foreach (var r in GameData.Economy.Research)
