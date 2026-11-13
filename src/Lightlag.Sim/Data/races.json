@@ -1,5 +1,5 @@
 {
-  "_comment": "Races (Plan 3 build 3). Each side plays one race, picked on the new-game screen. Every number is a factor on the usual rule (1: as humans), except where named otherwise. foodNeed: food eaten per person. growth: people growth while fed. biomassPerIndustry: food a new ship takes from its yard's store per Industry of its price (grown ships); a yard whose planets are starving grows no ships. shipMaterials: alloys and electronics a ship needs. hullHealPerDay: share of full armour a ship regrows a day while it has food aboard (grown hulls). crewPop: people a new crew takes. crewRanks false: crews never gain experience (drones). strain: crew strain from dodging. boarding: boarding party strength. sensors: ship and planet sensor range. researchDays: days of ideas by research group (see economy.json 'unlocks'). digDays: days to put up a building (dug in). bombArmour: damage a building takes before bombing knocks it out. groundDefence: losses defenders take in a ground war (lower is tougher). startBuildings: extra buildings on the home planet when there is room. personalities: weights on the rival's personality roll (missing: 1). Lattice (build 7): aiOnly: every ship AI-run (no crews). powerUse: power buildings draw. needsPowerToGrow: people grow only while the grid keeps up. precision: railgun and lance hit chance. mineralIndustry: Industry from mines. airlessCap: people an airless world holds. cyber: how easily its missiles are hijacked and jammed and its ships taken by cyber boarding. noCaptures: planets it takes lose their people, and it takes no prisoners. listenOnly false: rivals can't learn its language from listening alone (see contact.json). colour: the race's colour on screens and ship art.",
+  "_comment": "Races (Plan 3 build 3). Each side plays one race, picked on the new-game screen. Every number is a factor on the usual rule (1: as humans), except where named otherwise. foodNeed: food eaten per person. growth: people growth while fed. biomassPerIndustry: food a new ship takes from its yard's store per Industry of its price (grown ships); a yard whose planets are starving grows no ships. shipMaterials: alloys and electronics a ship needs. hullHealPerDay: share of full armour a ship regrows a day while it has food aboard (grown hulls). crewPop: people a new crew takes. crewRanks false: crews never gain experience (drones). strain: crew strain from dodging. boarding: boarding party strength. sensors: ship and planet sensor range. researchDays: days of ideas by research group (see economy.json 'unlocks'). researchLean: how much the race's computer and research automation value ideas with each aim (see economy.json research 'aims'; missing: 1). digDays: days to put up a building (dug in). bombArmour: damage a building takes before bombing knocks it out. groundDefence: losses defenders take in a ground war (lower is tougher). startBuildings: extra buildings on the home planet when there is room. personalities: weights on the rival's personality roll (missing: 1). Lattice (build 7): aiOnly: every ship AI-run (no crews). powerUse: power buildings draw. needsPowerToGrow: people grow only while the grid keeps up. precision: railgun and lance hit chance. mineralIndustry: Industry from mines. airlessCap: people an airless world holds. cyber: how easily its missiles are hijacked and jammed and its ships taken by cyber boarding. noCaptures: planets it takes lose their people, and it takes no prisoners. listenOnly false: rivals can't learn its language from listening alone (see contact.json). colour: the race's colour on screens and ship art.",
   "races": [
     {
       "id": "human",
@@ -51,6 +51,7 @@
       "boarding": 1.6,
       "sensors": 0.85,
       "researchDays": { "sensors": 1.4, "hulls": 0.85 },
+      "researchLean": { "people": 1.2, "food": 1.3, "ground": 1.3, "war": 1.1, "intel": 0.75, "stealth": 0.8 },
       "digDays": 1.5,
       "bombArmour": 2.0,
       "groundDefence": 0.75,
@@ -92,6 +93,7 @@
       "noCaptures": true,
       "listenOnly": false,
       "researchDays": { "sensors": 0.85, "colonies": 1.15 },
+      "researchLean": { "economy": 1.2, "power": 1.4, "intel": 1.1, "people": 0.8, "crew": 0.15, "food": 0.15 },
       "startBuildings": [ "power-plant" ],
       "personalities": { "raider": 0.8, "expander": 0.8, "turtle": 1.5, "trader": 0.5, "hunter": 1.3, "opportunist": 1.0 }
     }

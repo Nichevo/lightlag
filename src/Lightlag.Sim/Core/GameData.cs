@@ -226,6 +226,8 @@ public static class GameData
             if (!ids.Add(r.Id)) throw new InvalidDataException($"economy.json: research '{r.Id}' is listed twice");
             if (!(r.Cost > 0 && r.Days > 0 && r.Factor > 0)) throw new InvalidDataException($"economy.json: research '{r.Id}' needs cost, days and factor above 0");
             if (Array.IndexOf(Core.Research.Fields, r.Field) < 0) throw new InvalidDataException($"economy.json: research '{r.Id}' has unknown field '{r.Field}'");
+            if (r.Aims is not { Count: > 0 } || r.Aims.Any(a => !ResearchValue.KnownAim(a)) || r.Worth <= 0)
+                throw new InvalidDataException($"economy.json: research '{r.Id}' needs aims from: {string.Join(", ", ResearchValue.Broad.Concat(ResearchValue.Narrow))}, and worth above 0");
         }
         foreach (var r in e.Research)
             foreach (var need in r.Needs ?? new List<string>())

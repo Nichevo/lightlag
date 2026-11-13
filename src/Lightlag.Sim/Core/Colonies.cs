@@ -745,7 +745,8 @@ public static class Colonies
         if (b.PopK <= 0) foreach (var (p, data) in built) p.Staff = SwitchedOff(p, data!) || b.Abandoned ? 0 : StaffKOf(w, b, data!) <= 0 ? 1 : D.UnsettledShare;
 
         // Power: plants, solar fields and the small generators every settled world has, then the grid (batteries, shedding).
-        var made = (b.PopK > 0 ? C.BasePower : 0) + built.Where(x => x.Data!.Power < 0).Sum(x => PowerOf(w, b, x.Piece, x.Data!, consume: true)) * (1 - Events.PowerCut(w, b));
+        var made = (b.PopK > 0 ? C.BasePower : 0) + built.Where(x => x.Data!.Power < 0).Sum(x => PowerOf(w, b, x.Piece, x.Data!, consume: true)) * (1 - Events.PowerCut(w, b))
+                   * (b.Owner is Side grid ? Tech.Factor(w, grid, Tech.GridBalancing) : 1);
         Grid.Run(w, b, built.Select(x => (x.Piece, x.Data!)).ToList(), made);
 
         // Goods: inputs first, then what each piece makes, then upkeep in spare parts.
@@ -768,7 +769,7 @@ public static class Colonies
                 foreach (var (good, perDay) in data.Makes) Add(good, perDay * output * InputShare(w, b, p, data, consume: true) / 24, Ledger.Made);
             else if (data.Uses != null && data.Power >= 0) InputShare(w, b, p, data, consume: true); // labs, academies, arcologies, food vats
             if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral != "")
-                Add(d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output / 24, Ledger.Mined);
+                Add(d.Mineral, data.Mines * (d.Rich ? 1.5 : 1) * output * b.MineTech / 24, Ledger.Mined);
         }
         var upkeepFactor = b.UpkeepFactor = b.Owner is Side keeper ? Tech.Factor(w, keeper, "recycling") : 1;
         b.FissionFuel = FissionFuelPerDay(w, b);
@@ -982,7 +983,7 @@ public static class Colonies
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
             var run = p.Powered ? p.PowerShare * p.Staff * (0.5 + 0.5 * p.Condition) * (p.RefitHoursLeft > 0 ? C.RefitOutput : 1) * (1 + C.LevelBoost * p.Level) * (1 + BonusFor(b, p)) * p.Boost : 0;
             if (data.Makes != null && data.Makes.TryGetValue(good, out var perDay)) total += perDay * run;
-            if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral == good) total += data.Mines * (d.Rich ? 1.5 : 1) * run;
+            if (data.Mines > 0 && DepositUnder(b, p) is Deposit d && d.Mineral == good) total += data.Mines * (d.Rich ? 1.5 : 1) * run * b.MineTech;
         }
         return total;
     }

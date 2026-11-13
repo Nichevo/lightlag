@@ -337,7 +337,7 @@ public static class Crews
     public static void Strain(World w, Ship s, bool hardBurn, double closeness)
     {
         if (!w.Loop || !Crewed(s)) return;
-        s.Strain = Math.Min(1, s.Strain + C.StrainPerDodge * (hardBurn ? C.HardBurnStrain : 1) * closeness * Races.Of(w, s.Side).Strain);
+        s.Strain = Math.Min(1, s.Strain + C.StrainPerDodge * (hardBurn ? C.HardBurnStrain : 1) * closeness * Races.Of(w, s.Side).Strain * Tech.Factor(w, s.Side, Tech.CrewDrills));
     }
 
     public static bool WornOut(Ship s) => Crewed(s) && s.Strain >= C.StrainHigh;
@@ -426,7 +426,7 @@ public static class Crews
             // Strain eases off out of battle, faster in port.
             if (!Heat.InBattle(w, f))
                 foreach (var s in w.ShipsOf(f).Where(s => s.Strain > 0))
-                    s.Strain = Math.Max(0, s.Strain - C.StrainRecoverPerHour * (inPort ? C.PortRecover : 1) * GameTime.HoursPerTick);
+                    s.Strain = Math.Max(0, s.Strain - C.StrainRecoverPerHour * (inPort ? C.PortRecover : 1) * Tech.Factor(w, s.Side, Tech.ShoreLeave) * GameTime.HoursPerTick);
             if (!patrol && !academy) continue;
             foreach (var s in w.ShipsOf(f).Where(s => Learns(w, s)))
             {

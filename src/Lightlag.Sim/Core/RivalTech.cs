@@ -36,8 +36,8 @@ public static class RivalTech
     {
         ["railguns"] = new[] { Tech.FastRailguns, "capacitor-banks", Tech.RailgunMk3, "railgun-mk4", "railgun-mk5" },
         ["missiles"] = new[] { Tech.MissileBrain2, Tech.MissileBrain3, Tech.MissileBrain4, Tech.MissileBrain5, "heavy-warheads" },
-        ["point-defence"] = new[] { Tech.PointDefence2, Tech.PointDefence3, Tech.CounterMissiles, "predictive-fire-control", "fleet-data-links" },
-        ["shields"] = new[] { Tech.DeflectorGrid, Tech.ShieldsMk3, "adaptive-shields" },
+        ["point-defence"] = new[] { Tech.PointDefence2, Tech.TrackingRadars, Tech.PointDefence3, Tech.CounterMissiles, "predictive-fire-control", "fleet-data-links" },
+        ["shields"] = new[] { Tech.DeflectorGrid, Tech.ShieldHarmonics, Tech.ShieldsMk3, "adaptive-shields" },
         ["armour"] = new[] { Tech.HeavyArmour, Tech.ArmourMk3, "heat-sink-armour" },
         ["engines"] = new[] { Tech.EngineMk2, Tech.EngineMk3, "engine-mk4", "engine-mk5", Tech.EfficientDrives },
         ["lances"] = new[] { "free-electron-lasers", Beams.LanceIdea },

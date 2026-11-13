@@ -1252,6 +1252,122 @@ def s_terraforming(p):
     beam(p, 450, 44, 340, 80, "#9be3bd", 1.2, 6)
 
 
+# ---- Research review: smaller steps and small % ideas ----
+
+def s_automation_2(p):
+    s_automation(p)
+    arm(p, 185, ground_y(185, 150, 4), 1.1)
+    label(p, 540, 30, "II", 16, "#ffd27a", .85, "end")
+
+
+def s_automation_3(p):
+    s_automation(p)
+    for x in (185, 315):
+        arm(p, x, ground_y(x, 150, 4), 1.1)
+    chip(p, 470, 50, 1.2)
+    label(p, 540, 30, "III", 16, "#ffd27a", .85, "end")
+
+
+def s_long_sensors_2(p):
+    hull(p, 30, 120, 220, 24, dish=True)
+    waves(p, 160, 90, 9, "#5cc8ff", 30, 45, 30, -10)
+    label(p, 540, 30, "II", 16, "#ffd27a", .85, "end")
+
+
+def s_shield_harmonics(p):
+    hull(p, 120, 96, 320, 32)
+    bubble(p, 280, 96, 220, 70)
+    bubble(p, 280, 96, 200, 60, "#9fd8f5", .35)
+    for k in range(9):
+        x = 100 + k * 45
+        p.add(f'<path d="M{x} 96 q11 -16 22 0 t22 0" stroke="#bfeaff" stroke-opacity=".5" fill="none"/>')
+
+
+def s_tracking_radars(p):
+    pd_scene(p, 3)
+    dish(p, 120, 60, 16, angle=-30)
+    p.add('<circle cx="380" cy="60" r="18" fill="none" stroke="#ff7a3c" stroke-dasharray="4 3"/>')
+
+
+def s_hydroponics(p):
+    hull(p, 60, 96, 420, 34)
+    for k in range(3):
+        p.add(f'<rect x="{170 + k * 70}" y="80" width="56" height="32" rx="3" fill="#2e6a4a" fill-opacity=".85" stroke="#9be3bd"/>')
+        for j in range(5):
+            p.add(f'<path d="M{176 + k * 70 + j * 10} 108 q3 -16 6 0" stroke="#9be3bd" fill="none"/>')
+
+
+def s_nutrition_science(p):
+    ground(p, 150, "groundg", 6)
+    block(p, 160, 110, 40)
+    p.add('<rect x="330" y="70" width="90" height="56" rx="6" fill="#20303a" stroke="#9be3bd"/>')
+    for k in range(4):
+        p.add(f'<rect x="{342 + k * 18}" y="{110 - k * 8}" width="10" height="{8 + k * 8}" fill="#9be3bd" fill-opacity=".8"/>')
+    person(p, 460, ground_y(460) - 2, 1.1)
+
+
+def s_frontier_medicine(p):
+    ground(p, 150, "ground", 8)
+    dome(p, 260, 44)
+    p.add(f'<rect x="254" y="{ground_y(260) - 70}" width="12" height="4" fill="#ff5c3c"/><rect x="258" y="{ground_y(260) - 74}" width="4" height="12" fill="#ff5c3c"/>')
+    for k in range(4):
+        person(p, 360 + k * 20, ground_y(370) - 2, 0.8 + 0.1 * k)
+
+
+def s_civic_planning(p):
+    ground(p, 150, "groundg", 4)
+    for k in range(5):
+        block(p, 80 + k * 90, 60, 30 + (k % 3) * 14)
+    p.add('<path d="M60 150 L520 150" stroke="#ffd27a" stroke-opacity=".5" stroke-dasharray="6 6"/>')
+    person(p, 300, ground_y(300, 150, 4) - 2, 1.2)
+
+
+def s_crew_drills(p):
+    hull(p, 60, 110, 420, 36, radiators=False)
+    for k in range(5):
+        person(p, 180 + k * 40, 104, 1.0)
+    p.add('<path d="M170 80 L380 80" stroke="#ffd27a" stroke-dasharray="3 5" stroke-opacity=".7"/>')
+
+
+def s_shore_leave(p):
+    planet(p, 420, 120, 70, "earth", atmo="#9fd8f5")
+    station(p, 200, 70, .45)
+    for k in range(3):
+        person(p, 170 + k * 22, 140, 1.0, "#ffe2a8")
+
+
+def s_compact_housing(p):
+    ground(p, 155, "ground", 4)
+    for k in range(6):
+        block(p, 90 + k * 64, 50, 36 + 10 * (k % 2), lights=True)
+    dome(p, 470, 26)
+
+
+def s_mineral_surveys(p):
+    ground(p, 140, "ground", 6)
+    for x in (140, 260, 380):
+        rock(p, x, ground_y(x, 140, 6) + 18, 12, "#8a7a5e")
+    drone(p, 260, 60, 1.4)
+    beam(p, 260, 66, 260, 120, "#ffd27a", 1.2, 6)
+
+
+def s_grid_balancing(p):
+    ground(p, 150, "ground", 4)
+    tower(p, 140, 70)
+    tower(p, 300, 70)
+    tower(p, 460, 70)
+    p.add('<path d="M140 80 Q220 100 300 80 Q380 100 460 80" stroke="#ffd27a" stroke-width="1.5" fill="none"/>')
+    grid_web(p, 300, 40, 18, "#ffd27a")
+
+
+def s_yard_tooling(p):
+    station(p, 280, 96, .9, panels=False)
+    hull(p, 200, 96, 160, 20, radiators=False, windows=False)
+    for x in (230, 330):
+        arm(p, x, 70, 1.0)
+    flash(p, 280, 90, 6, "glow")
+
+
 SCENES = {k[2:].replace("_", "-"): v for k, v in globals().items() if k.startswith("s_") and callable(v)}
 
 # Ideas whose older shared drawing is exactly right: left alone.

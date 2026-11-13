@@ -126,7 +126,7 @@ public static class Sensors
     {
         double best = 0;
         foreach (var s in w.ShipsOf(f)) best = Math.Max(best, Fitting.Spec(s).SensorMm);
-        return best * Tech.Factor(w, f.Side, Tech.LongSensors) * Races.Of(w, f.Side).Sensors;
+        return best * Tech.SensorReach(w, f.Side) * Races.Of(w, f.Side).Sensors;
     }
 
     /// <summary>
@@ -144,7 +144,7 @@ public static class Sensors
     public static double CueRadius(Sighting s, double hour) => S.CueRadiusMm + S.CueGrowthMmPerHour * Math.Max(0, hour - s.Hour);
 
     /// <summary>How close one of this side's fleets or planets must be to tell an enemy ship's class.</summary>
-    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.Factor(w, side, Tech.LongSensors) * Tech.Factor(w, side, Tech.SignalsAnalysis);
+    public static double IdentifyRange(World w, Side side) => S.IdentifyMm * Tech.SensorReach(w, side) * Tech.Factor(w, side, Tech.SignalsAnalysis);
 
     public static List<string> ClassesOf(World w, Fleet f) => w.ShipsOf(f).Select(s => s.ClassId).OrderBy(c => c, StringComparer.Ordinal).ToList();
 
@@ -235,7 +235,7 @@ public static class Sensors
                       || Colonies.Built(b).Any(p => Planets.BuildingKind(p.Kind)?.Sees == true && p.Powered);
         var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || station;
         // Deep-space telescopes: stations and arrays see half again as far.
-        return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.Factor(w, side, Tech.LongSensors)
+        return (full ? S.PlanetSensorMm : S.PlanetBareSensorMm) * Tech.SensorReach(w, side)
                * (station ? Tech.Factor(w, side, "deep-space-telescopes") : 1) * Races.Of(w, side).Sensors;
     }
 
