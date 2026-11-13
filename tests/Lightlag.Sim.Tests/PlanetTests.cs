@@ -303,7 +303,7 @@ public class PlanetTests
     }
 
     [Fact]
-    public void Planet_guns_hit_ships_in_low_orbit_but_not_high()
+    public void Planet_guns_hit_ships_in_low_orbit_hardest_and_high_orbit_at_a_share()
     {
         var sim = NewGame();
         var vela = BodyNamed(sim, "vela");
@@ -315,12 +315,17 @@ public class PlanetTests
         sim.Issue(new SetOrbitHeightCommand(fleet.Id, OrbitHeight.High));
         sim.Step();
         PlaceInOrbit(sim, fleet, vela);
+        // Rail batteries reach high orbit only at a share (gunHighOrbitShare); low orbit takes their full fire.
         var armour = sim.World.ShipsOf(fleet).Sum(s => s.Armour);
-        Days(sim, 1);
-        Assert.Equal(armour, sim.World.ShipsOf(fleet).Sum(s => s.Armour), 6);
+        sim.StepMany(GameTime.TicksPerDay / 4);
+        var high = armour - sim.World.ShipsOf(fleet).Sum(s => s.Armour);
         sim.Issue(new SetOrbitHeightCommand(fleet.Id, OrbitHeight.Low));
-        Days(sim, 1);
-        Assert.True(sim.World.ShipsOf(fleet).Sum(s => s.Armour) < armour);
+        sim.Step();
+        var before = sim.World.ShipsOf(fleet).Sum(s => s.Armour);
+        sim.StepMany(GameTime.TicksPerDay / 4);
+        var low = before - sim.World.ShipsOf(fleet).Sum(s => s.Armour);
+        Assert.True(high > 0);
+        Assert.True(low > high * 1.5);
     }
 
     [Fact]

@@ -1004,6 +1004,19 @@ public static class Mind
         private const double ReliefLateDays = 10;
 
         /// <summary>
+        /// How far out (days) a relief fleet may still be worth sending: once one is on its way the planet knows help
+        /// is coming (it stops losing heart and its defenders hold on harder), so any fleet due within the
+        /// help-coming window will do while nobody has landed; after a landing, the days the defenders have left
+        /// at their slower, help-coming pace.
+        /// </summary>
+        private double Reach(Body b, double daysLeft)
+        {
+            var g = Core.War.D.Ground;
+            if (b.LandingSide == null) return Math.Max(daysLeft + ReliefLateDays, g.HelpComingDays);
+            return (Ground.DaysLeft(_w, b) ?? daysLeft) / Math.Max(0.1, g.HelpComingLoss) + ReliefLateDays;
+        }
+
+        /// <summary>
         /// Not enough at home to relieve one of its blockaded planets: send the fleets that are out and can get
         /// there before it is likely to give up (hunters, probes, guards, claim groups, a campaign still on its
         /// way), nearest first, until they add up to enough. Fleets already sitting on a blockade of their own,
@@ -1021,7 +1034,7 @@ public static class Mind
                             || j.Kind == JobKind.Refit
                             || j.Kind == JobKind.Claim && (!j.Campaign || f.Flight != null))
                 .Select(f => (Fleet: f, Days: TravelDays(f, b, Burn(f))))
-                .Where(x => x.Days <= daysLeft + ReliefLateDays).OrderBy(x => x.Days).ToList();
+                .Where(x => x.Days <= Reach(b, daysLeft)).OrderBy(x => x.Days).ToList();
             var sent = new List<Fleet>();
             double sum = 0;
             foreach (var (f, _) in near)
@@ -1113,7 +1126,8 @@ public static class Mind
             {
                 if (b.Owner != _enemy || b.Shipyard || _m.Jobs.Any(j => j.BodyId == b.Id)) continue;
                 var local = EnemyNear(b.Position, A.DangerRadiusAu * _au, 10 * 24);
-                var guess = local + Planets.Count(b, Planets.Guns) * A.GunValue + unseen * A.CampaignRelief;
+                var guess = local + Planets.Count(b, Planets.Guns) * A.GunValue + (Economy.Fort(_w, b) is Station st ? A.GunValue * 2 * st.Armour / Math.Max(1, Economy.StationKind(st.Kind)!.Armour) : 0)
+                            + unseen * A.CampaignRelief;
                 if (free < guess * Fight * CampaignOdds) continue;
                 var days = TravelDays(from, b, ClaimSpeed);
                 if (double.IsInfinity(days) || days > A.CampaignMaxDays) continue;
@@ -1484,11 +1498,14 @@ public static class Mind
             }
         }
 
-        /// <summary>A defensive personality (defence 0.7 or more) puts a rail battery on each colony with people, then a point defence grid.</summary>
+        /// <summary>
+        /// Every colony with people gets a rail battery (its guns keep a blockade from starting until they are knocked
+        /// out); a defensive personality (defence 0.7 or more) then adds a point defence grid and a strike craft base.
+        /// </summary>
         private (string, int?, int?, bool)? Fortify(Body b)
         {
-            if (P.Defence < 0.7 || b.Home || b.PopK < 10) return null;
-            foreach (var kind in new[] { Planets.Guns, "pd-grid", StrikeCraft.Base })
+            if (b.Home || b.PopK < 10 || Easy) return null;
+            foreach (var kind in P.Defence < 0.7 ? new[] { Planets.Guns } : new[] { Planets.Guns, "pd-grid", StrikeCraft.Base })
                 if (Planets.Count(b, kind) == 0 && Planets.BuildingKind(kind) is BuildingData d && Colonies.BestSpot(b, d) != null
                     && (d.Needs == null || Tech.Has(_w, _side, d.Needs))
                     && b.PowerMade - b.PowerWanted >= d.Power)
@@ -1505,7 +1522,9 @@ public static class Mind
             foreach (var f in Mine().Where(f => _m.JobOf(f.Id) is { Kind: JobKind.Claim or JobKind.Strike }).ToList())
             {
                 if (f.OrbitBodyId is not int id || _w.FindBody(id) is not Body b || b.Owner != _enemy || !Economy.InOrbitAt(f, b)) continue;
-                var want = b.PopK > 0 && Planets.Count(b, Planets.Farm) > 0 ? BombTarget.Farms
+                // Guns still firing come first: until they are out the orbit is contested, not blockaded.
+                var want = Colonies.Sum(_w, b, k => k.GunDamage) > 0 ? BombTarget.Guns
+                    : b.PopK > 0 && Planets.Count(b, Planets.Farm) > 0 ? BombTarget.Farms
                     : Planets.Count(b, Planets.Guns) > 0 ? BombTarget.Guns : BombTarget.None;
                 if (f.Bombing != want && !OrderOnItsWay(f)) Do(new SetBombingCommand(f.Id, want));
             }
@@ -1619,6 +1638,17 @@ public static class Mind
             var spare = Economy.Of(_w, _side).Industry - shipWaiting;
             var held = _w.Bodies.Where(b => b.Owner == _side && !b.Shipyard).ToList();
             var toward = _enemyYard?.Position ?? Vec2.Zero;
+            // A defence station on its most valuable colony with people that has none, farthest from home first
+            // (relief takes longest there): enemy ships must wreck it before they can blockade.
+            if (!Easy && Economy.StationKind(Economy.DefenceStation) is StationData fort && spare >= fort.Cost * 1.5 && _home != null
+                && held.Where(b => b.PopK >= 10 && !Economy.HasStation(_w, _side, b.Id, Economy.DefenceStation))
+                    .OrderByDescending(b => Vec2.Distance(b.Position, _home.Position) * (1 + b.Industry)).ThenBy(b => b.Id).FirstOrDefault() is Body guard
+                && Economy.CanBuildStation(_w, _side, guard.Id, Economy.DefenceStation) == null)
+            {
+                Do(new BuildStationCommand(_side, guard.Id, Economy.DefenceStation));
+                Note($"Builds a defence station at {guard.Name}");
+                return;
+            }
             var sensor = Economy.StationKind(Economy.SensorStation);
             if (sensor != null && spare >= sensor.Cost * 2
                 && held.Where(b => b.Industry >= 2 && !Economy.HasStation(_w, _side, b.Id, Economy.SensorStation))

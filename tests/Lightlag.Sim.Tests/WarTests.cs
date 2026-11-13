@@ -344,7 +344,11 @@ public class WarTests
         Starts.BlockadedLongEnough(vela, Side.Player);
         f.OrbitHeight = OrbitHeight.Low;
         var aboard = Planets.TroopsAboard(sim.World, f);
-        new LandTroopsCommand(f.Id, vela.Id).Apply(sim.World, sim);
+        // While its guns fire the orbit is contested, not blockaded: no landing by order yet.
+        Assert.True(Planets.Contested(sim.World, vela));
+        Assert.NotNull(Planets.CanLand(sim.World, f, vela));
+        // Troops that do get down (forced here) still take the guns' fire and bring up a call.
+        Ground.Land(sim, f, vela, aboard, null);
         Assert.True(vela.LandingTroops < aboard);
         var call = vela.Front!.Calls.Single(c => c.Kind == "guns");
         Assert.Equal(0, call.AutoPick); // the destroyer has missiles for a strike

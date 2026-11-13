@@ -812,7 +812,12 @@ public partial class ColonyScreen : PanelContainer
     {
         var col = Column(4);
         col.AddChild(Ui.Label("Defence", 16));
-        col.AddChild(LiveWrap(_ => $"Garrison {b.Garrison:0.#}k" + (Economy.Blockaded(w, b) ? " · BLOCKADED: no building or refits, nothing comes in" : ""), 13));
+        col.AddChild(LiveWrap(_ => $"Garrison {b.Garrison:0.#}k" + (Economy.Blockaded(w, b) ? " · BLOCKADED: no building or refits, nothing comes in"
+            : Planets.Contested(w, b) && w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f))
+                ? " · CONTESTED: its guns" + (Economy.Fort(w, b) is Station fort ? $" and defence station ({100 * fort.Armour / Math.Max(1, Economy.StationKind(fort.Kind)!.Armour):0} % armour)" : "")
+                  + " are firing on the enemy ships above; no blockade until they are knocked out" : "")
+            + (Ground.HelpComing(w, b) is var (helper, days) && (Economy.Blockaded(w, b) || b.LandingSide != null)
+                ? $"\nHELP IS COMING: {helper.Name} arrives in about {days:0.#} days. Happiness rises and the defenders hold on harder." : ""), 13));
         var row = new HFlowContainer();
         row.AddThemeConstantOverride("h_separation", 6);
         foreach (var k in Colonies.Kinds.Where(k => k.Area == "defence"))

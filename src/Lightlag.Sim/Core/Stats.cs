@@ -16,6 +16,8 @@ public sealed class SideTotals
     public int ShipsBuilt { get; set; }
     public int ShipsLost { get; set; }
     public int ShipsKilled { get; set; }
+    /// <summary>Enemy defence stations wrecked.</summary>
+    public int FortsWrecked { get; set; }
     public double IndustryEarned { get; set; }
     public double IndustrySpent { get; set; }
 

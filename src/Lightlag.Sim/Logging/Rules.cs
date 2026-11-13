@@ -64,6 +64,9 @@ public sealed class RuleBook
         .Add("fuel-sane", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId))
             .Select(s => Fuels.Problem(w, s) is string p ? $"ship {s.Id} {s.Name} {p}" : null).OfType<string>())
         .Add("planets-sane", PlanetsSane)
+        // A defence station's armour stays between nothing and full (a wrecked one is removed).
+        .Add("forts-sane", w => w.Stations.Where(st => Economy.StationKind(st.Kind) is { Armour: > 0 } d && !(st.Armour > 0 && st.Armour <= d.Armour + 1e-6))
+            .Select(st => $"station {st.Id} {st.Kind} at body {st.BodyId} has armour {st.Armour}"))
         // A queued building is not paid for or started: it has made no progress and is not standing.
         .Add("queued-buildings-unstarted", w => w.Bodies.SelectMany(b => b.Pieces.Where(p => p.Waiting
                 && (p.Built || Lightlag.Sim.Core.Planets.BuildingKind(p.Kind) is not { } d

@@ -27,8 +27,12 @@ public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDa
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 /// LiftCut: the share of the lift to orbit still paid at its body (skyhook, space elevator; see Lift). Ground: only over
 /// a world with ground to build on (a space elevator is anchored to it).
+/// Armour and GunDamage: a defence station, an armoured fort whose guns hit enemy ships in either orbit (see
+/// Planets.PlanetGuns); enemy warships in orbit wear its armour down first, and while it stands the planet can't
+/// be blockaded.
 public sealed record StationData(string Id, string Name, string Effect, double Cost, double Days, string? Needs = null,
-    List<string>? OnTypes = null, Dictionary<string, double>? Makes = null, double LiftCut = 0, bool Ground = false);
+    List<string>? OnTypes = null, Dictionary<string, double>? Makes = null, double LiftCut = 0, bool Ground = false,
+    double Armour = 0, double GunDamage = 0, double RepairPerDay = 0.05);
 
 /// <summary>
 /// A station in orbit of a body: a relay passes signals round planets that block them; a sensor
@@ -41,6 +45,9 @@ public sealed class Station
     public string Kind { get; set; } = "";
     public int BodyId { get; set; }
     public double ReadyHour { get; set; }
+    /// <summary>A defence station's armour left (full when built; it mends RepairPerDay a day when not under fire).</summary>
+    public double Armour { get; set; }
+    public double? LastHitHour { get; set; }
 }
 
 // ---- State --------------------------------------------------------------------------------
@@ -442,6 +449,8 @@ public static class Economy
     public const string Relay = "relay";
     public const string SensorStation = "sensor";
 
+    public const string DefenceStation = "defence-station";
+
     public static StationData? StationKind(string id) => E.Stations?.Find(x => x.Id == id);
 
     /// <summary>The side's working stations of this kind (built, and on a body it still holds).</summary>
@@ -760,8 +769,16 @@ public static class Economy
     }
 
     /// <summary>An armed enemy fleet holds orbit over this body: a shipyard can't launch ships, and a planet is cut off (see Planets).</summary>
+    /// <summary>
+    /// Enemy warships hold orbit and the planet's guns and defence stations are knocked out (while they still
+    /// fire, the orbit is contested, not blockaded).
+    /// </summary>
     public static bool Blockaded(World w, Body yard) =>
-        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard) && Combat.Armed(w, f));
+        yard.Owner is Side owner && w.Fleets.Any(f => f.Side != owner && InOrbitAt(f, yard) && Combat.Armed(w, f)) && !Planets.Contested(w, yard);
+
+    /// <summary>The working defence station over this body, if any.</summary>
+    public static Station? Fort(World w, Body b) =>
+        b.Owner is Side owner ? w.Stations.FirstOrDefault(st => st.Side == owner && st.BodyId == b.Id && w.Hour >= st.ReadyHour && st.Armour > 0 && StationKind(st.Kind)?.GunDamage > 0) : null;
 
     /// <summary>
     /// Damage a ship does in an hour of bombardment from orbit: its railguns (using ammunition) every hour,
@@ -970,7 +987,7 @@ public sealed record BuildStationCommand(Side Side, int BodyId, string Kind) : G
         }
         var data = Economy.StationKind(Kind)!;
         Economy.Of(world, Side).Industry -= data.Cost;
-        world.Stations.Add(new Station { Id = world.NextId++, Side = Side, Kind = Kind, BodyId = BodyId, ReadyHour = world.Hour + data.Days * 24 });
+        world.Stations.Add(new Station { Id = world.NextId++, Side = Side, Kind = Kind, BodyId = BodyId, ReadyHour = world.Hour + data.Days * 24, Armour = data.Armour });
         sim.Log.Info("economy", $"{Side} builds a {data.Name.ToLowerInvariant()} at {world.FindBody(BodyId)!.Name}", new { side = Side.ToString(), BodyId, Kind, days = data.Days, Source });
     }
 }

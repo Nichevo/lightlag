@@ -96,6 +96,12 @@ public sealed class GroundData
     /// <summary>An orbital strike: missiles taken from the fleet above, happiness lost below.</summary>
     public int StrikeMissiles { get; set; } = 6;
     public double StrikeHappiness { get; set; } = -3;
+    /// <summary>"Help is coming": an armed fleet of the holder flying to the planet, due within this many days.</summary>
+    public double HelpComingDays { get; set; } = 60;
+    /// <summary>While help is coming, defenders lose only this share of what they would (they hold on for it).</summary>
+    public double HelpComingLoss { get; set; } = 0.4;
+    /// <summary>Morale: defenders lose (1 + MoraleLoss) times as fast at happiness 0, (1 - MoraleLoss) at 100, as usual at 50.</summary>
+    public double MoraleLoss { get; set; } = 0.4;
 }
 
 /// <summary>After a battle (see AfterBattle).</summary>

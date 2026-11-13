@@ -10,7 +10,8 @@ public sealed record PlanetTypeData(double Cap = 0, double Farm = 0, int Plots =
 
 /// <summary>The pulls on a planet's happiness (see Planets.TargetHappiness).</summary>
 public sealed record HappinessData(double Base = 55, double Fed = 10, double Hungry = -30, double Blockaded = -20, double Bombed = -30,
-    double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5, double Newcomers = 8);
+    double Struck = -10, double Foreign = -30, double Guarded = 5, double BombedDays = 10, double StruckDays = 5, double Newcomers = 8,
+    double HelpComing = 25);
 
 /// <summary>
 /// A building on a planet: a W×H piece on the board, paid when ordered (Industry) and standing after Days
@@ -36,7 +37,7 @@ public sealed record PlanetsData(
     double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30, double LandAfterBlockadeDays = 20,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
     double GroundLossPerHour = 0.05, double BoardTroopsK = 0.5, double BuildingArmour = 40, double PeopleKPerDamage = 0.02,
-    double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
+    double GunDamagePerHour = 8, double GunGarrisonK = 0.5, double GunHighOrbitShare = 0.5, double TipShare = 0.8, double WinShare = 0.95, double WinAfterDays = 30,
     List<BuildingData>? Buildings = null);
 
 /// <summary>
@@ -132,11 +133,18 @@ public static class Planets
     /// <summary>The armed enemy side holding orbit here, if any (it cuts the planet off: see Economy.Blockaded).</summary>
     public static Side? Blockader(World w, Body b)
     {
-        if (b.Owner is not Side owner) return null;
+        if (b.Owner is not Side owner || Contested(w, b)) return null;
         foreach (var f in w.Fleets)
             if (f.Side != owner && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)) return f.Side;
         return null;
     }
+
+    /// <summary>
+    /// Enemy ships in orbit are still under fire from the planet's guns or a defence station: the orbit is
+    /// contested, so no blockade yet (no blockade days, the planet still trades and builds) until they are knocked out.
+    /// </summary>
+    public static bool Contested(World w, Body b) =>
+        b.Owner != null && (Economy.Fort(w, b) != null || Colonies.Sum(w, b, k => k.GunDamage) > 0);
 
     /// <summary>Industry a day this body makes for its holder (before Automated industry).</summary>
     public static double IndustryPerDay(World w, Body b)
@@ -421,6 +429,7 @@ public static class Planets
         if (b.Hungry) parts.Add(("Hungry", H.Hungry));
         else parts.Add(("Fed", H.Fed));
         if (Economy.Blockaded(w, b)) parts.Add(("Blockaded", H.Blockaded));
+        if ((Economy.Blockaded(w, b) || b.LandingSide != null) && Core.Ground.HelpComing(w, b) != null) parts.Add(("Help is coming", H.HelpComing));
         if (b.LastBombedHour is double bombed && w.Hour - bombed < H.BombedDays * 24) parts.Add(("People bombed", H.Bombed));
         if (b.LastStruckHour is double struck && w.Hour - struck < H.StruckDays * 24) parts.Add(("Buildings struck", H.Struck));
         if (b.OwnShare < 0.995) parts.Add(("Not your people", H.Foreign * (1 - b.OwnShare)));
@@ -563,10 +572,13 @@ public static class Planets
     private static void PlanetGuns(Simulation sim)
     {
         var w = sim.World;
-        foreach (var b in w.Bodies.Where(b => b.Owner != null && Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0)).ToList())
+        Forts(sim);
+        foreach (var b in w.Bodies.Where(b => b.Owner != null && (Colonies.Built(b).Any(p => BuildingKind(p.Kind)?.GunDamage > 0) || Economy.Fort(w, b) != null)).ToList())
         {
-            var low = Colonies.Sum(w, b, k => k.GunDamage);
-            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : 0);
+            // Rail batteries reach high orbit too, at a share; missile silos and defence stations reach both in full.
+            var fort = Economy.Fort(w, b) is Station st ? Economy.StationKind(st.Kind)!.GunDamage : 0;
+            var low = Colonies.Sum(w, b, k => k.GunDamage) + fort;
+            var high = Colonies.Sum(w, b, k => k.HighOrbit ? k.GunDamage : k.GunDamage * D.GunHighOrbitShare) + fort;
             // Guns fire ammunition: with none in store they fire half as hard.
             if (w.Fleets.Any(f => f.Side != b.Owner && Economy.InOrbitAt(f, b)))
             {
@@ -589,6 +601,35 @@ public static class Planets
                 sim.Log.Info("planets", $"{b.Name}'s guns destroy {ship.Name}", new { bodyId = b.Id, shipId = ship.Id, side = ship.Side.ToString() });
                 Combat.Destroy(sim, ship);
             }
+        }
+    }
+
+    /// <summary>
+    /// Defence stations: enemy warships in orbit shoot at the station first (it is the biggest gun over the planet),
+    /// as they would a shipyard. At no armour it is wrecked. Not under fire, it mends RepairPerDay a day.
+    /// </summary>
+    private static void Forts(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var st in w.Stations.Where(st => w.Hour >= st.ReadyHour && Economy.StationKind(st.Kind)?.Armour > 0).ToList())
+        {
+            var data = Economy.StationKind(st.Kind)!;
+            if (w.FindBody(st.BodyId) is not Body b) continue;
+            var attackers = w.Fleets.Where(f => f.Side != st.Side && Economy.InOrbitAt(f, b) && Combat.Armed(w, f)).ToList();
+            var damage = attackers.SelectMany(w.ShipsOf).Sum(s => Economy.HourlyDamage(w, s, consume: true));
+            if (damage <= 0)
+            {
+                if (st.LastHitHour == null || w.Hour - st.LastHitHour > 24) st.Armour = Math.Min(data.Armour, st.Armour + data.Armour * data.RepairPerDay / 24);
+                continue;
+            }
+            if (st.LastHitHour == null || w.Hour - st.LastHitHour > 24)
+                sim.Log.Info("planets", $"{b.Name}'s defence station is under fire", new { bodyId = b.Id, side = st.Side.ToString(), attacker = attackers[0].Side.ToString() });
+            st.LastHitHour = w.Hour;
+            st.Armour -= damage;
+            if (st.Armour > 0) continue;
+            w.Stations.Remove(st);
+            Economy.Of(w, attackers[0].Side).Totals.FortsWrecked++;
+            sim.Log.Info("planets", $"{b.Name}'s defence station is wrecked", new { bodyId = b.Id, side = st.Side.ToString(), by = attackers[0].Side.ToString() });
         }
     }
 
