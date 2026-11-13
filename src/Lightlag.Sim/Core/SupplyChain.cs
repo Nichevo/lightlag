@@ -62,7 +62,8 @@ public sealed record ChainFlow(ChainNodeKind FromKind, int FromId, ChainNodeKind
 
 /// <summary>One row of the routes table.</summary>
 public sealed record RouteRow(string Key, string Name, int FromBodyId, int? ToBodyId, int? ToFleetId, List<string> Goods, string Ships,
-    string HowOften, RouteRisk Risk, string RiskWhy, bool Fixed, int? FixedRunId, int? EscortFleetId, int? ViaBodyId, double EveryDays);
+    string HowOften, RouteRisk Risk, string RiskWhy, bool Fixed, int? FixedRunId, int? EscortFleetId, int? ViaBodyId, double EveryDays,
+    string? Status = null, bool AutoRun = false, string? Why = null);
 
 /// <summary>A one-click fix: a command to give (with what it costs), or something for the screen to do (Ui).</summary>
 public sealed record ChainFix(string Label, string Cost, GameCommand? Command = null, string? Ui = null);
@@ -184,7 +185,7 @@ public static class SupplyChain
             var via = setting?.ViaBodyId is int v ? w.FindBody(v) : null;
             var (risk, why) = RiskOf(w, side, from.Position, to.Position, via?.Position, escort is int e && w.FindFleet(e) != null);
             rows.Add(new RouteRow($"run:{run.Id}", $"{from.Name} → {to.Name}", from.Id, to.Id, null, goods, ShipsText(w, fleets),
-                $"every {run.EveryDays:0.#} d", risk, why, true, run.Id, escort, via?.Id, run.EveryDays));
+                $"every {run.EveryDays:0.#} d", risk, why, true, run.Id, escort, via?.Id, run.EveryDays, ShortRuns.Status(w, run), run.Auto, run.Why));
         }
 
         // Auto runs: one row per pair of planets, from loads delivered lately and loads under way.

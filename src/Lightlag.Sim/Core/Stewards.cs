@@ -386,7 +386,7 @@ public static class Stewards
     {
         AutoArea.Building => "What each planet builds next: food, power, mines, material plants",
         AutoArea.Workers => "Topping up planets short of workers; spare parts where they run low",
-        AutoArea.Transport => "Free freighters carry goods to planets that ask for them",
+        AutoArea.Transport => "Free freighters carry goods to planets that ask for them; planets short for good get a standing run from one with spare, stopped when the shortage ends",
         AutoArea.Settling => "Sending settlers to empty worlds worth having",
         AutoArea.Research => "The next idea for each team when its queue runs dry",
         AutoArea.Shipyard => "Support ships only (tankers, freighters): warships are always your call",
@@ -458,6 +458,7 @@ public static class Stewards
             Learn();
             Building();
             Workers();
+            StandingRuns();
             Transport();
             Settling();
             ResearchQueues();
@@ -742,12 +743,38 @@ public static class Stewards
             }
         }
 
+        /// <summary>How many new standing runs a round may set up or offer.</summary>
+        private const int RunsPerRound = 3;
+
+        /// <summary>
+        /// Transport, standing runs (see ShortRuns): a planet with a lasting shortage gets a run from a planet with a
+        /// lasting spare (Auto: set up now; Advise: offered), and an Auto run whose shortage has ended is stopped
+        /// (Advise: offered). Runs set up by hand are never touched.
+        /// </summary>
+        private void StandingRuns()
+        {
+            foreach (var run in _w.FixedRuns.Where(r => r.Side == _side && r.Auto).OrderBy(r => r.Id).ToList())
+            {
+                if (ShortRuns.RetireWhy(_w, run) is not string why || _w.FindBody(run.FromBodyId) is not Body from || _w.FindBody(run.ToBodyId) is not Body to) continue;
+                Offer(AutoArea.Transport, $"run-stop:{run.Id}", $"Stop the {Colonies.GoodName(run.Good).ToLowerInvariant()} run {from.Name} to {to.Name}: {why}",
+                    new FixedRunCommand(_side, 0, 0, "", 0, RemoveRunId: run.Id), "Stop run", to.Id);
+            }
+            foreach (var plan in ShortRuns.Wanted(_w, _side).Take(RunsPerRound))
+            {
+                var good = Colonies.GoodName(plan.Good).ToLowerInvariant();
+                Offer(AutoArea.Transport, $"run:{plan.To.Id}:{plan.Good}",
+                    $"Set up a run: {good} from {plan.From.Name} to {plan.To.Name} every {plan.EveryDays:0} days ({plan.Why})",
+                    new FixedRunCommand(_side, plan.From.Id, plan.To.Id, plan.Good, plan.EveryDays, Auto: true, Why: plan.Why), "Set up run", plan.To.Id,
+                    advice: plan.Asks ? NeedLevel.Soon : NeedLevel.Advice);
+            }
+        }
+
         /// <summary>Transport on Advise: the shipments Auto would send, offered one by one.</summary>
         private void Transport()
         {
             if (LevelFor(_w, _side, AutoArea.Transport) != AutoLevel.Advise) return;
             foreach (var (from, to, good, amount) in Colonies.TransportWanted(_w, _side).Take(6))
-                if (!_needs.Any(n => n.Key == $"chain:short:{to.Id}:{good}"))
+                if (!_needs.Any(n => n.Key == $"chain:short:{to.Id}:{good}" || n.Key == $"run:{to.Id}:{good}"))
                 Need(NeedLevel.Advice, $"ship:{to.Id}:{good}", $"Send {amount:0} {Colonies.GoodName(good).ToLowerInvariant()} from {from.Name} to {to.Name}",
                     to.Id, act: new ShipGoodsCommand(_side, from.Id, to.Id, good, amount), label: "Send", area: AutoArea.Transport);
         }
@@ -816,7 +843,9 @@ public static class Stewards
             if (queued.Count >= 3) return;
             if (_unserved.Count > 0 && !queued.Any(o => o.Key == "tanker") && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null)
                 Offer(AutoArea.Shipyard, "yard:tanker", $"Build a tanker: {_unserved[0].Name} waits for supplies", new QueueOrderCommand(_side, OrderKind.Ship, "tanker"), "Build it");
-            var waiting = Colonies.TransportWanted(_w, _side).Any() && !Colonies.FreeHaulers(_w, _side).Any();
+            // Goods wait for a freighter: a planet asks, or a run is due, and none is free.
+            var waiting = (Colonies.TransportWanted(_w, _side).Any() || _w.FixedRuns.Any(r => r.Side == _side && _w.Hour >= r.NextHour + 24 && !_w.Shipments.Any(s => s.RunId == r.Id)))
+                          && !Colonies.FreeHaulers(_w, _side).Any();
             var haulers = _w.Fleets.Where(f => f.Side == _side).Sum(f => _w.ShipsOf(f).Count(SupplyLines.IsFreighter));
             var planets = _w.Bodies.Count(b => b.Owner == _side && b.Board != null);
             var cls = SupplyLines.HaulerClass(_w, _side);

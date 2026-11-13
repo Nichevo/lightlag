@@ -905,11 +905,19 @@ public partial class ColonyScreen : PanelContainer
         {
             var row = Row(6);
             var other = w.FindBody(run.FromBodyId == b.Id ? run.ToBodyId : run.FromBodyId)?.Name ?? "?";
-            row.AddChild(Wrap($"Fixed run {(run.FromBodyId == b.Id ? "to" : "from")} {other}: {(run.Good == "" ? "any spare goods" : Colonies.GoodName(run.Good).ToLowerInvariant())} every {run.EveryDays:0} days"
-                                  + (run.EscortFleetId is int e && w.FindFleet(e) is Fleet ef ? $", escorted by {ef.Name}" : ""), 13));
+            var text = Wrap($"{(run.Auto ? "Auto run" : "Fixed run")} {(run.FromBodyId == b.Id ? "to" : "from")} {other}: {(run.Good == "" ? "any spare goods" : Colonies.GoodName(run.Good).ToLowerInvariant())} every {run.EveryDays:0} days"
+                                  + (run.EscortFleetId is int e && w.FindFleet(e) is Fleet ef ? $", escorted by {ef.Name}" : ""), 13);
+            if (run.Why != null) { text.MouseFilter = MouseFilterEnum.Pass; text.TooltipText = $"Set up by Auto: {run.Why}. It stops when the shortage ends."; }
+            row.AddChild(text);
             var id = run.Id;
-            row.AddChild(Ui.SmallButton("✕", () => _screen.IssueNow(new FixedRunCommand(Side.Player, 0, 0, "", 0, null, id), "fixed run"), "Stop this run"));
+            if (run.Auto)
+                row.AddChild(Ui.SmallButton("Keep", () => _screen.IssueNow(new KeepRunCommand(Side.Player, id), "keep run"),
+                    "Keep it as your own run: Auto will not stop it when the shortage ends"));
+            row.AddChild(Ui.SmallButton("✕", () => _screen.IssueNow(new FixedRunCommand(Side.Player, 0, 0, "", 0, null, id), "fixed run"),
+                run.Auto ? $"Stop this Auto run; Auto won't set it up again for {ShortRuns.StoppedDays:0} days" : "Stop this run"));
             col.AddChild(row);
+            // Where the run stands: its freighter and stage, the next load, or why it waits (kept current).
+            col.AddChild(LiveWrap(w2 => w2.FixedRuns.Find(r => r.Id == id) is FixedRun r2 ? "   " + ShortRuns.Status(w2, r2) : "   stopped", 12));
         }
 
         // + Fixed run from here.
