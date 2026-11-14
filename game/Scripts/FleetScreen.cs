@@ -44,6 +44,7 @@ public partial class FleetScreen : PanelContainer
         // Under the top bar, so the menu bar stays in view.
         var under = new Vector2(0, Hud.ContentTop);
         if (Position != under || Size != view - under) { Position = under; Size = view - under; }
+        TakeWanted();
         var fleets = Mine(w);
         var picked = _screen.FleetScreenId is int id ? w.FindFleet(id) : null;
         if (picked == null || picked.Side != Side.Player) picked = fleets.FirstOrDefault();

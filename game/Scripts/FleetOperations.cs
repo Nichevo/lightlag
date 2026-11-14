@@ -36,6 +36,21 @@ public partial class FleetScreen
     private static readonly Color Warn = new("ffb347");
     private static readonly Color Good = new("6fdc8c");
 
+    /// <summary>A view asked for from outside (the screenshot run): pane, fleets for the strike planner, target, place.</summary>
+    private static (string Pane, List<int>? Strike, int? Target, string? Place)? _wanted;
+
+    public static void ShowOps(string pane, List<int>? strike = null, int? targetBody = null, string? place = null) => _wanted = (pane, strike, targetBody, place);
+
+    private void TakeWanted()
+    {
+        if (_wanted is not var (pane, strike, target, place)) return;
+        _wanted = null;
+        _opsPane = pane;
+        if (strike != null) { _strikeIds.Clear(); _strikeIds.AddRange(strike); }
+        if (target != null) { _strikeBody = target; _strikeEnemy = null; }
+        if (place != null) _placeKey = place;
+    }
+
     private static Color StateColor(CoverState s) => s switch { CoverState.Covered => Good, CoverState.Thin => Warn, _ => Ui.Danger };
 
     private List<CoverJudgement> Judged(World w)
@@ -45,6 +60,18 @@ public partial class FleetScreen
         _judgedVersion = _opsVersion;
         _judged = Coverage.JudgeAll(w, Side.Player);
         return _judged;
+    }
+
+    private long _leavesTick = -1;
+    private int _leavesVersion = -1;
+    private readonly Dictionary<int, List<(CoverJudgement Now, CoverJudgement Without)>> _leaves = new();
+
+    /// <summary>What a fleet's leaving would uncover, worked out once a game hour.</summary>
+    private List<(CoverJudgement Now, CoverJudgement Without)> UncoveredBy(World w, int fleetId)
+    {
+        if (_leavesTick != w.Tick || _leavesVersion != _opsVersion) { _leaves.Clear(); _leavesTick = w.Tick; _leavesVersion = _opsVersion; }
+        if (!_leaves.TryGetValue(fleetId, out var list)) _leaves[fleetId] = list = Coverage.Uncovered(w, Side.Player, new[] { fleetId });
+        return list;
     }
 
     /// <summary>Issue an operations order now (it still travels at light speed) and work the views out again.</summary>
@@ -263,7 +290,7 @@ public partial class FleetScreen
         leaves.AddChild(Live(w2 =>
         {
             if (w2.FindFleet(id) is not Fleet g) return "";
-            var worse = Coverage.Uncovered(w2, Side.Player, new[] { g.Id });
+            var worse = UncoveredBy(w2, g.Id);
             if (worse.Count == 0) return "Nothing is left uncovered: other fleets or planet guns still cover what it covers.";
             return string.Join("\n", worse.Select(x => $"{x.Now.Place.Name} goes from {Coverage.StateName(x.Now.State)} to {Coverage.StateName(x.Without.State)}: {x.Without.Why}"));
         }, 13, Warn, wrap: true));

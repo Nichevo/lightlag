@@ -746,6 +746,31 @@ public partial class Main : Node
             minds.FleetScreenId = own.Id;
             minds.ShowFleets = true;
             await Shoot("55-fleet-screen");
+
+            // The Operations tab: a patrol loop on the picked fleet, a planet nobody covers (screenshot only: Vela handed
+            // to the player), who covers what, and a strike on the rival's home with every fleet ticked.
+            var me = Lightlag.Sim.Core.Side.Player;
+            var vela = Sim.World.Bodies.First(b => b.Key == "vela");
+            vela.Owner = me;
+            vela.PopK = 4;
+            if (Economy.HomeOf(Sim.World, me) is Body loopHome)
+            {
+                var loopMoon = Sim.World.Bodies.FirstOrDefault(b => b.ParentId == loopHome.Id && b.Kind == BodyKind.Moon);
+                var stops = new List<LoopStop> { new() { BodyId = loopHome.Id, WaitHours = 24 } };
+                if (loopMoon != null) stops.Add(new LoopStop { BodyId = loopMoon.Id, WaitHours = 48 });
+                stops.Add(new LoopStop { Point = loopHome.Position + new Vec2(0.2 * Physics.MmPerAu, 0.1 * Physics.MmPerAu), WaitHours = 72 });
+                Sim.Issue(new SetPatrolLoopCommand(own.Id, stops));
+                Sim.ApplyPending();
+            }
+            minds.FleetsTab = "operations";
+            FleetScreen.ShowOps("fleet");
+            await Shoot("56-operations-fleet");
+            FleetScreen.ShowOps("cover", place: $"planet:{vela.Id}");
+            await Shoot("57-operations-cover");
+            FleetScreen.ShowOps("strike", Sim.World.Fleets.Where(f => f.Side == me && f.ShipIds.Count > 0 && Coverage.Fighting(Sim.World, f)).Select(f => f.Id).ToList(),
+                Sim.World.Bodies.First(b => b.Key == "rust").Id);
+            await Shoot("58-operations-strike");
+            minds.FleetsTab = "fleets";
             minds.ShowFleets = false;
 
             // The battle sandbox: an attack run, mid-battle with missiles flying, then the combat report.
