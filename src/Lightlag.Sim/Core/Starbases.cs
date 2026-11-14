@@ -188,7 +188,7 @@ public static class Starbases
     public static int TopTier(World w, Side side) => D.Tiers.LastOrDefault(t => Researched(w, side, t.ClassId) == null)?.Tier ?? 0;
 
     /// <summary>Why this side can't build a station of this class over this body now, or null.</summary>
-    public static string? CanBuild(World w, Side side, int bodyId, string classId)
+    public static string? CanBuild(World w, Side side, int bodyId, string classId, bool queue = false)
     {
         if (!w.Loop) return "There is no economy in the battle sandbox";
         if (w.Winner != null) return "The game is over";
@@ -197,9 +197,49 @@ public static class Starbases
         if (At(w, bodyId) is Starbase there) return there.Side == side ? $"{b.Name} already has a {ClassOf(there).Name.ToLowerInvariant()}: upgrade it instead" : "An enemy station holds this orbit";
         if (Researched(w, side, classId) is string missing) return missing;
         var cls = GameData.ShipClass(classId);
-        if (Budget.Problem(w, side, Pot.Stations, cls.Cost, $"starbase:{bodyId}:{classId}") is string tooLow) return tooLow;
+        if (Queued(w, side, bodyId) is QueuedStarbase q) return $"A {GameData.ShipClass(q.ClassId).Name.ToLowerInvariant()} is already queued over {b.Name}";
+        if (queue) return null; // queued: it waits for its Industry (and for a blockade to lift)
+        if (Budget.Problem(w, side, Pot.Stations, cls.Cost, Key(bodyId, classId)) is string tooLow) return tooLow;
         if (Economy.Blockaded(w, b)) return $"{b.Name} is blockaded";
         return null;
+    }
+
+    /// <summary>The budget key of a station build (the same whether paid at once or queued first).</summary>
+    public static string Key(int bodyId, string classId) => $"starbase:{bodyId}:{classId}";
+
+    /// <summary>The station queued over this body, if any.</summary>
+    public static QueuedStarbase? Queued(World w, Side side, int bodyId) => w.StarbaseQueue.Find(q => q.Side == side && q.BodyId == bodyId);
+
+    /// <summary>Why a queued station has not started yet, for the screens.</summary>
+    public static string QueuedWhy(World w, QueuedStarbase q)
+    {
+        var b = w.FindBody(q.BodyId);
+        if (b != null && Economy.Blockaded(w, b)) return $"waiting: {b.Name} is blockaded";
+        return Budget.ShortOf(w, q.Side, Pot.Stations, GameData.ShipClass(q.ClassId).Cost, Key(q.BodyId, q.ClassId)) is string why
+            ? (why.StartsWith("needs ", StringComparison.Ordinal) ? "waiting for " + why[6..] : "waiting: " + why) : "starts next hour";
+    }
+
+    /// <summary>
+    /// Hourly: queued stations start, in queue order, once their pot can pay; ones that can no longer be built
+    /// there (the planet lost, a station already over it) are dropped and the log says why.
+    /// </summary>
+    public static void StartQueued(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var q in w.StarbaseQueue.ToList())
+        {
+            var b = w.FindBody(q.BodyId);
+            if (b == null || b.Owner != q.Side || At(w, q.BodyId) != null)
+            {
+                w.StarbaseQueue.Remove(q);
+                sim.Log.Info("stations", "Queued station dropped", new { side = q.Side.ToString(), q.BodyId, q.ClassId, why = b?.Owner != q.Side ? "planet lost" : "orbit taken" });
+                continue;
+            }
+            if (Economy.Blockaded(w, b)) continue;
+            if (Budget.ShortOf(w, q.Side, Pot.Stations, GameData.ShipClass(q.ClassId).Cost, Key(q.BodyId, q.ClassId)) != null) continue;
+            w.StarbaseQueue.Remove(q);
+            new BuildStarbaseCommand(q.Side, q.BodyId, q.ClassId, q.DesignId) { Source = "queue" }.Apply(w, sim);
+        }
     }
 
     /// <summary>The next tier up from this station, if there is one.</summary>
@@ -698,12 +738,47 @@ public static class Starbases
 // ---- Commands ------------------------------------------------------------------------------
 
 /// <summary>Build a station of the line over a body you hold: paid now, working after its build days.</summary>
-public sealed record BuildStarbaseCommand(Side Side, int BodyId, string ClassId, int? DesignId = null) : GameCommand
+/// <summary>A station waiting in line for its Industry (BuildStarbaseCommand with Queue).</summary>
+public sealed class QueuedStarbase
+{
+    public int Id { get; set; }
+    public Side Side { get; set; }
+    public int BodyId { get; set; }
+    public string ClassId { get; set; } = "";
+    public int? DesignId { get; set; }
+}
+
+/// <summary>Take a queued station off the queue.</summary>
+public sealed record CancelQueuedStarbaseCommand(Side Side, int QueuedId) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
+
+    public override void Apply(World world, Simulation sim)
+    {
+        var q = world.StarbaseQueue.Find(x => x.Id == QueuedId && x.Side == Side);
+        if (q == null) return;
+        world.StarbaseQueue.Remove(q);
+        sim.Log.Info("stations", "Queued station cancelled", new { side = Side.ToString(), q.BodyId, q.ClassId, Source });
+    }
+}
+
+public sealed record BuildStarbaseCommand(Side Side, int BodyId, string ClassId, int? DesignId = null, bool Queue = false) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => (Side, world.FindBody(BodyId)?.Position ?? Light.Seat(world, Side));
 
     public override void Apply(World world, Simulation sim)
     {
+        if (Queue)
+        {
+            if (Starbases.CanBuild(world, Side, BodyId, ClassId, queue: true) is string why)
+            {
+                sim.Log.Warn("stations", $"Can't queue a station: {why}", new { side = Side.ToString(), BodyId, ClassId, Source });
+                return;
+            }
+            world.StarbaseQueue.Add(new QueuedStarbase { Id = world.NextId++, Side = Side, BodyId = BodyId, ClassId = ClassId, DesignId = DesignId });
+            sim.Log.Info("stations", "Station queued until its Industry is there", new { side = Side.ToString(), BodyId, ClassId, Source });
+            return;
+        }
         if (Starbases.CanBuild(world, Side, BodyId, ClassId) is string problem)
         {
             sim.Log.Warn("stations", $"Can't build a station: {problem}", new { side = Side.ToString(), BodyId, ClassId, Source });
@@ -711,7 +786,7 @@ public sealed record BuildStarbaseCommand(Side Side, int BodyId, string ClassId,
         }
         var cls = GameData.ShipClass(ClassId);
         var design = DesignId is int d && Designer.Find(world, Side, d)?.ClassId == ClassId ? d : Designer.DefaultFor(world, Side, ClassId);
-        Budget.Pay(world, Side, Pot.Stations, cls.Cost, $"starbase:{BodyId}:{ClassId}", BodyId, log: sim.Log);
+        Budget.Pay(world, Side, Pot.Stations, cls.Cost, Starbases.Key(BodyId, ClassId), BodyId, log: sim.Log);
         Economy.Of(world, Side).Totals.IndustrySpent += cls.Cost;
         var st = new Starbase
         {

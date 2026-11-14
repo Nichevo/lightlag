@@ -206,14 +206,24 @@ public partial class EmpirePanel : PanelContainer
                 var bid = b.Id;
                 _live.Add((lineLabel, w2 => w2.FindBody(bid) is Body bb ? StationPanel.Short(w2, bb) : ""));
                 row.AddChild(lineLabel);
-                if (Starbases.At(w, b.Id) == null && w.Winner == null && Starbases.TopTier(w, Side.Player) > 0)
+                if (Starbases.At(w, b.Id) == null && w.Winner == null && Starbases.TopTier(w, Side.Player) > 0 && Starbases.Queued(w, Side.Player, b.Id) is QueuedStarbase sbQueued)
+                {
+                    var qid = sbQueued.Id;
+                    var qlabel = Ui.Label("", 12, Ui.Warn);
+                    qlabel.CustomMinimumSize = new Vector2(130, 0);
+                    _live.Add((qlabel, w2 => w2.StarbaseQueue.Find(x => x.Id == qid) is QueuedStarbase q2 ? $"Queued: {Starbases.QueuedWhy(w2, q2)}" : "Starting"));
+                    row.AddChild(qlabel);
+                    row.AddChild(Ui.SmallButton("✕", () => _screen.IssueNow(new CancelQueuedStarbaseCommand(Side.Player, qid), "cancelling a queued station"), "Take it off the queue"));
+                }
+                else if (Starbases.At(w, b.Id) == null && w.Winner == null && Starbases.TopTier(w, Side.Player) > 0)
                 {
                     var t1 = Starbases.TierAt(1)!;
                     var cls = GameData.ShipClass(t1.ClassId);
                     var why = Starbases.CanBuild(w, Side.Player, b.Id, t1.ClassId);
-                    var build = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.IssueNow(new BuildStarbaseCommand(Side.Player, bid, t1.ClassId), "building a station"),
-                        (why != null ? why + ". " : "") + $"Start the station line over {b.Name}: {cls.Cost:0} Industry, {t1.Days:0} days. {t1.Blurb} Upgrade it on the planet screen, or build a higher tier there.");
-                    build.Disabled = why != null;
+                    var queue = why != null && Starbases.CanBuild(w, Side.Player, b.Id, t1.ClassId, queue: true) == null;
+                    var build = Ui.SmallButton((queue ? "Queue " : "") + $"{cls.Name} · {cls.Cost:0}", () => _screen.IssueNow(new BuildStarbaseCommand(Side.Player, bid, t1.ClassId, Queue: queue), queue ? "queueing a station" : "building a station"),
+                        (why != null ? why + (queue ? ": queue it and it starts when the Stations pot can pay" : "") + ". " : "") + $"Start the station line over {b.Name}: {cls.Cost:0} Industry, {t1.Days:0} days. {t1.Blurb} Upgrade it on the planet screen, or build a higher tier there.");
+                    build.Disabled = why != null && !queue;
                     build.CustomMinimumSize = new Vector2(130, 26);
                     row.AddChild(build);
                 }

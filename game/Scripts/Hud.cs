@@ -467,6 +467,9 @@ public partial class Hud : CanvasLayer
     /// <summary>The smallest a corner panel shrinks to fit under the top bar (below this its text gets too small to read).</summary>
     private const float MinPanelScale = 0.7f;
 
+    /// <summary>Screenshots only: tick ships in the fleet panel.</summary>
+    public void TickShipsForShots(List<int> ids) => _fleetPanel.TickForShots(ids);
+
     /// <summary>The Needs you badge opens the list, and closes it again when it is already showing.</summary>
     public bool SideVisible => _side.Visible;
 

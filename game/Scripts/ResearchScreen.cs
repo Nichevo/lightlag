@@ -306,6 +306,16 @@ public partial class ResearchScreen : PanelContainer
                 days.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
             });
             row.AddChild(days);
+            if (queue.Count > 1)
+            {
+                var id = order.Id;
+                var up = Ui.SmallButton("▲", () => _screen.IssueNow(new MoveResearchOrderCommand(Side.Player, id, -1), "moving research up"), "Move up the queue (progress is kept)");
+                up.Disabled = q == 0;
+                row.AddChild(up);
+                var down = Ui.SmallButton("▼", () => _screen.IssueNow(new MoveResearchOrderCommand(Side.Player, id, 1), "moving research down"), "Move down the queue (progress is kept)");
+                down.Disabled = q == queue.Count - 1;
+                row.AddChild(down);
+            }
             var others = Economy.Of(w, Side.Player).Teams.Where(t => t.Id != team.Id).ToList();
             if (others.Count > 0)
             {

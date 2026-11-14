@@ -89,6 +89,9 @@ public sealed class World
     /// <summary>The station line over bodies: platforms up to orbital rings, one per body (see Starbases).</summary>
     public List<Starbase> Starbases { get; set; } = new();
 
+    /// <summary>Stations queued before the Industry was there: each starts when its pot can pay (Starbases.StartQueued).</summary>
+    public List<QueuedStarbase> StarbaseQueue { get; set; } = new();
+
     /// <summary>Sensor and relay satellites, on their way, in place and lately lost (see Satellites).</summary>
     public List<Satellite> Satellites { get; set; } = new();
 

@@ -465,6 +465,29 @@ public sealed record SetTeamKeptCommand(Side Side, int TeamId, List<string> Fiel
     }
 }
 
+/// <summary>Move a research order up (Delta below 0) or down its team's queue. Progress made so far is kept.</summary>
+public sealed record MoveResearchOrderCommand(Side Side, int OrderId, int Delta) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
+
+    public override void Apply(World world, Simulation sim)
+    {
+        var order = world.Orders.Find(o => o.Id == OrderId && o.Side == Side && o.Kind == OrderKind.Research);
+        if (order?.TeamId is not int team)
+        {
+            sim.Log.Warn("research", "Move for a missing research order", new { side = Side.ToString(), OrderId, Source });
+            return;
+        }
+        var queue = Research.QueueOf(world, Side, team).ToList();
+        var at = queue.IndexOf(order);
+        var to = Math.Clamp(at + Delta, 0, queue.Count - 1);
+        if (to == at) return;
+        var (a, b) = (world.Orders.IndexOf(order), world.Orders.IndexOf(queue[to]));
+        (world.Orders[a], world.Orders[b]) = (world.Orders[b], world.Orders[a]);
+        sim.Log.Info("research", "Research order moved in its queue", new { side = Side.ToString(), OrderId, Delta, to, Source });
+    }
+}
+
 /// <summary>Move a research order to another team's queue (at the end). Progress made so far is kept.</summary>
 public sealed record SetOrderTeamCommand(Side Side, int OrderId, int TeamId) : GameCommand
 {

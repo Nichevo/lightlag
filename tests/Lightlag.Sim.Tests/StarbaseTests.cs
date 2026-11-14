@@ -58,6 +58,31 @@ public class StarbaseTests
     }
 
     [Fact]
+    public void A_station_short_of_Industry_can_be_queued_and_starts_when_paid()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var home = Home(sim);
+        var me = Economy.Of(w, Side.Player);
+        me.Industry = 10;
+        Assert.NotNull(Starbases.CanBuild(w, Side.Player, home.Id, "station-platform"));
+        Assert.Null(Starbases.CanBuild(w, Side.Player, home.Id, "station-platform", queue: true));
+        new BuildStarbaseCommand(Side.Player, home.Id, "station-platform", Queue: true).Apply(w, sim);
+        Assert.Empty(w.Starbases);
+        var q = Assert.Single(w.StarbaseQueue);
+        Assert.Contains("waiting for", Starbases.QueuedWhy(w, q));
+        Assert.NotNull(Starbases.CanBuild(w, Side.Player, home.Id, "station-platform", queue: true)); // one queued per body
+        new CancelQueuedStarbaseCommand(Side.Player, q.Id).Apply(w, sim); // it can be taken off again
+        Assert.Empty(w.StarbaseQueue);
+        new BuildStarbaseCommand(Side.Player, home.Id, "station-platform", Queue: true).Apply(w, sim);
+        me.Industry = 1000;
+        sim.StepMany(GameTime.TicksPerDay / 24 + 1);
+        Assert.Empty(w.StarbaseQueue);
+        var st = Assert.Single(w.Starbases);
+        Assert.Equal("station-platform", st.ClassId);
+    }
+
+    [Fact]
     public void A_station_costs_its_tier_and_an_upgrade_costs_the_difference_in_half_the_days()
     {
         var sim = NewGame();

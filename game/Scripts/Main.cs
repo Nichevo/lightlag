@@ -379,6 +379,7 @@ public partial class Main : Node
     /// </summary>
     private async Task RunBench()
     {
+        if (System.Environment.GetEnvironmentVariable("BENCH_SAVE") is string benchSave && File.Exists(benchSave)) { await RunSaveBench(benchSave); return; }
         RandomStartsChoice = false;
         StartNewGame(7);
         var game = (GameScreen)_screen!;
@@ -413,6 +414,44 @@ public partial class Main : Node
             var total = BenchProbe.Ms.Values.Sum() / frames;
             GD.Print($"BENCH {name}: hud {total:0.00} ms/frame, process {proc / frames:0.00} ms :: " + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(5).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
         }
+        Quit(0);
+    }
+
+    /// <summary>
+    /// The --panel-bench mode with BENCH_SAVE set: loads that save, follows the first player fleet zoomed in
+    /// (BENCH_SCALE pixels per Mm, default 43), and times frames with the battle view on and off, paused and running.
+    /// </summary>
+    private async Task RunSaveBench(string path)
+    {
+        LoadGame(path);
+        var game = (GameScreen)_screen!;
+        for (var i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        var fleet = Sim!.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player && f.ShipIds.Count > 0 && f.Name.StartsWith("Battle"));
+        var scale = double.Parse(System.Environment.GetEnvironmentVariable("BENCH_SCALE") ?? "43", System.Globalization.CultureInfo.InvariantCulture);
+        async Task Measure(string name)
+        {
+            game.Follow(fleet.Id, false);
+            game.Camera.SetScale(scale, instant: true);
+            for (var i = 0; i < 20; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            BenchProbe.Ms.Clear(); BenchProbe.On = true;
+            var frames = 60; double proc = 0, worst = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (var i = 0; i < frames; i++)
+            {
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                var p = Performance.GetMonitor(Performance.Monitor.TimeProcess) * 1000;
+                proc += p; worst = Math.Max(worst, p);
+            }
+            BenchProbe.On = false;
+            GD.Print($"BENCH {name}: wall {sw.Elapsed.TotalMilliseconds / frames:0.0} ms/frame, process {proc / frames:0.00} ms (worst {worst:0.0}), hud {BenchProbe.Ms.Values.Sum() / frames:0.00} :: "
+                     + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(6).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
+        }
+        if (!game.Paused) game.TogglePause();
+        game.BattleView = true; await Measure("battle-view-paused");
+        game.BattleView = false; await Measure("map-paused");
+        game.TogglePause();
+        game.BattleView = true; await Measure("battle-view-running");
+        game.BattleView = false; await Measure("map-running");
         Quit(0);
     }
 
@@ -556,6 +595,9 @@ public partial class Main : Node
             var fleet = Sim!.World.Fleets.First(f => f.Side == me && f.Name == (System.Environment.GetEnvironmentVariable("FIX_FLEET") ?? "Battle fleet 2"));
             game.Select(fleet.Id);
             await shoot("10-fleet-panel");
+            if (!PlayerInfo.IsOpen("Ships")) PlayerInfo.SetOpen("Ships", true);
+            game.Hud.TickShipsForShots(fleet.ShipIds.Take(2).ToList());
+            await shoot("10b-fleet-panel-ticked");
             game.BattleView = true;
             await shoot("11-battle-view-siege");
             // Screenshot only: put the fleet in orbit of the nearest enemy planet to show the planet-attack view.

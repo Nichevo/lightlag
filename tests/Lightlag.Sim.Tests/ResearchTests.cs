@@ -46,6 +46,35 @@ public class ResearchTests
     }
 
     [Fact]
+    public void Research_orders_move_up_and_down_their_queue_keeping_progress()
+    {
+        var sim = NewGame();
+        Hour(sim);
+        var ideas = GameData.ResearchById.Values.OrderBy(r => r.Id, StringComparer.Ordinal)
+            .Where(r => !r.Later && Economy.CanQueue(sim.World, Side.Player, OrderKind.Research, r.Id) == null && r.Needs is not { Count: > 0 }).Take(3).ToList();
+        foreach (var r in ideas) sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id));
+        Hour(sim);
+        Hour(sim);
+        var team = Player(sim).Teams[0].Id;
+        string[] Keys() => Research.QueueOf(sim.World, Side.Player, team).Select(o => o.Key).ToArray();
+        Assert.Equal(ideas.Select(r => r.Id), Keys());
+        var first = sim.World.Orders.Single(o => o.Key == ideas[0].Id);
+        var left = first.HoursLeft;
+        Assert.True(left < first.TotalHours);
+        var last = sim.World.Orders.Single(o => o.Key == ideas[2].Id);
+        sim.Issue(new MoveResearchOrderCommand(Side.Player, last.Id, -1));
+        sim.ApplyPending();
+        Assert.Equal(new[] { ideas[0].Id, ideas[2].Id, ideas[1].Id }, Keys());
+        sim.Issue(new MoveResearchOrderCommand(Side.Player, last.Id, -1));
+        sim.ApplyPending();
+        Assert.Equal(new[] { ideas[2].Id, ideas[0].Id, ideas[1].Id }, Keys());
+        Assert.Equal(left, first.HoursLeft); // the one it passed keeps its progress
+        sim.Issue(new MoveResearchOrderCommand(Side.Player, last.Id, -1)); // already first: nothing changes
+        sim.ApplyPending();
+        Assert.Equal(new[] { ideas[2].Id, ideas[0].Id, ideas[1].Id }, Keys());
+    }
+
+    [Fact]
     public void Twice_the_scientists_is_about_one_and_two_thirds_the_speed()
     {
         Assert.Equal(1, Research.SizeFactor(Research.T.BaseScientists), 9);
