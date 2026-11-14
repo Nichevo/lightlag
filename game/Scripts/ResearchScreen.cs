@@ -39,6 +39,8 @@ public partial class ResearchScreen : PanelContainer
     private static readonly string[] UnlockGroups = { "hulls", "engines", "weapons", "defence", "supply", "sensors", "industry" };
 
     public ResearchScreen() : this(null!) { }
+    internal static void OpenWebForShots(bool open) => _webOpen = open;
+    internal static void OpenTeamForShots(int? team) => _openTeam = team;
     public ResearchScreen(GameScreen screen) => _screen = screen;
 
     public override void _Ready()
@@ -129,6 +131,8 @@ public partial class ResearchScreen : PanelContainer
                 : i == me.Teams.Count ? EmptySlot(w) : LockedSlot();
             card.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             card.SizeFlagsStretchRatio = 1;
+            // An unfolded team card no longer stretches its neighbours to its own height.
+            card.SizeFlagsVertical = SizeFlags.ShrinkBegin;
             teams.AddChild(card);
         }
         _root.AddChild(teams);
@@ -161,6 +165,26 @@ public partial class ResearchScreen : PanelContainer
 
     private const float TabWidth = 76;
     private float WebWidth => Mathf.Max(560, GetViewportRect().Size.X * 0.55f);
+
+    /// <summary>A label that cuts its text to the room it gets (whole text in the tooltip), so it never widens the screen.</summary>
+    private static Label Fit(Label l)
+    {
+        l.ClipText = true;
+        l.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        l.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        l.HorizontalAlignment = HorizontalAlignment.Right;
+        l.TooltipText = l.Text;
+        l.MouseFilter = MouseFilterEnum.Pass;
+        return l;
+    }
+
+    /// <summary>A label that wraps onto more lines rather than widening the screen.</summary>
+    private static Label Wrap(Label l)
+    {
+        l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        l.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        return l;
+    }
 
     private static PanelContainer Box(int padding, Color? border = null, bool dashed = false)
     {
@@ -245,6 +269,14 @@ public partial class ResearchScreen : PanelContainer
         v.AddChild(Ui.Label("QUEUE", 11, Ui.Dim));
         var queue = Research.QueueOf(w, Side.Player, team.Id).ToList();
         if (queue.Count == 0) v.AddChild(Ui.Label("Nothing queued: add ideas from the cards below", 12, Ui.Dim));
+        // A long queue scrolls inside the card, so an unfolded team never pushes Ideas and the web off the bottom.
+        var queueRows = new VBoxContainer();
+        queueRows.AddThemeConstantOverride("separation", 4);
+        var queueScroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        queueScroll.CustomMinimumSize = new Vector2(0, Mathf.Min(queue.Count * 40, Mathf.Max(80, GetViewportRect().Size.Y * 0.16f)));
+        queueRows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        queueScroll.AddChild(queueRows);
+        if (queue.Count > 0) v.AddChild(queueScroll);
         for (var q = 0; q < queue.Count; q++)
         {
             var order = queue[q];
@@ -283,8 +315,8 @@ public partial class ResearchScreen : PanelContainer
                 row.AddChild(move);
             }
             row.AddChild(Ui.SmallButton("✕", () => _screen.CancelOrder(order.Id), "Take off the queue"));
-            v.AddChild(row);
-            if (q == 0) v.AddChild(Bar(200, Ui.Player, () => 1 - order.HoursLeft / Math.Max(1e-6, order.TotalHours), _live));
+            queueRows.AddChild(row);
+            if (q == 0) queueRows.AddChild(Bar(200, Ui.Player, () => 1 - order.HoursLeft / Math.Max(1e-6, order.TotalHours), _live));
         }
 
         var buttons = new HBoxContainer();
@@ -365,6 +397,9 @@ public partial class ResearchScreen : PanelContainer
         var nextText = Ui.Label(after.Count > 0 ? "Next: " + string.Join(" · ", after) : first == null ? "Pick an idea below: Queue on a card" : "Next: nothing yet", 12, Ui.Dim);
         nextText.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         nextText.ClipText = true;
+        nextText.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        nextText.TooltipText = nextText.Text;
+        nextText.MouseFilter = MouseFilterEnum.Pass;
         next.AddChild(nextText);
         next.AddChild(Ui.SmallButton("▾ Skills and queue", () => _openTeam = team.Id, "Unfold this team: skills, kept fields, queue order, train and split"));
         v.AddChild(next);
@@ -477,21 +512,22 @@ public partial class ResearchScreen : PanelContainer
 
         var head = new HBoxContainer();
         head.AddChild(Ui.Label("Ideas", 16, new Color("f2f5fa")));
-        head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
-        head.AddChild(Ui.Label($"{shown.Count} of {all.Count} shown · days are for the team that would finish first", 12, Ui.Dim));
+        head.AddChild(Fit(Ui.Label($"{shown.Count} of {all.Count} shown · days are for the team that would finish first", 12, Ui.Dim)));
         v.AddChild(head);
         // Intelligence hints: what the rival has been seen to field, and the idea that answers it.
         var counters = Intel.Counters(w, Side.Player).GroupBy(c => c.Idea).Select(g => g.First()).Take(3).ToList();
         if (counters.Count > 0)
-            v.AddChild(Ui.Label("Intel: " + string.Join(" · ", counters.Select(c => $"{c.Why} → {GameData.Research(c.Idea).Name}")), 12, new Color("ffd27a")));
+            v.AddChild(Wrap(Ui.Label("Intel: " + string.Join(" · ", counters.Select(c => $"{c.Why} → {GameData.Research(c.Idea).Name}")), 12, new Color("ffd27a"))));
         var learning = RivalTech.Learning(w, Side.Player).Take(4).ToList();
         if (learning.Count > 0)
-            v.AddChild(Ui.Label("Their research we are learning: " + string.Join(" · ", learning.Select(l =>
-                l.Stage == RivalStage.Seen ? $"something unknown ({l.Progress:P0})" : $"{GameData.Research(l.Id).Name} ({RivalTech.StageName(l.Stage)})")), 12, Ui.Rival));
+            v.AddChild(Wrap(Ui.Label("Their research we are learning: " + string.Join(" · ", learning.Select(l =>
+                l.Stage == RivalStage.Seen ? $"something unknown ({l.Progress:P0})" : $"{GameData.Research(l.Id).Name} ({RivalTech.StageName(l.Stage)})")), 12, Ui.Rival)));
 
         // Filters: search, field, sort; then status and what an idea unlocks.
-        var row1 = new HBoxContainer();
-        row1.AddThemeConstantOverride("separation", 6);
+        // Flow rows wrap when Ideas is narrow (web open, small window), instead of pushing the screen past the window's edge.
+        var row1 = new HFlowContainer();
+        row1.AddThemeConstantOverride("h_separation", 6);
+        row1.AddThemeConstantOverride("v_separation", 6);
         var search = new LineEdit { Text = _search, PlaceholderText = "Search ideas (Enter)", CustomMinimumSize = new Vector2(200, 30) };
         search.TextSubmitted += t => _search = t.Trim();
         row1.AddChild(search);
@@ -501,7 +537,6 @@ public partial class ResearchScreen : PanelContainer
             var f = Research.Fields[i];
             row1.AddChild(Chip($"{Research.FieldNames[i]} {all.Count(r => r.Field == f)}", _field == f, () => _field = _field == f ? null : f));
         }
-        row1.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var sort = new OptionButton { FocusMode = FocusModeEnum.None };
         sort.AddItem("Quickest first", (int)Sort.Quickest);
         sort.AddItem("Shortest first", (int)Sort.Cheapest);
@@ -509,10 +544,10 @@ public partial class ResearchScreen : PanelContainer
         sort.Select((int)_sort);
         sort.ItemSelected += i => _sort = (Sort)(int)i;
         row1.AddChild(sort);
-        v.AddChild(row1);
 
-        var row2 = new HBoxContainer();
-        row2.AddThemeConstantOverride("separation", 6);
+        var row2 = new HFlowContainer();
+        row2.AddThemeConstantOverride("h_separation", 6);
+        row2.AddThemeConstantOverride("v_separation", 6);
         row2.AddChild(Ui.Label("Status", 12, Ui.Dim));
         foreach (var s in Enum.GetValues<IdeaState>())
         {
@@ -523,10 +558,16 @@ public partial class ResearchScreen : PanelContainer
         row2.AddChild(Ui.Label("Unlocks", 12, Ui.Dim));
         foreach (var g in UnlockGroups)
             row2.AddChild(Chip(char.ToUpperInvariant(g[0]) + g[1..], _unlocks == g, () => _unlocks = _unlocks == g ? null : g));
-        v.AddChild(row2);
+        // With a team unfolded or the web out the filters scroll with the cards, so Ideas never needs more height than the window has.
+        var tight = _openTeam != null || (_webOpen && GetViewportRect().Size.Y < 1000);
+        var filters = new VBoxContainer();
+        filters.AddThemeConstantOverride("separation", 8);
+        filters.AddChild(row1);
+        filters.AddChild(row2);
+        if (!tight) v.AddChild(filters);
 
         var scroll = _ideaScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
-            CustomMinimumSize = new Vector2(0, 260) };
+            CustomMinimumSize = new Vector2(0, 140) };
         var width = GetViewportRect().Size.X - (_webOpen ? WebWidth : TabWidth) - 110;
         var grid = new GridContainer { Columns = Math.Max(1, (int)(width / 300)) };
         grid.AddThemeConstantOverride("h_separation", 12);
@@ -541,7 +582,15 @@ public partial class ResearchScreen : PanelContainer
             grid.AddChild(c);
         }
         if (shown.Count == 0) grid.AddChild(Ui.Label("No ideas match these filters", 13, Ui.Dim));
-        scroll.AddChild(grid);
+        if (tight)
+        {
+            var inner = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            inner.AddThemeConstantOverride("separation", 8);
+            inner.AddChild(filters);
+            inner.AddChild(grid);
+            scroll.AddChild(inner);
+        }
+        else scroll.AddChild(grid);
         v.AddChild(scroll);
         return v;
     }

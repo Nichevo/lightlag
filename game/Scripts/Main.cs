@@ -70,7 +70,7 @@ public partial class Main : Node
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
         var args = OS.GetCmdlineUserArgs();
-        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=")));
+        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=") || a.StartsWith("--fix-shots=")));
         PlayerInfo.Load(Paths.Root);
         PauseSettings.Load(Paths.Root);
         RivalAdvisor.Load(Paths.Root);
@@ -89,6 +89,11 @@ public partial class Main : Node
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--budget-shots=")) is string budgetShots)
         {
             _ = TakeBudgetShots(budgetShots["--budget-shots=".Length..].Trim('"'));
+            return;
+        }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--fix-shots=")) is string fixShots)
+        {
+            _ = TakeShots(fixShots["--fix-shots=".Length..].Trim('"'), ShootFixes);
             return;
         }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--screenshots=")) is string shots)
@@ -492,6 +497,52 @@ public partial class Main : Node
         try { await ShootBudget(Shoot); }
         catch (Exception e) { Log.Error("game", "Budget screenshots failed", new { error = e.ToString() }); }
         GetTree().Quit();
+    }
+
+    private async Task TakeShots(string dir, Func<Func<string, Task>, Task> run)
+    {
+        Directory.CreateDirectory(dir);
+        RandomStartsChoice = false;
+        async Task Shoot(string name)
+        {
+            for (var i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            GetViewport().GetTexture().GetImage().SavePng(System.IO.Path.Combine(dir, name + ".png"));
+        }
+        try { await run(Shoot); }
+        catch (Exception e) { Log.Error("game", "Screenshots failed", new { error = e.ToString() }); }
+        GetTree().Quit();
+    }
+
+    /// <summary>Playtest fixes (--fix-shots=DIR): the research screen with every team slot filled, web open and closed.</summary>
+    private async Task ShootFixes(Func<string, Task> shoot)
+    {
+        BudgetChoice = false;
+        StartNewGame(9);
+        var game = (GameScreen)_screen!;
+        var me = Lightlag.Sim.Core.Side.Player;
+        var w = Sim!.World;
+        Sim.StepMany(60 * GameTime.TicksPerDay);
+        Sim.Issue(new FoundTeamCommand(me, Research.Fields[1]));
+        Sim.ApplyPending();
+        Sim.StepMany(1 * GameTime.TicksPerDay);
+        Sim.Issue(new FoundTeamCommand(me, Research.Fields[2]));
+        Sim.ApplyPending();
+        Sim.StepMany(1 * GameTime.TicksPerDay);
+        GD.Print($"FIXSHOTS teams {Economy.Of(w, me).Teams.Count}");
+        // Queue a few ideas on every team so the strips show what they work on and what comes next.
+        var avail = GameData.Economy.Research.Where(r => Economy.CanQueue(w, me, OrderKind.Research, r.Id) == null).Select(r => r.Id).ToList();
+        var k = 0;
+        foreach (var t in Economy.Of(w, me).Teams)
+            for (var j = 0; j < 3 && k < avail.Count; j++, k++) Sim.Issue(new QueueOrderCommand(me, OrderKind.Research, avail[k], TeamId: t.Id));
+        Sim.ApplyPending();
+        Sim.StepMany(1 * GameTime.TicksPerDay);
+        game.TogglePause();
+        game.ShowResearch = true;
+        await shoot("01-research");
+        ResearchScreen.OpenWebForShots(true);
+        await shoot("02-research-web");
+        ResearchScreen.OpenTeamForShots(Economy.Of(w, me).Teams[0].Id);
+        await shoot("03-research-web-team");
     }
 
     private async Task TakeBarShots(string dir)
