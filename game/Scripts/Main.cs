@@ -543,6 +543,33 @@ public partial class Main : Node
         await shoot("02-research-web");
         ResearchScreen.OpenTeamForShots(Economy.Of(w, me).Teams[0].Id);
         await shoot("03-research-web-team");
+        ResearchScreen.OpenTeamForShots(null);
+        ResearchScreen.OpenWebForShots(false);
+        game.ShowResearch = false;
+
+        // A saved siege (FIX_SAVE): the battle view on a blockading fleet with an enemy fleet near, its engagement, and its fleet panel.
+        if (System.Environment.GetEnvironmentVariable("FIX_SAVE") is string save && File.Exists(save))
+        {
+            LoadGame(save);
+            game = (GameScreen)_screen!;
+            if (!game.Paused) game.TogglePause();
+            var fleet = Sim!.World.Fleets.First(f => f.Side == me && f.Name == (System.Environment.GetEnvironmentVariable("FIX_FLEET") ?? "Battle fleet 2"));
+            game.Select(fleet.Id);
+            await shoot("10-fleet-panel");
+            game.BattleView = true;
+            await shoot("11-battle-view-siege");
+            // Screenshot only: put the fleet in orbit of the nearest enemy planet to show the planet-attack view.
+            if (Sim.World.Bodies.Where(x => x.Owner != null && x.Owner != me).OrderBy(x => (x.Position - fleet.Position).Length).FirstOrDefault() is Body vela)
+            {
+                fleet.Flight = null; fleet.Hold = HoldStyle.Orbit; fleet.OrbitBodyId = vela.Id; fleet.Position = vela.Position;
+                vela.BlockadedBy = me; vela.BlockadeHours = 12 * 24;
+                await shoot("11b-battle-view-siege-orbit");
+            }
+            game.BattleView = false;
+            var enemy = Sim.World.Fleets.Where(f => f.Side != me).OrderBy(f => (f.Position - fleet.Position).Length).First();
+            game.OpenEngagement(fleet.Id, enemy.Id);
+            await shoot("12-engagement");
+        }
     }
 
     private async Task TakeBarShots(string dir)

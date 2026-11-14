@@ -150,7 +150,7 @@ public partial class BattleStrips : Control
         if (!fleets.Any(f => f.Side == Side.Player) && _screen.SelectedFleet is Fleet sel && sel.Side == Side.Player) fleets = fleets.Append(sel).ToList();
         var ours = fleets.Where(f => f.Side == Side.Player).SelectMany(f => w.ShipsOf(f)).OrderBy(s => s.FleetId).ThenBy(s => s.Id).ToList();
         var theirs = fleets.Where(f => f.Side != Side.Player && _screen.ShownFleet(f)).SelectMany(f => w.ShipsOf(f)).OrderBy(s => s.FleetId).ThenBy(s => s.Id).ToList();
-        var key = string.Join(",", ours.Select(s => s.Id)) + "|" + string.Join(",", theirs.Select(s => s.Id)) + $"|{GetViewportRect().Size}";
+        var key = string.Join(",", ours.Select(s => s.Id)) + "|" + string.Join(",", theirs.Select(s => s.Id)) + $"|{GetViewportRect().Size}|{Hud.ContentTop}";
         if (key != _key && !Ui.MouseHeld)
         {
             _key = key;
@@ -183,7 +183,7 @@ public partial class BattleStrips : Control
     private void Layout()
     {
         var view = GetViewportRect().Size;
-        var height = Mathf.Max(200, view.Y - 110 - 40);
+        var height = Mathf.Max(200, view.Y - 110 - Hud.ContentTop);
         foreach (var (panel, list) in new[] { (_oursPanel, _ours), (_theirsPanel, _theirs) })
         {
             var scroll = (ScrollContainer)list.GetMeta("scroll");
@@ -192,8 +192,8 @@ public partial class BattleStrips : Control
             scroll.CustomMinimumSize = new Vector2(330, Mathf.Max(60, Mathf.Min(room, list.GetCombinedMinimumSize().Y + 4)));
             panel.ResetSize();
         }
-        _oursPanel.Position = new Vector2(16, 60);
-        _theirsPanel.Position = new Vector2(view.X - _theirsPanel.GetCombinedMinimumSize().X - 16, 60);
+        _oursPanel.Position = new Vector2(16, Hud.ContentTop + 8);
+        _theirsPanel.Position = new Vector2(view.X - _theirsPanel.GetCombinedMinimumSize().X - 16, Hud.ContentTop + 8);
         _theirsPanel.Visible = _theirs.GetChildCount() > 0;
     }
 
