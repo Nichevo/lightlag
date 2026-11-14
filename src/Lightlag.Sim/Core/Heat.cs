@@ -197,7 +197,7 @@ public static class Heat
     }
 
     /// <summary>At home: heat sinks are refilled.</summary>
-    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, Fitting.Spec(s).HeatSinks + s.TechSinks);
+    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, SupplyLines.MaxSinks(s));
 
     /// <summary>A missile's fuel left as a share of a full load (held missiles arrive with more).</summary>
     public static double FuelShare(Missile m) => GameData.Combat.Missile.DeltaV > 0 ? Math.Clamp(m.DeltaVLeft / GameData.Combat.Missile.DeltaV, 0, 1) : 0;
