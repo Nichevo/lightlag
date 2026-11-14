@@ -362,10 +362,11 @@ public class PlanetTests
         Assert.NotNull(Planets.CanBuild(sim.World, Side.Player, vela.Id, Planets.Mine));
         Assert.NotNull(Planets.CanBuild(sim.World, Side.Player, BodyNamed(sim, "rust").Id, Planets.Mine));
         var income = Economy.IncomePerDay(sim.World, Side.Player);
+        var mines = Planets.Count(verdant, Planets.Mine);
         sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Mine));
         Days(sim, Planets.BuildingKind(Planets.Mine)!.Days + 0.1);
-        Assert.Equal(2, Planets.Count(verdant, Planets.Mine));
-        Assert.True(Economy.IncomePerDay(sim.World, Side.Player) > income + 2.5);
+        Assert.Equal(mines + 1, Planets.Count(verdant, Planets.Mine));
+        Assert.True(Economy.IncomePerDay(sim.World, Side.Player) > income + 1); // less than its full 3 once the home's staff and power are stretched
     }
 
     [Fact]

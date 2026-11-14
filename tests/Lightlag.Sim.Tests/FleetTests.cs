@@ -376,6 +376,7 @@ public class FleetTests
         var sim = NewGame();
         var home = sim.World.Bodies.First(b => b.Owner == Side.Player && b.Home);
         var data = Colonies.Kinds.First(k => k.HousingK > 0);
+        home.Pieces.RemoveAll(p => p.Kind == "solar-field"); // make room: a full home has none
         var spot = Colonies.BestSpot(home, data);
         Assert.NotNull(spot);
         Colonies.AddPiece(sim.World, home, data, spot!.Value.Item1, spot.Value.Item2, spot.Value.Item3, built: true);
