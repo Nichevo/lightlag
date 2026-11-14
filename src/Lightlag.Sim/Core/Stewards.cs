@@ -3,7 +3,7 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>The areas of running an empire that can be handed to automation (see Stewards).</summary>
-public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle, Events, Designs }
+public enum AutoArea { Building, Workers, Transport, Settling, Research, Shipyard, Supply, Refits, Battle, Crews, Boarding, Ground, AfterBattle, Events, Designs, Budget }
 
 /// <summary>Auto: does it. Advise: suggests it in Needs you. Manual: leaves it alone.</summary>
 public enum AutoLevel { Auto, Advise, Manual }
@@ -385,6 +385,7 @@ public static class Stewards
         AutoArea.AfterBattle => "After battle",
         AutoArea.Events => "Events",
         AutoArea.Designs => "Ship designs",
+        AutoArea.Budget => "Industry budget",
         _ => area.ToString(),
     };
 
@@ -404,6 +405,7 @@ public static class Stewards
         AutoArea.Ground => "The plan and the calls during an invasion (Advise or Manual: ask me)",
         AutoArea.AfterBattle => "Rescue, capture, salvage, then mend or go home (Advise or Manual: I pick how to get home)",
         AutoArea.Designs => "Each class's Standard kept current as research lands, and new variants added when a role makes sense (Q-ship, long range); your own variants are never changed",
+        AutoArea.Budget => "The shares of each day's Industry: leaning towards what is queued and, under threat, towards ships and stations; locked pots are left alone",
         AutoArea.Events => "Calls on events: flares, finds, faults, rock strikes (Advise: wait in Needs you until the deadline; Manual: also pause the game)",
         _ => "",
     };
@@ -471,6 +473,7 @@ public static class Stewards
             Supply();
             Shipyard();
             Refits.Steward(_sim, _side, Offer);
+            Budget.Steward(_sim, _side, (area, key, text, act, label, bodyId, fleetId, advice) => Offer(area, key, text, act, label, bodyId, fleetId, advice));
             Lifeboats.Steward(_sim, _side, Offer);
             Designer.Steward(_sim, _side, Offer, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.Designs));
             Munitions.Steward(_sim, _side, Offer);
@@ -740,7 +743,7 @@ public static class Stewards
                 if (Planets.CanBuild(_w, _side, b.Id, kind, x, y) != null) continue;
                 var auto = LevelFor(_w, _side, AutoArea.Building, b.Id) == AutoLevel.Auto;
                 // Auto spends only what is spare after the next ship (urgent needs go first), and not too often.
-                if (auto && (_state.Industry < data.Cost + (urgent ? 0 : reserve) || !urgent && _w.Hour < _state.NextAutoBuildHour)) continue;
+                if (auto && ((Budget.On(_w) ? Budget.Free(_w, _side, Pot.Buildings) : _state.Industry - (urgent ? 0 : reserve)) < data.Cost || !urgent && _w.Hour < _state.NextAutoBuildHour)) continue;
                 var mats = data.Materials is { Count: > 0 } m ? " (" + string.Join(", ", m.Select(kv => $"{kv.Value:0} {Colonies.GoodName(kv.Key).ToLowerInvariant()}")) + ")" : "";
                 if (Offer(AutoArea.Building, $"build:{b.Id}:{kind}", $"Build a {data.Name.ToLowerInvariant()} at {b.Name} for {data.Cost:0} Industry{mats}",
                         new BuildOnPlanetCommand(_side, b.Id, kind, x, y), "Build it", b.Id, advice: urgent ? NeedLevel.Soon : NeedLevel.Advice)

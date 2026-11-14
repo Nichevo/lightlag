@@ -197,7 +197,7 @@ public static class Starbases
         if (At(w, bodyId) is Starbase there) return there.Side == side ? $"{b.Name} already has a {ClassOf(there).Name.ToLowerInvariant()}: upgrade it instead" : "An enemy station holds this orbit";
         if (Researched(w, side, classId) is string missing) return missing;
         var cls = GameData.ShipClass(classId);
-        if (Economy.Of(w, side).Industry < cls.Cost) return $"Needs {cls.Cost:0} Industry";
+        if (Budget.Problem(w, side, Pot.Stations, cls.Cost, $"starbase:{bodyId}:{classId}") is string tooLow) return tooLow;
         if (Economy.Blockaded(w, b)) return $"{b.Name} is blockaded";
         return null;
     }
@@ -225,7 +225,7 @@ public static class Starbases
         var fit = FitFor(w, side, toClass, designId);
         if (to == from && fit.SequenceEqual(st.Fit)) return "It is already fitted that way";
         var cost = to > from ? UpgradeCost(st, toClass) : RefitCost(st, fit);
-        if (Economy.Of(w, side).Industry < cost) return $"Needs {cost:0} Industry";
+        if (Budget.Problem(w, side, Pot.Stations, cost, $"upgrade:{st.Id}:{toClass}") is string tooLow) return tooLow;
         return null;
     }
 
@@ -436,7 +436,7 @@ public static class Starbases
         foreach (var m in w.Minefields.Where(m => m.BodyId != null && w.Hour - m.LaidHour >= 24).ToList())
         {
             m.Mines = Math.Max(0, m.Mines - m.Mines * D.MineDriftPerDay / 24);
-            if (w.Loop) Economy.Of(w, m.Side).Industry = Math.Max(0, Economy.Of(w, m.Side).Industry - m.Mines / 10 * D.MineUpkeepPer10 / 24);
+            if (w.Loop) Budget.Drain(w, m.Side, Pot.Stations, m.Mines / 10 * D.MineUpkeepPer10 / 24, m.BodyId);
             if (m.Mines >= 0.5) continue;
             w.Minefields.Remove(m);
             sim.Log.Info("combat", "An orbital minefield has drifted away", new { fieldId = m.Id, side = m.Side.ToString(), m.BodyId });
@@ -711,7 +711,7 @@ public sealed record BuildStarbaseCommand(Side Side, int BodyId, string ClassId,
         }
         var cls = GameData.ShipClass(ClassId);
         var design = DesignId is int d && Designer.Find(world, Side, d)?.ClassId == ClassId ? d : Designer.DefaultFor(world, Side, ClassId);
-        Economy.Of(world, Side).Industry -= cls.Cost;
+        Budget.Pay(world, Side, Pot.Stations, cls.Cost, $"starbase:{BodyId}:{ClassId}", BodyId, log: sim.Log);
         Economy.Of(world, Side).Totals.IndustrySpent += cls.Cost;
         var st = new Starbase
         {
@@ -749,7 +749,7 @@ public sealed record RefitStarbaseCommand(Side Side, int StationId, string Class
         var cost = up ? Starbases.UpgradeCost(st, ClassId) : Starbases.RefitCost(st, fit);
         var swaps = up ? 0 : Enumerable.Range(0, fit.Count).Count(i => fit[i] != st.Fit[i]);
         var hours = up ? Starbases.TierOf(ClassId).Days * 12 : Math.Max(12, swaps * 12);
-        Economy.Of(world, Side).Industry -= cost;
+        Budget.Pay(world, Side, Pot.Stations, cost, $"upgrade:{StationId}:{ClassId}", st.BodyId, log: sim.Log);
         Economy.Of(world, Side).Totals.IndustrySpent += cost;
         st.Refit = new StationRefit { ClassId = ClassId, Fit = fit, DesignId = DesignId, HoursLeft = hours, TotalHours = hours };
         st.SpecCache = null;

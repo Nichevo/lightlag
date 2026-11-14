@@ -8,7 +8,7 @@ namespace Lightlag.Sim.Tests;
 public class ResearchValueTests
 {
     private static Simulation NewGame(ulong seed = 8, GameOptions? options = null) =>
-        Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: options);
+        Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: (options ?? new GameOptions()) with { Budget = false }); // one pool: these tests predate the Industry budget (see BudgetTests)
 
     private static void Days(Simulation sim, double days) => sim.StepMany((int)Math.Round(days * GameTime.TicksPerDay));
 

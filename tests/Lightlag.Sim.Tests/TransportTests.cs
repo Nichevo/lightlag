@@ -9,7 +9,7 @@ public class TransportTests
 {
     private static Simulation NewGame(ulong seed = 8, LightSetup? light = null, List<AiSetup>? ai = null)
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: new GameOptions(Ai: ai, Light: light));
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: new GameOptions(Ai: ai, Light: light, Budget: false)); // one pool: these tests predate the Industry budget (see BudgetTests)
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         Planets.EnsureStarted(sim.World);

@@ -204,6 +204,7 @@ public class LightTests
     {
         var sim = NewGame();
         var w = sim.World;
+        w.Rules.Budget = false; // one pool: the station is paid from all of it
         var pale = BodyNamed(sim, "pale");
         pale.Owner = Side.Player;
         var bare = Sensors.PlanetSensorOf(w, Side.Player, pale);

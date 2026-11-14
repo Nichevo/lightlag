@@ -37,7 +37,7 @@ public static class Drones
         if (!w.Light.On) return "Drones carry orders under light lag only";
         if (w.FindFleet(fleetId) is not Fleet f || f.Side != side) return "Not one of your fleets";
         if (Pending(w, side, fleetId).Count == 0) return "No orders on their way to it";
-        if (w.Loop && Economy.Of(w, side).Industry < D.Cost) return $"Needs {D.Cost:0} Industry";
+        if (w.Loop && Budget.Problem(w, side, Pot.Ships, D.Cost) is string tooLow) return tooLow;
         return null;
     }
 
@@ -94,7 +94,7 @@ public sealed record SendDroneCommand(Side Side, int FleetId) : GameCommand
         }
         var orders = Drones.Pending(world, Side, FleetId);
         foreach (var t in orders) world.Light.InTransit.Remove(t);
-        if (world.Loop) Economy.Of(world, Side).Industry -= Drones.D.Cost;
+        if (world.Loop) Budget.Pay(world, Side, Pot.Ships, Drones.D.Cost, log: sim.Log);
         world.Drones.Add(new Drone
         {
             Id = world.NextId++, Side = Side, TargetFleetId = FleetId, Position = Light.Seat(world, Side), LaunchHour = world.Hour,

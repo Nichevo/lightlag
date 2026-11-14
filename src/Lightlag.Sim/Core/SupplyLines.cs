@@ -402,8 +402,7 @@ public static class SupplyLines
         var w = sim.World;
         var perDay = UpkeepPerDay(w, side);
         var state = Economy.Of(w, side);
-        var pay = Math.Min(state.Industry, perDay / 24);
-        state.Industry -= pay;
+        var pay = Budget.Drain(w, side, null, perDay / 24);
         state.Totals.IndustrySpent += pay;
         if (pay < perDay / 24 - 1e-9 && w.Tick % GameTime.TicksPerDay == 0)
             sim.Log.Info("supply", $"{side} can't pay full upkeep", new { side = side.ToString(), perDay });

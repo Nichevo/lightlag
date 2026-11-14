@@ -177,13 +177,13 @@ public sealed record SetFitCommand(Side Side, int ShipId, int Slot, string Modul
             problem = Fitting.CanFit(world, Side, cls, fit);
         }
         var cost = GameData.Module(Module)?.Cost ?? 0;
-        if (problem == null && Economy.Of(world, Side).Industry < cost) problem = $"Needs {cost:0} Industry";
+        if (problem == null && Budget.Problem(world, Side, Pot.Refits, cost) is string tooLow) problem = tooLow;
         if (problem != null)
         {
             sim.Log.Warn("fitting", $"Can't refit {ship.Name}: {problem}", new { side = Side.ToString(), ShipId, Slot, Module, Source });
             return;
         }
-        Economy.Of(world, Side).Industry -= cost;
+        Budget.Pay(world, Side, Pot.Refits, cost, log: sim.Log);
         Economy.Of(world, Side).Totals.IndustrySpent += cost;
         Fitting.Apply(world, ship, fit);
         sim.Log.Info("fitting", $"{ship.Name} is refitted", new { side = Side.ToString(), ShipId, Slot, Module, cost, Source });

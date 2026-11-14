@@ -19,7 +19,7 @@ public partial class EmpirePanel : PanelContainer
     private readonly List<(Label Label, Func<World, string> Text)> _live = new();
     private Tab _tab = Tab.Overview;
 
-    public enum Tab { Overview, Needs, War, Automation, Resources, Supply, Buildings }
+    public enum Tab { Overview, Needs, War, Budget, Automation, Resources, Supply, Buildings }
 
     private SupplyTab? _supply;
     private SupplyTab SupplyView => _supply ??= new SupplyTab(_screen);
@@ -75,6 +75,7 @@ public partial class EmpirePanel : PanelContainer
     {
         Tab.Needs => EmpireTabs.NeedsShape(w),
         Tab.War => WarTab.Shape(w),
+        Tab.Budget => BudgetTab.Shape(w),
         Tab.Automation => EmpireTabs.AutomationShape(w),
         Tab.Resources => string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id)),
         Tab.Buildings => string.Join(",", Economy.Of(w, Side.Player).Researched),
@@ -114,6 +115,7 @@ public partial class EmpirePanel : PanelContainer
         {
             case Tab.Needs: tabs.Needs(w); return;
             case Tab.War: new WarTab(_screen, _box, _live).Build(w); return;
+            case Tab.Budget: new BudgetTab(_screen, _box, _live).Build(w); return;
             case Tab.Automation: tabs.Automation(w); return;
             case Tab.Resources: tabs.Resources(w); return;
             case Tab.Buildings: tabs.Buildings(w); return;
@@ -312,6 +314,7 @@ public partial class EmpirePanel : PanelContainer
     {
         Tab.Needs => "What wants your look: troubles, things due soon, advice and news, with a button to act on each",
         Tab.War => "Boarding, ground fighting, clearing up after battles, crews and what prisoners told us",
+        Tab.Budget => "The Industry budget: six pots with shares of each day's Industry, goals to save for, and the items each pot pays for in your order",
         Tab.Automation => "Hand each area to automation (Auto), have it suggest (Advise) or keep it yourself (Manual)",
         Tab.Resources => "Goods made, used and held across your planets",
         Tab.Supply => "The supply chain: where goods come from and go, routes and their risk, problems with fixes, stock targets and siege mode",

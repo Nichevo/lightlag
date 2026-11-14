@@ -8,7 +8,7 @@ public class PlaytestScreenTests
 {
     private static Simulation NewGame()
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory(), options: new GameOptions { Events = EventRate.Off });
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory(), options: new GameOptions { Events = EventRate.Off, Budget = false }); // one pool: these tests predate the Industry budget (see BudgetTests)
         sim.World.Minds.Clear();
         return sim;
     }

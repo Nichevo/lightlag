@@ -77,6 +77,7 @@ public sealed class Simulation
             world.Rules.Events = options?.Events ?? EventRate.Normal;
             world.Rules.Ironman = options?.Ironman ?? false;
             world.Rules.ContactOffers = options?.ContactOffers ?? true;
+            world.Rules.Budget = options?.Budget ?? true;
             Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
         }

@@ -9,7 +9,7 @@ public class ColonyTests
 {
     private static Simulation NewGame(ulong seed = 8)
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory());
+        var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: new GameOptions(Budget: false)); // one pool: these tests predate the Industry budget (see BudgetTests)
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         Planets.EnsureStarted(sim.World);

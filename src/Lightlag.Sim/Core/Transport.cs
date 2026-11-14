@@ -275,7 +275,7 @@ public static class Satellites
         var from = LaunchSite(w, side, b.Position);
         if (from == null) return "No world of yours to launch it from";
         var cost = CostOf(w, k, from);
-        if (Economy.Of(w, side).Industry < cost) return $"Needs {cost:0} Industry";
+        if (Budget.Problem(w, side, Pot.Stations, cost) is string tooLow) return tooLow;
         return null;
     }
 
@@ -408,7 +408,7 @@ public sealed record LaunchSatelliteCommand(Side Side, string Kind, int BodyId, 
         var from = Satellites.LaunchSite(world, Side, b.Position)!;
         var cost = Satellites.CostOf(world, k, from);
         var state = Economy.Of(world, Side);
-        state.Industry -= cost;
+        Budget.Pay(world, Side, Pot.Stations, cost, null, from.Id, log: sim.Log);
         state.Totals.IndustrySpent += cost;
         state.Totals.LiftSpent += cost - k.Cost;
         state.Totals.SatellitesLaunched++;
@@ -490,8 +490,7 @@ public static class Lift
         var cost = CostPerGood(w, b) * goods;
         if (cost <= 1e-9) return 0;
         var state = Economy.Of(w, side);
-        var paid = Math.Min(cost, Math.Max(0, state.Industry));
-        state.Industry -= paid;
+        var paid = Budget.Drain(w, side, Pot.Transport, cost, b.Id);
         state.Totals.IndustrySpent += paid;
         state.Totals.LiftSpent += paid;
         return paid;

@@ -13,7 +13,7 @@ public class StarbaseTests
 {
     private static Simulation NewGame(ulong seed = 8)
     {
-        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory()));
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: new GameOptions(Budget: false))); // one pool: these tests predate the Industry budget (see BudgetTests)
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         sim.World.Minds.Clear();
@@ -332,8 +332,8 @@ public class StarbaseTests
     [Fact]
     public void The_rival_builds_the_station_line_at_home_and_replays_exactly()
     {
-        var a = Simulation.NewGame(Scenarios.TestSystem, 11, GameLog.Memory(), options: GameOptions.VsRival(Difficulty.Normal));
-        var b = Simulation.NewGame(Scenarios.TestSystem, 11, GameLog.Memory(), options: GameOptions.VsRival(Difficulty.Normal));
+        var a = Simulation.NewGame(Scenarios.TestSystem, 11, GameLog.Memory(), options: GameOptions.VsRival(Difficulty.Normal) with { Budget = false });
+        var b = Simulation.NewGame(Scenarios.TestSystem, 11, GameLog.Memory(), options: GameOptions.VsRival(Difficulty.Normal) with { Budget = false });
         a.StepMany(24 * 40);
         b.StepMany(24 * 40);
         Assert.Contains(a.World.Starbases, s => s.Side == Side.Rival);

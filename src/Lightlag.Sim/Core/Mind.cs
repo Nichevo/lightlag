@@ -20,7 +20,7 @@ public sealed record AiSetup(Side Side, Difficulty Difficulty = Difficulty.Norma
 public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = null, AutonomyLevel? Autonomy = null, bool? Decapitation = null,
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
     bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null,
-    bool? Ironman = null, string? ThirdRace = null, bool? ContactOffers = null)
+    bool? Ironman = null, string? ThirdRace = null, bool? ContactOffers = null, bool? Budget = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -36,7 +36,7 @@ public sealed record PersonalityData(
     string Name, double FrigateShare, double Ratio, double ClaimWeight, double HuntWeight, double GuardShare,
     double ProbeEarly, double TakeHeldWeight, int ClaimGroups, List<string> Research, double FlagshipBoldness = 0.3,
     PersonalityProfile? Profile = null, string PullBack = "standard", string FireAt = "split", string Missiles = "mid",
-    double Weight = 1, int ExtraFreighters = 0, double BuildEveryDays = 12);
+    double Weight = 1, int ExtraFreighters = 0, double BuildEveryDays = 12, List<double>? Budget = null);
 
 /// <summary>
 /// A personality on six axes, 0 to 1: aggression (how readily the main fleet takes the fight to the enemy),
@@ -300,6 +300,8 @@ public static class Mind
             Choices.Note(w, setup.Side, "lean", $"research taste {ResearchValue.Broad[Array.IndexOf(mind.ResearchTaste, mind.ResearchTaste.Max())]}");
             mind.Random = rng.Save();
             w.Minds.Add(mind);
+            // Its budget starts from the personality's leanings (ai.json "budget").
+            if (Budget.On(w)) Budget.Reset(w, setup.Side);
         }
     }
 
@@ -1710,8 +1712,8 @@ public static class Mind
             var linked = _w.Bodies.Where(b => b.Owner == _side && !Economy.Blockaded(_w, b)).ToList();
             var hungry = linked.Sum(Planets.FoodMadePerDay) < Races.FoodWanted(_w, _side, linked);
             var sparesShort = linked.Sum(b => Colonies.MadePerDay(b, Colonies.Spares)) < linked.Sum(b => Colonies.UsePerDay(b, Colonies.Spares)) * 1.1;
-            var industry = Economy.Of(_w, _side).Industry;
-            if (industry < Colonies.Kinds.Min(k => k.Cost)) return; // nothing is affordable: skip the board searches
+            var industry = Budget.Free(_w, _side, Pot.Buildings);
+            if (industry < Colonies.Kinds.Min(k => k.Cost)) { Budget.Want(_w, _side, Pot.Buildings, Colonies.Kinds.Min(k => k.Cost)); return; } // nothing is affordable: skip the board searches
             // Urgent buildings (food, power, the minerals that keep power and spare parts coming) go ahead of
             // the next ship; others wait for Industry to spare after it, or for their turn every so often.
             var turn = _w.Hour >= _m.NextBuildHour;
@@ -1719,8 +1721,10 @@ public static class Mind
             {
                 var want = Planner.PlanetWant(_w, _side, b, hungry, sparesShort, Easy, labs: Easy ? 0 : P.Research >= 0.6 ? 2 : 1) ?? Fortify(b);
                 if (want is not var (kind, x, y, urgent) || Planets.BuildingKind(kind) is not BuildingData data) continue;
-                var budget = urgent || turn ? industry : Spare(orders) - (Easy ? 120 : 60);
-                if (budget < data.Cost || Planets.CanBuild(_w, _side, b.Id, kind, x, y) != null) continue;
+                // With the Industry budget the ships have their own pot, so only the margin is kept back.
+                var budget = urgent || turn ? industry : (Budget.On(_w) ? industry : Spare(orders)) - (Easy ? 120 : 60);
+                if (budget < data.Cost) { Budget.Want(_w, _side, Pot.Buildings, data.Cost); continue; }
+                if (Planets.CanBuild(_w, _side, b.Id, kind, x, y) != null) continue;
                 Do(new BuildOnPlanetCommand(_side, b.Id, kind, x, y));
                 Note($"Builds a {data.Name.ToLowerInvariant()} at {b.Name}");
                 if (!urgent) _m.NextBuildHour = _w.Hour + (Easy ? 30 : _p.BuildEveryDays) * 24;
@@ -1864,9 +1868,10 @@ public static class Mind
             var state = Economy.Of(_w, _side);
             if (_w.Day < 15) return;
             var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
-            var spare = state.Industry - shipWaiting;
+            var spare = Budget.On(_w) ? Budget.Free(_w, _side, Pot.Buildings) : state.Industry - shipWaiting;
+            var have = Budget.On(_w) ? spare : state.Industry;
             // The second team is worth about a ship, so from day 30 it may go ahead of the next one; the third waits for spare Industry.
-            if (state.Teams.Count < Research.T.Slots && (state.Teams.Count < 2 ? _w.Day >= 30 && state.Industry >= Research.T.FoundCost
+            if (state.Teams.Count < Research.T.Slots && (state.Teams.Count < 2 ? _w.Day >= 30 && have >= Research.T.FoundCost
                                                                               : _w.Day >= 120 && spare >= Research.T.FoundCost + 60))
             {
                 var field = FieldToFound(state);
@@ -1905,7 +1910,7 @@ public static class Mind
         private void Stations(List<WorkOrder> orders)
         {
             var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
-            var spare = Economy.Of(_w, _side).Industry - shipWaiting;
+            var spare = Budget.On(_w) ? Budget.Free(_w, _side, Pot.Stations) : Economy.Of(_w, _side).Industry - shipWaiting;
             if (Line(spare)) return;
             // Helium-3: a skimmer over a gas giant it holds, once its engines or reactors want helium-3.
             var skimmer = Economy.StationKind(Works.Skimmer);
@@ -1948,7 +1953,8 @@ public static class Mind
                     // A colony gets guns at once when it can; home starts with a platform and grows.
                     var tier = home || top < 2 ? Starbases.TierAt(1)! : Starbases.TierAt(2)!;
                     var cls = GameData.ShipClass(tier.ClassId);
-                    if (spare < cls.Cost * 1.5 || Starbases.CanBuild(_w, _side, b.Id, tier.ClassId) != null) continue;
+                    if (spare < cls.Cost * 1.5) { Budget.Want(_w, _side, Pot.Stations, cls.Cost * 1.5); continue; }
+                    if (Starbases.CanBuild(_w, _side, b.Id, tier.ClassId) != null) continue;
                     Do(new BuildStarbaseCommand(_side, b.Id, tier.ClassId));
                     Note($"Builds a {cls.Name.ToLowerInvariant()} over {b.Name}");
                     return true;
@@ -1957,7 +1963,8 @@ public static class Mind
                 var design = Starbases.SameVariant(_w, _side, st, up.ClassId);
                 // The slipway tier at home comes first of all (it is what lets the yard build cruisers): cheaper threshold.
                 var want = home && up.Tier == 3 ? 1.1 : 1.6;
-                if (spare < Starbases.UpgradeCost(st, up.ClassId) * want || Starbases.CanRefit(_w, _side, st, up.ClassId, design) != null) continue;
+                if (spare < Starbases.UpgradeCost(st, up.ClassId) * want) { Budget.Want(_w, _side, Pot.Stations, Starbases.UpgradeCost(st, up.ClassId) * want); continue; }
+                if (Starbases.CanRefit(_w, _side, st, up.ClassId, design) != null) continue;
                 Do(new RefitStarbaseCommand(_side, st.Id, up.ClassId, design));
                 Note($"Upgrades the station over {b.Name} to a {GameData.ShipClass(up.ClassId).Name.ToLowerInvariant()}");
                 return true;

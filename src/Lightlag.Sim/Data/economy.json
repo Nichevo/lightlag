@@ -5,6 +5,8 @@
   "claimDays": 10,
   "claimHeldDays": 30,
   "holdToWinDays": 30,
+  "_budgetComment": "The Industry budget (Empire > Budget): shares are percent of each day's Industry for Ships, Buildings, Stations and defences, Refits and repairs, Transport and supply, Reserve. A pot is full at fullDays of its share (or its goal, or all its items); the rest overflows. Auto moves a share only by minMove points or more, leans demandWeight of the way to what is queued, and moves up to threatShift points to ships and stations under threat.",
+  "budget": { "shares": [30, 25, 15, 10, 10, 10], "fullDays": 12, "minMove": 3, "demandWeight": 0.4, "threatShift": 10 },
   "shipyard": {
     "armour": 1500,
     "repairPerDay": 0.05,
