@@ -1204,6 +1204,19 @@ public partial class FleetPanel : PanelContainer
             return Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm) is Fleet e
                 ? $"Closing on {e.Name}, {Vec2.Distance(e.Position, f.Position) * 1000:#,0} km away"
                 : $"Braking after battle at {Format.Speed(f.Velocity.Length)}";
+        if (f.OrbitSlide != 0 && Name(f.OrbitBodyId) is string round)
+        {
+            var foe = f.OrbitSlideFromId is int fid ? Sensors.Find(w, f.Side, fid, seat: true)?.Name : null;
+            var gap = f.OrbitSlideFromId is int g && w.FindFleet(g) is Fleet o && Sensors.Sees(w, f.Side, o) ? $", {Vec2.Distance(o.Position, f.Position) * 1000:#,0} km away" : "";
+            return f.OrbitSlide > 0
+                ? $"Sliding round {round} into railgun reach of {foe ?? "the enemy"}{gap} (stays in orbit)"
+                : $"Sliding round {round} to keep the planet between it and {foe ?? "the enemy"}{gap} (stays in orbit)";
+        }
+        if (Combat.HeldInOrbit(w, f) && Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm) is Fleet standoff
+            && Vec2.Distance(standoff.Position, f.Position) > GameData.Combat.Railgun.RangeMm && Combat.OrbitSlideWanted(w, f, standoff) == 0
+            && Name(f.OrbitBodyId) is string at)
+            return $"Standoff at {at} with {standoff.Name}, {Vec2.Distance(standoff.Position, f.Position) * 1000:#,0} km away (out of railgun reach): "
+                   + (f.Stance == Stance.HoldPosition ? "holding position" : "neither side wants the fight");
         if (f.HeldBack && f.Flight == null && f.RejoinFleetId is int heldFor)
             return $"Held back from {w.FindFleet(heldFor)?.Name ?? "its fleet"}'s fight: waits here and flies to rejoin once it is over";
         if (f.Chase is ChaseOrder c)

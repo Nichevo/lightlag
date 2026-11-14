@@ -279,6 +279,21 @@ public sealed class Fleet
     /// <summary>The body whose orbit it broke to fight, until it orbits something again (claims and bombardment need orbit).</summary>
     public int? LeftOrbitBodyId { get; set; }
 
+    /// <summary>
+    /// Sliding round its orbit in a fight at that body (see Combat.OrbitSlide): +1 towards the enemy, -1 away to keep
+    /// the planet between them, 0 not sliding. It stays in orbit (claims and blockades go on); a small burn pays for it.
+    /// </summary>
+    public int OrbitSlide { get; set; }
+
+    /// <summary>The enemy fleet it is sliding towards or away from.</summary>
+    public int? OrbitSlideFromId { get; set; }
+
+    /// <summary>When the slide in began and how far off the enemy was then: a chase round the orbit that isn't
+    /// closing is given up for a while (until OrbitSlideRestUntil), so two equal fleets don't circle for ever.</summary>
+    public double OrbitSlideSince { get; set; }
+    public double OrbitSlideStartGap { get; set; }
+    public double OrbitSlideRestUntil { get; set; } = -1e9;
+
     /// <summary>How much it decides for itself when cut off from command.</summary>
     public AutonomyLevel Autonomy { get; set; } = AutonomyLevel.Sensible;
 
