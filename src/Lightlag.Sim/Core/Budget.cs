@@ -239,7 +239,7 @@ public static class Budget
     public static List<BudgetItem> Items(World w, Side side)
     {
         var bs = Of(w, side);
-        var stamp = w.Tick * 1_000_003L + w.NextId * 31L + w.Orders.Count;
+        var stamp = w.Tick * 1_000_003L + w.NextId * 31L + w.Orders.Count + w.StarbaseQueue.Count * 7L;
         if (bs.CacheStamp == stamp && bs.CacheItems != null) return bs.CacheItems;
         var raw = new List<BudgetItem>();
         var main = Economy.ShipyardOf(w, side);
@@ -271,6 +271,14 @@ public static class Budget
             var key = "refit:" + f.Id;
             var stall = !Economy.InOrbitAt(f, yard) ? "flying to the yard" : plan.Waiting != null && !plan.Waiting.Contains("Industry", StringComparison.Ordinal) ? plan.Waiting : null;
             raw.Add(new BudgetItem(key, Pot.Refits, yard.Id, $"{f.Name} refit", Refits.CostOf(next), false, stall, IsPaused(bs, key), Economy.Blockaded(w, yard), FleetId: f.Id));
+        }
+        foreach (var q in w.StarbaseQueue)
+        {
+            if (q.Side != side) continue;
+            var key = Starbases.Key(q.BodyId, q.ClassId);
+            var body = w.FindBody(q.BodyId);
+            raw.Add(new BudgetItem(key, Pot.Stations, q.BodyId, $"{GameData.ShipClass(q.ClassId).Name} over {body?.Name}", GameData.ShipClass(q.ClassId).Cost, false, null,
+                IsPaused(bs, key), body != null && Economy.Blockaded(w, body)));
         }
         var ordered = raw.Select((it, i) => (it, r: bs.Ranked.IndexOf(it.Key), i))
             .OrderBy(x => x.r < 0 ? int.MaxValue : x.r).ThenBy(x => x.i).Select(x => x.it).ToList();

@@ -566,6 +566,7 @@ public static class Economy
         Sparks.Check(sim);
         Claims(sim);
         LoseStations(sim);
+        Starbases.StartQueued(sim);
         Starbases.Update(sim);
         Bombard(sim);
         CheckWin(sim);

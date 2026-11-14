@@ -39,6 +39,18 @@ public static class StationPanel
         if (st == null)
         {
             col.AddChild(Wrap($"No station over {b.Name}. A station guards the orbit, serves your fleets holding low orbit under it (refuel, rearm, repairs from tier 3), and its slipway lets this world build longer hulls.", Ui.Dim));
+            if (Starbases.Queued(w, Side.Player, b.Id) is QueuedStarbase q)
+            {
+                // Queued before the Industry was there: say what it waits for, and let it be taken off.
+                var qrow = new HBoxContainer();
+                qrow.AddThemeConstantOverride("separation", 6);
+                var qid = q.Id;
+                qrow.AddChild(live(w2 => w2.StarbaseQueue.Find(x => x.Id == qid) is QueuedStarbase q2
+                    ? $"QUEUED: {GameData.ShipClass(q2.ClassId).Name}, {Starbases.QueuedWhy(w2, q2)}" : "Starting", 13, Ui.Warn));
+                qrow.AddChild(Ui.SmallButton("✕", () => issue(new CancelQueuedStarbaseCommand(Side.Player, qid), "cancelling a queued station"), "Take it off the queue"));
+                col.AddChild(qrow);
+                return col;
+            }
             var row = new HFlowContainer();
             row.AddThemeConstantOverride("h_separation", 6);
             foreach (var t in Starbases.D.Tiers)
@@ -47,9 +59,12 @@ public static class StationPanel
                 var why = Starbases.CanBuild(w, Side.Player, b.Id, t.ClassId);
                 if (why != null && why.StartsWith("Research", StringComparison.Ordinal) && t.Tier > Starbases.TopTier(w, Side.Player) + 1) continue;
                 var id = t.ClassId;
-                var button = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => issue(new BuildStarbaseCommand(Side.Player, b.Id, id), "building a station"),
-                    (why != null ? why + ". " : "") + $"Tier {t.Tier} ({t.Stage}): {cls.Cost:0} Industry, {t.Days:0} days. {t.Blurb} Building a higher tier straight away costs its full price; upgrading later costs the difference.");
-                button.Disabled = why != null;
+                // Short of Industry (or blockaded): it can still be queued, and starts when its pot can pay.
+                var queue = why != null && Starbases.CanBuild(w, Side.Player, b.Id, t.ClassId, queue: true) == null;
+                var button = Ui.SmallButton((queue ? "Queue " : "") + $"{cls.Name} · {cls.Cost:0}", () => issue(new BuildStarbaseCommand(Side.Player, b.Id, id, Queue: queue), queue ? "queueing a station" : "building a station"),
+                    (why != null ? why + (queue ? ": queue it and it starts when the Stations pot can pay" : "") + ". " : "")
+                    + $"Tier {t.Tier} ({t.Stage}): {cls.Cost:0} Industry, {t.Days:0} days. {t.Blurb} Building a higher tier straight away costs its full price; upgrading later costs the difference.");
+                button.Disabled = why != null && !queue;
                 row.AddChild(button);
             }
             col.AddChild(row);

@@ -35,6 +35,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(CancelOrderCommand), "cancelOrder")]
 [JsonDerivedType(typeof(BuildStationCommand), "buildStation")]
 [JsonDerivedType(typeof(BuildStarbaseCommand), "buildStarbase")]
+[JsonDerivedType(typeof(CancelQueuedStarbaseCommand), "cancelQueuedStarbase")]
 [JsonDerivedType(typeof(RefitStarbaseCommand), "refitStarbase")]
 [JsonDerivedType(typeof(SetStationPlanCommand), "setStationPlan")]
 [JsonDerivedType(typeof(ScuttleStarbaseCommand), "scuttleStarbase")]
