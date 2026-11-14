@@ -123,7 +123,15 @@ public partial class BattleStrips : Control
             string Side_(BattleSide s) => $"{s.ShipsLost.Count} lost, {s.Crippled.Count} crippled · dealt {s.DamageDealt:0} damage, {s.RailHits + s.MissileHits} hits";
             _score.Text = $"You: {Side_(battle.For(Side.Player))}\nThem: {Side_(battle.Foes(Side.Player))}";
         }
-        else _score.Text = "No battle under way";
+        else
+        {
+            // Not fighting yet: say when battle time starts, and how far the nearest seen enemy is.
+            var contact = GameData.Combat.ContactRangeMm;
+            var near = pick == null ? null : w.Fleets.Where(o => o.Side != Side.Player && o.ShipIds.Count > 0 && Sensors.Sees(w, Side.Player, o))
+                .OrderBy(o => Vec2.Distance(o.Position, pick.Position)).FirstOrDefault();
+            _score.Text = $"No battle yet: battle time starts when an enemy fleet you see is within {contact * 1000:#,0} km"
+                          + (near != null && pick != null ? $" ({near.Name} is {Vec2.Distance(near.Position, pick.Position) * 1000:#,0} km from {pick.Name})" : "");
+        }
     }
 
     private (PanelContainer, VBoxContainer) Column(string title)
