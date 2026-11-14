@@ -129,8 +129,12 @@ public partial class BattleStrips : Control
             var contact = GameData.Combat.ContactRangeMm;
             var near = pick == null ? null : w.Fleets.Where(o => o.Side != Side.Player && o.ShipIds.Count > 0 && Sensors.Sees(w, Side.Player, o))
                 .OrderBy(o => Vec2.Distance(o.Position, pick.Position)).FirstOrDefault();
-            _score.Text = $"No battle yet: battle time starts when an enemy fleet you see is within {contact * 1000:#,0} km, the longest reach of any weapon"
-                          + (near != null && pick != null ? $" ({near.Name} is {Vec2.Distance(near.Position, pick.Position) * 1000:#,0} km from {pick.Name})" : "");
+            var early = contact * Combat.ClosingContactFactor;
+            var gap = near != null && pick != null ? Vec2.Distance(near.Position, pick.Position) : 0;
+            var closing = near != null && pick != null && Combat.ClosingSpeed(w, pick, near) >= Combat.ClosingSpeedMmPerHour;
+            _score.Text = $"No battle yet: battle time starts when an enemy fleet you see is within {contact * 1000:#,0} km, the longest reach of any weapon,"
+                          + $" or within {early * 1000:#,0} km if you are heading toward each other"
+                          + (near != null && pick != null ? $" ({near.Name} is {gap * 1000:#,0} km from {pick.Name}, {(closing ? "closing" : "not closing")})" : "");
         }
     }
 

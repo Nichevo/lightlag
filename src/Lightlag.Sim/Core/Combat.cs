@@ -959,6 +959,35 @@ public static class Combat
     public static bool Standoff(World w) =>
         w.ActiveBattle is { } b && w.Missiles.Count == 0 && w.Hour - b.LastActionHour >= 1;
 
+    /// <summary>
+    /// Fleets heading toward each other come into contact this many times further out than contact range, so a
+    /// player gets a few minutes in battle time to set orders before the first long shots can land. Fleets that
+    /// are only passing by keep the normal range, so they don't start (and auto-pause) a battle for nothing.
+    /// </summary>
+    public const double ClosingContactFactor = 1.5;
+
+    /// <summary>Closing speed (Mm per hour) that counts as heading toward each other: about 0.3 km/s.</summary>
+    public const double ClosingSpeedMmPerHour = 1;
+
+    /// <summary>Contact range for this pair: the normal range, or the longer closing range when they close.</summary>
+    public static bool InContactRange(World w, Fleet a, Fleet b)
+    {
+        var d = Vec2.Distance(a.Position, b.Position);
+        if (d <= C.ContactRangeMm) return true;
+        if (d > C.ContactRangeMm * ClosingContactFactor || d <= 0) return false;
+        return ClosingSpeed(w, a, b) >= ClosingSpeedMmPerHour;
+    }
+
+    /// <summary>How fast (Mm per hour) the gap between two fleets is shrinking; negative when it is opening.</summary>
+    public static double ClosingSpeed(World w, Fleet a, Fleet b)
+    {
+        var gap = b.Position - a.Position;
+        var len = gap.Length;
+        if (len <= 0) return 0;
+        var rel = Sensors.MotionOf(w, b) - Sensors.MotionOf(w, a);
+        return -(rel.X * gap.X + rel.Y * gap.Y) / len;
+    }
+
     /// <summary>Starts, updates or ends the battle from who is in contact with whom.</summary>
     public static void UpdateContacts(Simulation sim, double t1)
     {
@@ -967,7 +996,7 @@ public static class Combat
         // Contact needs someone to see someone: a fleet that slips in cold is not in the battle until spotted.
         foreach (var a in w.Fleets)
             foreach (var b in w.Fleets.Where(f => f.Side > a.Side))
-                if (Vec2.Distance(a.Position, b.Position) <= C.ContactRangeMm && !Boarders.Grappled(w, a) && !Boarders.Grappled(w, b)
+                if (InContactRange(w, a, b) && !Boarders.Grappled(w, a) && !Boarders.Grappled(w, b)
                     && (Sensors.Sees(w, a.Side, b) || Sensors.Sees(w, b.Side, a)))
                     inContact.Add((a, b));
 

@@ -94,6 +94,36 @@ public class CombatTests
     }
 
     [Fact]
+    public void Fleets_heading_toward_each_other_come_into_contact_further_out()
+    {
+        var sim = Sandbox(new SandboxSetup(PlayerStance: Stance.Hold, RivalStance: Stance.Hold, DistanceMm: 130));
+        var w = sim.World;
+        var mine = FleetOf(sim, Side.Player);
+        var theirs = FleetOf(sim, Side.Rival);
+        mine.Flight = null; theirs.Flight = null;
+        mine.Hold = theirs.Hold = HoldStyle.Drift;
+        var gap = theirs.Position - mine.Position;
+        var toward = gap * (1 / gap.Length);
+        // Sitting still 130,000 km apart: outside contact range, no battle.
+        mine.Velocity = theirs.Velocity = new Vec2(0, 0);
+        Assert.False(Combat.InContactRange(w, mine, theirs));
+        // Passing by side on: still no contact.
+        theirs.Velocity = new Vec2(-toward.Y, toward.X) * 20;
+        Assert.False(Combat.InContactRange(w, mine, theirs));
+        // Moving apart: no contact.
+        theirs.Velocity = toward * 20;
+        Assert.False(Combat.InContactRange(w, mine, theirs));
+        // Closing at 20 Mm/h: contact at 130,000 km.
+        theirs.Velocity = toward * -20;
+        Assert.True(Combat.ClosingSpeed(w, mine, theirs) > 19);
+        Assert.True(Combat.InContactRange(w, mine, theirs));
+        Assert.True(Combat.InContactRange(w, theirs, mine));
+        // But not past the closing range.
+        theirs.Position = mine.Position + toward * (GameData.Combat.ContactRangeMm * Combat.ClosingContactFactor + 5);
+        Assert.False(Combat.InContactRange(w, mine, theirs));
+    }
+
+    [Fact]
     public void Fleets_out_of_contact_run_whole_hours()
     {
         var sim = Sandbox(new SandboxSetup(DistanceMm: 5000));
