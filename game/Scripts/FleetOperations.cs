@@ -33,7 +33,7 @@ public partial class FleetScreen
     private string _previewKey = "";
     private StrikePreview? _preview;
 
-    private static readonly Color Warn = new("ffb347");
+    private static readonly Color Warn = Ui.Warn;
     private static readonly Color Good = new("6fdc8c");
 
     /// <summary>A view asked for from outside (the screenshot run): pane, fleets for the strike planner, target, place.</summary>

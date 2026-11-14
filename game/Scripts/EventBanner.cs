@@ -21,7 +21,7 @@ public partial class EventBanner : PanelContainer
 
     public override void _Ready()
     {
-        var style = new StyleBoxFlat { BgColor = new Color(0.12f, 0.08f, 0.02f, 0.92f), BorderColor = new Color("ffb347") };
+        var style = new StyleBoxFlat { BgColor = new Color(0.12f, 0.08f, 0.02f, 0.92f), BorderColor = Ui.Warn };
         style.SetBorderWidthAll(1);
         style.SetCornerRadiusAll(5);
         style.SetContentMarginAll(5);
@@ -49,7 +49,7 @@ public partial class EventBanner : PanelContainer
                 item.AddThemeConstantOverride("separation", 6);
                 var ev = e;
                 var name = Ui.SmallButton(e.Title, () => Go(ev), "Click to go there, or to its card in Needs you");
-                name.AddThemeColorOverride("font_color", new Color("ffb347"));
+                name.AddThemeColorOverride("font_color", Ui.Warn);
                 item.AddChild(name);
                 item.AddChild(Ui.Label(e.Effect, 13, Ui.Text));
                 var time = Ui.Label("", 13, new Color("ffd166"));
