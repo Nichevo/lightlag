@@ -291,6 +291,7 @@ public partial class MapView : Node2D
         }
         string Km(double mm) => $"{mm * 1000:#,0} km";
         Ring(c.ContactRangeMm, 0.12f, $"Contact {Km(c.ContactRangeMm)}: battle time starts");
+        Ring(c.ContactRangeMm * Combat.ClosingContactFactor, 0.06f, $"{Km(c.ContactRangeMm * Combat.ClosingContactFactor)}: battle time starts if closing");
         if (ships.Any(s => s.Missiles > 0)) Ring(c.Missile.LaunchRangeMm, 0.2f, $"Missile launch {Km(c.Missile.LaunchRangeMm)}");
         if (ships.Any(s => Fitting.Spec(s).Railguns > 0)) Ring(c.Railgun.RangeMm, 0.28f, $"Railguns {Km(c.Railgun.RangeMm)}");
         if (f.Side == Side.Player)

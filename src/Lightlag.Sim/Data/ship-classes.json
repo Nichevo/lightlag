@@ -137,7 +137,7 @@
     { "id": "relay-bay", "name": "Relay bay", "slot": "B", "bay": "relay", "power": 1, "heat": 0, "cost": 40, "materials": { "electronics": 2 } },
     { "id": "laser-bay", "name": "Laser bay", "slot": "B", "bay": "laser", "power": 8, "heat": 4, "cost": 140, "needs": "laser-sails", "materials": { "electronics": 4, "copper": 2 } }
   ],
-  "_rangesComment": "Reach, longest first: contact (battle time) 100,000 km, missile launch 60,000 km, railguns 40,000 km (hits fall off with range, so fleets that engage close to engageRangeMm x 0.75), point defence 12,000 km (last-ditch, inside railgun reach). Railgun slugs fly at slugSpeedMmPerHour (250 km/s) plus the closing speed.",
+  "_rangesComment": "Reach, longest first: contact (battle time) 100,000 km, or 150,000 km for fleets heading toward each other (Combat.ClosingContactFactor), missile launch 60,000 km, railguns 40,000 km (hits fall off with range, so fleets that engage close to engageRangeMm x 0.75), point defence 12,000 km (last-ditch, inside railgun reach). Railgun slugs fly at slugSpeedMmPerHour (250 km/s) plus the closing speed.",
   "combat": {
     "_flagBridgeComment": "With light lag on, the fleet carrying the flagship fights better: railguns reload in reloadFactor of the time, point defence kills pointDefenceFactor times as many missiles (linked fire control), and railgun hit chances are accuracyFactor times higher (fire control spreads shots over the targets).",
     "flagBridge": { "reloadFactor": 0.85, "pointDefenceFactor": 1.25, "accuracyFactor": 1.1 },
