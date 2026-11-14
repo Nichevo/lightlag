@@ -305,6 +305,19 @@ public sealed class Fleet
     public List<int> GuardBodyIds { get; set; } = new();
     public bool GuardPosting { get; set; }
 
+    /// <summary>Patrol loop: ordered stops with a wait at each (see Operations); used while the mission is Patrol.</summary>
+    public List<LoopStop> Loop { get; set; } = new();
+
+    /// <summary>The mission leg it was on when it went to answer a call, so a loop comes back to the stop it left.</summary>
+    public int PostMissionLeg { get; set; }
+
+    /// <summary>A strike it was sent on (see Strikes), for its status line.</summary>
+    public StrikeOrder? Strike { get; set; }
+
+    /// <summary>The place it was sent to cover with Cover it (a Coverage place key), and that place's name.</summary>
+    public string? CoverKey { get; set; }
+    public string? CoverName { get; set; }
+
     public bool InFlight => Flight != null;
 }
 

@@ -676,6 +676,8 @@ public static class Stewards
                 Need(on != null ? NeedLevel.Info : NeedLevel.Urgent, $"raiders:{from.Id}:{to.Id}",
                     $"Raiders ({enemy.Ships} ships) near the {from.Name}–{to.Name} run" + (on != null ? $": {on.Name} is dealing with it" : ""), to.Id);
             }
+            // Who covers what: a planet or moons of ours that nobody would answer for (thin places are not listed).
+            Coverage.Needs(_w, _side, (key, text, bodyId, fleetId, act, label) => Need(NeedLevel.Advice, key, text, bodyId, fleetId, act, label));
             foreach (var o in _w.Orders.Where(o => o.Side == _side && o.Waiting != null && !o.Waiting.Contains("Industry")).OrderBy(o => o.Id))
                 Need(o.Kind == OrderKind.Ship ? NeedLevel.Urgent : NeedLevel.Soon, $"waiting:{o.Id}",
                     $"{Economy.NameOf(o)} waits: {o.Waiting}", o.YardBodyId ?? _home.Id);

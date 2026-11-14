@@ -145,6 +145,12 @@ public sealed class RuleBook
         .Add("answering-own-side", w => w.Fleets.Where(f => f.AnsweringCallId is int c
                 && w.HelpCalls.Find(h => h.Id == c) is { } call && call.Side != f.Side)
             .Select(f => $"fleet {f.Id} {f.Name} answers the other side's call {f.AnsweringCallId}"))
+        .Add("patrol-loops-sane", w => w.Fleets.Where(f => f.Loop.Count > Operations.MaxStops || f.MissionLeg < 0 || f.PostMissionLeg < 0
+                || f.Loop.Any(s => !(s.WaitHours >= 0 && s.WaitHours <= Operations.MaxWaitHours) || s.T < 0 || s.T > 1 || !s.Point.IsFinite))
+            .Select(f => $"fleet {f.Id} {f.Name} has a bad patrol loop ({f.Loop.Count} stops, leg {f.MissionLeg})"))
+        .Add("strike-plans-sane", w => w.StrikePlans.Where(p => p.FleetIds.Distinct().Count() != p.FleetIds.Count || !(p.WaveGapHours >= 0)
+                || !(p.Burn > 0 && p.Burn <= 1) || (p.TargetBodyId != null && p.TargetFleetId != null))
+            .Select(p => $"strike plan {p.Id} {p.Name} is malformed"))
         .Add("fleets-not-empty", w => w.Fleets.Where(f => f.ShipIds.Count == 0).Select(f => $"fleet {f.Id} {f.Name} has no ships"))
         .Add("supplies-in-range", w => w.Ships.Where(s => GameData.ShipClasses.ContainsKey(s.ClassId)
                 && !(s.Supplies >= 0 && s.Supplies <= Fitting.MaxSupplies(w, s) + 1e-6))
