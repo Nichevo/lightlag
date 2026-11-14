@@ -17,6 +17,7 @@ public partial class FleetPanel : PanelContainer
     private Label _title = null!;
     private Label _status = null!;
     private VBoxContainer _shipList = null!;
+    private Button _splitHere = null!;
     private HBoxContainer _buttons = null!;
     private Button _split = null!;
     private Button _orbit = null!;
@@ -54,7 +55,7 @@ public partial class FleetPanel : PanelContainer
     // Mission menu ids: small numbers for the plain missions; raids and escorts carry the body or fleet id.
     private const int MissionNone = 1, MissionHold = 2, MissionPatrol = 3, MissionScout = 4, RaidBase = 1000, EscortBase = 100000;
     private HBoxContainer _orders = null!;
-    private readonly Dictionary<int, (CheckBox Box, ShipBars Bars, Label Supplies)> _rows = new();
+    private readonly Dictionary<int, (Button Box, ShipBars Bars, Label Supplies)> _rows = new();
     private string _shipKey = "";
 
     public FleetPanel() : this(null!) { }
@@ -110,6 +111,8 @@ public partial class FleetPanel : PanelContainer
         box.AddChild(_status);
         _shipList = new VBoxContainer();
         box.AddChild(_shipList);
+        _splitHere = Ui.SmallButton("Split", () => _screen.OrderSplit(Checked()), "Make the ticked ships a new fleet");
+        box.AddChild(_splitHere);
         _barsKey = Ui.Label("bars: hull · weapons · engines · defence · crew | fuel · ⓘ ship card (hover a ship for numbers)", 11, Ui.Dim);
         box.AddChild(_barsKey);
         _info = Ui.Label("", 12, Ui.Dim);
@@ -450,7 +453,7 @@ public partial class FleetPanel : PanelContainer
             _orders, _missionRow, _coverRow, _heatRow, _heat, _fireRow);
         _secRules = Make("Battle rules", "When the fleet pulls back from a fight; Hold on and Pull back now", _rules);
         _secSupply = Make("Supply", "Fuel and speed left, food and ammunition, cargo, and supply runs", _supplyText, _supplyRun, _getSupplies);
-        _secShips = Make("Ships", "Each ship's bars; ⓘ opens a ship's card with its full status; ⇱ splits one ship off to give it its own orders; tick several and press Split to make a new fleet", _shipList, _barsKey, _fittings);
+        _secShips = Make("Ships", "Each ship's bars; ⓘ opens a ship's card with its full status; ⇱ splits one ship off to give it its own orders; tick several and press Split to make a new fleet", _shipList, _splitHere, _barsKey, _fittings);
         _secRefit = Make("Refit", "Send the fleet to a yard to refit to the current designs", _rules.RefitBox);
         _secZone = Make("Zone", "Hold or draw a raiding zone, or hunt a spotted supply lane", _rules.ZoneBox);
         _secDetails = Make("Details", "Light lag, speed and closing, signature and everything else known", _info);
@@ -743,6 +746,12 @@ public partial class FleetPanel : PanelContainer
     private int? _tickOnly;
 
     /// <summary>Tick just this ship (picked from the fleet list), ready to split off.</summary>
+    /// <summary>Screenshots only: tick these ships.</summary>
+    public void TickForShots(List<int> ids)
+    {
+        foreach (var (shipId, row) in _rows) row.Box.ButtonPressed = ids.Contains(shipId);
+    }
+
     public void TickOnly(int shipId)
     {
         _tickOnly = shipId;
@@ -916,7 +925,15 @@ public partial class FleetPanel : PanelContainer
                     row.AddChild(protect);
                     _protect[s.Id] = protect;
                 }
-                var check = new CheckBox { Text = $"{s.Name}  {s.Code}  {Fitting.Spec(s).Name}", FocusMode = FocusModeEnum.None, Disabled = !mine };
+                // A plain tick box was too faint to notice: a row button with a clear box and a highlight when ticked.
+                var label = $"{s.Name}  {s.Code}  {Fitting.Spec(s).Name}";
+                var check = new Button { Text = "☐  " + label, ToggleMode = true, Flat = true, FocusMode = FocusModeEnum.None, Disabled = !mine,
+                    Alignment = HorizontalAlignment.Left, TooltipText = mine ? "Tick ships, then Split to make them a new fleet" : "" };
+                check.Toggled += on =>
+                {
+                    check.Text = (on ? "☑  " : "☐  ") + label;
+                    check.Modulate = on ? Ui.Player : Colors.White;
+                };
                 check.AddThemeFontSizeOverride("font_size", 14);
                 check.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 row.AddChild(check);
@@ -1040,7 +1057,12 @@ public partial class FleetPanel : PanelContainer
         _drift.Disabled = flying || (f.Hold == HoldStyle.Drift && f.Flight == null);
         _stop.Disabled = f.Flight == null && f.Velocity.Length < 1e-9;
         _split.Disabled = picked == 0 || picked == ships.Count;
-        _split.TooltipText = picked == 0 ? "Tick ships in the Ships section, then split them off as a new fleet" : $"Make the {picked} ticked ships a new fleet";
+        _split.Text = picked > 0 && picked < ships.Count ? $"Split {picked}" : "Split";
+        _split.TooltipText = picked == 0 ? "Tick ships in the Ships section, then split them off as a new fleet"
+            : picked == ships.Count ? "Every ship is ticked: untick the ones that stay" : $"Make the {picked} ticked ships a new fleet";
+        _splitHere.Visible = mine && ships.Count > 1;
+        _splitHere.Disabled = _split.Disabled;
+        _splitHere.Text = picked > 0 && picked < ships.Count ? $"Split the {picked} ticked ships into a new fleet" : "Tick ships above to split them into a new fleet";
         FitToCorner();
     }
 
