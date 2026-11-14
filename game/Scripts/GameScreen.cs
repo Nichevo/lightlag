@@ -21,7 +21,7 @@ namespace Lightlag.Game;
 ///   P                  pause when enemies are spotted F7              debug: show every fleet
 ///   Ctrl+right click   add a waypoint to the route    Drag a waypoint move it (the route replans live)
 ///   Right click enemy  plan an attack on it           R               combat report
-///   Space              pause / resume                 1 2 3 4, + -    speed 1x 2x 4x 8x
+///   Space              pause / resume                 ` 1 2 3 4, + -  speed ½x 1x 2x 4x 8x
 ///   E                  empire: build, research, claims B               sight shadows / sensor coverage / off
 ///   F5 / F9            quick save / quick load        F8              report a problem
 ///   Z                  zoom right in on the selection (also the Zoom in button)
@@ -29,9 +29,13 @@ namespace Lightlag.Game;
 /// </summary>
 public partial class GameScreen : Node2D
 {
-    /// <summary>Game hours per real second at 1x, 2x, 4x, 8x. At 1x a game day takes 4 seconds.</summary>
-    public static readonly double[] Speeds = { 6, 12, 24, 48 };
-    public static readonly string[] SpeedNames = { "1x", "2x", "4x", "8x" };
+    /// <summary>Game hours per real second at ½x, 1x, 2x, 4x, 8x. At 1x a game day takes 4 seconds.</summary>
+    public static readonly double[] Speeds = { 3, 6, 12, 24, 48 };
+    public static readonly string[] SpeedNames = { "½x", "1x", "2x", "4x", "8x" };
+    /// <summary>Index of 1x in Speeds (the normal speed; the game starts and slows to it).</summary>
+    public const int NormalSpeed = 1;
+    /// <summary>The key shown for each speed button.</summary>
+    public static readonly string[] SpeedKeys = { "`", "1", "2", "3", "4" };
     private const double AutosaveEverySeconds = 300; // real time spent playing (not paused)
     private const double IronmanSaveEverySeconds = 60;
 
@@ -39,7 +43,7 @@ public partial class GameScreen : Node2D
     private readonly MapCamera _camera = new();
     private MapView _map = null!;
     private double _accum;
-    private int _speed;
+    private int _speed = NormalSpeed;
     private bool _paused;
     private int? _selected;
     /// <summary>What the camera follows. Setting it drops any other ships the view was locked on to as well.</summary>
@@ -118,8 +122,8 @@ public partial class GameScreen : Node2D
                 _paused = true;
                 break;
             case PauseResponse.Slow:
-                _main.Toast(text + (_speed > 0 ? ". Slowed to 1x." : ""), onClick: onClick);
-                _speed = 0;
+                _main.Toast(text + (_speed > NormalSpeed ? ". Slowed to 1x." : ""), onClick: onClick);
+                _speed = Math.Min(_speed, NormalSpeed);
                 break;
             case PauseResponse.Notice:
                 _main.Toast(text, onClick: onClick);
@@ -1491,10 +1495,11 @@ public partial class GameScreen : Node2D
         switch (key.Keycode)
         {
             case Key.Space: TogglePause(); break;
-            case Key.Key1: SetSpeed(0); break;
-            case Key.Key2: SetSpeed(1); break;
-            case Key.Key3: SetSpeed(2); break;
-            case Key.Key4: SetSpeed(3); break;
+            case Key.Quoteleft: SetSpeed(0); break;
+            case Key.Key1: SetSpeed(1); break;
+            case Key.Key2: SetSpeed(2); break;
+            case Key.Key3: SetSpeed(3); break;
+            case Key.Key4: SetSpeed(4); break;
             case Key.Equal or Key.KpAdd: SetSpeed(_speed + 1); break;
             case Key.Minus or Key.KpSubtract: SetSpeed(_speed - 1); break;
             case Key.Home or Key.H: ShowWholeSystem(); break;

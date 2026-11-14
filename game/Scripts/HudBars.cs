@@ -59,7 +59,7 @@ public partial class Hud
         for (var i = 0; i < GameScreen.Speeds.Length; i++)
         {
             var index = i;
-            var b = SmallButton(GameScreen.SpeedNames[i], () => _screen.SetSpeed(index), $"Speed {GameScreen.SpeedNames[i]} (key {i + 1})");
+            var b = SmallButton(GameScreen.SpeedNames[i], () => _screen.SetSpeed(index), $"Speed {GameScreen.SpeedNames[i]} (key {GameScreen.SpeedKeys[i]})");
             _speedButtons.Add(b);
             speeds.AddChild(b);
         }
