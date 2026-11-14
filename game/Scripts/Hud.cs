@@ -341,6 +341,9 @@ public partial class Hud : CanvasLayer
         BenchProbe.Lap("side-panel");
         var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : _tray.Visible ? _tray.Position.X + _tray.Size.X + 16 : 16;
         _contacts.Position = new Vector2(leftEdge, ContentTop + 8);
+        // Under the BATTLE TIME line when the two would overlap.
+        if (_battle.Visible && _battle.Text.Length > 0 && _contacts.GetRect().Intersects(_battle.GetRect()))
+            _contacts.Position = new Vector2(leftEdge, _battle.Position.Y + _battle.Size.Y + 4);
         _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
         var covered = _research.Visible || _colonies.Visible || _fleets.Visible || _ships.Visible || _ground.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
