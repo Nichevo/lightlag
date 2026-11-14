@@ -56,6 +56,7 @@ public partial class FleetScreen : PanelContainer
                     + "|" + (picked != null ? string.Join(",", Here(w, picked).Select(f => f.Id)) : "")
                     + "|" + _screen.QuietWhenHandled
                     + "|" + string.Join(";", fleets.Select(f => f.Name))
+                    + "|" + string.Join(",", w.Light.InTransit.Concat(w.Light.Held).Where(t => t.Command is SetFleetRoleCommand).Select(t => t.Command.GetHashCode()))
                     + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}"))
                     + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"))
                     + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : "");
@@ -377,17 +378,22 @@ public partial class FleetScreen : PanelContainer
         col.AddChild(Heading("Role"));
         // A fleet of supply ships can only take Supply; warfleets get the fighting roles.
         var roles = HelpCalls.RolesFor(w, f).Select(r => (r, HelpCalls.RoleName(r))).ToList();
+        // A role order still on its way to the fleet (light lag; it never lands while paused) shows as chosen, with when it lands.
+        var (role, rules, landsIn) = Wanted(w, f);
         var row = Row(8);
-        row.AddChild(Pick(roles, f.Role, r => SetRole(id, r, null), "Which calls for help this fleet answers by itself when it is free"));
-        row.AddChild(Ui.Label(HelpCalls.RoleHelp(f.Role), 13, Ui.Dim));
+        row.AddChild(Pick(roles, role, r => SetRole(id, r, null), "Which calls for help this fleet answers by itself when it is free"));
+        row.AddChild(Ui.Label(HelpCalls.RoleHelp(role), 13, Ui.Dim));
         col.AddChild(row);
-        if (f.Role != FleetRole.None)
+        if (landsIn is double lands)
+            col.AddChild(Live(w2 => Wanted(w2, f).LandsIn is double h
+                ? $"Order on its way: the fleet takes this role in {Format.Lag(h)} of game time (light lag; it can't land while the game is paused). A drone from the fleet panel gets it there sooner."
+                : "", 13, Ui.Warn, wrap: true));
+        if (role != FleetRole.None)
         {
-            var rules = f.RoleRules;
             var grid = new GridContainer { Columns = 2 };
             grid.AddThemeConstantOverride("h_separation", 12);
             grid.AddThemeConstantOverride("v_separation", 6);
-            if (f.Role == FleetRole.ForwardGuard)
+            if (role == FleetRole.ForwardGuard)
             {
                 // Which planets it guards: it waits at a post central to them and answers any of them, however far.
                 col.AddChild(Ui.Label("Planets it guards (it waits at a post central to them):", 13, Ui.Dim));
@@ -415,9 +421,9 @@ public partial class FleetScreen : PanelContainer
             {
                 grid.AddChild(Ui.Label("Goes up to", 13, Ui.Dim));
                 grid.AddChild(Pick(Enum.GetValues<RoleRange>().Select(r => (r, HelpCalls.RangeName(r))).ToList(), rules.Range,
-                    r => SetRule(id, x => x.Range = r), f.Role == FleetRole.Supply ? "How far away a fleet running short may be and still be supplied" : "How far from the trouble the fleet may be and still go"));
+                    r => SetRule(id, x => x.Range = r), role == FleetRole.Supply ? "How far away a fleet running short may be and still be supplied" : "How far from the trouble the fleet may be and still go"));
             }
-            if (f.Role == FleetRole.Supply)
+            if (role == FleetRole.Supply)
             {
                 col.AddChild(grid);
                 col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g && g.SupplyRunFor is int t && w2.FindFleet(t) is Fleet served
@@ -431,12 +437,12 @@ public partial class FleetScreen : PanelContainer
             var wear = new (double, string)[] { (0, "Never"), (0.25, "Hull or supplies below 25 %"), (0.5, "Hull or supplies below 50 %"), (0.75, "Hull or supplies below 75 %") };
             grid.AddChild(Pick(wear, wear.OrderBy(x => Math.Abs(x.Item1 - rules.MinHealth)).First().Item1,
                 v => SetRule(id, x => x.MinHealth = v), "Too worn or too short of supplies to answer"));
-            if (f.Role != FleetRole.ForwardGuard) grid.AddChild(Ui.Label("Afterwards", 13, Ui.Dim));
+            if (role != FleetRole.ForwardGuard) grid.AddChild(Ui.Label("Afterwards", 13, Ui.Dim));
             var back = new CheckBox { Text = "Go back to its post and mission", ButtonPressed = rules.ReturnAfter, FocusMode = FocusModeEnum.None,
                 TooltipText = "When the call is over, fly back to where it was (and carry on with its patrol or hold). Off: it stays where the fight ended" };
             back.AddThemeFontSizeOverride("font_size", 13);
             back.Toggled += on => SetRule(id, x => x.ReturnAfter = on);
-            if (f.Role != FleetRole.ForwardGuard) grid.AddChild(back); // a guard always goes back to its post
+            if (role != FleetRole.ForwardGuard) grid.AddChild(back); // a guard always goes back to its post
             col.AddChild(grid);
         }
         col.AddChild(Live(w2 =>
@@ -457,9 +463,22 @@ public partial class FleetScreen : PanelContainer
     private void SetRule(int id, Action<RoleRules> change)
     {
         if (_screen.World.FindFleet(id) is not Fleet f) return;
-        var rules = f.RoleRules.Copy();
+        var (role, wanted, _) = Wanted(_screen.World, f);
+        var rules = wanted.Copy();
         change(rules);
-        SetRole(id, f.Role, rules);
+        SetRole(id, role, rules);
+    }
+
+    /// <summary>
+    /// The role and rules the player last chose for a fleet: the latest role order still on its way (or held by radio
+    /// silence) if there is one, with the game hours until it lands; else the fleet's own.
+    /// </summary>
+    private static (FleetRole Role, RoleRules Rules, double? LandsIn) Wanted(World w, Fleet f)
+    {
+        var t = w.Light.InTransit.Concat(w.Light.Held).Where(t => t.Side == f.Side && t.Command is SetFleetRoleCommand c && c.FleetId == f.Id)
+            .OrderBy(t => t.ArriveHour).LastOrDefault();
+        if (t?.Command is not SetFleetRoleCommand cmd) return (f.Role, f.RoleRules, null);
+        return (cmd.Role, cmd.Rules ?? f.RoleRules, Math.Max(0, t.ArriveHour - w.Hour));
     }
 
     // ---- Standing orders (a summary: the fleet panel changes them) -----------------------------

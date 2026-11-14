@@ -213,6 +213,12 @@ public static class SupplyLines
                     s.Missiles++; src.CargoAmmo -= 1;
                     ammo = Math.Min(ammo, src.CargoAmmo); // the next ship can't take ammunition the reload used
                 }
+                // Heat sinks: one fresh sink an hour per ship, made from SinkAmmo units of the hold's ammunition.
+                if (s.HeatSinks < MaxSinks(s) && src.CargoAmmo >= SinkAmmo)
+                {
+                    s.HeatSinks++; src.CargoAmmo -= SinkAmmo;
+                    ammo = Math.Min(ammo, src.CargoAmmo);
+                }
             }
             // Food goes round: the hungriest first, each taking no more than an even share of what is left this hour.
             var eaters = to.Where(s => MaxFood(s) - s.Food > 1e-9).OrderBy(s => s.Food / MaxFood(s)).ThenBy(s => s.Id).ToList();
@@ -225,9 +231,15 @@ public static class SupplyLines
         }
     }
 
+    /// <summary>Ammunition units a supply ship spends on one fresh heat sink.</summary>
+    public const double SinkAmmo = 2;
+
+    /// <summary>How many heat sinks a ship holds when full.</summary>
+    public static int MaxSinks(Ship s) => Fitting.Spec(s).HeatSinks + s.TechSinks;
+
     /// <summary>Do the ships of this fleet still need anything a supply ship carries?</summary>
     public static bool Needs(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)
-        && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.95 || s.Ammo < MaxAmmo(s) * 0.95 || s.Food < MaxFood(s) * 0.95 || s.Missiles < Tech.Racks(w, s)));
+        && (s.Supplies < Fitting.MaxSupplies(w, s) * 0.95 || s.Ammo < MaxAmmo(s) * 0.95 || s.Food < MaxFood(s) * 0.95 || s.Missiles < Tech.Racks(w, s) || s.HeatSinks < MaxSinks(s)));
 
     /// <summary>Running short enough to send a tanker for: some ship below half its fuel, ammunition or food.</summary>
     public static bool Short(World w, Fleet f) => w.ShipsOf(f).Any(s => !IsSupplyShip(s)

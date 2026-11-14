@@ -166,7 +166,7 @@ public partial class KeyHelp : PanelContainer
 
     private static readonly (string Group, string[] Keys)[] Groups =
     {
-        ("Time", new[] { "Space  pause", "1-4  speed", "+ / -  faster, slower", "P  pause when enemies are spotted" }),
+        ("Time", new[] { "Space  pause", "1-4  speed 1x to 8x", "`  half speed", "+ / -  faster, slower", "P  pause when enemies are spotted" }),
         ("Map", new[] { "Wheel  zoom", "WASD, arrows or right-drag  pan", "H or Home  whole system", "Z  zoom in on what is selected", "F  follow (Shift+F: without zooming)",
             "Double-click  open your planet, follow anything else", "L  fleets and planets list", "B  sight shadows, coverage, off", "Map layers ▾  what the map shows" }),
         ("Fleets", new[] { "Click  select · drag a box or Shift+click  several", "Tab / Shift+Tab  next fleet", "Right-click  route or attack (Shift: go now)",

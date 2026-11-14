@@ -123,7 +123,7 @@ public class AutonomyTests
         var (sim, f, _) = Threatened(AutonomyLevel.Free);
         StepDays(sim, 1.0 / 24 * 2);
         Assert.True(f.Retreating);
-        var note = Assert.Single(sim.World.Light.Notes);
+        var note = Assert.Single(sim.World.Light.Notes, n => n.FleetId == f.Id);
         Assert.True(note.ArriveHour > note.Hour + 0.5); // the news takes its light time to get home
     }
 
@@ -152,7 +152,7 @@ public class AutonomyTests
         StepDays(sim, 1.0 / 24 * 2);
         var loaded = Simulation.FromSave(SaveGame.FromJson(sim.ToSave().ToJson()), GameLog.Memory());
         Assert.Equal(AutonomyLevel.Free, loaded.World.FindFleet(f.Id)!.Autonomy);
-        Assert.Single(loaded.World.Light.Notes);
+        Assert.Single(loaded.World.Light.Notes, n => n.FleetId == f.Id);
         for (var i = 0; i < 24; i++) { sim.Step(); loaded.Step(); }
         Assert.Equal(sim.StateHash(), loaded.StateHash());
     }

@@ -488,6 +488,9 @@ public static class Colonies
         SyncBuildings(b);
     }
 
+    /// <summary>What a home's starting mines dig, in order (one mine each).</summary>
+    private static readonly string[] StartMinerals = { "iron", "copper" };
+
     /// <summary>Lays out a home: its starting buildings at their best spots, and a starting stock of goods.</summary>
     public static void StartHome(World w, Body b)
     {
@@ -496,9 +499,12 @@ public static class Colonies
         foreach (var kind in (D.HomeBuildings ?? new List<string>()).Concat(Races.OfBody(w, b).StartBuildings ?? new List<string>()))
         {
             if (Planets.BuildingKind(kind) is not BuildingData data) continue;
-            // The first mine digs iron, which the workshop turns into spare parts.
-            var iron = data.Terrain == "deposit" && !b.Pieces.Any(p => DepositUnder(b, p)?.Mineral == "iron")
-                ? b.Board?.Deposits.Where(d => d.Mineral == "iron" && FitProblem(b, data, d.X, d.Y, false) == null).OrderByDescending(d => d.Rich).FirstOrDefault()
+            // The first mine digs iron (for the workshop's spare parts and the smelter), the second copper (the
+            // smelter's other half), so a home makes alloys from day one.
+            var mineral = data.Terrain != "deposit" ? null
+                : StartMinerals.FirstOrDefault(m => !b.Pieces.Any(p => DepositUnder(b, p)?.Mineral == m));
+            var iron = mineral != null
+                ? b.Board?.Deposits.Where(d => d.Mineral == mineral && FitProblem(b, data, d.X, d.Y, false) == null).OrderByDescending(d => d.Rich).FirstOrDefault()
                 : null;
             if (iron != null) AddPiece(w, b, data, iron.X, iron.Y, false, built: true);
             else if (BestSpot(b, data) is var (x, y, turned)) AddPiece(w, b, data, x, y, turned, built: true);

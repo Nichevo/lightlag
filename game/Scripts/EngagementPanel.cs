@@ -22,7 +22,7 @@ public partial class EngagementPanel : Control
     private static bool _spotOpen;                   // Spotting details folded away by default          // your fleet's ships: one row each with heat and quick buttons
     private string _shipKey = "";
     private readonly List<Action<World, Fleet>> _shipLive = new();
-    private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!;
+    private Button _dodgeOff = null!, _sidestep = null!, _hardBurn = null!, _focused = null!, _spread = null!, _longRange = null!;
     private Button _engage = null!, _hold = null!;
     private EngagementTimeline _timeline = null!;
     private VBoxContainer _together = null!;
@@ -113,7 +113,11 @@ public partial class EngagementPanel : Control
         _spread = Ui.SmallButton("Spread", () => SetFire(FireMode.Spread),
             sp == null ? "" : $"Each gun fires {sp.SlugsPerGun} slugs at once in a fan {sp.FanMm * 1000:#,0} km wide: each hits less often but a sidestep hardly helps. "
                               + $"The guns then cool for {sp.Cooldown:0} reloads.");
-        right.AddChild(Row("Railguns", _focused, _spread));
+        _longRange = Ui.SmallButton("Long range", ToggleLongRange,
+            $"Also fire beyond normal reach, out to {Km(Heat.D.LongRangeMm)}: slugs fly so long that they hit only a ship holding its course "
+            + $"(at best about {GameData.Combat.Railgun.Accuracy * Heat.D.LongAccuracy:P0}), at half the rate. It makes them dodge and burn fuel. "
+            + "The same switch as Long-range fire on the fleet panel.");
+        right.AddChild(Row("Railguns", _focused, _spread, _longRange));
         _engage = Ui.SmallButton("Engage", () => SetStance(Stance.Engage), "Close in and fight whatever comes into contact");
         _hold = Ui.SmallButton("Hold course", () => SetStance(Stance.Hold), "Keep course and fire only at what comes into reach");
         var stance = new HBoxContainer();
@@ -178,7 +182,7 @@ public partial class EngagementPanel : Control
         Position = Vector2.Zero;
         Size = size;
         _headPanel.Size = _headPanel.GetCombinedMinimumSize();
-        _headPanel.Position = new Vector2(Mathf.Max(16, (size.X - _headPanel.Size.X) / 2), 56);
+        _headPanel.Position = new Vector2(Mathf.Max(16, (size.X - _headPanel.Size.X) / 2), Hud.ContentTop + 6);
         var top = _headPanel.Position.Y + _headPanel.Size.Y + 10;
         // The choices scroll when the screen is too short for them all.
         var want = _right.GetCombinedMinimumSize();
@@ -299,6 +303,14 @@ public partial class EngagementPanel : Control
     private void SetFire(FireMode mode)
     {
         if (_screen.EngagementNow is EngagementInfo e) Main.Instance.Sim!.Issue(new SetFireModeCommand(e.Mine.Id, mode));
+    }
+
+    private void ToggleLongRange()
+    {
+        if (_screen.EngagementNow is not EngagementInfo e) return;
+        var sim = Main.Instance.Sim!;
+        var now = sim.PendingCommands.OfType<SetFireControlCommand>().LastOrDefault(c => c.FleetId == e.Mine.Id) is { } p ? p.LongShots : e.Mine.LongShots;
+        sim.Issue(new SetFireControlCommand(e.Mine.Id, !now, e.Mine.MissileLaunch));
     }
 
     private void SetStance(Stance stance)
@@ -467,6 +479,9 @@ public partial class EngagementPanel : Control
         _hardBurn.Modulate = On(dodge == DodgeMode.HardBurn);
         _focused.Modulate = On(fire == FireMode.Focused);
         _spread.Modulate = On(fire == FireMode.Spread);
+        var longShots = pending.OfType<SetFireControlCommand>().LastOrDefault(c => c.FleetId == f.Id)?.LongShots ?? f.LongShots;
+        _longRange.Modulate = On(longShots);
+        _longRange.Text = longShots ? "Long range ✓" : "Long range";
         _engage.Modulate = stance == Stance.Engage ? Ui.Player : new Color(1, 1, 1, 0.7f);
         _hold.Modulate = stance == Stance.Hold ? Ui.Player : new Color(1, 1, 1, 0.7f);
         var ships = w.ShipsOf(f).ToList();
@@ -483,6 +498,7 @@ public partial class EngagementPanel : Control
             ships.Sum(s => s.Missiles) <= 0 ? "Missiles left: NONE (out of missiles)" : $"Missiles left: {ships.Sum(s => s.Missiles)} of {ships.Sum(s => Tech.Racks(w, s))}",
         };
         if (f.Chase is { Problem: string problem }) lines.Add($"Chase trouble: {problem}");
+        if (HoldingFire(w, f, e) is string held) lines.Insert(0, held);
         if (Combat.Surprised(w, f)) lines.Add($"CAUGHT UNAWARES: no return fire or dodging for {(f.SurprisedUntilHour!.Value - w.Hour) * 60:0} more minutes");
         else if (Combat.Unseen(w, f))
             lines.Add($"Unseen: they haven't spotted you. Your first shots catch them unawares for {Combat.SurpriseHours * 60:0} minutes "
@@ -719,6 +735,25 @@ public partial class EngagementPanel : Control
         });
     }
 
+    /// <summary>
+    /// Why this fleet is not firing at the enemy it faces, in words, with what to do about it (or null when nothing holds
+    /// it back): the enemy pulling back and not chased, this fleet pulling back, missiles waiting for a closer launch.
+    /// </summary>
+    private static string? HoldingFire(World w, Fleet f, EngagementInfo e)
+    {
+        if (w.FindFleet(e.EnemyId) is not Fleet enemy || !e.InSight) return null;
+        if (f.Retreating && enemy.Chase?.TargetFleetId != f.Id)
+            return "HOLDING FIRE: your fleet is pulling back, so it doesn't shoot. Pick an option above to fight again.";
+        if (enemy.Retreating && f.Chase?.TargetFleetId != enemy.Id)
+            return $"HOLDING FIRE: {e.EnemyName} is pulling back, and your fleets let a retreating fleet go. "
+                   + "To keep shooting, chase it: pick Burn and engage or Hold at missile range above.";
+        var d = Vec2.Distance(f.Position, enemy.Position);
+        var launch = Heat.LaunchRange(f);
+        if (w.ShipsOf(f).Any(s => s.Missiles > 0) && d > launch && d <= GameData.Combat.Missile.LaunchRangeMm)
+            return $"Missiles wait: this fleet launches from {Km(launch)} (they are {Km(d)} away). Set Launch far on the fleet panel to fire from {Km(GameData.Combat.Missile.LaunchRangeMm)}.";
+        return null;
+    }
+
     /// <summary>What railgun fire is coming in, and how much this fleet's dodge does against it at this range.</summary>
     private static string IncomingLine(World w, EngagementInfo e)
     {
@@ -728,6 +763,10 @@ public partial class EngagementPanel : Control
         var d = Vec2.Distance(e.Mine.Position, enemy.Position);
         var secs = Combat.SlugSeconds(d, enemy, e.Mine);
         string Cut(DodgeMode m) => $"{1 - Combat.DodgeFactor(m, fire, secs):P0}";
+        // Beyond their normal reach: long shots, meant to make you dodge.
+        if (d > Secrecy.RailRange(w, enemy) + 1e-6)
+            return $"Incoming: long-range slugs from {Km(d)}, past their guns' normal reach. Each takes {secs:0} s and hits only a ship holding its course, "
+                   + "so any dodge makes them miss (it costs fuel). Answer in kind with Long range on Railguns, or close in.";
         return $"Incoming: {(fire == FireMode.Spread ? "spread fans" : "aimed slugs")}, arriving in {secs:0} s. "
                + $"A sidestep cuts hits by {Cut(DodgeMode.Sidestep)}, a hard burn by {Cut(DodgeMode.HardBurn)}.";
     }

@@ -295,7 +295,14 @@ public partial class Hud : CanvasLayer
             _eventBanner.Refresh(w);
         BenchProbe.Lap("banner");
             var under = _battle.Text.Length > 0 ? _battle.Position.Y + _battle.Size.Y + 4 : ContentTop + 4;
-            _eventBanner.Position = new Vector2(Mathf.Max(16, (view.X - _eventBanner.Size.X) / 2), under);
+            // Keep it clear of the left-hand panels (Empire, Needs you) and off the full screens, which have their own headers.
+            var left = 16f;
+            foreach (var p in new Control[] { _empire, _side })
+                if (p.Visible) left = Mathf.Max(left, p.Position.X + p.Size.X * p.Scale.X + 12);
+            var x = Mathf.Max(left, (view.X - _eventBanner.Size.X) / 2);
+            if (x + _eventBanner.Size.X > view.X - 16) x = Mathf.Max(left, view.X - 16 - _eventBanner.Size.X);
+            _eventBanner.Position = new Vector2(x, under);
+            if (_research.Visible || _colonies.Visible || _ground.Visible || _fleets.Visible || _ships.Visible) _eventBanner.Visible = false;
         }
         else { _bottomBar.Visible = false; _eventBanner.Visible = false; }
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
@@ -341,6 +348,9 @@ public partial class Hud : CanvasLayer
         BenchProbe.Lap("side-panel");
         var leftEdge = _side.Visible ? 16 + SidePanel.Width + 36 : _tray.Visible ? _tray.Position.X + _tray.Size.X + 16 : 16;
         _contacts.Position = new Vector2(leftEdge, ContentTop + 8);
+        // Under the BATTLE TIME line when the two would overlap.
+        if (_battle.Visible && _battle.Text.Length > 0 && _contacts.GetRect().Intersects(_battle.GetRect()))
+            _contacts.Position = new Vector2(leftEdge, _battle.Position.Y + _battle.Size.Y + 4);
         _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
         var covered = _research.Visible || _colonies.Visible || _fleets.Visible || _ships.Visible || _ground.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
         _engagement.Visible = engagement != null && !covered;
@@ -442,7 +452,20 @@ public partial class Hud : CanvasLayer
         _status.Position = new Vector2(view.X - statusSize.X - 16, ContentTop + 2);
         _plannerPanel.Position = new Vector2(_plannerPanel.Position.X, ContentTop + 44);
         _battle.Position = new Vector2(_battle.Position.X, ContentTop + 4);
+        // The panels that grow up from the bottom-right corner (fleet, planet, group, info) shrink to fit under the
+        // top bar instead of running up behind it; they keep their corner.
+        foreach (var p in new Control[] { _infoPanel, _planetPanel, _fleetPanel, _groupPanel })
+        {
+            if (!p.Visible) continue;
+            var room = view.Y - 16 - (ContentTop + 8);
+            var fit = p.Size.Y > room && room > 0 ? Mathf.Max(MinPanelScale, room / p.Size.Y) : 1f;
+            p.PivotOffset = p.Size;
+            if (!Mathf.IsEqualApprox(p.Scale.X, fit)) p.Scale = new Vector2(fit, fit);
+        }
     }
+
+    /// <summary>The smallest a corner panel shrinks to fit under the top bar (below this its text gets too small to read).</summary>
+    private const float MinPanelScale = 0.7f;
 
     /// <summary>The Needs you badge opens the list, and closes it again when it is already showing.</summary>
     public bool SideVisible => _side.Visible;

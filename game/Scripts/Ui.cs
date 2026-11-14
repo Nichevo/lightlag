@@ -35,6 +35,8 @@ public static class Ui
     public static readonly Color Orbit = new(0.45f, 0.55f, 0.7f, 0.25f);
     public static readonly Color PanelBg = new(0.04f, 0.06f, 0.1f, 0.94f);
     public static readonly Color Danger = new("ff6b6b");
+    /// <summary>Warnings and things on their way (yellow, kept clear of the rival's orange).</summary>
+    public static readonly Color Warn = new("ffdb4d");
 
     public static Label Label(string text, int size = 16, Color? color = null)
     {

@@ -105,6 +105,59 @@ public sealed class BudgetTab
                     + w2.Bodies.Where(b => b.Owner == Side.Player).Sum(b => b.Pieces.Count(p => p.Waiting && Colonies.QueuedWhy(w2, b, p)?.Contains("Industry", StringComparison.Ordinal) == true));
             return n == 1 ? "1 order" : $"{n} orders";
         });
+        // The six shares as one coloured bar, with a key (as in the design).
+        var bar = new HBoxContainer { CustomMinimumSize = new Vector2(Width - 40, 12) };
+        bar.AddThemeConstantOverride("separation", 2);
+        var bs = Budget.Of(w, Side.Player);
+        foreach (var pot in Budget.All)
+        {
+            var share = (float)bs.Pots[(int)pot].Share;
+            if (share <= 0) continue;
+            bar.AddChild(new ColorRect { Color = PotColor(pot), CustomMinimumSize = new Vector2(0, 12), SizeFlagsHorizontal = Godot.Control.SizeFlags.ExpandFill,
+                SizeFlagsStretchRatio = share, TooltipText = $"{bs.Pots[(int)pot].Name} {share:0} %", MouseFilter = Godot.Control.MouseFilterEnum.Pass });
+        }
+        _box.AddChild(bar);
+        var key = new HFlowContainer();
+        key.AddThemeConstantOverride("h_separation", 14);
+        foreach (var pot in Budget.All)
+        {
+            var item = new HBoxContainer();
+            item.AddThemeConstantOverride("separation", 5);
+            item.AddChild(Swatch(pot));
+            item.AddChild(Ui.Label($"{bs.Pots[(int)pot].Name} {bs.Pots[(int)pot].Share:0} %", 11, Ui.Dim));
+            key.AddChild(item);
+        }
+        _box.AddChild(key);
+    }
+
+    /// <summary>Each pot's colour, from the design: ships blue, buildings green, stations gold, refits sand, transport violet, reserve grey.</summary>
+    public static Color PotColor(Pot pot) => pot switch
+    {
+        Pot.Ships => new Color("5ec4ff"),
+        Pot.Buildings => new Color("6fdc9a"),
+        Pot.Stations => new Color("f2cf72"),
+        Pot.Refits => new Color("dcc394"),
+        Pot.Transport => new Color("c99bff"),
+        _ => new Color("8a96a8"),
+    };
+
+    private static ColorRect Swatch(Pot pot) => new()
+    {
+        Color = PotColor(pot), CustomMinimumSize = new Vector2(10, 10), SizeFlagsVertical = Godot.Control.SizeFlags.ShrinkCenter, MouseFilter = Godot.Control.MouseFilterEnum.Ignore,
+    };
+
+    /// <summary>A small outlined tag ("locked", "saving for a goal").</summary>
+    private static PanelContainer Badge(string text, Color color, string tip)
+    {
+        var p = new PanelContainer { TooltipText = tip, SizeFlagsVertical = Godot.Control.SizeFlags.ShrinkCenter };
+        var box = new StyleBoxFlat { BgColor = new Color(color, 0.12f), BorderColor = color };
+        box.SetBorderWidthAll(1);
+        box.SetCornerRadiusAll(4);
+        box.ContentMarginLeft = box.ContentMarginRight = 6;
+        box.ContentMarginTop = box.ContentMarginBottom = 1;
+        p.AddThemeStyleboxOverride("panel", box);
+        p.AddChild(Ui.Label(text, 11, color));
+        return p;
     }
 
     private void Stat(GridContainer grid, string name, Func<World, string> value)
@@ -133,8 +186,9 @@ public sealed class BudgetTab
         var open = Open.Contains(pot);
         var row = Row();
         row.AddChild(Small(open ? "▾" : "▸", () => { if (!Open.Remove(pot)) Open.Add(pot); }, open ? "Close the pot" : "Open the pot: the items drawing on it"));
-        var name = Ui.Label(ps.Name, 14, pot == Pot.Reserve ? Ui.Text : Ui.Player);
-        name.CustomMinimumSize = new Vector2(170, 0);
+        row.AddChild(Swatch(pot));
+        var name = Ui.Label(ps.Name, 14, Ui.Text);
+        name.CustomMinimumSize = new Vector2(156, 0);
         name.TooltipText = Budget.What(pot);
         row.AddChild(name);
         row.AddChild(Small("−", () => _screen.IssueNow(new SetBudgetShareCommand(Side.Player, pot, Math.Max(0, ps.Share - 5)), "setting a budget share"),
@@ -145,6 +199,10 @@ public sealed class BudgetTab
         row.AddChild(share);
         row.AddChild(Small("+", () => _screen.IssueNow(new SetBudgetShareCommand(Side.Player, pot, ps.Share + 5), "setting a budget share"),
             ShareTip(w, pot, +5)));
+        // The share as a bar in the pot's colour.
+        var back = new ColorRect { Color = new Color("1a2230"), CustomMinimumSize = new Vector2(70, 6), SizeFlagsVertical = Godot.Control.SizeFlags.ShrinkCenter, MouseFilter = Godot.Control.MouseFilterEnum.Ignore };
+        back.AddChild(new ColorRect { Color = PotColor(pot), Size = new Vector2((float)(70 * Math.Clamp(ps.Share / 50.0, 0, 1)), 6), MouseFilter = Godot.Control.MouseFilterEnum.Ignore });
+        row.AddChild(back);
         var nums = Ui.Label("", 12, Ui.Dim);
         nums.CustomMinimumSize = new Vector2(150, 0);
         _live.Add((nums, w2 => $"{Budget.PerDay(w2, Side.Player, pot):0.#}/day · {Budget.Of(w2, Side.Player).Pots[(int)pot].Saved:0} saved"));
@@ -154,8 +212,9 @@ public sealed class BudgetTab
                 "Send 50 from Reserve into this pot (the Reserve card below sends more)"));
         var lockB = Small(ps.Locked ? "Locked" : "Lock", () => _screen.IssueNow(new LockPotCommand(Side.Player, pot, !ps.Locked), "locking a pot"),
             ps.Locked ? "Automation leaves this share alone. Press to let it move the share again." : "Stop automation moving this pot's share (a share you set by hand locks it too)");
-        if (ps.Locked) lockB.Modulate = Ui.Rival;
         row.AddChild(lockB);
+        if (ps.Locked) row.AddChild(Badge("locked", Ui.Warn, "Automation leaves this share alone"));
+        if (ps.GoalKey != null) row.AddChild(Badge("saving for a goal", Ui.Warn, $"Saving for {ps.GoalName}: nothing else may spend this pot"));
         var sub = Ui.Label("", 12, Ui.Dim);
         sub.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         sub.CustomMinimumSize = new Vector2(Width - 40, 0);
@@ -202,7 +261,9 @@ public sealed class BudgetTab
         var ps = Budget.Of(w, Side.Player).Pots[(int)pot];
         var row = Row();
         row.AddChild(Spacer(28));
-        var label = Ui.Label("", 13, Ui.Rival);
+        var col = new VBoxContainer();
+        col.AddThemeConstantOverride("separation", 3);
+        var label = Ui.Label("", 13, Ui.Warn);
         label.CustomMinimumSize = new Vector2(330, 0);
         _live.Add((label, w2 =>
         {
@@ -210,7 +271,18 @@ public sealed class BudgetTab
             return p.GoalKey == null ? "" : $"Goal: {p.GoalName} · {p.GoalCost:0}, {Math.Min(p.Saved, p.GoalCost):0} saved";
         }));
         label.TooltipText = "Nothing else may spend this pot while a goal is set, except an urgent defence, which says so in the log.";
-        row.AddChild(label);
+        col.AddChild(label);
+        var back = new ColorRect { Color = new Color("1a2230"), CustomMinimumSize = new Vector2(300, 6), MouseFilter = Godot.Control.MouseFilterEnum.Ignore };
+        var fill = new ColorRect { Color = PotColor(pot), Size = new Vector2(0, 6), MouseFilter = Godot.Control.MouseFilterEnum.Ignore };
+        back.AddChild(fill);
+        col.AddChild(back);
+        _live.Add((label, w2 =>
+        {
+            var p = Budget.Of(w2, Side.Player).Pots[(int)pot];
+            fill.Size = new Vector2(p.GoalCost > 0 ? (float)(300 * Math.Clamp(p.Saved / p.GoalCost, 0, 1)) : 0, 6);
+            return label.Text;
+        }));
+        row.AddChild(col);
         row.AddChild(Small("Add from Reserve", () =>
         {
             var bs = Budget.Of(_screen.World, Side.Player);

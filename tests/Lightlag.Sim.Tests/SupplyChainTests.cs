@@ -128,7 +128,7 @@ public class SupplyChainTests
         }
         Assert.True(passed);
         Assert.True(Colonies.Held(verdant, "rare-earths") >= 1);
-        var row = Assert.Single(SupplyChain.Routes(sim.World, Side.Player), r => r.Fixed && r.FixedRunId != null);
+        var row = Assert.Single(SupplyChain.Routes(sim.World, Side.Player), r => r.Fixed && r.FixedRunId != null && !r.AutoRun);
         Assert.Equal(pale.Id, row.ViaBodyId);
         Assert.Contains(SupplyChain.Book(sim.World, Side.Player).Deliveries, d => d.Good == "rare-earths" && d.RunId == row.FixedRunId);
     }

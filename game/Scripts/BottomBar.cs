@@ -37,7 +37,7 @@ public partial class BottomBar : PanelContainer
     public static Color ColorOf(NeedLevel level) => level switch
     {
         NeedLevel.Urgent => Ui.Danger,
-        NeedLevel.Soon => new Color("ffb347"),
+        NeedLevel.Soon => Ui.Warn, // yellow: orange is the rival's colour on the map
         _ => new Color("6fb6ff"),
     };
 

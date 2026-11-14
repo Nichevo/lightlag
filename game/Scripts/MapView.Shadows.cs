@@ -57,7 +57,8 @@ public partial class MapView
         foreach (var (a, b) in _shadowEdges) DrawDashedLine(a, b, ShadowEdge, 1, 6);
         foreach (var (at, r) in _burnRings) DrawDashedCircle(at, r);
         if (Sight == SightView.Coverage)
-            DrawString(_font, new Vector2(16, 64),
+            // Along the bottom, above the key hint: at the top it sat under the top bar.
+            DrawString(_font, new Vector2(16, Camera.ScreenSize.Y - 40),
                 "Sensor coverage (B): bright = a ship coasting cold is spotted · fainter = a warm ship · faintest, to the dashed edge = a ship burning its engines · grey = hidden behind a body",
                 HorizontalAlignment.Left, -1, 13, new Color(Ui.Text, 0.75f));
     }

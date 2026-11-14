@@ -14,7 +14,9 @@ public partial class SiegePanel : PanelContainer
 {
     private readonly GameScreen _screen;
     private Bands _bands = null!;
-    private Label _title = null!, _defenders = null!, _clock = null!;
+    private Label _title = null!, _defenders = null!, _clock = null!, _countdown = null!, _steps = null!;
+    private VBoxContainer _threats = null!;
+    private string _threatKey = "";
     private Button _low = null!, _high = null!, _far = null!, _land = null!, _board = null!;
     private MenuButton _bomb = null!;
     private int? _fleetId, _bodyId;
@@ -41,6 +43,14 @@ public partial class SiegePanel : PanelContainer
         _clock = Ui.Label("", 12, Ui.Dim);
         _clock.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         v.AddChild(_clock);
+        // The countdown: when troops may land and when the planet may give up, in days.
+        _countdown = Ui.Label("", 13, Ui.Warn);
+        _countdown.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        v.AddChild(_countdown);
+        // Enemy fleets in reach of the fleet in orbit, with what it can do about them.
+        _threats = new VBoxContainer();
+        _threats.AddThemeConstantOverride("separation", 2);
+        v.AddChild(_threats);
         var orders = new HFlowContainer();
         orders.AddThemeConstantOverride("h_separation", 4);
         Button Height(string text, OrbitHeight h, string tip) => Ui.SmallButton(text, () =>
@@ -68,6 +78,9 @@ public partial class SiegePanel : PanelContainer
         }, "");
         foreach (var c in new Control[] { _low, _high, _far, _bomb, _land, _board }) orders.AddChild(c);
         v.AddChild(orders);
+        _steps = Ui.Label("", 12, Ui.Dim);
+        _steps.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        v.AddChild(_steps);
         AddChild(v);
     }
 
@@ -112,17 +125,21 @@ public partial class SiegePanel : PanelContainer
 
         // The siege clock.
         var clock = new List<string>();
-        if (Economy.Blockaded(w, b)) clock.Add($"Blockade day {b.BlockadeHours / 24:0.#}");
+        if (Economy.Blockaded(w, b)) { } // the countdown line below gives the day
         else if (Planets.Contested(w, b)) clock.Add("Orbit contested: no blockade while its guns or station fire");
         else clock.Add("No blockade");
         clock.Add($"happiness {b.Happiness:0} (gives up below {Planets.SurrenderLine(w, attacking ? Side.Player : Side.Rival):0})");
         clock.Add($"food {Colonies.Held(b, "food"):0}");
         if (Ground.HelpComing(w, b) is var (helper, days)) clock.Add($"relief: {helper.Name} in {days:0.#} days");
         _clock.Text = string.Join(" · ", clock);
+        _countdown.Text = Countdown(w, b, attacking ? Side.Player : b.BlockadedBy ?? Side.Rival, attacking);
+        Threats(w, b, mine);
 
         var f = mine;
         foreach (var c in new Control[] { _low, _high, _far, _bomb, _land, _board }) c.Visible = f != null && attacking;
+        _steps.Visible = f != null && attacking;
         if (f == null || !attacking) return;
+        _steps.Text = Steps(w, f, b);
         static Color On(bool on) => on ? Ui.Player : new Color(1, 1, 1, 0.7f);
         _low.Modulate = On(f.OrbitHeight == OrbitHeight.Low);
         _high.Modulate = On(f.OrbitHeight == OrbitHeight.High);
@@ -138,6 +155,83 @@ public partial class SiegePanel : PanelContainer
             var why = Starbases.CanBoard(w, f, station);
             _board.Disabled = why != null;
             _board.TooltipText = why ?? $"{Starbases.GarrisonK(w, station!):0.#}k hold it; take it and its hull, stores and slipway are yours";
+        }
+    }
+
+    /// <summary>
+    /// The siege countdown in days: when the besieger's troops may land and when the planet may give up (never before
+    /// MinBlockadeDays, and only once happiness is under the surrender line, which falls about BlockadedHappinessPerDay a day).
+    /// </summary>
+    private static string Countdown(World w, Body b, Side besieger, bool ours)
+    {
+        if (!Economy.Blockaded(w, b)) return ours ? "COUNTDOWN not started: the clock runs once the blockade holds (armed ships in low or high orbit, no guns firing)." : "";
+        var day = b.BlockadeHours / 24;
+        var parts = new List<string> { $"BLOCKADE DAY {day:0.#}" };
+        var land = Planets.LandWaitDays(w, besieger, b);
+        parts.Add(land > 0 ? $"troops may land in {land:0.#} days (day {Planets.D.LandAfterBlockadeDays:0})" : "troops may land NOW");
+        var line = Planets.SurrenderLine(w, besieger);
+        var minLeft = Math.Max(0, Planets.D.MinBlockadeDays - day);
+        var gap = b.Happiness - line;
+        var rate = Math.Max(0.1, Planets.D.BlockadedHappinessPerDay);
+        var unhappy = gap > 0 ? gap / rate : 0;
+        var giveUp = Math.Max(minLeft, unhappy);
+        parts.Add(giveUp <= 0.05
+            ? "it may give up any hour now"
+            : $"it may give up in about {giveUp:0} days (not before day {Planets.D.MinBlockadeDays:0}; happiness {b.Happiness:0} must fall below {line:0}" + (Ground.HelpComing(w, b) != null ? ", slower while relief is coming" : "") + ")");
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>What the fleet in orbit can do next, in plain words, with when each becomes possible.</summary>
+    private static string Steps(World w, Fleet f, Body b)
+    {
+        var steps = new List<string> { "Your options:" };
+        steps.Add(f.OrbitHeight == OrbitHeight.Far ? "· Far orbit keeps you safe but does NOT blockade: drop to high or low orbit to start the clock." : "· Keep holding: the countdown above runs while you blockade.");
+        steps.Add("· Bomb farms to starve it (it gives up sooner), guns to silence them, mines to cut its output; bombing people leaves a grudge.");
+        var land = Planets.CanLand(w, f, b);
+        steps.Add(land == null ? "· Land troops now: Auto picks the plan." : $"· Land troops: {land}.");
+        steps.Add("· Lift the blockade: give the fleet any other order (fly off, or Fight it ▸ on a fleet above).");
+        return string.Join("\n", steps);
+    }
+
+    /// <summary>Enemy fleets in reach of the fleet in orbit: how far, what reaches them, why fire may be held, and a button to fight.</summary>
+    private void Threats(World w, Body b, Fleet? mine)
+    {
+        var enemies = mine == null ? new List<Fleet>()
+            : w.Fleets.Where(o => o.Side != mine.Side && !Economy.InOrbitAt(o, b) && Sensors.Sees(w, mine.Side, o)
+                                  && Vec2.Distance(o.Position, mine.Position) <= GameData.Combat.ContactRangeMm).OrderBy(o => Vec2.Distance(o.Position, mine.Position)).ToList();
+        var key = string.Join(",", enemies.Select(o => o.Id)) + "|" + mine?.Id;
+        if (key != _threatKey)
+        {
+            _threatKey = key;
+            foreach (var c in _threats.GetChildren()) c.QueueFree();
+            foreach (var o in enemies)
+            {
+                var row = new HBoxContainer();
+                row.AddThemeConstantOverride("separation", 8);
+                var text = Ui.Label("", 12, Ui.Rival);
+                text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+                text.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                text.SetMeta("fleet", o.Id);
+                row.AddChild(text);
+                var id = o.Id;
+                row.AddChild(Ui.SmallButton("Fight it ▸", () => { if (Fleet() is Fleet f) _screen.OpenEngagement(f.Id, id); },
+                    "Open the battle view against this fleet: chase it, hold at missile range, burn past, dodge, long-range fire. Choosing to chase lifts the blockade."));
+                _threats.AddChild(row);
+            }
+        }
+        foreach (var row in _threats.GetChildren().OfType<HBoxContainer>())
+        {
+            var text = row.GetChild<Label>(0);
+            if (mine == null || w.FindFleet((int)text.GetMeta("fleet")) is not Fleet o) continue;
+            var d = Vec2.Distance(o.Position, mine.Position);
+            var missiles = w.ShipsOf(mine).Any(s => s.Missiles > 0) ? Heat.LaunchRange(mine) : 0;
+            var rails = Secrecy.RailRange(w, mine);
+            var reach = d <= rails ? "in railgun and missile reach: your ships fire on it from orbit"
+                : missiles > 0 && d <= missiles ? $"in missile reach: your ships launch at it from orbit (guns at {rails * 1000:#,0} km)"
+                : missiles > 0 ? $"out of reach: missiles launch at {missiles * 1000:#,0} km, guns at {rails * 1000:#,0} km"
+                : $"out of reach: guns at {rails * 1000:#,0} km";
+            var held = o.Retreating && mine.Chase?.TargetFleetId != o.Id ? " HOLDING FIRE: it is pulling back, and your fleets let a retreating fleet go (Fight it ▸ to chase)." : "";
+            text.Text = $"{o.Name} ({o.ShipIds.Count} ships) {d * 1000:#,0} km away, {reach}.{held}";
         }
     }
 

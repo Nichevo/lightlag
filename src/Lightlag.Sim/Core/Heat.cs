@@ -100,7 +100,7 @@ public static class Heat
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
-                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) : 0);
+                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (f.Flight?.CombatBurn == true ? FlightPlanner.CombatBurnHeat : 1) : 0);
                 var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 // Past twice its capacity the hull and crew take the heat instead: it stops climbing, so a ship
                 // can always cool down again in reasonable time.
@@ -197,7 +197,7 @@ public static class Heat
     }
 
     /// <summary>At home: heat sinks are refilled.</summary>
-    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, Fitting.Spec(s).HeatSinks + s.TechSinks);
+    public static void Restock(Ship s) => s.HeatSinks = Math.Max(s.HeatSinks, SupplyLines.MaxSinks(s));
 
     /// <summary>A missile's fuel left as a share of a full load (held missiles arrive with more).</summary>
     public static double FuelShare(Missile m) => GameData.Combat.Missile.DeltaV > 0 ? Math.Clamp(m.DeltaVLeft / GameData.Combat.Missile.DeltaV, 0, 1) : 0;

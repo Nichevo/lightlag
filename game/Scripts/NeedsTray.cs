@@ -45,7 +45,7 @@ public static class NeedsUi
 
     public static Color LevelColor(NeedLevel level) => BottomBar.ColorOf(level);
 
-    public static Color Amber => new("ffb347");
+    public static Color Amber => Ui.Warn;
 
     /// <summary>A choice that is not an order: open the screen where the fix is.</summary>
     public static (string Label, Action Do)? ScreenChoice(GameScreen screen, World w, NeedItem n)

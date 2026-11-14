@@ -33,7 +33,7 @@ public partial class OpsMap : Control
     private readonly List<(Vector2 At, int FleetId)> _fleetSpots = new();
     private readonly List<(Vector2 At, string Key)> _placeSpots = new();
 
-    private static readonly Color Warn = new("ffb347");
+    private static readonly Color Warn = Ui.Warn;
     private static readonly Color Good = new("6fdc8c");
     private static readonly Color Grid = new(0.45f, 0.55f, 0.7f, 0.18f);
 
