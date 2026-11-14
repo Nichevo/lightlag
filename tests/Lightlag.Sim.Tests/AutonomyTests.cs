@@ -110,8 +110,7 @@ public class AutonomyTests
         var rival = w.Fleets.First(x => x.Side == Side.Rival);
         Fleets.EnterDrift(rival);
         rival.Position = f.Position + new Vec2(400, 0);
-        var tamberVelocity = FlightPlanner.PredictBody(w, tamber, w.Hour + 1) - FlightPlanner.PredictBody(w, tamber, w.Hour);
-        rival.Velocity = tamberVelocity + new Vec2(-40, 0); // 40 Mm/h closing, in Tamber's frame
+        rival.Velocity = Sensors.MotionOf(w, f) + new Vec2(-40, 0); // 40 Mm/h closing, in the frigate's own frame
         rival.LastBurnHour = w.Hour;
         rival.Stance = Stance.Hold;
         return (sim, f, rival);

@@ -66,6 +66,7 @@ public sealed class Simulation
         var rng = new SimRandom(seed);
         var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng, options?.RandomStarts == true,
             threeSides: options?.ThirdRace is string third && third != Races.None);
+        Orbits.Slow(world, options?.PlanetOrbitSlowdown ?? Orbits.DefaultPlanetSlowdown);
         if (sandbox == null)
         {
             world.Rules.Happiness = options?.Happiness ?? true;

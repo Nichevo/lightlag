@@ -119,7 +119,8 @@ public class SimTests
     [Fact]
     public void Planets_move_along_their_orbits()
     {
-        var sim = Simulation.NewGame(Scenarios.TestSystem, 9, GameLog.Memory());
+        // True-speed planets (the start choice), so a quarter of a 365-day year is a quarter turn.
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 9, GameLog.Memory(), options: new GameOptions(PlanetOrbitSlowdown: 1));
         var verdant = sim.World.Bodies.Single(b => b.Name == "Verdant");
         var start = verdant.Position;
         sim.StepMany(365 / 4 * GameTime.TicksPerDay);

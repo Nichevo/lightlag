@@ -28,9 +28,34 @@ public class GameDataTests
     [InlineData("tamber", 4333, 20)]       // Jupiter-like
     public void Orbit_periods_come_from_gravity(string key, double expectedDays, double tolerance)
     {
-        var w = Simulation.NewGame(Scenarios.TestSystem, 1, GameLog.Memory()).World;
+        // True Kepler periods, with planets left at true speed (moons are always slowed).
+        var w = Simulation.NewGame(Scenarios.TestSystem, 1, GameLog.Memory(), options: new GameOptions(PlanetOrbitSlowdown: 1)).World;
         var body = w.Bodies.Single(b => b.Key == key);
-        Assert.InRange(body.OrbitPeriodDays, expectedDays - tolerance, expectedDays + tolerance);
+        var slow = body.Kind == BodyKind.Moon ? Orbits.MoonSlowdown : 1;
+        Assert.InRange(body.OrbitPeriodDays / slow, expectedDays - tolerance, expectedDays + tolerance);
+    }
+
+    [Theory]
+    [InlineData(null, 5.0)]
+    [InlineData(1.0, 1.0)]
+    [InlineData(3.0, 3.0)]
+    public void Planet_orbits_are_slowed_by_the_start_choice_and_moons_always_five_times(double? choice, double planetSlow)
+    {
+        var real = Simulation.NewGame(Scenarios.TestSystem, 1, GameLog.Memory(), options: new GameOptions(PlanetOrbitSlowdown: 1)).World;
+        var w = Simulation.NewGame(Scenarios.TestSystem, 1, GameLog.Memory(), options: new GameOptions(PlanetOrbitSlowdown: choice)).World;
+        Assert.Equal(planetSlow, w.Rules.PlanetOrbitSlowdown);
+        foreach (var key in new[] { "verdant", "tamber", "pale", "brim" })
+        {
+            var b = w.Bodies.Single(x => x.Key == key);
+            var trueDays = real.Bodies.Single(x => x.Key == key).OrbitPeriodDays * (b.Kind == BodyKind.Moon ? 1 / Orbits.MoonSlowdown : 1);
+            var slow = b.Kind == BodyKind.Moon ? Orbits.MoonSlowdown : planetSlow;
+            Assert.Equal(trueDays * slow, b.OrbitPeriodDays, 6);
+            // Same start: slowing only changes how fast they go round, not where they begin.
+            Assert.Equal(real.Bodies.Single(x => x.Key == key).Position, b.Position);
+        }
+        // Brim, the fast moon of the giant, now goes round at about a fifth of its true speed.
+        var brim = w.Bodies.Single(x => x.Key == "brim");
+        Assert.InRange((Combat.BodyVelocity(w, brim) - Combat.BodyVelocity(w, w.Bodies.Single(x => x.Key == "tamber"))).Length, 5, 15);
     }
 
     [Fact]

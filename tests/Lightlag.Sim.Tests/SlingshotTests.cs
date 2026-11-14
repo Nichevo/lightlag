@@ -7,9 +7,11 @@ namespace Lightlag.Sim.Tests;
 
 public class SlingshotTests(ITestOutputHelper output)
 {
-    private static Simulation NewGame(ulong seed = 8)
+    // Swings feed on the planet's own orbital speed, so with the default 5x slower planets they rarely beat a
+    // direct trip. Tests of the swing machinery use true-speed planets (the game-start choice "Real").
+    private static Simulation NewGame(ulong seed = 8, double planetSlowdown = Orbits.DefaultPlanetSlowdown)
     {
-        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory()));
+        var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: new GameOptions(PlanetOrbitSlowdown: planetSlowdown)));
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
         return sim;
@@ -49,7 +51,7 @@ public class SlingshotTests(ITestOutputHelper output)
     [Fact]
     public void A_slingshot_is_only_offered_when_it_beats_the_direct_route()
     {
-        var sim = NewGame();
+        var sim = NewGame(planetSlowdown: 1);
         var f = Home(sim);
         foreach (var target in new[] { "azure", "rust", "coldwell" })
         {
@@ -103,7 +105,7 @@ public class SlingshotTests(ITestOutputHelper output)
     [Fact]
     public void The_swing_burn_is_paid_for_when_the_fleet_passes()
     {
-        var sim = NewGame();
+        var sim = NewGame(planetSlowdown: 1);
         var f = Home(sim);
         var (plan, _) = FlightPlanner.BestSlingshot(sim.World, f, To(sim, BodyNamed(sim, "azure"), 0.3, RouteKind.Slingshot));
         Assert.NotNull(plan.Flight);
@@ -119,7 +121,7 @@ public class SlingshotTests(ITestOutputHelper output)
     [Fact]
     public void The_best_slingshot_is_found_and_flown_without_hitting_anything()
     {
-        var sim = NewGame();
+        var sim = NewGame(planetSlowdown: 1);
         var f = Home(sim);
         var req = To(sim, BodyNamed(sim, "azure"), 0.3, RouteKind.Slingshot);
         var (plan, via) = FlightPlanner.BestSlingshot(sim.World, f, req);

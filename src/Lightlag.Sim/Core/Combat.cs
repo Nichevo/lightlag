@@ -217,7 +217,8 @@ public static class Combat
                 // flying closer, manoeuvring, or would close in to fight. Parked or drifting neighbours that
                 // can't (or won't) fight are checked once an hour instead.
                 if (r0.Length > C.ContactRangeMm + 50) return (a, b);
-                if (ma > 0 || mb > 0 || WouldEngage(w, a, b) || WouldEngage(w, b, a)) return (a, b);
+                // A fleet holding orbit fights from orbit and won't close (see HoldsOrbit), so it changes nothing either.
+                if (ma > 0 || mb > 0 || (WouldEngage(w, a, b) && !HoldsOrbit(w, a)) || (WouldEngage(w, b, a) && !HoldsOrbit(w, b))) return (a, b);
                 // A missile fleet passing within launch range gets its shot too (it doesn't close in, so WouldEngage misses it).
                 if (closest <= Math.Max(Heat.LaunchRange(a), Heat.LaunchRange(b)) && (CouldLaunch(w, a, b) || CouldLaunch(w, b, a))) return (a, b);
                 if ((a.Flight is { Started: true } || b.Flight is { Started: true }) && closest < r0.Length - 1) return (a, b);

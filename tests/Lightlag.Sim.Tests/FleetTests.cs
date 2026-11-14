@@ -314,7 +314,8 @@ public class FleetTests
         sim.Issue(new PlanFlightCommand(other.Id, To(vela)));
         StepUntilArrived(sim, other);
 
-        sim.Issue(new GatherFleetsCommand(fleet.Id, new List<int> { other.Id }, 1));
+        // Not flat out: after one trip the frigate is short of supplies for a full-speed run home.
+        sim.Issue(new GatherFleetsCommand(fleet.Id, new List<int> { other.Id }, 0.7));
         sim.Step();
         Assert.Equal(fleet.Id, other.JoinFleetId);
         StepUntilArrived(sim, other);
@@ -537,7 +538,10 @@ public class FleetTests
         // The slow stretch coasts at a fifth of top speed.
         var top = FleetPerformance.Of(sim.World, fleet).MaxSpeed;
         Assert.Contains(f.Legs, l => !l.IsBurn && Math.Abs(l.V0.Length - top * 0.2) < 1e-6);
-        Assert.Equal(2, f.Waypoints.Count);
+        // The two asked-for points come first; the planner may add a turn round a planet in the way after them.
+        Assert.True(f.Waypoints.Count >= 2);
+        Assert.Equal(stop, f.Waypoints[0]);
+        Assert.Equal(stop + new Vec2(0, 15000), f.Waypoints[1]);
     }
 
     [Fact]

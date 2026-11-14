@@ -85,7 +85,7 @@ public class TripFrameTests
         var last = flight.Legs[^1];
         var leaving = FlightPlanner.BodyVelocity(w, verdant, flight.DepartHour);
         var arriving = FlightPlanner.BodyVelocity(w, pale, flight.ArriveHour);
-        Assert.True(leaving.Length > 50, "a planet at 1 AU moves about 107 Mm an hour");
+        Assert.True(leaving.Length > 15, "a planet at 1 AU moves about 21 Mm an hour (5x slower than true)");
         Assert.True(Vec2.Distance(first.V0, leaving) < 0.5, $"{first.V0} vs {leaving}");
         Assert.True(Vec2.Distance(last.VelocityAt(last.End), arriving) < 0.5, $"{last.VelocityAt(last.End)} vs {arriving}");
         Assert.True(Vec2.Distance(flight.Target, FlightPlanner.PredictBody(w, pale, flight.ArriveHour)) < Fleets.OrbitRadiusFor(pale) * 1.01 + 0.1);
@@ -136,7 +136,7 @@ public class TripFrameTests
         var verdant = BodyNamed(sim, "verdant");
         var v = FlightPlanner.TrueVelocity(w, f, w.Hour);
         Assert.True(Vec2.Distance(v, FlightPlanner.BodyVelocity(w, verdant, w.Hour)) < 1e-6);
-        Assert.True(v.Length > 50, "a planet at 1 AU moves about 107 Mm an hour");
+        Assert.True(v.Length > 15, "a planet at 1 AU moves about 21 Mm an hour (5x slower than true)");
         Assert.Same(verdant, FlightPlanner.SystemOf(w, f));
         Assert.Same(verdant, FlightPlanner.SystemOf(w, BodyNamed(sim, "pale")));
         Assert.Null(FlightPlanner.SystemOf(w, BodyNamed(sim, "hesper")));
