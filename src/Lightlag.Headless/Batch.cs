@@ -62,6 +62,8 @@ public static class Batch
         _noHazards = opts.Has("no-hazards");
         // --no-budget: one Industry pool, first come first served (to compare with the budget).
         _noBudget = opts.Has("no-budget");
+        // --orbits 1|3|5: how many times slower than true time planets go round (default 5; moons are always 5).
+        _orbits = opts.Get("orbits") is string orb ? double.Parse(orb, System.Globalization.CultureInfo.InvariantCulture) : null;
         _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
         // --player-race / --rival-race human|hive|random: each side's race (batch: human; nightly: random, so both races get played).
         _races = (opts.Get("player-race") ?? (nightly ? Races.Random : null), opts.Get("rival-race") ?? (nightly ? Races.Random : null));
@@ -145,7 +147,7 @@ public static class Batch
     private static (string? Player, string? Rival) _races;
 
     private static GameOptions? OptionsForRules(string pilot) =>
-        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && _events == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
+        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && _events == null && _orbits == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
                 ChoiceSpread = HeadlessSpread,
@@ -153,10 +155,12 @@ public static class Batch
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
                 Hazards = _noHazards ? false : null, Events = _events, Budget = _noBudget ? false : null,
+                PlanetOrbitSlowdown = _orbits,
             };
 
     private static bool _noHazards;
     private static bool _noBudget;
+    private static double? _orbits;
     private static EventRate? _events;
 
     private static (bool Random, bool Spread, bool NoHappiness, bool NoSupply, bool SingleFuel) _rules;
@@ -267,6 +271,7 @@ public static class Batch
         md.AppendLine($"- Scenario: {scenario}, {days} game days each, rule checks every tick ({(strict ? "strict" : "lenient")})");
         md.AppendLine(_light is { On: true } l ? $"- Light lag: on, light at {l.SpeedFactor:0.##} x real speed" : "- Light lag: off");
         md.AppendLine(_rules.SingleFuel ? "- Fuel types: off (one fuel)" : "- Fuel types: on");
+        md.AppendLine($"- Planet orbits: {_orbits ?? Orbits.DefaultPlanetSlowdown:0.#}x slower than true (moons {Orbits.MoonSlowdown:0}x)");
         if (_autonomy is AutonomyLevel level) md.AppendLine($"- Fleet autonomy: {level}");
         var ended = results.Where(r => r.Player != null && r.Rival != null).ToList();
         if (_light is { On: true } && ended.Count > 0)

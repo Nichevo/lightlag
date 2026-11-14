@@ -130,6 +130,9 @@ public partial class Main : Node
     public bool ContactOffersChoice { get; set; } = true;
     public bool BudgetChoice { get; set; } = true;
 
+    /// <summary>How many times slower than true time planets go round in the next new game (moons are always 5x).</summary>
+    public double PlanetOrbitsChoice { get; set; } = Orbits.DefaultPlanetSlowdown;
+
     /// <summary>Races for the next new game: yours, and the rival's (human, hive or random; see Races).</summary>
     public string PlayerRaceChoice { get; set; } = Races.Human;
     public string RivalRaceChoice { get; set; } = Races.Random;
@@ -148,6 +151,7 @@ public partial class Main : Node
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
+                PlanetOrbitSlowdown = PlanetOrbitsChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());

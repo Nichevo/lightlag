@@ -114,13 +114,16 @@ public static partial class FlightPlanner
 
         var standoffFor = body != null ? Fleets.OrbitRadiusFor(body)
             : enemy != null && req.Arrival == ArrivalStyle.Brake ? GameData.Combat.EngageRangeMm * 0.75 : 0;
+        // A fast pass at a planet aims beside it, at orbit height, so it sweeps past instead of flying on into it
+        // (it used to aim at the near side; with slow orbits the planet no longer moved out of the way in time).
+        Vec2 PassBeside(Vec2 away) => body != null && req.Arrival == ArrivalStyle.FastPass ? new Vec2(-away.Y, away.X) : away;
         Vec2 AimFrom(Vec2 from, double hour)
         {
             if (body == null && enemy == null) return req.Point;
             var p = body != null ? PredictBody(w, body, hour) : Sensors.Predict(w, fleet.Side, enemy!.Id, hour)!.Value;
             var away = (from - p).Normalized();
             if (away == Vec2.Zero) away = new Vec2(1, 0);
-            return p + away * standoffFor;
+            return p + PassBeside(away) * standoffFor;
         }
 
         if (enemy != null && req.Chase != ChaseMode.None)
@@ -141,7 +144,7 @@ public static partial class FlightPlanner
             if (body == null && enemy == null) return c;
             var away = (from - c).Normalized();
             if (away == Vec2.Zero) away = new Vec2(1, 0);
-            return c + away * standoffFor;
+            return c + PassBeside(away) * standoffFor;
         }
         Vec2 RelAim(Vec2 from, double hour) => RelAimIn(frame, from, hour);
 

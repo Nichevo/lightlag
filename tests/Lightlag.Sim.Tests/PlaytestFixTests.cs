@@ -69,7 +69,8 @@ public class PlaytestFixTests
     [Fact]
     public void A_fleet_in_orbit_fights_from_orbit_and_keeps_its_orbit()
     {
-        var sim = NewGame();
+        // Set up with true-speed planet orbits: the fight it was written for (Rust carries the fleet past the enemy).
+        var sim = NewGame(options: new GameOptions(PlanetOrbitSlowdown: 1));
         var w = sim.World;
         var rust = BodyNamed(sim, "rust");
         var mine = FleetOf(sim, Side.Player);

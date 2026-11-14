@@ -150,6 +150,14 @@ public partial class TitleScreen : Control
         events.Selected = (int)main.EventsChoice;
         events.ItemSelected += i => main.EventsChoice = (Lightlag.Sim.Core.EventRate)(int)i;
         row.AddChild(events);
+        row.AddChild(Ui.Label("Planet orbits:", 15, Ui.Dim));
+        var orbits = new OptionButton { FocusMode = FocusModeEnum.None,
+            TooltipText = "How fast planets go round the sun. True speed: planets move at a quarter to a half of a ship's speed, so the map rearranges mid-game and slingshots are strong. 5x slower (default): planets drift, so trips and plans hold steady; slingshots are weak. Moons always go round 5x slower than true" };
+        var orbitChoices = Lightlag.Sim.Core.Orbits.PlanetChoices;
+        foreach (var k in orbitChoices) orbits.AddItem(k <= 1 ? "True speed" : $"{k:0}x slower");
+        orbits.Selected = Math.Max(0, Array.IndexOf(orbitChoices, main.PlanetOrbitsChoice));
+        orbits.ItemSelected += i => main.PlanetOrbitsChoice = orbitChoices[(int)i];
+        row.AddChild(orbits);
         Box("Industry budget", main.BudgetChoice, v => main.BudgetChoice = v,
             "Each day's Industry is split into six pots (ships, buildings, stations, refits, transport, reserve) that save up and pay only for their own things; set shares and goals under Empire > Budget. Off: one pool, spent by whatever asks first");
         Box("Contact offers", main.ContactOffersChoice, v => main.ContactOffersChoice = v,
