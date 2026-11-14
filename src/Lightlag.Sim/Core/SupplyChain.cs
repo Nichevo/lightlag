@@ -440,8 +440,14 @@ public static class SupplyChain
                     var empireMade = all.Sum(b => Colonies.MadePerDay(b, good));
                     var empireUse = all.Sum(b => Colonies.UsePerDay(b, good));
                     cause = FormattableString.Invariant($"No planet has {name} to spare (made {empireMade:0.#} a day, used {empireUse:0.#}).");
-                    if (BuildMakerFix(w, side, good, to) is ChainFix build) fixes.Add(build);
-                    else cause += " Nothing that makes it can be built yet.";
+                    var (build, why) = BuildMakerFix(w, side, good, to);
+                    if (build != null) fixes.Add(build);
+                    else
+                    {
+                        // Say what stands in the way, and offer the research that clears it when there is one.
+                        cause += " " + (why ?? "Nothing that makes it can be built yet.");
+                        if (ResearchFix(w, side, good) is ChainFix study) fixes.Add(study);
+                    }
                 }
                 fixes.Add(new ChainFix("Show chain", "", Ui: $"chain:{good}"));
                 var severity = ShortSeverity(to, good);
@@ -471,25 +477,59 @@ public static class SupplyChain
     }
 
     /// <summary>The building that makes a good, on the planet that wants it if it fits (else the best other one), as a fix.</summary>
-    private static ChainFix? BuildMakerFix(World w, Side side, string good, Body want)
+    /// <summary>
+    /// The building that makes a good, as a fix (queued on the planet when Industry is short: it starts once
+    /// the Buildings pot can pay), or why none can go up anywhere ("Smelter: research X first", "no room").
+    /// </summary>
+    private static (ChainFix? Fix, string? Why) BuildMakerFix(World w, Side side, string good, Body want)
     {
-        var maker = Colonies.Kinds.Where(k => k.Makes != null && k.Makes.ContainsKey(good)).OrderBy(k => k.Cost).ThenBy(k => k.Id, StringComparer.Ordinal).FirstOrDefault();
+        var maker = Colonies.Kinds.Where(k => k.Makes != null && k.Makes.ContainsKey(good) && k.Buildable).OrderBy(k => k.Cost).ThenBy(k => k.Id, StringComparer.Ordinal).FirstOrDefault();
         var places = w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id == want.Id ? 0 : 1)
             .ThenByDescending(b => maker?.Uses?.Keys.Sum(g => Colonies.Held(b, g)) ?? 0).ThenBy(b => b.Id).ToList();
         if (maker != null)
         {
+            string? first = null;
             foreach (var b in places)
+            {
                 if (Colonies.CanPlace(w, side, b.Id, maker.Id, null, null, false) == null)
-                    return new ChainFix($"Build {maker.Name.ToLowerInvariant()} on {b.Name}", Industry(maker.Cost), new BuildOnPlanetCommand(side, b.Id, maker.Id));
-            return null;
+                    return (new ChainFix($"Build {maker.Name.ToLowerInvariant()} on {b.Name}", Industry(maker.Cost), new BuildOnPlanetCommand(side, b.Id, maker.Id)), null);
+                // Short of Industry only: queue it, it starts when the pot can pay.
+                if (Colonies.CanPlace(w, side, b.Id, maker.Id, null, null, false, queue: true) == null)
+                    return (new ChainFix($"Queue {maker.Name.ToLowerInvariant()} on {b.Name}", Industry(maker.Cost) + " when the pot can pay",
+                        new BuildOnPlanetCommand(side, b.Id, maker.Id, Queue: true)), null);
+                first ??= Colonies.CanPlace(w, side, b.Id, maker.Id, null, null, false, queue: true);
+            }
+            return (null, places.Count == 0 ? $"A {maker.Name.ToLowerInvariant()} makes it, but you hold no planet to build on."
+                : $"A {maker.Name.ToLowerInvariant()} makes it, but none can go up: {first}.");
         }
         // A mineral: a mine on a free deposit of it.
         var mine = Planets.BuildingKind("mine");
-        if (mine == null) return null;
+        if (mine == null) return (null, null);
         foreach (var b in places)
             foreach (var d in b.Board!.Deposits.Where(d => d.Mineral == good).OrderByDescending(d => d.Rich).ThenBy(d => d.Y).ThenBy(d => d.X))
                 if (Colonies.CanPlace(w, side, b.Id, mine.Id, d.X, d.Y, false) == null)
-                    return new ChainFix($"Build mine on {b.Name}", Industry(mine.Cost), new BuildOnPlanetCommand(side, b.Id, mine.Id, d.X, d.Y));
+                    return (new ChainFix($"Build mine on {b.Name}", Industry(mine.Cost), new BuildOnPlanetCommand(side, b.Id, mine.Id, d.X, d.Y)), null);
+        return (null, places.Any(b => b.Board!.Deposits.Any(d => d.Mineral == good))
+            ? "Every deposit of it you hold is already mined or has no room."
+            : "None of your planets has a deposit of it: settle or survey one that does.");
+    }
+
+    /// <summary>
+    /// Research that would let the side make a good: the idea a maker building needs, else the first open idea
+    /// that adds room or output for that kind of building. Offered as a fix (queue it), or null.
+    /// </summary>
+    private static ChainFix? ResearchFix(World w, Side side, string good)
+    {
+        var makers = Colonies.Kinds.Where(k => k.Makes != null && k.Makes.ContainsKey(good)).ToList();
+        var ideas = makers.Select(k => k.Needs).OfType<string>().Where(id => !Tech.Has(w, side, id)).ToList();
+        foreach (var id in ideas)
+        {
+            // The idea itself, or the first of its own needs that can start now.
+            var chain = new[] { id }.Concat(GameData.Research(id).Needs ?? new List<string>()).Where(x => !Tech.Has(w, side, x));
+            foreach (var x in chain)
+                if (Economy.CanQueue(w, side, OrderKind.Research, x) == null)
+                    return new ChainFix($"Research {GameData.Research(x).Name}", "", new QueueOrderCommand(side, OrderKind.Research, x));
+        }
         return null;
     }
 

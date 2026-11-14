@@ -370,9 +370,14 @@ public partial class EmpirePanel : PanelContainer
         // Short of something other than Industry: materials, or biomass for a grown ship.
         if (o.Waiting != null && !o.Waiting.Contains("more Industry", StringComparison.Ordinal)) return $"{name}: WAITING, {o.Waiting}";
         var cost = Economy.CostOf(o);
+        // With the Industry budget on, the order waits on its own pot, not the side's whole Industry (the old sum
+        // gave a negative wait when the side held plenty but the pot did not).
+        if (Budget.On(w))
+            return Budget.ShortOf(w, Side.Player, Budget.PotOf(o), cost, "order:" + o.Id) is string why
+                ? $"{name}: waiting for {cost:0} Industry: {why}" : $"{name}: starts next hour";
         var have = Economy.Of(w, Side.Player).Industry;
         var income = Economy.IncomePerDay(w, Side.Player);
-        var wait = income > 0 ? $", about {Format.Hours((cost - have) / income * 24)}" : "";
+        var wait = have >= cost ? ", starts next hour" : income > 0 ? $", about {Format.Hours((cost - have) / income * 24)}" : ", no Industry coming in";
         return $"{name}: waiting for {cost:0} Industry{wait}";
     }
 
