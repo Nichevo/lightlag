@@ -394,8 +394,13 @@ public static class Engagement
             }
             if (worst < now * 1.3 + C.Missile.LaunchRangeMm) return "";
             var closing = (mine.Velocity - s.Velocity).Length;
-            return $" Coming in at {FlightPlanner.Kms(closing)} is too fast to stop short: it flies past them while braking, up to {worst * 1000:#,0} km beyond, then comes back. Burn past uses that speed instead.";
+            return $" Coming in at {FlightPlanner.Kms(closing)} is too fast to stop short even at combat burn: it flies past them while braking, up to {worst * 1000:#,0} km beyond, then comes back. Burn past uses that speed instead.";
         }
+
+        // Close to them the fleet uses the harder combat burn: say so, and what it costs.
+        string Combat(Flight f) => f.CombatBurn
+            ? $" Combat burn: {FlightPlanner.CombatBurnFactor:0}x thrust this close, {FlightPlanner.CombatBurnHeat:0}x engine heat, and it wears on the crews."
+            : "";
 
         double Peak(Flight f) => f.Legs.Count == 0 ? 0 : f.Legs.Max(l => Math.Max(l.V0.Length, l.VelocityAt(l.End).Length));
         var ships = w.ShipsOf(mine).ToList();
@@ -409,10 +414,10 @@ public static class Engagement
             ? $" Burn held to {hb.Ship}'s {hb.Accel / 3.6:0.#} km/s each hour (the others could do {hb.Others / 3.6:0.#}): tick Leave support behind (ships panel) or split it off."
             : "";
         Chase("engage", "Burn and engage", ChaseMode.GunRange, burn,
-            p => $"Burn at {burn:P0} thrust, peaking at {FlightPlanner.Kms(Peak(p.Flight!))}, then brake to {C.EngageRangeMm * 0.75 * 1000:#,0} km and keep pace: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.{Overshoot(p.Flight!)}{held}",
+            p => $"Burn at {burn:P0} thrust, peaking at {FlightPlanner.Kms(Peak(p.Flight!))}, then brake to {C.EngageRangeMm * 0.75 * 1000:#,0} km and keep pace: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.{Combat(p.Flight!)}{Overshoot(p.Flight!)}{held}",
             hasRails ? null : "No working railguns in this fleet");
         Chase("missiles", "Hold at missile range", ChaseMode.MissileRange, burn,
-            p => $"Sit inside missile range ({C.Missile.LaunchRangeMm * 0.8 * 1000:#,0} km) out of their railguns' reach: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.{Overshoot(p.Flight!)}{held}",
+            p => $"Sit inside missile range ({C.Missile.LaunchRangeMm * 0.8 * 1000:#,0} km) out of their railguns' reach: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.{Combat(p.Flight!)}{Overshoot(p.Flight!)}{held}",
             hasMissiles ? null : "No missiles left in this fleet");
         Chase("burn", "Burn past", ChaseMode.Overtake, burn, p =>
         {

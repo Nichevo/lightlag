@@ -396,6 +396,9 @@ public sealed class Flight
 
     /// <summary>A chase flight that first goes round a body in the way; the chase is aimed again when it ends.</summary>
     public bool Detour { get; set; }
+
+    /// <summary>A chase close to an enemy, flown at the harder combat burn (see FlightPlanner.CombatBurnFactor).</summary>
+    public bool CombatBurn { get; set; }
     public const double LaunchHours = 3;
 
     public bool Launching(World w, Body b, double hour)

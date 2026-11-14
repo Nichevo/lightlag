@@ -729,6 +729,20 @@ public static partial class FlightPlanner
     /// the enemy, or (overtake) passes beside it, OvertakePassMm off, at the chosen extra speed. Fuel is the same either way.
     /// Fails, saying why, when the fleet is too slow or short of fuel.
     /// </summary>
+    /// <summary>
+    /// Combat burn: a fleet chasing an enemy fleet within CombatBurnRangeMm may burn CombatBurnFactor times
+    /// harder than its cruising thrust, so it can close and stop near a fight instead of flying through it.
+    /// It costs CombatBurnHeat times the engine heat and CombatBurnStrainPerHour of crew strain while burning.
+    /// </summary>
+    public const double CombatBurnFactor = 10;
+    public const double CombatBurnRangeMm = 1000;
+    public const double CombatBurnHeat = 2;
+    public const double CombatBurnStrainPerHour = 0.02;
+
+    /// <summary>Does a chase of this fleet after that one use the combat burn (hostile, and close enough)?</summary>
+    public static bool UsesCombatBurn(Fleet fleet, Fleet enemy, ChaseMode mode, double gapMm)
+        => enemy.Side != fleet.Side && mode != ChaseMode.Join && gapMm <= CombatBurnRangeMm;
+
     public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf, double? standoffMm = null)
     {
         using var timed = SectionTimer.Time("route-planner");
@@ -785,7 +799,9 @@ public static partial class FlightPlanner
         var aim = mode == ChaseMode.Overtake ? beside * standoff : away * standoff;
 
         // The speed setting is also how hard it burns: a gentle chase thrusts less (a dimmer flare), not just slower at the top.
-        var accel = perf.Accel * Math.Max(0.25, fraction);
+        var combat = UsesCombatBurn(fleet, enemy, mode, r.Length);
+        var thrust = perf.Accel * (combat ? CombatBurnFactor : 1);
+        var accel = thrust * Math.Max(0.25, fraction);
         // Try the fastest closing speed that keeps the real speed within the fleet's limit.
         var closing = top + theirSpeed;
         for (var attempt = 0; attempt < 24; attempt++, closing *= 0.8)
@@ -796,9 +812,9 @@ public static partial class FlightPlanner
             {
                 // Already where it wants to be: just match the enemy's velocity.
                 var dvMatch = u.Length;
-                var t1 = dvMatch / perf.Accel;
+                var t1 = dvMatch / thrust;
                 var legsMatch = new List<FlightLeg>();
-                if (t1 > 1e-9) legsMatch.Add(new FlightLeg(now, now + t1, r, u, u.Normalized() * -perf.Accel));
+                if (t1 > 1e-9) legsMatch.Add(new FlightLeg(now, now + t1, r, u, u.Normalized() * -thrust));
                 stretch = Ended(legsMatch, r + u * (t1 / 2), dvMatch, r, u, now);
             }
             else
@@ -824,6 +840,7 @@ public static partial class FlightPlanner
                 DeltaV = stretch.DeltaV,
                 Legs = legs,
                 Chase = mode,
+                CombatBurn = combat,
             };
             if (stretch.DeltaV > perf.DeltaVLeft + 1e-9)
                 return new FlightPlan(false,

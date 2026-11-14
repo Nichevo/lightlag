@@ -179,6 +179,8 @@ public static class Chases
             // Far off, a quarry seen burning is re-aimed at every few hours, not every hour of its burn.
             var want = FlightPlanner.ChaseDistance(c.Mode);
             if (turned && !detoured && now - c.PlannedHour < FarReaimHours && gapNow > (want ?? 0) * FarStandoffs + 50) turned = false;
+            // Come within combat burn range of an enemy: re-plan once so the harder burn is used for the approach.
+            if (f.Flight is { CombatBurn: false } && FlightPlanner.UsesCombatBurn(f, target, c.Mode, gapNow)) turned = true;
             // Out of sight for a while: close to where the fleet's own sensors would show it, to look.
             var search = !s.Visible && now - s.Hour >= SearchAfterHours && c.Mode != ChaseMode.Overtake && (c.Searching || f.Flight == null);
             double? standoff = null;
