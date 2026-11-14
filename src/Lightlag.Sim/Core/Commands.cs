@@ -47,6 +47,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SplitTeamCommand), "splitTeam")]
 [JsonDerivedType(typeof(SetTeamKeptCommand), "setTeamKept")]
 [JsonDerivedType(typeof(SetOrderTeamCommand), "setOrderTeam")]
+[JsonDerivedType(typeof(MoveResearchOrderCommand), "moveResearchOrder")]
 [JsonDerivedType(typeof(SetFitCommand), "setFit")]
 [JsonDerivedType(typeof(SetDesignCommand), "setDesign")]
 [JsonDerivedType(typeof(SaveVariantCommand), "saveVariant")]
