@@ -987,6 +987,8 @@ public static class Planets
                         s.CargoPeople = 0;
                         w.Ships.Remove(s);
                         f.ShipIds.Remove(s.Id);
+                        // Command can pass to a settler ship when nothing better is left; landing it hands command on.
+                        if (Economy.Of(w, s.Side).FlagshipId == s.Id) Light.Succeed(sim, s.Side, s.Position);
                     }
                     if (to.Owner == f.Side)
                         to.Stock["spares"] = Colonies.Held(to, "spares") + Colonies.C.SettlerSpares * ships.Count;

@@ -421,6 +421,25 @@ public class PlanetTests
     }
 
     [Fact]
+    public void A_settler_ship_holding_command_hands_it_on_when_it_lands()
+    {
+        var sim = NewGame(31);
+        sim.RuleCheckEveryTicks = 1;
+        sim.StrictRules = true;
+        var kesh = BodyNamed(sim, "kesh");
+        sim.Issue(new SettleCommand(Side.Player, kesh.Id));
+        Days(sim, GameData.ShipClass("colony-ship").Cost / GameData.Economy.BuildIndustryPerDay + 0.2);
+        var settler = sim.World.Ships.First(s => s.Side == Side.Player && Planets.IsColonyShip(s));
+        // Command passed to it (the destroyers were lost, say).
+        Economy.Of(sim.World, Side.Player).FlagshipId = settler.Id;
+        Days(sim, 75);
+        Assert.Equal(Side.Player, kesh.Owner);
+        Assert.DoesNotContain(sim.World.Ships, s => s.Id == settler.Id);
+        Assert.NotEqual(settler.Id, Economy.Of(sim.World, Side.Player).FlagshipId);
+        Assert.Equal(0, sim.RuleViolations);
+    }
+
+    [Fact]
     public void A_trip_from_a_planet_to_its_own_moon_never_takes_months()
     {
         var sim = NewGame();
