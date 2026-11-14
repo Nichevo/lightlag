@@ -576,7 +576,12 @@ public partial class Main : Node
             await Shoot("28-game-menu");
             game.CloseMenu();
 
+            // The top bar shots play their own game (seed 9); the shots after them expect this one back.
+            var before = Sim!;
             await ShootTopBar(Shoot);
+            Sim = before;
+            SetScreen(new GameScreen());
+            ((GameScreen)_screen!).TogglePause();
             game = (GameScreen)_screen!;
 
             await ShootLightLag(Shoot);

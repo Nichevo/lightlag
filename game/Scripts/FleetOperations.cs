@@ -97,6 +97,8 @@ public partial class FleetScreen
 
     // ---- Layout --------------------------------------------------------------------------------
 
+    private static string ShipsText(int n) => n == 1 ? "1 ship" : $"{n} ships";
+
     private void BuildOperations(World w, List<Fleet> fleets, Fleet? picked)
     {
         var body = Row(12);
@@ -151,7 +153,8 @@ public partial class FleetScreen
 
         // Right: the picked fleet, who covers what, or the strike planner.
         var right = Column(8);
-        right.CustomMinimumSize = new Vector2(470, 0);
+        // A fixed width, so the map keeps its size when the pane changes; long text wraps inside it.
+        right.CustomMinimumSize = new Vector2(530, 0);
         var tabs = Row(4);
         foreach (var (key, label) in new[] { ("fleet", "Fleet"), ("cover", "Who covers what"), ("strike", "Strike planner") })
         {
@@ -161,7 +164,7 @@ public partial class FleetScreen
             tabs.AddChild(b);
         }
         right.AddChild(tabs);
-        var paneScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var paneScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.ShowNever };
         var pane = Column(10);
         pane.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         paneScroll.AddChild(pane);
@@ -192,7 +195,7 @@ public partial class FleetScreen
         var col = Column(1);
         col.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         col.AddChild(Ui.Label($"{f.Name}", 14, picked ? Ui.Player : Ui.Text));
-        col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{g.ShipIds.Count} ships · {Fresh(w2, g)} · {Place(w2, g)}" : "", 12, Ui.Dim));
+        col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{ShipsText(g.ShipIds.Count)} · {Fresh(w2, g)} · {Place(w2, g)}" : "", 12, Ui.Dim));
         col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? Activity(w2, g) : "", 12, new Color("9fd6ff"), wrap: true));
         row.AddChild(col);
         var box = Box(row, 6);
@@ -263,7 +266,7 @@ public partial class FleetScreen
         var roles = HelpCalls.RolesFor(w, f).Select(r => (r, HelpCalls.RoleName(r))).ToList();
         top.AddChild(Pick(roles, f.Role, r => { SetRole(id, r, null); _opsVersion++; }, "Which calls for help it answers by itself when free"));
         head.AddChild(top);
-        head.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{g.ShipIds.Count} ships · strength {Stats.Power(w2, g):0} · {Condition(w2, g)}" : "", 13, Ui.Dim));
+        head.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{ShipsText(g.ShipIds.Count)} · strength {Stats.Power(w2, g):0} · {Condition(w2, g)}" : "", 13, Ui.Dim));
         head.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? FleetPanel.Doing(w2, g) : "", 13, wrap: true));
         pane.AddChild(Box(head));
 
@@ -292,7 +295,7 @@ public partial class FleetScreen
             if (w2.FindFleet(id) is not Fleet g) return "";
             var worse = UncoveredBy(w2, g.Id);
             if (worse.Count == 0) return "Nothing is left uncovered: other fleets or planet guns still cover what it covers.";
-            return string.Join("\n", worse.Select(x => $"{x.Now.Place.Name} goes from {Coverage.StateName(x.Now.State)} to {Coverage.StateName(x.Without.State)}: {x.Without.Why}"));
+            return string.Join("\n", worse.Select(x => $"{x.Now.Place.Name} would go from {Coverage.StateName(x.Now.State)} to {Coverage.StateName(x.Without.State)}: {x.Without.Why}"));
         }, 13, Warn, wrap: true));
         pane.AddChild(Box(leaves));
 
@@ -551,7 +554,7 @@ public partial class FleetScreen
                 if (Preview(w2)?.Legs.Find(l => l.FleetId == id) is not { } leg) return "";
                 if (leg.Problem != null) return $"can't: {leg.Problem}";
                 var leaves = leg.Request is { } r && r.DepartTick > w2.Tick ? $" · leaves in {Coverage.Age(r.DepartTick - w2.Tick)}" : "";
-                return $"{(w2.FindFleet(id) is Fleet g ? $"{g.ShipIds.Count} ships · " : "")}burn {leg.Burn:0.0#}{leaves} · arrives {GameTime.Format(leg.ArriveHour)}{(leg.Supply ? " · supply" : "")}";
+                return $"{(w2.FindFleet(id) is Fleet g ? $"{ShipsText(g.ShipIds.Count)} · " : "")}burn {leg.Burn:0.0#}{leaves} · arrives {GameTime.Format(leg.ArriveHour)}{(leg.Supply ? " · supply" : "")}";
             }, 12, Ui.Dim, wrap: true);
             var infoCol = Column(0);
             infoCol.SizeFlagsHorizontal = SizeFlags.ExpandFill;

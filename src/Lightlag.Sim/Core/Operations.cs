@@ -824,7 +824,7 @@ public static class Strikes
         var fort = body.Owner is Side o && o != side && Starbases.Fort(w, body) != null;
         if (fort) power += Coverage.FortShips * GameData.Ai.EnemyShipValue;
         if (seen.Count == 0 && !fort) return (0, $"nothing seen at {body.Name} in the last {Coverage.ThreatDays:0} days (a guess)");
-        var bits = seen.Select(s => $"{s.Name} ({s.Ships}, {Coverage.Age(w.Hour - s.Hour)} ago)").ToList();
+        var bits = seen.Select(s => $"{s.Name}, {s.Ships} ship{(s.Ships == 1 ? "" : "s")}, seen {Coverage.Age(w.Hour - s.Hour)} ago").ToList();
         if (fort) bits.Add("its station's guns");
         return (power, $"a guess from what was last seen at {body.Name}: {string.Join(", ", bits)}");
     }
