@@ -206,8 +206,11 @@ public partial class OpsMap : Control
                 var at = ToScreen(s.Position);
                 var col = new Color(Ui.SideColor(s.Of), fade);
                 DrawColoredPolygon(new[] { at + new Vector2(0, -7), at + new Vector2(6, 5), at + new Vector2(-6, 5) }, col);
-                DrawString(font, at + new Vector2(9, 4), $"{s.Name} ({s.Ships}) · {(s.Visible ? "now" : Coverage.Age(age) + " ago")}",
-                    HorizontalAlignment.Left, -1, 11, col);
+                // Under the triangle, so it doesn't sit on the planet's own name; kept inside the map.
+                var text = $"{s.Name} ({s.Ships}) · {(s.Visible ? "now" : Coverage.Age(age) + " ago")}";
+                var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 11).X;
+                var x = Mathf.Clamp(at.X - 6, 4, Mathf.Max(4, Size.X - width - 4));
+                DrawString(font, new Vector2(x, at.Y + 19), text, HorizontalAlignment.Left, -1, 11, col);
             }
 
         // The picked fleet's reach: how far five days at full burn takes it on its fuel.
@@ -240,7 +243,7 @@ public partial class OpsMap : Control
             if (f.Flight is { } fl)
                 DrawDashedLine(at, ToScreen(fl.Target), new Color(col, 0.45f), 1, 4);
             if (picked || _zoom > 1.5f)
-                DrawString(font, at + new Vector2(12, -8), f.Name, HorizontalAlignment.Left, -1, 11, new Color(col, picked ? 1 : 0.75f));
+                DrawString(font, at + new Vector2(12, -11), f.Name, HorizontalAlignment.Left, -1, 11, new Color(col, picked ? 1 : 0.75f));
         }
 
         // Scale bar.
