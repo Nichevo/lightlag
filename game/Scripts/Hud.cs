@@ -295,7 +295,14 @@ public partial class Hud : CanvasLayer
             _eventBanner.Refresh(w);
         BenchProbe.Lap("banner");
             var under = _battle.Text.Length > 0 ? _battle.Position.Y + _battle.Size.Y + 4 : ContentTop + 4;
-            _eventBanner.Position = new Vector2(Mathf.Max(16, (view.X - _eventBanner.Size.X) / 2), under);
+            // Keep it clear of the left-hand panels (Empire, Needs you) and off the full screens, which have their own headers.
+            var left = 16f;
+            foreach (var p in new Control[] { _empire, _side })
+                if (p.Visible) left = Mathf.Max(left, p.Position.X + p.Size.X * p.Scale.X + 12);
+            var x = Mathf.Max(left, (view.X - _eventBanner.Size.X) / 2);
+            if (x + _eventBanner.Size.X > view.X - 16) x = Mathf.Max(left, view.X - 16 - _eventBanner.Size.X);
+            _eventBanner.Position = new Vector2(x, under);
+            if (_research.Visible || _colonies.Visible || _ground.Visible || _fleets.Visible || _ships.Visible) _eventBanner.Visible = false;
         }
         else { _bottomBar.Visible = false; _eventBanner.Visible = false; }
         if (_screen.EmpireTabWanted is EmpirePanel.Tab tab) { _empire.Show(tab); _screen.EmpireTabWanted = null; }
