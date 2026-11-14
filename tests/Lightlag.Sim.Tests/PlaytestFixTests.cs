@@ -87,6 +87,34 @@ public class PlaytestFixTests
     }
 
     [Fact]
+    public void Two_fleets_holding_orbit_out_of_railgun_reach_let_time_run_at_normal_speed()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var tamber = BodyNamed(sim, "tamber");
+        foreach (var f in w.Fleets.ToList()) SendAway(f);
+        var mine = FleetOf(sim, Side.Player);
+        var theirs = FleetOf(sim, Side.Rival);
+        PlaceInOrbit(sim, mine, tamber);
+        // The rival parks on the same orbit about 58,000 km round from it: in contact, out of railgun reach.
+        var r = Fleets.OrbitRadiusFor(tamber);
+        var angle = 58.0 / r;
+        theirs.Flight = null;
+        theirs.Position = tamber.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * r;
+        Fleets.EnterOrbit(theirs, tamber);
+        foreach (var s in w.ShipsOf(theirs)) s.Position = theirs.Position + s.FormationOffset;
+        foreach (var f in new[] { mine, theirs }) { f.Stance = Stance.Engage; f.Warm = true; f.LastBurnHour = w.Hour; }
+        var start = w.Hour;
+        while (w.Hour < start + 48) sim.Step();
+        Assert.Equal(HoldStyle.Orbit, mine.Hold);
+        Assert.Equal(HoldStyle.Orbit, theirs.Hold);
+        Assert.NotNull(w.ActiveBattle);
+        // A standoff: after the first hour the game steps whole hours again, not 10-second battle steps.
+        Assert.True(Combat.Standoff(w));
+        Assert.False(Combat.BattlePossible(w));
+    }
+
+    [Fact]
     public void A_fleet_that_left_orbit_to_fight_goes_back_once_the_fight_is_over()
     {
         var sim = NewGame();
