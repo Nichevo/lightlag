@@ -219,6 +219,8 @@ public static class Combat
                 if (r0.Length > C.ContactRangeMm + 50) return (a, b);
                 // A fleet holding orbit fights from orbit and won't close (see HoldsOrbit), so it changes nothing either.
                 if (ma > 0 || mb > 0 || (WouldEngage(w, a, b) && !HoldsOrbit(w, a)) || (WouldEngage(w, b, a) && !HoldsOrbit(w, b))) return (a, b);
+                // Sliding round a shared orbit, in or away: the gap changes, so battle time it is.
+                if (OrbitSlideWanted(w, a, b) != 0 || OrbitSlideWanted(w, b, a) != 0) return (a, b);
                 // A missile fleet passing within launch range gets its shot too (it doesn't close in, so WouldEngage misses it).
                 if (closest <= Math.Max(Heat.LaunchRange(a), Heat.LaunchRange(b)) && (CouldLaunch(w, a, b) || CouldLaunch(w, b, a))) return (a, b);
                 if ((a.Flight is { Started: true } || b.Flight is { Started: true }) && closest < r0.Length - 1) return (a, b);
@@ -264,7 +266,9 @@ public static class Combat
                 sim.Log.Info("combat", $"{f.Name} holds position", new { fleetId = f.Id, enemyId = enemy.Id });
             }
 
-            var wantsToClose = enemy != null && WouldEngage(w, f, enemy) && !HoldsOrbit(w, f);
+            OrbitSlide(sim, f, enemy, dt);
+
+            var wantsToClose = enemy != null && WouldEngage(w, f, enemy) && !HoldsOrbit(w, f) && f.OrbitSlide == 0;
             if (!wantsToClose && !f.Maneuvering) continue;
 
             var perf = FleetPerformance.Of(w, f);
@@ -335,6 +339,124 @@ public static class Combat
         var underFire = w.Missiles.Any(m => m.Side != f.Side && mine.Contains(m.TargetShipId));
         var inReach = w.Fleets.Any(o => o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= C.Railgun.RangeMm && Sensors.Sees(w, f.Side, o));
         return !underFire || inReach;
+    }
+
+    // ---- Sliding round an orbit ---------------------------------------------------------------
+
+    /// <summary>A fleet sliding in stops once the enemy is this share of railgun reach away.</summary>
+    public const double SlideInReach = 0.75;
+
+    /// <summary>Slide speed round the orbit, as hours of the fleet's acceleration (agile fleets slide faster).</summary>
+    public const double SlideAccelHours = 3;
+
+    /// <summary>How long a fleet sliding in keeps going on its last sighting once the enemy is hidden (hours).</summary>
+    public const double SlideOnSightingHours = 3;
+
+    /// <summary>How fast a fleet slides round its orbit (Mm per hour).</summary>
+    public static double SlideSpeed(World w, Fleet f) => FleetPerformance.Of(w, f).Accel * SlideAccelHours;
+
+    /// <summary>
+    /// Two fleets holding orbit at the same planet share the orbit, so the gap between them never changes: in contact
+    /// but out of railgun reach, neither would ever fight. Instead a fleet that would engage slides round (and up or
+    /// down) its orbit towards the enemy until it is in railgun reach. In that standoff even a fleet set to engage only
+    /// if stronger goes in at even odds, so one side always wants the fight. A fleet that won't fight one that would
+    /// slides the other way, to keep the planet between them (planets block sight). Hold position stays put.
+    /// Returns +1 (in), -1 (away) or 0.
+    /// </summary>
+    public static int OrbitSlideWanted(World w, Fleet f, Fleet? enemy)
+    {
+        if (enemy == null || f.Hold != HoldStyle.Orbit || f.Flight != null || f.Maneuvering || f.Retreating || f.Resupplying
+            || f.OrbitBodyId is not int id || w.FindBody(id) is not Body body) return 0;
+        if (Vec2.Distance(enemy.Position, body.Position) > f.OrbitRadius + C.ContactRangeMm) return 0; // not at this planet
+        if (FleetPerformance.Of(w, f).DeltaVLeft <= 1e-3 || w.ShipsOf(f).Any(s => s.Crippled)) return 0;
+        if (f.Stance == Stance.HoldPosition) return 0;
+        var gap = Vec2.Distance(f.Position, enemy.Position);
+        // Even when missiles come in from beyond railgun reach, sliding round beats leaving orbit and coming back.
+        if (WouldEngage(w, f, enemy, 1.0))
+            return gap > C.Railgun.RangeMm * SlideInReach && w.Hour >= f.OrbitSlideRestUntil ? 1 : 0;
+        if (f.Stance != Stance.Engage && !WouldEngage(w, f, enemy, 1.0) && WouldEngage(w, enemy, f, 1.0)
+            && SlideLeft(f, body, enemy.Position, -1) > SlideDoneMm) return -1;
+        return 0;
+    }
+
+    /// <summary>Close enough to where a slide is going (Mm).</summary>
+    public const double SlideDoneMm = 1;
+
+    /// <summary>A slide in that hasn't closed the gap by a fifth in this many hours is given up for SlideRestHours.</summary>
+    public const double SlideGiveUpHours = 6;
+    public const double SlideRestHours = 24;
+
+    /// <summary>Where a slide goes: the change in angle round the planet (as Mm along the orbit) and in height.</summary>
+    private static (double Along, double Up) SlideTo(Fleet f, Body body, Vec2 there, int dir)
+    {
+        var rel = there - body.Position;
+        var targetAngle = DetMath.Atan2(rel.Y, rel.X) + (dir > 0 ? 0 : Math.PI);
+        var low = Math.Min(f.OrbitRadius, Fleets.OrbitRadiusFor(body));
+        var targetRadius = dir > 0 ? Math.Max(low, rel.Length) : f.OrbitRadius;
+        var turn = targetAngle - f.OrbitAngle;
+        while (turn > Math.PI) turn -= 2 * Math.PI;
+        while (turn < -Math.PI) turn += 2 * Math.PI;
+        return (turn * f.OrbitRadius, targetRadius - f.OrbitRadius);
+    }
+
+    private static double SlideLeft(Fleet f, Body body, Vec2 there, int dir)
+    {
+        var (along, up) = SlideTo(f, body, there, dir);
+        return Math.Sqrt(along * along + up * up);
+    }
+
+    /// <summary>Each step: slide round the orbit if the fight calls for it (see OrbitSlideWanted).</summary>
+    private static void OrbitSlide(Simulation sim, Fleet f, Fleet? enemy, double dt)
+    {
+        var w = sim.World;
+        var dir = OrbitSlideWanted(w, f, enemy);
+        Vec2? from = enemy?.Position;
+        // Lost sight of it behind the planet: a fleet sliding in carries on round to where it was last seen going.
+        if (dir == 0 && enemy == null && f.OrbitSlide == 1 && f.OrbitSlideFromId is int lost && f.Hold == HoldStyle.Orbit && f.Flight == null)
+        {
+            var seen = w.Sightings.FirstOrDefault(s => s.SeenBy == f.Side && s.FleetId == lost && w.Hour - s.Hour <= SlideOnSightingHours);
+            if (seen != null && Vec2.Distance(seen.Guess(w.Hour), f.Position) > C.Railgun.RangeMm * SlideInReach) { dir = 1; from = seen.Guess(w.Hour); }
+        }
+        if (dir == 0 || from is not Vec2 there || f.OrbitBodyId is not int id || w.FindBody(id) is not Body body)
+        {
+            if (f.OrbitSlide != 0) sim.Log.Info("combat", $"{f.Name} stops sliding round its orbit", new { fleetId = f.Id });
+            f.OrbitSlide = 0;
+            f.OrbitSlideFromId = null;
+            return;
+        }
+        var speed = SlideSpeed(w, f);
+        if (f.OrbitSlide != dir)
+        {
+            // A small burn to start sliding and another to stop: paid up front. Burning shows on sensors.
+            sim.BurnFuel(f, 2 * speed);
+            f.LastBurnHour = w.Hour;
+            sim.Log.Info("combat", dir > 0 ? $"{f.Name} slides round {body.Name} towards {enemy?.Name ?? "the enemy"}"
+                                           : $"{f.Name} slides round {body.Name} to keep the planet between it and {enemy?.Name ?? "the enemy"}",
+                new { fleetId = f.Id, bodyId = body.Id, enemyId = enemy?.Id, dir, speed });
+        }
+        var gapNow = Vec2.Distance(there, f.Position);
+        if (f.OrbitSlide != dir) { f.OrbitSlideSince = w.Hour; f.OrbitSlideStartGap = gapNow; }
+        f.OrbitSlide = dir;
+        f.OrbitSlideFromId = enemy?.Id ?? f.OrbitSlideFromId;
+        // A chase round the orbit that isn't closing (the enemy slides away as fast): give it up for a while.
+        if (dir > 0 && w.Hour - f.OrbitSlideSince >= SlideGiveUpHours && gapNow > f.OrbitSlideStartGap * 0.8)
+        {
+            f.OrbitSlideRestUntil = w.Hour + SlideRestHours;
+            sim.Log.Info("combat", $"{f.Name} gives up sliding after {enemy?.Name ?? "the enemy"}: it keeps away", new { fleetId = f.Id, gap = gapNow });
+            f.OrbitSlide = 0;
+            f.OrbitSlideFromId = null;
+            return;
+        }
+
+        // Where to go, in angle round the planet and height: in, to the enemy's angle and height; away, the far side.
+        var (along, up) = SlideTo(f, body, there, dir);
+        var left = Math.Sqrt(along * along + up * up);
+        if (left < 1e-9) return;
+        var k = Math.Min(1, speed * dt / left);
+        f.OrbitRadius += up * k;
+        f.OrbitAngle += along * k / Math.Max(1e-9, f.OrbitRadius);
+        if (f.OrbitAngle >= Math.PI * 2) f.OrbitAngle -= Math.PI * 2;
+        if (f.OrbitAngle < 0) f.OrbitAngle += Math.PI * 2;
     }
 
     /// <summary>The body a fleet left orbit at to fight, while it is not retreating or refilling (it goes back there afterwards).</summary>
@@ -443,14 +565,14 @@ public static class Combat
     /// Would this fleet close in to fight that enemy? (Engage stance, sees it, has railguns and fuel, isn't
     /// retreating.) An Engage fleet breaks off a flight to fight; a Hold fleet keeps its course.
     /// </summary>
-    public static bool WouldEngage(World w, Fleet f, Fleet enemy) =>
+    public static bool WouldEngage(World w, Fleet f, Fleet enemy, double strongerBy = StrongerBy) =>
         (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && !f.Resupplying && Chases.LetsEngage(f)
         // A fleet pulling back is let go unless this fleet was told to chase that one (MayFireAt holds fire the same
         // way): closing on a fleet it may not shoot would shadow it for ever and keep the battle going.
         && (!enemy.Retreating || f.Chase?.TargetFleetId == enemy.Id)
         && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
         && HasWorking(w, f, Module.Railguns) && HasRailAmmo(w, f) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
-        && (f.Stance == Stance.Engage || Stronger(w, f));
+        && (f.Stance == Stance.Engage || Stronger(w, f, strongerBy));
 
     /// <summary>The fleet has missiles to launch at an enemy it can see (it may hold fire, but it gets the chance).</summary>
     private static bool CouldLaunch(World w, Fleet f, Fleet enemy) =>
@@ -471,13 +593,13 @@ public static class Combat
     public const double StrongerBy = 1.2;
 
     /// <summary>Does this fleet clearly outgun every enemy it can see in contact range, taken together?</summary>
-    public static bool Stronger(World w, Fleet f)
+    public static bool Stronger(World w, Fleet f, double by = StrongerBy)
     {
         double theirs = 0;
         foreach (var o in w.Fleets)
             if (o.Side != f.Side && Vec2.Distance(o.Position, f.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, o))
                 theirs += Stats.Power(w, o);
-        return Stats.Power(w, f) >= theirs * StrongerBy;
+        return Stats.Power(w, f) >= theirs * by;
     }
 
     /// <summary>Hours of warning an avoiding fleet wants before an enemy reaches it.</summary>
@@ -1016,7 +1138,7 @@ public static class Combat
             });
         }
         if (battle == null) return;
-        if (w.Missiles.Count > 0 || inContact.Any(p => p.A.Maneuvering || p.B.Maneuvering)) battle.Action(t1);
+        if (w.Missiles.Count > 0 || inContact.Any(p => p.A.Maneuvering || p.B.Maneuvering || p.A.OrbitSlide != 0 || p.B.OrbitSlide != 0)) battle.Action(t1);
         foreach (var (a, b) in inContact)
         {
             foreach (var f in new[] { a, b })

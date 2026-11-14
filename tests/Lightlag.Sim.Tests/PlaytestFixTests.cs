@@ -86,24 +86,33 @@ public class PlaytestFixTests
         Assert.Null(mine.LeftOrbitBodyId);
     }
 
-    [Fact]
-    public void Two_fleets_holding_orbit_out_of_railgun_reach_let_time_run_at_normal_speed()
+    /// <summary>Both fleets in orbit at Tamber, the rival some way round the orbit from the player (in Mm along it).</summary>
+    private static (Simulation Sim, Fleet Mine, Fleet Theirs, Body Tamber) SharedOrbit(double apart, Stance mine, Stance theirs)
     {
         var sim = NewGame();
         var w = sim.World;
         var tamber = BodyNamed(sim, "tamber");
         foreach (var f in w.Fleets.ToList()) SendAway(f);
-        var mine = FleetOf(sim, Side.Player);
-        var theirs = FleetOf(sim, Side.Rival);
-        PlaceInOrbit(sim, mine, tamber);
-        // The rival parks on the same orbit about 58,000 km round from it: in contact, out of railgun reach.
-        var r = Fleets.OrbitRadiusFor(tamber);
-        var angle = 58.0 / r;
-        theirs.Flight = null;
-        theirs.Position = tamber.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * r;
-        Fleets.EnterOrbit(theirs, tamber);
-        foreach (var s in w.ShipsOf(theirs)) s.Position = theirs.Position + s.FormationOffset;
-        foreach (var f in new[] { mine, theirs }) { f.Stance = Stance.Engage; f.Warm = true; f.LastBurnHour = w.Hour; }
+        var a = FleetOf(sim, Side.Player);
+        var b = FleetOf(sim, Side.Rival);
+        PlaceInOrbit(sim, a, tamber);
+        var r = a.OrbitRadius;
+        var angle = a.OrbitAngle + apart / r;
+        b.Flight = null;
+        b.Position = tamber.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * r;
+        Fleets.EnterOrbit(b, tamber);
+        foreach (var s in w.ShipsOf(b)) s.Position = b.Position + s.FormationOffset;
+        a.Stance = mine;
+        b.Stance = theirs;
+        foreach (var f in new[] { a, b }) { f.Warm = true; f.LastBurnHour = w.Hour; }
+        return (sim, a, b, tamber);
+    }
+
+    [Fact]
+    public void Two_fleets_holding_position_in_orbit_out_of_railgun_reach_let_time_run_at_normal_speed()
+    {
+        var (sim, mine, theirs, _) = SharedOrbit(58, Stance.HoldPosition, Stance.HoldPosition);
+        var w = sim.World;
         var start = w.Hour;
         while (w.Hour < start + 48) sim.Step();
         Assert.Equal(HoldStyle.Orbit, mine.Hold);
@@ -112,6 +121,67 @@ public class PlaytestFixTests
         // A standoff: after the first hour the game steps whole hours again, not 10-second battle steps.
         Assert.True(Combat.Standoff(w));
         Assert.False(Combat.BattlePossible(w));
+    }
+
+    [Fact]
+    public void A_fleet_that_would_fight_slides_round_its_orbit_into_railgun_reach()
+    {
+        var (sim, mine, theirs, tamber) = SharedOrbit(58, Stance.Engage, Stance.HoldPosition);
+        var w = sim.World;
+        var fuel = w.ShipsOf(mine).Sum(s => s.Supplies);
+        sim.Step(); // sensors pick the enemy up
+        sim.Step();
+        Assert.Equal(1, mine.OrbitSlide);
+        Assert.True(w.ShipsOf(mine).Sum(s => s.Supplies) < fuel, "the slide costs a small burn");
+        var start = w.Hour;
+        while (w.Hour < start + 6 && Vec2.Distance(mine.Position, theirs.Position) > GameData.Combat.Railgun.RangeMm) sim.Step();
+        Assert.True(Vec2.Distance(mine.Position, theirs.Position) <= GameData.Combat.Railgun.RangeMm);
+        // Still in orbit the whole time: claims and blockades carry on.
+        Assert.Equal(HoldStyle.Orbit, mine.Hold);
+        Assert.Equal(tamber.Id, mine.OrbitBodyId);
+        while (w.Hour < start + 8) sim.Step();
+        Assert.Equal(0, mine.OrbitSlide);
+        Assert.True(w.ActiveBattle?.For(Side.Player).RailShots > 0 || w.Battles.Any(b => b.For(Side.Player).RailShots > 0), "it fires once in reach");
+    }
+
+    [Fact]
+    public void Even_fleets_both_set_to_engage_if_stronger_still_fight_over_a_shared_orbit()
+    {
+        var (sim, mine, theirs, _) = SharedOrbit(58, Stance.EngageIfStronger, Stance.EngageIfStronger);
+        sim.Step();
+        sim.Step();
+        // At even odds neither is 20 % stronger, but in a standoff one side always goes in.
+        Assert.True(mine.OrbitSlide == 1 || theirs.OrbitSlide == 1);
+    }
+
+    [Fact]
+    public void A_fleet_that_will_not_fight_slides_away_to_keep_the_planet_between_them()
+    {
+        var (sim, mine, theirs, tamber) = SharedOrbit(80, Stance.Hold, Stance.Engage);
+        var w = sim.World;
+        sim.Step();
+        sim.Step();
+        Assert.Equal(-1, mine.OrbitSlide);
+        Assert.Equal(1, theirs.OrbitSlide);
+        var start = w.Hour;
+        var closest = double.MaxValue;
+        var turned = 0.0;
+        var last = mine.OrbitAngle;
+        while (w.Hour < start + 12)
+        {
+            sim.Step();
+            closest = Math.Min(closest, Vec2.Distance(mine.Position, theirs.Position));
+            turned += mine.OrbitAngle - last;
+            last = mine.OrbitAngle;
+        }
+        // Matched for speed, the chaser never gets it into railgun reach; it has slid well round the planet.
+        Assert.True(closest > GameData.Combat.Railgun.RangeMm, $"closest {closest:0} Mm");
+        Assert.True(Math.Abs(turned) > 0.3, $"turned {turned:0.00} rad");
+        // A chase that can't close is given up for a day rather than circling for ever.
+        while (w.Hour < start + 30 && theirs.OrbitSlideRestUntil < start) sim.Step();
+        Assert.True(theirs.OrbitSlideRestUntil > start);
+        Assert.Equal(HoldStyle.Orbit, mine.Hold);
+        Assert.Equal(tamber.Id, mine.OrbitBodyId);
     }
 
     [Fact]
