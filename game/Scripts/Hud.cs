@@ -442,7 +442,20 @@ public partial class Hud : CanvasLayer
         _status.Position = new Vector2(view.X - statusSize.X - 16, ContentTop + 2);
         _plannerPanel.Position = new Vector2(_plannerPanel.Position.X, ContentTop + 44);
         _battle.Position = new Vector2(_battle.Position.X, ContentTop + 4);
+        // The panels that grow up from the bottom-right corner (fleet, planet, group, info) shrink to fit under the
+        // top bar instead of running up behind it; they keep their corner.
+        foreach (var p in new Control[] { _infoPanel, _planetPanel, _fleetPanel, _groupPanel })
+        {
+            if (!p.Visible) continue;
+            var room = view.Y - 16 - (ContentTop + 8);
+            var fit = p.Size.Y > room && room > 0 ? Mathf.Max(MinPanelScale, room / p.Size.Y) : 1f;
+            p.PivotOffset = p.Size;
+            if (!Mathf.IsEqualApprox(p.Scale.X, fit)) p.Scale = new Vector2(fit, fit);
+        }
     }
+
+    /// <summary>The smallest a corner panel shrinks to fit under the top bar (below this its text gets too small to read).</summary>
+    private const float MinPanelScale = 0.7f;
 
     /// <summary>The Needs you badge opens the list, and closes it again when it is already showing.</summary>
     public bool SideVisible => _side.Visible;

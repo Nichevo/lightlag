@@ -290,7 +290,7 @@ public static class Engagement
             OurState = Sensors.StateOf(mine),
             TheySeeUsAt = Sensors.Range(theirSensor, Sensors.Signature(w, mine)),
             OurRailguns = weRails ? Window(C.Railgun.RangeMm) : null,
-            OurMissiles = weMissiles ? Window(C.Missile.LaunchRangeMm) : null,
+            OurMissiles = weMissiles ? Window(Heat.LaunchRange(mine)) : null, // the fleet's own launch setting (Far, Mid, Close)
             TheirRailguns = theyRails == false ? null : Window(C.Railgun.RangeMm),
             TheirMissiles = theyMissiles == false ? null : Window(C.Missile.LaunchRangeMm),
             EnemyClasses = Sensors.Describe(s),
