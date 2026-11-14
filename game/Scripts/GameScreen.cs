@@ -166,6 +166,9 @@ public partial class GameScreen : Node2D
 
     /// <summary>The fleets screen (K), and the fleet picked on it.</summary>
     public bool ShowFleets { get; set; }
+
+    /// <summary>Which tab of the fleets screen is showing: "fleets" (the list) or "operations" (the map).</summary>
+    public string FleetsTab { get; set; } = "fleets";
     /// <summary>The ships screen (J): designs, models in service and the class tree.</summary>
     public bool ShowShips { get; set; }
     public int? FleetScreenId { get; set; }

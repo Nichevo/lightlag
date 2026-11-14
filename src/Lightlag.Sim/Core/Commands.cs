@@ -9,6 +9,12 @@ namespace Lightlag.Sim.Core;
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(PlanFlightCommand), "planFlight")]
+[JsonDerivedType(typeof(SetPatrolLoopCommand), "setPatrolLoop")]
+[JsonDerivedType(typeof(CoverPlaceCommand), "coverPlace")]
+[JsonDerivedType(typeof(StrikeLegCommand), "strikeLeg")]
+[JsonDerivedType(typeof(SaveStrikePlanCommand), "saveStrikePlan")]
+[JsonDerivedType(typeof(DeleteStrikePlanCommand), "deleteStrikePlan")]
+[JsonDerivedType(typeof(MarkStrikeSentCommand), "markStrikeSent")]
 [JsonDerivedType(typeof(StopFleetCommand), "stopFleet")]
 [JsonDerivedType(typeof(SetHoldCommand), "setHold")]
 [JsonDerivedType(typeof(SplitFleetCommand), "splitFleet")]
@@ -534,6 +540,7 @@ public sealed record SetMissionCommand(int FleetId, Mission Mission, int? BodyId
         fleet.Mission = Mission;
         fleet.MissionBodyId = BodyId;
         fleet.MissionFleetId = EscortFleetId;
+        fleet.Loop = new();
         fleet.MissionLeg = 0;
         fleet.MissionUntil = 0;
         sim.Log.Info("fleet", $"{fleet.Name} mission: {Mission}", new { FleetId, Mission, BodyId, EscortFleetId, Source });

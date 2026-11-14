@@ -44,6 +44,7 @@ public partial class FleetScreen : PanelContainer
         // Under the top bar, so the menu bar stays in view.
         var under = new Vector2(0, Hud.ContentTop);
         if (Position != under || Size != view - under) { Position = under; Size = view - under; }
+        TakeWanted();
         var fleets = Mine(w);
         var picked = _screen.FleetScreenId is int id ? w.FindFleet(id) : null;
         if (picked == null || picked.Side != Side.Player) picked = fleets.FirstOrDefault();
@@ -56,7 +57,8 @@ public partial class FleetScreen : PanelContainer
                     + "|" + _screen.QuietWhenHandled
                     + "|" + string.Join(";", fleets.Select(f => f.Name))
                     + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}"))
-                    + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"));
+                    + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"))
+                    + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : "");
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
@@ -174,7 +176,20 @@ public partial class FleetScreen : PanelContainer
     {
         var top = Row(16);
         top.AddChild(Ui.Label("Fleets", 26, new Color("f2f5fa")));
-        var note = Ui.Label("Pick a fleet to see its ships, role and supplies. Roles let free fleets answer calls for help by themselves", 13, Ui.Dim);
+        foreach (var (key, label, tip) in new[]
+                 {
+                     ("fleets", "Fleets list", "Every fleet with its role, orders, supplies and ships"),
+                     ("operations", "Operations", "The map: who covers what, strikes and patrol loops"),
+                 })
+        {
+            var tab = Ui.SmallButton(label, () => _screen.FleetsTab = key, tip);
+            tab.ToggleMode = true;
+            tab.ButtonPressed = _screen.FleetsTab == key;
+            top.AddChild(tab);
+        }
+        var note = Ui.Label(_screen.FleetsTab == "operations"
+            ? "What is covered and what is not, strikes with several fleets, and patrol loops"
+            : "Pick a fleet to see its ships, role and supplies. Roles let free fleets answer calls for help by themselves", 13, Ui.Dim);
         note.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         top.AddChild(note);
         top.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
@@ -186,6 +201,11 @@ public partial class FleetScreen : PanelContainer
         top.AddChild(quiet);
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowFleets = false, "Close the fleets screen (K or Esc)"));
         _root.AddChild(top);
+        if (_screen.FleetsTab == "operations")
+        {
+            BuildOperations(w, fleets, picked);
+            return;
+        }
 
         var body = Row(14);
         body.SizeFlagsVertical = SizeFlags.ExpandFill;

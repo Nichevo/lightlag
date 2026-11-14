@@ -499,6 +499,7 @@ public static class HelpCalls
         f.PostBodyId = f.Hold == HoldStyle.Orbit && f.OrbitBodyId != null ? f.OrbitBodyId : f.MissionBodyId;
         f.PostMission = f.Mission;
         f.PostMissionBodyId = f.MissionBodyId;
+        f.PostMissionLeg = f.MissionLeg;
         f.Mission = Mission.None;
         f.AnsweringCallId = c.Id;
         f.GuardPosting = false;
@@ -576,9 +577,11 @@ public static class HelpCalls
         if (f.PostMission == Mission.None) return;
         f.Mission = f.PostMission;
         f.MissionBodyId = f.PostMissionBodyId;
-        f.MissionLeg = 0;
+        // Back to the stop it left (a patrol loop goes on from there).
+        f.MissionLeg = f.PostMissionLeg;
         f.MissionUntil = 0;
         f.PostMission = Mission.None;
+        f.PostMissionLeg = 0;
     }
 
     /// <summary>A direct order from command: off the call, and the post is forgotten.</summary>

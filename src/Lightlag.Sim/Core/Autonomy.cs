@@ -40,6 +40,7 @@ public static class Autonomy
     {
         var w = sim.World;
         HelpCalls.Update(sim);
+        Operations.Update(sim);
         FleetNames.RefreshAll(w);
         foreach (var f in w.Fleets.ToList())
         {
@@ -80,6 +81,7 @@ public static class Autonomy
             f.ZoneId = null;
             sim.Log.Info("fleet", $"{f.Name} mission ends: new orders", new { fleetId = f.Id });
         }
+        Operations.Heard(f, command);
     }
 
     /// <summary>Is the fleet cut off from command, and by how many hours of light?</summary>
@@ -169,6 +171,9 @@ public static class Autonomy
                 if (w.FindBody(f.MissionBodyId ?? -1) is not Body b) { End(sim, f, "its target is gone"); return; }
                 if (!Economy.InOrbitAt(f, b) && !Fly(sim, f, b, f.Mission == Mission.Raid ? 0.8 : 0.6))
                     End(sim, f, $"it cannot reach {b.Name}");
+                break;
+            case Mission.Patrol when f.Loop.Count > 0:
+                Operations.LoopRounds(sim, f);
                 break;
             case Mission.Patrol:
                 Rounds(sim, f, PatrolStops(w, f), PatrolDwellHours);
