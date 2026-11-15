@@ -191,6 +191,7 @@ public partial class MapView : Node2D
         _drawClock.Restart();
         DrawMap();
         BenchProbe.Add("MAP-DRAW", _drawClock.Elapsed.TotalMilliseconds);
+        FrameTimes.AddDraw(_drawClock.Elapsed.TotalMilliseconds);
     }
 
     private void DrawMap()

@@ -222,7 +222,8 @@ public static class Light
         var now = w.Hour;
         var marks = w.Light.LastSent;
         var live = new HashSet<string>();
-        void Send(Sighting snap)
+        // An own fleet's class list is only worked out when its report is actually sent (most steps send nothing).
+        void Send(Sighting snap, Fleet? own = null)
         {
             var key = $"{(int)snap.SeenBy}:{snap.FleetId}";
             live.Add(key);
@@ -234,6 +235,7 @@ public static class Light
                 && (snap.Hour <= last.Hour || delay > 0 && snap.Hour - last.Hour < ReportEveryHours - 1e-9)) return;
             if (last != null && !snap.Visible && !last.Visible) return; // nothing new about a fleet out of sight
             marks[key] = new ReportMark(snap.Hour, snap.Visible);
+            if (own != null) snap.Classes = Sensors.ClassesOf(w, own);
             w.Light.Reports.Add(new Report { To = snap.SeenBy, ArriveHour = now + delay, Snapshot = snap.Copy() });
         }
         foreach (var s in w.Sightings) Send(s);
@@ -244,8 +246,8 @@ public static class Light
             {
                 SeenBy = f.Side, Of = f.Side, Own = true, FleetId = f.Id, Name = f.Name, Ships = f.ShipIds.Count, Position = f.Position,
                 Velocity = f.Velocity, State = Sensors.StateOf(f), Hour = now, SpottedHour = now, Visible = true,
-                Classes = Sensors.ClassesOf(w, f), ClassesHour = now,
-            });
+                ClassesHour = now,
+            }, f);
         }
         // Streams that stopped (a fleet destroyed, merged or lost track of) send a last word: gone.
         var gone = marks.Keys.Where(k => !live.Contains(k)).OrderBy(k => k, StringComparer.Ordinal).ToList();

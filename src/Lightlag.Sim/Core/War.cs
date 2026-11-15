@@ -203,9 +203,9 @@ public static class Spoils
             if (!state.Sparked.Contains(id)) state.Sparked.Add(id);
             state.SparkNotes.Add(new SparkNote(id, $"Intel: {why}", w.Hour, queued.Count > 0));
             if (state.SparkNotes.Count > 60) state.SparkNotes.RemoveAt(0);
-            text = $"{why}: the rival has {idea.Name}";
+            text = $"{why}: {Sides.Them(w, them)} has {idea.Name}";
         }
-        else text = $"{why}: nothing new on the rival's research";
+        else text = $"{why}: nothing new on {Sides.Them(w, them)}'s research";
         Learn(sim, side, source, text, points, part ? Parts[sim.Rng.Range(0, Parts.Length)] : null, them);
         sim.Log.Info("intel", "Intel scrap", new { side = side.ToString(), why, text, scraps = state.Spoils.Scraps });
     }

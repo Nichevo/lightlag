@@ -177,7 +177,7 @@ public class HeadingForTests
     [Fact]
     public void A_fleet_chasing_one_enemy_does_not_close_on_another_that_pulls_back()
     {
-        // It may not fire at the one pulling back (MayFireAt), so closing on it would shadow it for ever.
+        // Closing on the one pulling back would shadow it for ever, so it is not chased unless ordered.
         var sim = Simulation.NewGame(Scenarios.TestSystem, 5, GameLog.Memory(),
             sandbox: new SandboxSetup(2, 0, 1, 0, 1, 1, Stance.Hold, Stance.Hold, 20));
         var mine = sim.World.Fleets.First(f => f.Side == Side.Player);
@@ -187,6 +187,9 @@ public class HeadingForTests
         theirs.Retreating = true;
         mine.Chase = new ChaseOrder { TargetFleetId = 99999, Mode = ChaseMode.GunRange };
         Assert.False(Combat.WouldEngage(sim.World, mine, theirs));
+        // By default the guns still fire at it while it is in reach; with Let fleeing go on they hold.
+        Assert.True(Combat.MayFireAt(sim.World, mine, sim.World.ShipsOf(theirs).First()));
+        mine.LetRetreatGo = true;
         Assert.False(Combat.MayFireAt(sim.World, mine, sim.World.ShipsOf(theirs).First()));
         mine.Chase = new ChaseOrder { TargetFleetId = theirs.Id, Mode = ChaseMode.GunRange };
         Assert.True(Combat.WouldEngage(sim.World, mine, theirs));

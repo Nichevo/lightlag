@@ -208,6 +208,8 @@
     "_cueComment": "A fleet already seen leaves a predicted track. Sensors that know where to look see cuedFactor times as far, as long as the fleet is still within cueRadiusMm of where it was predicted to be, plus cueGrowthMmPerHour for each hour since it was last seen (it may have burned). The same holds a contact already in sight, so a fleet near the edge of spotting range does not flicker in and out. A fleet never seen, or one that changed course well off its track, gets no help.",
     "cuedFactor": 3,
     "cueRadiusMm": 30,
-    "cueGrowthMmPerHour": 1
+    "cueGrowthMmPerHour": 1,
+    "_cueAgeComment": "Only a fresh track helps: a sighting last updated more than cueMaxAgeHours ago gives no cue (sensors don't know to look at a spot where a fleet sat weeks ago).",
+    "cueMaxAgeHours": 48
   }
 }

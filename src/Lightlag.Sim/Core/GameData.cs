@@ -104,7 +104,8 @@ public sealed record SpreadData(int SlugsPerGun, double Accuracy, double Cooldow
 /// <summary>Detection numbers (passive sensors). See ship-classes.json for what each means.</summary>
 public sealed record SensorData(double Cold, double Orbit, double Burn, double ExtraShip, double PlanetSensorMm, double ForgetAfterHours,
     double Warm = 1, double WarmHours = 0, double IdentifyMm = 0,
-    double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0, double SoloCold = 1);
+    double CuedFactor = 1, double CueRadiusMm = 0, double CueGrowthMmPerHour = 0, double PlanetBareSensorMm = 0, double SoloCold = 1,
+    double CueMaxAgeHours = double.PositiveInfinity);
 
 /// <summary>A hull slot: W weapon, D defence, U utility, E engine. A pair is two mirrored mounts with one module type. Fit is the standard module ("" empty).</summary>
 public sealed record SlotData(string Type, bool Pair = false, string Fit = "")

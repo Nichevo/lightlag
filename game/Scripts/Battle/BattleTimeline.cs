@@ -75,7 +75,16 @@ public partial class BattleTimeline : Control
         return best;
     }
 
+    private readonly System.Diagnostics.Stopwatch _drawClock = new();
+
     public override void _Draw()
+    {
+        _drawClock.Restart();
+        try { DrawTimeline(); }
+        finally { FrameTimes.AddDraw(_drawClock.Elapsed.TotalMilliseconds); }
+    }
+
+    private void DrawTimeline()
     {
         _marks.Clear();
         var now = Main.Instance.Sim?.World.Hour ?? 0;

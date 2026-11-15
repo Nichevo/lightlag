@@ -296,6 +296,17 @@ public sealed record SetFireControlCommand(int FleetId, bool LongShots, MissileL
     }
 }
 
+/// <summary>Let a retreating enemy go without shooting at it (true), or keep firing while it is in reach (false, the default).</summary>
+public sealed record SetLetRetreatGoCommand(int FleetId, bool LetGo) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Fire control") is not Fleet fleet) return;
+        fleet.LetRetreatGo = LetGo;
+        sim.Log.Info("fleet", $"{fleet.Name} lets a retreating fleet go: {LetGo}", new { FleetId, LetGo, Source });
+    }
+}
+
 /// <summary>
 /// Each destroyer in the fleet drops one salvo to drift dark: the missiles wake after WaitHours and go
 /// for the first enemy ship that passes within reach, until DropWaitHoursMax runs out.

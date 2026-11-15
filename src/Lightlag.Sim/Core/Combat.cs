@@ -1343,21 +1343,26 @@ public static class Combat
         return best;
     }
 
-    /// <summary>
-    /// Whether a fleet's guns may go for this ship. Breaking off is mutual: a fleet pulling back holds its
-    /// fire and is let go, unless one of the two is chasing the other (or the shooter is set to finish off).
-    /// </summary>
     /// <summary>A group this small disengages more easily (see MayFireAt) and is what raiders send out.</summary>
     public const int SmallGroup = 2;
 
+    /// <summary>
+    /// Whether a fleet's guns may go for this ship. A fleet pulling back holds its own fire, unless chased. Its
+    /// enemies keep shooting at it while it is in reach, unless they are set to let a retreating fleet go
+    /// (Fleet.LetRetreatGo): then it is let go unless chased or finished off (one or two ships slip away even then).
+    /// </summary>
     public static bool MayFireAt(World w, Fleet shooter, Ship target)
     {
         if (w.FleetOf(target) is not Fleet them) return true;
-        // A pulling-back fleet is let go unless chased, or finished off; one or two ships slip away even then, unless chased.
-        if (them.Retreating && shooter.Chase?.TargetFleetId != them.Id && (shooter.FireAt != FireAt.Weakest || them.ShipIds.Count <= SmallGroup)) return false;
+        if (LetsGo(shooter, them)) return false;
         if (shooter.Retreating && them.Chase?.TargetFleetId != shooter.Id) return false;
         return true;
     }
+
+    /// <summary>The shooter holds fire at this fleet because it is pulling back and the shooter is set to let it go.</summary>
+    public static bool LetsGo(Fleet shooter, Fleet them) =>
+        them.Retreating && shooter.LetRetreatGo && shooter.Chase?.TargetFleetId != them.Id
+        && (shooter.FireAt != FireAt.Weakest || them.ShipIds.Count <= SmallGroup);
 
     public static bool HasWorking(World w, Fleet f, Module m) => w.ShipsOf(f).Any(s => !s.Out(m) && m switch
     {

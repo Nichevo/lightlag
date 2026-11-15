@@ -441,7 +441,7 @@ public partial class Main : Node
         for (var i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         var fleet = Sim!.World.Fleets.First(f => f.Side == Lightlag.Sim.Core.Side.Player && f.ShipIds.Count > 0 && f.Name.StartsWith("Battle"));
         var scale = double.Parse(System.Environment.GetEnvironmentVariable("BENCH_SCALE") ?? "43", System.Globalization.CultureInfo.InvariantCulture);
-        async Task Measure(string name)
+        async Task Measure(string name, bool input = false)
         {
             game.Follow(fleet.Id, false);
             game.Camera.SetScale(scale, instant: true);
@@ -451,6 +451,7 @@ public partial class Main : Node
             var sw = System.Diagnostics.Stopwatch.StartNew();
             for (var i = 0; i < frames; i++)
             {
+                if (input) game.BenchInput();
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 var p = Performance.GetMonitor(Performance.Monitor.TimeProcess) * 1000;
                 proc += p; worst = Math.Max(worst, p);
@@ -461,6 +462,7 @@ public partial class Main : Node
         }
         if (!game.Paused) game.TogglePause();
         game.BattleView = true; await Measure("battle-view-paused");
+        await Measure("battle-view-paused-mouse", input: true);
         game.BattleView = false; await Measure("map-paused");
         game.ShowFleets = true; await Measure("fleets-screen-paused");
         game.ShowFleets = false;

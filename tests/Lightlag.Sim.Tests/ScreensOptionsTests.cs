@@ -14,7 +14,7 @@ public class ScreensOptionsTests
     // ---- Pause settings -----------------------------------------------------------------------------
 
     [Fact]
-    public void Standard_pause_settings_match_the_old_behaviour()
+    public void Standard_pause_settings_stop_only_for_what_needs_an_order_now()
     {
         var rules = new PauseRules();
         Assert.Equal(PauseRules.Standard, rules.Preset);
@@ -23,6 +23,8 @@ public class ScreensOptionsTests
         Assert.Equal(PauseResponse.Pause, rules[PauseEvent.ShipyardAttacked]);
         Assert.Equal(PauseResponse.Notice, rules[PauseEvent.ResearchDone]);
         Assert.Equal(PauseResponse.Notice, rules[PauseEvent.EnemyClosing]);
+        Assert.Equal(PauseResponse.Notice, rules[PauseEvent.PlanetClaimed]);
+        Assert.Equal(PauseResponse.Notice, rules[PauseEvent.FarBattle]);
     }
 
     [Fact]

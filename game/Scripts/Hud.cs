@@ -234,8 +234,8 @@ public partial class Hud : CanvasLayer
         if (sim == null) return;
         BenchProbe.Start();
         _date.Text = _screen.InBattle ? GameTime.Format(sim.World.Hour) : GameTime.Format(sim.World.Tick);
-        _battle.Text = (_screen.InBattle ? _screen.BattleLine() : "")
-                       + (_screen.RevealAll ? (_screen.InBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
+        _battle.Text = (_screen.MyBattle ? _screen.BattleLine() : "")
+                       + (_screen.RevealAll ? (_screen.MyBattle ? "\n" : "") + "DEBUG: showing every fleet (F7)" : "");
         _reportPanel.Visible = _screen.Report != null;
         if (_screen.Report != null) _reportPanel.Refresh(_screen.Report);
         _replayPanel.Visible = _screen.Replay != null;

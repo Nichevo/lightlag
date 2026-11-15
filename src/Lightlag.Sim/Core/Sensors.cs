@@ -137,7 +137,7 @@ public static class Sensors
     /// </summary>
     public static double Cue(World w, Sighting? s, Vec2 actual, double hour)
     {
-        if (s == null || S.CuedFactor <= 1) return 1;
+        if (s == null || S.CuedFactor <= 1 || hour - s.Hour > S.CueMaxAgeHours) return 1;
         return Vec2.Distance(s.Guess(hour), actual) <= CueRadius(s, hour) ? S.CuedFactor : 1;
     }
 
@@ -229,9 +229,13 @@ public static class Sensors
         FlightPlanner.PredictBody(w, body, hour) + (s.Position - FlightPlanner.PredictBody(w, body, s.Hour));
 
     /// <summary>How far a body the side holds sees: full range at the shipyard or with a sensor station, else like a ship.</summary>
-    public static double PlanetSensorOf(World w, Side side, Body b)
+    public static double PlanetSensorOf(World w, Side side, Body b) =>
+        PlanetSensorOf(w, side, b, Economy.StationBodies(w, side, Economy.SensorStation).Any(x => x.Id == b.Id));
+
+    /// <summary>The same, with whether the body has a sensor station already worked out (once per update for all bodies).</summary>
+    public static double PlanetSensorOf(World w, Side side, Body b, bool hasStation)
     {
-        var station = Economy.StationBodies(w, side, Economy.SensorStation).Any(x => x.Id == b.Id)
+        var station = hasStation
                       || Colonies.Built(b).Any(p => Planets.BuildingKind(p.Kind)?.Sees == true && p.Powered);
         var full = b.Shipyard || S.PlanetBareSensorMm <= 0 || station;
         // Deep-space telescopes: stations and arrays see half again as far.
@@ -274,8 +278,9 @@ public static class Sensors
             var observers = new List<(Vec2 At, double Sensor, int? Body)>();
             foreach (var f in w.Fleets.Where(f => f.Side == side))
                 if (f.Position.IsFinite) observers.Add((f.Position, SensorOf(w, f), null));
+            var stations = Economy.StationBodies(w, side, Economy.SensorStation).Select(x => x.Id).ToHashSet();
             foreach (var b in w.Bodies.Where(b => b.Owner == side))
-                observers.Add((b.Position, PlanetSensorOf(w, side, b), b.Id));
+                observers.Add((b.Position, PlanetSensorOf(w, side, b, stations.Contains(b.Id)), b.Id));
             if (w.Satellites.Count > 0) observers.AddRange(Satellites.Observers(w, side));
 
             foreach (var enemy in w.Fleets.Where(f => f.Side != side))
@@ -318,7 +323,9 @@ public static class Sensors
                 sighting.Hour = now;
                 if (nearest <= IdentifyRange(w, side))
                 {
-                    sighting.Classes = ClassesOf(w, enemy);
+                    // The class list only changes when ships join or leave: re-read it then, and on each whole hour.
+                    if (sighting.Classes.Count != enemy.ShipIds.Count || w.Sub == 0)
+                        sighting.Classes = ClassesOf(w, enemy);
                     sighting.ClassesHour = now;
                 }
             }
