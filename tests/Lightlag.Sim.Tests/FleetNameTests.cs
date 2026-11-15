@@ -186,17 +186,16 @@ public class FleetNameTests
         sim.ApplyPending();
         var zone = Assert.Single(sim.World.Zones, z => z.Side == Side.Player);
         var spots = new List<Vec2>();
-        var flights = 0;
-        var wasFlying = false;
+        var pushes = 0;
         for (var day = 0; day < 8 * 24; day++)
         {
             sim.StepMany(GameTime.TicksPerDay / 24);
-            if (f.Flight != null && !wasFlying) flights++;
-            wasFlying = f.Flight != null;
+            if (f.ZoneBurnHours.Count > 0 && f.ZoneBurnHours[^1] >= sim.World.Hour - 1) pushes++;
             spots.Add(f.Position - zone.Center);
             Assert.True(Vec2.Distance(f.Position, zone.Center) < zone.RadiusMm * 2.5, "stays round its zone");
         }
-        Assert.True(flights >= 3, $"roams with burns now and then ({flights})");
+        // Short pushes (no planned flights with a brake): a few over the eight days.
+        Assert.True(pushes >= 3, $"roams with burns now and then ({pushes})");
         Assert.True(spots.Max(p => p.X) - spots.Min(p => p.X) > zone.RadiusMm * 0.3 || spots.Max(p => p.Y) - spots.Min(p => p.Y) > zone.RadiusMm * 0.3,
             "covers part of the zone");
     }

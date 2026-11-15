@@ -58,24 +58,12 @@ public static class SupplyLines
     public static double FoodDaysFull(World w, Ship s) => MaxFood(s) / Math.Max(0.05, EatFactor(w, s.Side));
 
     /// <summary>
-    /// A fleet's ships stop eating their stores in orbit of one of their side's planets, or beside one of its
-    /// starbases (a starbase, fortress or orbital ring feeds visiting crews).
+    /// A fleet's ships stop eating their stores in orbit of one of their side's planets, or of a planet where one
+    /// of their side's starbases works (it feeds visiting crews).
     /// </summary>
-    public static bool AtOwnBase(World w, Fleet f, List<Fleet>? bases = null)
-    {
-        if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side) return true;
-        foreach (var o in bases ?? BaseFleets(w))
-            if (o.Side == f.Side && Vec2.Distance(o.Position, f.Position) <= BaseReachMm) return true;
-        return false;
-    }
-
-    /// <summary>Fleets holding a starbase, fortress or orbital ring.</summary>
-    public static List<Fleet> BaseFleets(World w) => w.Fleets.Where(o => o.ShipIds.Count > 0 && w.ShipsOf(o).Any(IsBase)).ToList();
-
-    /// <summary>How close a fleet must be to a starbase to eat from it (Mm).</summary>
-    public const double BaseReachMm = 2;
-
-    private static bool IsBase(Ship s) => s.ClassId is "station-starbase" or "station-fortress" or "station-ring";
+    public static bool AtOwnBase(World w, Fleet f) =>
+        f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b) is Body body
+        && (body.Owner == f.Side || w.Starbases.Count > 0 && Starbases.WorkingAt(w, body.Id, f.Side) != null);
 
     /// <summary>A hauler that carries goods between planets (freighters of every kind, sail freighters too).</summary>
     public static bool IsFreighter(Ship s) => s.ClassId is "freighter" or "bulk-freighter" or "sail-freighter";
@@ -184,11 +172,10 @@ public static class SupplyLines
             // Supply lines switched off: ships keep full ammunition and food wherever they are.
             foreach (var s in w.Ships) { s.Ammo = MaxAmmo(s); s.Food = MaxFood(s); }
         }
-        var bases = BaseFleets(w);
         foreach (var f in w.Fleets.ToList())
         {
             if (f.ShipIds.Count == 0) continue;
-            var home = AtOwnBase(w, f, bases);
+            var home = AtOwnBase(w, f);
             var eat = EatFactor(w, f.Side);
             foreach (var s in w.ShipsOf(f))
             {
@@ -218,11 +205,10 @@ public static class SupplyLines
     public static void TenderRestock(Simulation sim)
     {
         var w = sim.World;
-        var bases = BaseFleets(w);
         foreach (var f in w.Fleets.Where(f => f.ShipIds.Count > 1 && f.SupplyRunFor == null && f.TenderOf == null && !f.TenderStays).OrderBy(f => f.Id).ToList())
         {
             var ships = w.ShipsOf(f).ToList();
-            if (ships.All(IsSupplyShip) || !Combat.Armed(w, f) || AtOwnBase(w, f, bases) || f.Retreating || f.Refit != null || Heat.InBattle(w, f)) continue;
+            if (ships.All(IsSupplyShip) || !Combat.Armed(w, f) || AtOwnBase(w, f) || f.Retreating || f.Refit != null || Heat.InBattle(w, f)) continue;
             var low = ships.Where(s => IsSupplyShip(s) && !IsFreighter(s) && CargoShare(s) < TenderRestockBelow).Select(s => s.Id).ToList();
             if (low.Count == 0 || low.Count == ships.Count || DangerAt(w, f.Side, f.Position) != null) continue;
             if (Supply.Nearest(w, f) is not (Body body, _)) continue;
@@ -619,3 +605,15 @@ public sealed record SetSupplyRunCommand(Side Side, int FleetId, int? TargetFlee
         sim.Log.Info("supply", TargetFleetId == null ? $"{f.Name} ends its supply run" : $"{f.Name} starts a supply run", new { FleetId, TargetFleetId, Source });
     }
 }
+
+/// <summary>Keep the fleet's own supply ships with it when their holds run low (a supply run is called instead), or let them go to restock.</summary>
+public sealed record SetTenderStaysCommand(int FleetId, bool Stays) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Tender order") is not Fleet f) return;
+        f.TenderStays = Stays;
+        sim.Log.Info("supply", "Tender restock choice", new { FleetId, Stays, Source });
+    }
+}
+

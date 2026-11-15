@@ -95,6 +95,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetOverflowCommand), "setOverflow")]
 [JsonDerivedType(typeof(SetGoalCommand), "setGoal")]
 [JsonDerivedType(typeof(RankItemCommand), "rankItem")]
+[JsonDerivedType(typeof(MoveQueuedPieceCommand), "moveQueuedPiece")]
+[JsonDerivedType(typeof(SetTenderStaysCommand), "setTenderStays")]
 [JsonDerivedType(typeof(PauseItemCommand), "pauseItem")]
 [JsonDerivedType(typeof(SetPlaceModeCommand), "setPlaceMode")]
 [JsonDerivedType(typeof(SetAutoLevelCommand), "setAutoLevel")]

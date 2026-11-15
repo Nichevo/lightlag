@@ -252,7 +252,8 @@ public static class Lanes
             // Prey or guard: go after what comes into the zone.
             var reach = z.RadiusMm + GameData.Combat.ContactRangeMm;
             var target = w.Fleets.Where(o => o.Side != f.Side && o.ShipIds.Count > 0 && Sensors.Sees(w, f.Side, o) && Vec2.Distance(o.Position, center) <= reach
-                                             && (z.Kind == ZoneKind.Raid && z.Prey && CargoOnly(w, o) || z.Kind == ZoneKind.Guard && Combat.Armed(w, o)))
+                                             && (z.Kind == ZoneKind.Raid && z.Prey && CargoOnly(w, o)
+                                                 || z.Kind == ZoneKind.Guard && Combat.Armed(w, o) && Stats.Power(w, f) >= Stats.Power(w, o) * GuardOdds))
                 .OrderBy(o => Vec2.Distance(o.Position, f.Position)).ThenBy(o => o.Id).FirstOrDefault();
             if (target != null && Combat.Armed(w, f) && FleetPerformance.Of(w, f).DeltaVLeft > 1)
             {
@@ -264,33 +265,114 @@ public static class Lanes
             }
             if (z.Kind == ZoneKind.Picket && f.Stance != Stance.Avoid) f.Stance = Stance.Avoid;
             if (f.Flight != null || f.Maneuvering) continue;
-            var d = Vec2.Distance(f.Position, center);
-            var drift = f.Position + (f.Velocity - VelocityOf(w, z)) * 12 - center; // where it drifts to in half a day, against the zone
-            if (z.Hold == ZoneHold.Roam && d <= z.RadiusMm && w.Hour >= f.NextRoamHour)
-            {
-                // Roam: a small burn to a new spot in the zone, then drift there (the spot is rolled from the seed).
-                var rng = new SimRandom(w.Seed ^ (ulong)f.Id * 0x9E3779B97F4A7C15UL, (ulong)Math.Max(0, (long)w.Hour) * 2 + 1);
-                var angle = rng.Range(0, 2 * Math.PI);
-                var dist = z.RadiusMm * 0.7 * Math.Sqrt(rng.NextDouble());
-                var spot = center + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * dist;
-                f.NextRoamHour = w.Hour + RoamEveryHours * rng.Range(0.67, 1.33);
-                new PlanFlightCommand(f.Id, new FlightRequest(null, spot, 0.1, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick)) { Source = "zone" }.Apply(w, sim);
-                sim.Log.Info("lanes", "Fleet roams its zone", new { fleetId = f.Id, zone = z.Id, spot });
-                continue;
-            }
-            if (d > z.RadiusMm || z.Hold != ZoneHold.StationKeep && drift.Length > z.RadiusMm * 0.9)
-            {
-                // A nudge back in (a slow, cheap burn), or the flight out to the zone.
-                var speed = d > z.RadiusMm * 2 ? 0.6 : 0.15;
-                new PlanFlightCommand(f.Id, new FlightRequest(null, center, speed, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick)) { Source = "zone" }.Apply(w, sim);
-                continue;
-            }
-            if (z.Hold == ZoneHold.StationKeep)
-            {
-                var keep = FuelPerDay(w, f, z) / 24 / Math.Max(1, f.ShipIds.Count);
-                foreach (var s in w.ShipsOf(f)) s.Supplies = Math.Max(0, s.Supplies - keep);
-            }
+            HoldZone(sim, f, z);
         }
+    }
+
+    /// <summary>"Raiding", "Guard" or "Picket": the word a zone's name starts with.</summary>
+    public static string KindWord(ZoneKind k) => k switch { ZoneKind.Raid => "Raiding", ZoneKind.Guard => "Guard", _ => "Picket" };
+
+    /// <summary>What a zone's job means, for the screens.</summary>
+    public static string KindTip(ZoneKind k) => k switch
+    {
+        ZoneKind.Raid => "Raid: wait in the zone and go after enemy cargo and supply ships that pass through",
+        ZoneKind.Guard => "Guard: fight armed enemies that come into the zone, if the fleet is at least as strong",
+        _ => "Picket: watch the zone and warn you; keep out of fights and pull back if attacked",
+    };
+
+    /// <summary>A guard fleet takes on armed intruders only at these odds or better (its strength against theirs).</summary>
+    public const double GuardOdds = 1.0;
+
+    /// <summary>A drifting fleet gives itself a push back across the zone once it would be this share of the way out within half a day.</summary>
+    public const double EdgeShare = 0.85;
+
+    /// <summary>A push back sets the fleet drifting across the zone in about this many hours.</summary>
+    public const double CrossHours = 96;
+
+    /// <summary>A roaming fleet's push to its next spot takes about this many hours to coast there.</summary>
+    public const double RoamCrossHours = 30;
+
+    /// <summary>Beyond this many zone radii from the centre a fleet flies back properly (a planned flight) rather than nudging.</summary>
+    public const double FlyBackRadii = 2;
+
+    /// <summary>
+    /// Holding the zone once there. All of it is judged against the zone itself, so a zone pinned to a planet
+    /// counts as still while it orbits. Drift: coast freely, and only when the fleet would leave the zone within
+    /// half a day, one short push sets it drifting back across to the far side (no braking at the centre, so each
+    /// push buys days). Roam: the same, plus a short push towards a new spot every day or two, again with no
+    /// brake. Station-keep: match the zone's motion every hour and pay a little fuel a day for it.
+    /// </summary>
+    private static void HoldZone(Simulation sim, Fleet f, Zone z)
+    {
+        var w = sim.World;
+        var center = z.Center;
+        var zoneVel = VelocityOf(w, z);
+        var rel = f.Velocity - zoneVel;
+        var d = Vec2.Distance(f.Position, center);
+        if (d > z.RadiusMm * FlyBackRadii)
+        {
+            // Well outside (just arrived from far, or knocked out of it): a planned flight back to the middle.
+            new PlanFlightCommand(f.Id, new FlightRequest(null, center, d > z.RadiusMm * 4 ? 0.6 : 0.2, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick)) { Source = "zone" }.Apply(w, sim);
+            return;
+        }
+        if (z.Hold == ZoneHold.StationKeep)
+        {
+            // Hold still against the zone; drift slowly back in if it is off-centre.
+            var want = d > z.RadiusMm * 0.5 ? (center - f.Position) * (1.0 / CrossHours) : Vec2.Zero;
+            Kick(sim, f, zoneVel + want, quiet: true);
+            var keep = FuelPerDay(w, f, z) / 24 / Math.Max(1, f.ShipIds.Count);
+            foreach (var s in w.ShipsOf(f)) s.Supplies = Math.Max(0, s.Supplies - keep);
+            return;
+        }
+        if (z.Hold == ZoneHold.Roam && d <= z.RadiusMm && w.Hour >= f.NextRoamHour)
+        {
+            // Roam: a short push towards a new spot in the zone (rolled from the seed), then coast through it.
+            var rng = new SimRandom(w.Seed ^ (ulong)f.Id * 0x9E3779B97F4A7C15UL, (ulong)Math.Max(0, (long)w.Hour) * 2 + 1);
+            var angle = rng.Range(0, 2 * Math.PI);
+            var dist = z.RadiusMm * 0.7 * Math.Sqrt(rng.NextDouble());
+            var spot = center + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * dist;
+            f.NextRoamHour = w.Hour + RoamEveryHours * rng.Range(0.67, 1.33);
+            Kick(sim, f, zoneVel + (spot - f.Position) * (1.0 / RoamCrossHours));
+            sim.Log.Info("lanes", "Fleet roams its zone", new { fleetId = f.Id, zone = z.Id, spot });
+            return;
+        }
+        // Drift (and Roam between pushes): coast until it would be near the edge within half a day.
+        var ahead = f.Position + rel * 12 - center;
+        if (ahead.Length <= z.RadiusMm * EdgeShare && d <= z.RadiusMm) return;
+        var across = center - (f.Position - center) * 0.6; // a spot on the far side of the middle
+        Kick(sim, f, zoneVel + (across - f.Position) * (1.0 / CrossHours));
+        sim.Log.Info("lanes", "Fleet pushes back across its zone", new { fleetId = f.Id, zone = z.Id });
+    }
+
+    /// <summary>
+    /// A short burn to a new velocity: fuel for the change, and the burn shows (a quiet station-keeping trim
+    /// below a small change doesn't). Counted for the zone panel's "burns a day".
+    /// </summary>
+    private static void Kick(Simulation sim, Fleet f, Vec2 velocity, bool quiet = false)
+    {
+        var w = sim.World;
+        var dv = (velocity - f.Velocity).Length;
+        if (dv < 1e-6) return;
+        sim.BurnFuel(f, dv);
+        f.Velocity = velocity;
+        if (quiet && dv < 1) return;
+        f.Warm = true;
+        f.LastBurnHour = w.Hour;
+        f.ZoneBurnHours.Add(w.Hour);
+        f.ZoneBurnHours.RemoveAll(h => w.Hour - h > 72);
+    }
+
+    /// <summary>Short burns this fleet made holding its zone in the last day.</summary>
+    public static int BurnsLastDay(World w, Fleet f) => f.ZoneBurnHours.Count(h => w.Hour - h <= 24);
+
+    /// <summary>Hours until a drifting fleet next needs a push back (null: none due within three days, or not drifting).</summary>
+    public static double? NextPushHours(World w, Fleet f, Zone z)
+    {
+        if (z.Hold == ZoneHold.StationKeep || f.Flight != null) return null;
+        var rel = f.Velocity - VelocityOf(w, z);
+        for (var h = 0; h <= 72; h += 2)
+            if ((f.Position + rel * (h + 12) - z.Center).Length > z.RadiusMm * EdgeShare) return h;
+        return null;
     }
 
     /// <summary>How fast a zone moves (a lane zone moves with its bodies), so drifting is judged against it.</summary>
@@ -383,7 +465,7 @@ public sealed record CreateZoneCommand(Side Side, ZoneKind Kind, Vec2 Center, do
             z.AnchorBodyId = pin;
             z.AnchorOffset = Lanes.OffsetFrom(pb.Position, pb.ParentId is int p ? world.FindBody(p)?.Position : null, Center);
         }
-        z.Name = $"{(Kind == ZoneKind.Raid ? "Raiding" : Kind == ZoneKind.Guard ? "Guard" : "Picket")} zone {world.Zones.Count(o => o.Side == Side) + 1}";
+        z.Name = $"{Lanes.KindWord(Kind)} zone {world.Zones.Count(o => o.Side == Side) + 1}";
         world.Zones.Add(z);
         Choices.Note(world, Side, "zone", Kind.ToString().ToLowerInvariant());
         sim.Log.Info("lanes", $"{Side} draws {z.Name}", new { side = Side.ToString(), zone = z.Id, Kind, Center, RadiusMm, FromBodyId, ToBodyId, anchor = z.AnchorBodyId, Source });
@@ -392,7 +474,8 @@ public sealed record CreateZoneCommand(Side Side, ZoneKind Kind, Vec2 Center, do
 }
 
 /// <summary>Move or reshape a zone, change how it is held and whether it preys on passing ships.</summary>
-public sealed record EditZoneCommand(Side Side, int ZoneId, Vec2 Center, double RadiusMm, int? FromBodyId, int? ToBodyId, double T, ZoneHold Hold, bool Prey) : GameCommand
+public sealed record EditZoneCommand(Side Side, int ZoneId, Vec2 Center, double RadiusMm, int? FromBodyId, int? ToBodyId, double T, ZoneHold Hold, bool Prey,
+    ZoneKind? Kind = null) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null;
 
@@ -410,7 +493,16 @@ public sealed record EditZoneCommand(Side Side, int ZoneId, Vec2 Center, double 
         z.T = Math.Clamp(T, 0, 1);
         z.Hold = Hold;
         z.Prey = Prey;
-        sim.Log.Info("lanes", $"{z.Name} changed", new { zone = z.Id, Center, RadiusMm, Hold, Prey, Source });
+        if (Kind is ZoneKind kind && kind != z.Kind)
+        {
+            // A new job: a zone still under its given name takes the new job's name.
+            if (z.Name.StartsWith(Lanes.KindWord(z.Kind) + " zone", StringComparison.Ordinal))
+                z.Name = Lanes.KindWord(kind) + z.Name[Lanes.KindWord(z.Kind).Length..];
+            z.Kind = kind;
+            if (kind == ZoneKind.Raid) z.Prey = true;
+            foreach (var f in world.Fleets.Where(f => f.ZoneId == z.Id && f.Stance == Stance.Avoid && kind != ZoneKind.Picket)) f.Stance = Stance.Engage;
+        }
+        sim.Log.Info("lanes", $"{z.Name} changed", new { zone = z.Id, Center, RadiusMm, Hold, Prey, Kind = z.Kind, Source });
     }
 }
 

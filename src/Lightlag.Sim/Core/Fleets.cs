@@ -338,6 +338,9 @@ public sealed class Fleet
     /// <summary>A fleet roaming its zone (ZoneHold.Roam) picks its next spot at this hour.</summary>
     public double NextRoamHour { get; set; }
 
+    /// <summary>Hours of the short burns made holding a zone lately (for the zone panel's burns a day).</summary>
+    public List<double> ZoneBurnHours { get; set; } = new();
+
     /// <summary>The call for help it is answering now, and the post and mission it goes back to after.</summary>
     public int? AnsweringCallId { get; set; }
     public int? PostBodyId { get; set; }

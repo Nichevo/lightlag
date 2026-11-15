@@ -606,6 +606,19 @@ public static class Colonies
         sim.Log.Info("planets", $"{side} starts a queued {data.Name.ToLowerInvariant()} at {b.Name}", new { side = side.ToString(), bodyId = b.Id, kind = p.Kind, cost = data.Cost });
     }
 
+    /// <summary>
+    /// The planet's queued buildings in the order they will start: the budget's order when the Industry budget is
+    /// on (the order placed, unless moved), else the order placed.
+    /// </summary>
+    public static List<Piece> QueueOrder(World w, Body b)
+    {
+        var waiting = b.Pieces.Where(p => p.Waiting).ToList();
+        if (!Budget.On(w) || b.Owner is not Side side) return waiting;
+        var bs = Budget.Of(w, side);
+        return waiting.Select((p, i) => (p, r: bs.Ranked.IndexOf(Budget.PieceKey(b, p)), i))
+            .OrderBy(x => x.r < 0 ? int.MaxValue : x.r).ThenBy(x => x.i).Select(x => x.p).ToList();
+    }
+
     /// <summary>Why a building can't start now, for the screens: under way behind another, or short of Industry (null: it can).</summary>
     public static string? QueuedWhy(World w, Body b, Piece p)
     {
@@ -1601,3 +1614,41 @@ public sealed record KeepRunCommand(Side Side, int RunId) : GameCommand
         sim.Log.Info("transport", "Run kept by hand", new { side = Side.ToString(), RunId, Source });
     }
 }
+
+/// <summary>
+/// Move a queued building up (Delta below 0) or down the planet's own build queue: it swaps places with its
+/// neighbour on the same planet only, with the Industry budget on or off.
+/// </summary>
+public sealed record MoveQueuedPieceCommand(Side Side, int BodyId, int PieceId, int Delta) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (world.FindBody(BodyId) is not Body b || b.Owner != Side) return;
+        var queue = Colonies.QueueOrder(world, b);
+        var at = queue.FindIndex(p => p.Id == PieceId);
+        if (at < 0) return;
+        var to = Math.Clamp(at + Delta, 0, queue.Count - 1);
+        if (to == at) return;
+        var (p, other) = (queue[at], queue[to]);
+        // With the budget on, its ranked list decides; read it before the planet's own list changes (ties follow that list).
+        if (Budget.On(world))
+        {
+            var bs = Budget.Of(world, Side);
+            var keys = Budget.Items(world, Side).Select(it => it.Key).ToList();
+            var (a, c) = (keys.IndexOf(Budget.PieceKey(b, p)), keys.IndexOf(Budget.PieceKey(b, other)));
+            if (a >= 0 && c >= 0)
+            {
+                (keys[a], keys[c]) = (keys[c], keys[a]);
+                bs.Ranked = keys;
+                bs.CacheStamp = -1;
+            }
+        }
+        // The plain order (budget off): their places in the planet's list.
+        var (i, j) = (b.Pieces.IndexOf(p), b.Pieces.IndexOf(other));
+        (b.Pieces[i], b.Pieces[j]) = (b.Pieces[j], b.Pieces[i]);
+        sim.Log.Info("planets", "Queued building moved", new { side = Side.ToString(), bodyId = BodyId, pieceId = PieceId, Delta, Source });
+    }
+}
+
