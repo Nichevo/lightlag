@@ -42,10 +42,17 @@ public enum RouteKind { Direct, Wait, Slingshot }
 /// How a fleet chases an enemy fleet. Match speed keeps the gap it has and moves with it; Gun range
 /// closes to railgun range and keeps pace; Missile range keeps pace just inside missile launch range;
 /// Shadow keeps pace just outside the range of the enemy's railguns or missiles; Overtake flies through
-/// it faster than it is moving. Only Gun range hands over to close combat (Engage); the others hold
-/// their distance and fire at what is in reach.
+/// it faster than it is moving; Rail range keeps pace just inside its own railgun reach (outside lances
+/// and close-in fire) and backs off if they charge, while fuel lasts. Only Gun range hands over to close
+/// combat (Engage); the others hold their distance and fire at what is in reach.
 /// </summary>
-public enum ChaseMode { None, MatchSpeed, GunRange, MissileRange, ShadowGuns, ShadowMissiles, Overtake, Join }
+public enum ChaseMode { None, MatchSpeed, GunRange, MissileRange, ShadowGuns, ShadowMissiles, Overtake, Join, RailRange }
+
+/// <summary>Who a ship's point defence shoots for: every ship of the fleet close by, or only missiles aimed at the ship itself (fewer, better-aimed shots, less heat).</summary>
+public enum PdGuard { Fleet, Self }
+
+/// <summary>When a group that split off flies back to the fleet it came from: once mended, once its task is done, or not on its own.</summary>
+public enum RejoinWhen { Mended, Done, Never }
 
 /// <summary>
 /// A standing order to chase an enemy fleet. The flight is planned against where the enemy is expected to
@@ -173,8 +180,20 @@ public sealed class Fleet
     /// <summary>Out to pick up survivors (see Lifeboats), or null.</summary>
     public RescueRun? Rescue { get; set; }
 
-    /// <summary>A ship (or group) that pulled out: rejoin this fleet once mended.</summary>
+    /// <summary>A ship (or group) that split off or pulled out: the fleet it came from, rejoined when RejoinWhen says.</summary>
     public int? RejoinFleetId { get; set; }
+
+    /// <summary>When it flies back to RejoinFleetId: once mended (pulled out hurt), once its task is done, or only by order.</summary>
+    public RejoinWhen RejoinWhen { get; set; }
+
+    /// <summary>Who its point defence shoots for (see PdGuard).</summary>
+    public PdGuard PdGuard { get; set; }
+
+    /// <summary>Its most damaged ship counts as protected (Auto), beside the flagship and ships marked by hand.</summary>
+    public bool ProtectWorst { get; set; } = true;
+
+    /// <summary>The protected ship the formation was last laid out round (0: none).</summary>
+    public int LaidProtect { get; set; }
 
     /// <summary>Unarmed support ships (tenders and the like) stay out of fights this fleet goes into, and rejoin after.</summary>
     public bool LeaveSupportBehind { get; set; }

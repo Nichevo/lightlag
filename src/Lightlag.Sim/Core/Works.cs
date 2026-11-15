@@ -20,7 +20,7 @@ public static class Works
         using (SectionTimer.Time("hazards")) Hazards.Hourly(sim);
         using (SectionTimer.Time("events")) { Events.Update(sim); Events.Lasting(sim); }
         using (SectionTimer.Time("refits")) Refits.Update(sim);
-        using (SectionTimer.Time("battle-rules")) BattleRules.Hourly(sim);
+        using (SectionTimer.Time("battle-rules")) { BattleRules.Hourly(sim); BattleMoves.Hourly(sim); }
     }
 
     /// <summary>Hours an academy takes per batch of scientists (Scientist training: 30 % faster).</summary>

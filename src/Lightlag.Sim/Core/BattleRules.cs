@@ -311,7 +311,7 @@ public static class BattleRules
                 }
                 continue;
             }
-            if (g.RejoinFleetId is int id && g.Flight == null && !g.Retreating && !Heat.InBattle(w, g)
+            if (g.RejoinFleetId is int id && g.RejoinWhen == RejoinWhen.Mended && g.Flight == null && !g.Retreating && !Heat.InBattle(w, g)
                 && w.ShipsOf(g).All(s => Wounds.Worst(w, s) >= 0.95 && !s.Crippled))
             {
                 g.RejoinFleetId = null;

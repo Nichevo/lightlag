@@ -118,7 +118,8 @@ public static class Refits
             if (f.Retreating) return $"Heading for repairs{(f.PullReason != null ? $" ({f.PullReason})" : "")}";
         }
         if (w.Fleets.FirstOrDefault(o => o.SupplyRunFor == f.Id) is Fleet tanker) return $"Supplies coming: {tanker.Name}{(tanker.AutoRun ? " (Auto)" : "")}";
-        if (f.RejoinFleetId is int id && w.FindFleet(id) is Fleet home) return $"Will rejoin {home.Name} once mended";
+        if (f.RejoinFleetId is int id && w.FindFleet(id) is Fleet home && f.RejoinWhen != RejoinWhen.Never)
+            return f.RejoinWhen == RejoinWhen.Done ? $"Will rejoin {home.Name} when done" : $"Will rejoin {home.Name} once mended";
         return null;
     }
 

@@ -1386,7 +1386,7 @@ public partial class GameScreen : Node2D
     }
 
     public static readonly ChaseMode[] ChaseModes =
-        { ChaseMode.MatchSpeed, ChaseMode.GunRange, ChaseMode.MissileRange, ChaseMode.ShadowGuns, ChaseMode.ShadowMissiles, ChaseMode.Overtake };
+        { ChaseMode.MatchSpeed, ChaseMode.GunRange, ChaseMode.MissileRange, ChaseMode.RailRange, ChaseMode.ShadowGuns, ChaseMode.ShadowMissiles, ChaseMode.Overtake };
 
     private FlightRequest Request(PlannerState p) => p.TargetFleetId != null
         ? new(null, p.Point, Settings.Speed, ArrivalStyle.Brake, HoldStyle.Drift, Sim.World.Tick, RouteKind.Direct, p.TargetFleetId,

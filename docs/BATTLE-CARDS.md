@@ -86,3 +86,8 @@ per fleet.
 - **A new approach choice**: add it in `Engagement.Options` in the sim; the Move card lists whatever the sim offers.
 - **A new path on the map**: draw it in `MapView.Battle.cs`, in the same style as the others (see the note at the top of
   that file), and add a row to the legend in `BattleScreen.RefreshLegend`.
+
+## New mechanics and weapons
+
+The sim side (the command, the rule, the rival's use of it, tests) is in `docs/BATTLE-MECHANICS.md`, with a table of
+the mechanics built so far and where each one lives.

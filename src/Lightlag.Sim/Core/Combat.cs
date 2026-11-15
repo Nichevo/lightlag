@@ -269,7 +269,8 @@ public static class Combat
             OrbitSlide(sim, f, enemy, dt);
 
             var wantsToClose = enemy != null && WouldEngage(w, f, enemy) && !HoldsOrbit(w, f) && f.OrbitSlide == 0;
-            if (!wantsToClose && !f.Maneuvering) continue;
+            var tooClose = wantsToClose ? null : RailHoldTooClose(w, f);
+            if (!wantsToClose && !f.Maneuvering && tooClose == null) continue;
 
             var perf = FleetPerformance.Of(w, f);
             if (perf.DeltaVLeft <= 1e-6)
@@ -293,6 +294,22 @@ public static class Combat
                 var closing = Math.Clamp(excess / 0.05, -perf.MaxSpeed * 0.3, perf.MaxSpeed * 0.6);
                 desired = enemy.Velocity + gap.Normalized() * closing;
             }
+            else if (tooClose != null)
+            {
+                // Holding at rail range and they came in: back off to the hold distance (the chase takes over again after).
+                if (!f.Maneuvering)
+                {
+                    f.Maneuvering = true;
+                    f.Flight = null;
+                    LeaveOrbitToFight(sim, f);
+                    Fleets.EnterDrift(f);
+                    sim.Log.Info("combat", "Backs off to hold at rail range", new { fleetId = f.Id, enemyId = tooClose.Id, gap = Vec2.Distance(f.Position, tooClose.Position), hold = RailHold(w, f) });
+                }
+                var gap = tooClose.Position - f.Position;
+                var excess = gap.Length - RailHold(w, f);
+                var closing = Math.Clamp(excess / 0.05, -perf.MaxSpeed * 0.6, 0);
+                desired = tooClose.Velocity + gap.Normalized() * closing;
+            }
             else if (f.Chase != null)
             {
                 // Lost sight while chasing: carry on as it is and let the chase take over again.
@@ -311,7 +328,7 @@ public static class Combat
             if (cost > perf.DeltaVLeft) change = change.Normalized() * Math.Max(0, perf.DeltaVLeft);
             f.Velocity += change;
             sim.BurnFuel(f, change.Length);
-            if (!wantsToClose && (f.Velocity - desired).Length < 1e-6)
+            if (!wantsToClose && tooClose == null && (f.Velocity - desired).Length < 1e-6)
             {
                 f.Velocity = desired;
                 f.Maneuvering = false;
@@ -342,6 +359,34 @@ public static class Combat
     }
 
     // ---- Sliding round an orbit ---------------------------------------------------------------
+
+    /// <summary>A fleet holding at rail range keeps the enemy at this share of its railgun reach.</summary>
+    public const double RailHoldShare = 0.85;
+
+    /// <summary>It backs off when they come inside this share of the hold distance...</summary>
+    public const double RailHoldBackOffAt = 0.85;
+
+    /// <summary>...while its supplies (fuel) are above this share of full; below it, it stands and fights where it is.</summary>
+    public const double RailHoldFuelFloor = 0.3;
+
+    /// <summary>How far from the enemy a fleet holding at rail range sits: inside its own railgun reach, outside lances.</summary>
+    public static double RailHold(World w, Fleet f) => Secrecy.RailRange(w, f) * RailHoldShare;
+
+    /// <summary>
+    /// The enemy this fleet, holding at rail range, should back away from now: its quarry (seen) has come well inside
+    /// the hold distance and the fleet still has the fuel to spare. Null otherwise.
+    /// </summary>
+    public static Fleet? RailHoldTooClose(World w, Fleet f)
+    {
+        if (f.Chase is not { Mode: ChaseMode.RailRange } c || f.Retreating || f.Resupplying) return null;
+        if (w.FindFleet(c.TargetFleetId) is not Fleet q || !Sensors.Sees(w, f.Side, q)) return null;
+        var hold = RailHold(w, f);
+        var gap = Vec2.Distance(f.Position, q.Position);
+        // Once backing off it keeps going until it is at the hold distance again.
+        if (gap >= (f.Maneuvering ? hold * 0.98 : hold * RailHoldBackOffAt)) return null;
+        if (SupplyShare(w, f) <= RailHoldFuelFloor || FleetPerformance.Of(w, f).DeltaVLeft <= 1e-3) return null;
+        return q;
+    }
 
     /// <summary>A fleet sliding in stops once the enemy is this share of railgun reach away.</summary>
     public const double SlideInReach = 0.75;
@@ -939,9 +984,17 @@ public static class Combat
 
         // Point defence: every working mount in the target's fleet gets shots while the missile crosses its range.
         // Point defence covers fleet-mates close by fully, those further out of the formation less.
-        var mounts = w.ShipsOf(targetFleet).Where(s => !s.Out(Module.PointDefence))
-            .Sum(s => Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1) * Wounds.DefenceFactor(s) * Formations.PdCover(s, target))
-            + Starbases.Umbrella(w, targetFleet); // a friendly station's point defence covers fleets in its orbit
+        // On PD guard Self each mount only fires for its own ship, harder; firing at a missile warms the gunner up.
+        var mounts = 0.0;
+        foreach (var s in w.ShipsOf(targetFleet))
+        {
+            if (s.Out(Module.PointDefence) || Fitting.Spec(s).PointDefence <= 0) continue;
+            var share = Formations.PdShare(targetFleet, s, target);
+            if (share <= 0) continue;
+            mounts += Fitting.Spec(s).PointDefence * (s.Overheated ? Heat.D.OverheatPdFactor : 1) * Wounds.DefenceFactor(s) * share;
+            s.Heat += Formations.D.PdHeatPerMissile * Fitting.Spec(s).PointDefence;
+        }
+        mounts += Starbases.Umbrella(w, targetFleet); // a friendly station's point defence covers fleets in its orbit
         var hoursInRange = pd.RangeMm / Math.Max(closingSpeed, 1);
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)

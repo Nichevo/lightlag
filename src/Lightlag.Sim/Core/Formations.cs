@@ -12,7 +12,8 @@ public enum Formation { Auto, Staggered, Wall, Line, Column }
 /// <summary>Numbers for formations and blocked fire (ship-classes.json, "formations").</summary>
 public sealed record FormationData(
     double BlockMm = 0.6, double PdCoverMm = 6, double PdOutsideFactor = 0.5, double ShieldCoverMm = 3, double ShieldShare = 0.5,
-    double TurnRadians = 0.35, double WallMissileShare = 0.5, double WallHeavyArmour = 300);
+    double TurnRadians = 0.35, double WallMissileShare = 0.5, double WallHeavyArmour = 300,
+    double PdSelfFactor = 1.5, double PdHeatPerMissile = 0.2);
 
 /// <summary>
 /// Formations: where each ship sits in its fleet, which way the fleet's front points, and what that does
@@ -77,22 +78,45 @@ public static class Formations
         var shape = Shape(w, f);
         var front = Front(w, f);
         var turn = Math.Abs(Angle(front - f.LaidFront));
-        if (shape == f.LaidShape && f.ShipIds.Count == f.LaidCount && turn < D.TurnRadians) return;
+        if (shape == f.LaidShape && f.ShipIds.Count == f.LaidCount && turn < D.TurnRadians && Guarded(w, f) == f.LaidProtect) return;
         Layout(w, f, shape, front);
     }
 
-    /// <summary>Lays the ships out in the shape with the front this way. The biggest ships go to the front row.</summary>
+    /// <summary>The ship the formation is laid out round (in the safest slot), or 0: a ship picked by hand, else the most damaged one (Auto).</summary>
+    public static int Guarded(World w, Fleet f)
+    {
+        if (f.ShipIds.Count < 2) return 0;
+        // A ship picked by hand first, then the Auto most damaged ship. The flagship on its own keeps its usual
+        // place (protected as before: point defence first, and screened in Screen or Close cover).
+        if (w.ShipsOf(f).Where(s => s.Protect == true).OrderBy(s => s.Id).FirstOrDefault() is Ship picked) return picked.Id;
+        return Flagships.Worst(w, f)?.Id ?? 0;
+    }
+
+    /// <summary>
+    /// Lays the ships out in the shape with the front this way. The biggest ships go to the front row; a protected
+    /// ship takes the safest slot: furthest back, then nearest the middle (inside the most point defence and shield cover).
+    /// </summary>
     public static void Layout(World w, Fleet f, Formation shape, double front)
     {
         var ships = w.ShipsOf(f).OrderByDescending(s => Fitting.Spec(s).Armour).ThenBy(s => s.Id).ToList();
         var ahead = new Vec2(DetMath.Cos(front), DetMath.Sin(front));
         var across = new Vec2(-ahead.Y, ahead.X);
         var slots = Slots(shape, ships.Count);
+        var guarded = Guarded(w, f);
+        var at = ships.FindIndex(s => s.Id == guarded);
+        if (at >= 0)
+        {
+            var safest = Enumerable.Range(0, slots.Count).OrderBy(i => slots[i].Fwd).ThenBy(i => Math.Abs(slots[i].Lat)).ThenBy(i => i).First();
+            var ship = ships[at];
+            ships.RemoveAt(at);
+            ships.Insert(safest, ship);
+        }
         for (var i = 0; i < ships.Count; i++)
             ships[i].FormationOffset = ahead * slots[i].Fwd + across * slots[i].Lat;
         f.LaidShape = shape;
         f.LaidFront = front;
         f.LaidCount = ships.Count;
+        f.LaidProtect = guarded;
     }
 
     /// <summary>Each ship's place (forward, across) in Mm, biggest ship first. Ships keep FormationSpacing apart.</summary>
@@ -154,6 +178,13 @@ public static class Formations
     /// <summary>How much a point defence mount on this ship helps against a missile at that one: fully within cover range, less beyond.</summary>
     public static double PdCover(Ship gunner, Ship target) =>
         gunner.Id == target.Id || Vec2.Distance(gunner.Position, target.Position) <= D.PdCoverMm ? 1 : D.PdOutsideFactor;
+
+    /// <summary>
+    /// How much a gunner's point defence counts against a missile at that ship, by the fleet's PD guard: on Fleet it
+    /// covers every fleet-mate (PdCover); on Self only its own ship, but harder (PdSelfFactor: it tracks nothing else).
+    /// </summary>
+    public static double PdShare(Fleet f, Ship gunner, Ship target) =>
+        f.PdGuard == PdGuard.Self ? (gunner.Id == target.Id ? D.PdSelfFactor : 0) : PdCover(gunner, target);
 
     /// <summary>A fleet-mate with shield emitters and shield left close enough to take part of a hit on this unshielded ship.</summary>
     public static Ship? ShieldCover(World w, Ship target)

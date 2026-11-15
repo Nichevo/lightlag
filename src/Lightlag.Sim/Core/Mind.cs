@@ -527,6 +527,7 @@ public static class Mind
             var launch = _p.Missiles.ToLowerInvariant() switch { "close" => MissileLaunch.Close, "far" => MissileLaunch.Far, _ => MissileLaunch.Mid };
             foreach (var f in Mine().ToList())
             {
+                BattleMovesFor(f);
                 if (f.MissileLaunch != launch) Do(new SetFireControlCommand(f.Id, f.LongShots, launch));
                 if (f.Retreating && _w.ShipsOf(f).Any(x => x.Missiles > 0 && !x.Out(Module.Missiles))
                     && _w.Fleets.Any(e => e.Side != _side && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm * 1.5 && Sensors.Sees(_w, _side, e))
@@ -1376,12 +1377,34 @@ public static class Mind
                 if (group == null) continue;
                 // Burn hard and brake to gun range when there is fuel to spare (chasing it if it moves); else a plain attack run.
                 var request = new FlightRequest(null, at, Burn(group), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick, TargetFleetId: s.FleetId,
-                    Chase: ChaseMode.GunRange);
+                    Chase: Approach(group, s.FleetId));
                 if (!Fly(group, request) && !Fly(group, request with { Chase = ChaseMode.None, SpeedFraction = 0.8 }))
                 { GoHome(group, "could not reach the enemy fleet"); continue; }
                 Assign(group, JobKind.Hunt, null, at, $"{s.Name} ({s.Ships} ships) seen near our planets", s.FleetId);
                 Orders(group, Core.Stance.Engage);
             }
+        }
+
+        /// <summary>
+        /// How to go in: hold at rail range when its railguns reach at least as far as it believes theirs do and the
+        /// enemy is known to carry pulse lances (no sense closing into them); else close to gun range as usual.
+        /// </summary>
+        private ChaseMode Approach(Fleet group, int enemyId)
+        {
+            var guess = RivalTech.Guess(_w, _side, enemyId);
+            return guess.Lance > 0 && Combat.HasWorking(_w, group, Module.Railguns) && Secrecy.RailRange(_w, group) >= guess.Rail
+                ? ChaseMode.RailRange : ChaseMode.GunRange;
+        }
+
+        /// <summary>
+        /// The new battle moves, by the same commands a player gives: a lone ship's point defence guards itself (it has
+        /// no mates to cover), a fleet's guards the fleet; fleets protect their most damaged ship.
+        /// </summary>
+        private void BattleMovesFor(Fleet f)
+        {
+            var guard = f.ShipIds.Count == 1 ? PdGuard.Self : PdGuard.Fleet;
+            if (f.PdGuard != guard) Do(new SetPdGuardCommand(f.Id, guard));
+            if (!f.ProtectWorst && f.ShipIds.Count > 2 && !_w.ShipsOf(f).Any(s => s.Protect == true)) Do(new ProtectShipCommand(f.Id, ProtectPick.Worst));
         }
 
         /// <summary>How long a raiding party waits on a lane before coming home.</summary>

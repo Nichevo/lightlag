@@ -694,6 +694,7 @@ public static partial class FlightPlanner
         {
             ChaseMode.GunRange => c.EngageRangeMm * 0.75,
             ChaseMode.MissileRange => c.Missile.LaunchRangeMm * 0.8,
+            ChaseMode.RailRange => c.Railgun.RangeMm * Combat.RailHoldShare,
             ChaseMode.ShadowGuns => c.Railgun.RangeMm * 1.25,
             ChaseMode.ShadowMissiles => c.Missile.LaunchRangeMm * 1.1,
             ChaseMode.Overtake => OvertakePassMm,
@@ -719,6 +720,7 @@ public static partial class FlightPlanner
         ChaseMode.MatchSpeed => "match speed",
         ChaseMode.GunRange => "close to gun range",
         ChaseMode.MissileRange => "close to missile range",
+        ChaseMode.RailRange => "hold at rail range",
         ChaseMode.ShadowGuns => "shadow outside their guns",
         ChaseMode.ShadowMissiles => "shadow outside their missiles",
         ChaseMode.Overtake => "overtake",

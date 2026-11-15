@@ -65,7 +65,7 @@ public static class Chases
     /// </summary>
     public static (Body Body, Flight? Flight)? MeetAt(World w, Fleet f, int quarryId, ChaseMode mode, double speedFraction)
     {
-        if (mode is not (ChaseMode.GunRange or ChaseMode.MissileRange)) return null;
+        if (mode is not (ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.RailRange)) return null;
         if (w.FindFleet(quarryId) is not Fleet q || q.Side == f.Side || Sensors.Find(w, f.Side, quarryId) is not Sighting s) return null;
         if (HeadingFor(w, f.Side, s, f.OrbitBodyId) is not var (body, hours)) return null;
         if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId == body.Id && f.Flight is not { Started: true }) return (body, null);

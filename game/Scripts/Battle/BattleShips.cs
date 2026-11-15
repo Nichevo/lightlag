@@ -13,7 +13,7 @@ public partial class OurShipsColumn : VBoxContainer
 {
     private readonly GameScreen _screen;
     private readonly VBoxContainer _list = new();
-    private readonly Button _split;
+    private readonly Button _split, _splitRun, _splitHold;
     private readonly HashSet<int> _ticked = new();
     private readonly List<Action<World>> _live = new();
     private string _key = "";
@@ -28,9 +28,18 @@ public partial class OurShipsColumn : VBoxContainer
         AddChild(Ui.Label("YOUR SHIPS", 12, Ui.Dim));
         _list.AddThemeConstantOverride("separation", 4);
         AddChild(_list);
-        _split = Ui.SmallButton("", SplitTicked, "Make the ticked ships a fleet of their own: it gets its own tab and orders (for example to finish off a damaged enemy, or to run)");
-        _split.AddThemeFontSizeOverride("font_size", 12);
-        AddChild(_split);
+        _split = Ui.SmallButton("", () => SplitTicked(SplitThen.OwnOrders), "Make the ticked ships a fleet of their own: it gets its own tab and orders (for example to finish off a damaged enemy). In a fight it rejoins when done");
+        _splitRun = Ui.SmallButton("Split and run", () => SplitTicked(SplitThen.RunHome), "Split the ticked ships off and send them to the nearest yard at once; they rejoin once mended");
+        _splitHold = Ui.SmallButton("Split and hold back", () => SplitTicked(SplitThen.HoldBack),
+            "Split the ticked ships off to hold back from this enemy: just inside missile range if they carry missiles, else just outside their railguns. They rejoin once the fight is over");
+        var splits = new HFlowContainer();
+        splits.AddThemeConstantOverride("h_separation", 4);
+        foreach (var b in new[] { _split, _splitRun, _splitHold })
+        {
+            b.AddThemeFontSizeOverride("font_size", 12);
+            splits.AddChild(b);
+        }
+        AddChild(splits);
     }
 
     public void Refresh(World w, List<Fleet> fleets, int? lit)
@@ -58,9 +67,11 @@ public partial class OurShipsColumn : VBoxContainer
                 ctl.Modulate = lit == null || ctl.GetMeta("fleet").AsInt32() == lit ? Colors.White : new Color(1, 1, 1, 0.55f);
         _split.Text = _ticked.Count == 0 ? "Tick ships to split them off" : $"Split {_ticked.Count} ticked ship{(_ticked.Count == 1 ? "" : "s")} into a new fleet";
         _split.Disabled = _ticked.Count == 0;
+        _splitRun.Disabled = _splitHold.Disabled = _ticked.Count == 0;
+        _splitRun.Visible = _splitHold.Visible = _ticked.Count > 0;
     }
 
-    private void SplitTicked()
+    private void SplitTicked(SplitThen then)
     {
         var w = Main.Instance.Sim!.World;
         foreach (var g in _ticked.Select(w.FindShip).OfType<Ship>().GroupBy(s => s.FleetId))
@@ -68,7 +79,7 @@ public partial class OurShipsColumn : VBoxContainer
             // Splitting every ship of a fleet would leave it empty: keep one back.
             var ids = g.Select(s => s.Id).ToList();
             if (w.FindFleet(g.Key) is Fleet f && ids.Count >= f.ShipIds.Count) ids.RemoveAt(0);
-            if (ids.Count > 0) _screen.IssueNow(new SplitFleetCommand(g.Key, ids), "split ticked ships");
+            if (ids.Count > 0) _screen.IssueNow(new SplitOffCommand(g.Key, ids, then), "split ticked ships");
         }
         _ticked.Clear();
     }
@@ -90,6 +101,13 @@ public partial class OurShipsColumn : VBoxContainer
                 _screen.IssueNow(new GatherFleetsCommand(into, new List<int> { fleetId }, 1.0), "rejoin");
         });
         row.AddChild(rejoin);
+        var whenDone = CardBuilder.Small("", "When its task is done (the fight over, its target gone): fly back and merge into the fleet it split from", () =>
+        {
+            var w = Main.Instance.Sim!.World;
+            if (w.FindFleet(fleetId) is { RejoinFleetId: int } f)
+                _screen.IssueNow(new SetRejoinWhenCommand(f.Id, WhenDone(f) == RejoinWhen.Done ? RejoinWhen.Never : RejoinWhen.Done), "rejoin when done");
+        });
+        row.AddChild(whenDone);
         _live.Add(w =>
         {
             if (w.FindFleet(fleetId) is not Fleet f) { name.Text = ""; rejoin.Visible = false; return; }
@@ -102,9 +120,18 @@ public partial class OurShipsColumn : VBoxContainer
             var into = f.RejoinFleetId is int r ? w.FindFleet(r) : null;
             rejoin.Visible = into != null && into.Id != f.Id;
             if (into != null) rejoin.Text = $"Rejoin {into.Name}";
+            // Mended-then-rejoin (a ship pulled out hurt) has its own wording in the fleet panel; here only done/never.
+            var when = WhenDone(f);
+            whenDone.Visible = rejoin.Visible && when != RejoinWhen.Mended;
+            whenDone.Text = when == RejoinWhen.Done ? "when done: rejoin ✓" : "when done: rejoin";
+            whenDone.Modulate = when == RejoinWhen.Done ? Ui.Player : new Color(1, 1, 1, 0.7f);
         });
         return row;
     }
+
+    /// <summary>The fleet's rejoin rule, counting an order not yet applied.</summary>
+    private static RejoinWhen WhenDone(Fleet f) =>
+        Main.Instance.Sim!.PendingCommands.OfType<SetRejoinWhenCommand>().LastOrDefault(c => c.FleetId == f.Id)?.When ?? f.RejoinWhen;
 
     private CheckBox Tick(int shipId)
     {
