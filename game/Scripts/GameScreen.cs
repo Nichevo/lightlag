@@ -223,6 +223,9 @@ public partial class GameScreen : Node2D
         if (mine is int sel && Engagement == null) Select(sel);
     }
 
+    /// <summary>Fold the battle view's bottom panel to its title line, or open it again (remembered).</summary>
+    public void ToggleBattleFold() => PlayerInfo.SetOpen(BattleScreen.FoldKey, !PlayerInfo.OpenSections.Contains(BattleScreen.FoldKey));
+
     public void CloseBattle()
     {
         _battleView = false;

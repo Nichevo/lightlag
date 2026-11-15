@@ -91,6 +91,11 @@ public partial class Main : Node
             _ = TakeBudgetShots(budgetShots["--budget-shots=".Length..].Trim('"'));
             return;
         }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--battle-shots=")) is string battleShots)
+        {
+            _ = TakeShots(battleShots["--battle-shots=".Length..].Trim('"'), ShootBattleSave);
+            return;
+        }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--fix-shots=")) is string fixShots)
         {
             _ = TakeShots(fixShots["--fix-shots=".Length..].Trim('"'), ShootFixes);
@@ -623,6 +628,32 @@ public partial class Main : Node
             await shoot("12b-battle-view-all-fleets");
             game.CloseBattle();
         }
+    }
+
+    /// <summary>Only the battle view from a save (--battle-shots=DIR, BATTLE_SAVE): the fleet nearest an enemy, its panel open and folded.</summary>
+    private async Task ShootBattleSave(Func<string, Task> shoot)
+    {
+        if (System.Environment.GetEnvironmentVariable("BATTLE_SAVE") is not string save || !File.Exists(save)) return;
+        // BATTLE_SIZE=1920x1369: the window size to shoot at.
+        if (System.Environment.GetEnvironmentVariable("BATTLE_SIZE")?.Split('x') is [var sw, var sh] && int.TryParse(sw, out var bw) && int.TryParse(sh, out var bh))
+        {
+            GetWindow().ContentScaleSize = new Vector2I(bw, bh);
+            GetWindow().Size = new Vector2I(bw, bh);
+        }
+        LoadGame(save);
+        var game = (GameScreen)_screen!;
+        if (!game.Paused) game.TogglePause();
+        var w = Sim!.World;
+        var me = Lightlag.Sim.Core.Side.Player;
+        var fleet = w.Fleets.Where(f => f.Side == me && f.ShipIds.Count > 0 && Combat.Armed(w, f))
+            .OrderBy(f => w.Fleets.Where(o => o.Side != me && o.ShipIds.Count > 0).Select(o => (o.Position - f.Position).Length).DefaultIfEmpty(double.MaxValue).Min())
+            .First();
+        game.OpenBattle(fleet.Id);
+        await shoot("battle-view");
+        game.ToggleBattleFold();
+        await shoot("battle-view-folded");
+        game.ToggleBattleFold();
+        game.CloseBattle();
     }
 
     private async Task TakeBarShots(string dir)
