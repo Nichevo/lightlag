@@ -122,7 +122,7 @@ public partial class BoardView : Control
             var centre = new Vector2((d.X + 0.5f) * c, (d.Y + 0.5f) * c);
             var colour = MineralColors.GetValueOrDefault(d.Mineral, Colors.White);
             var r = c * (d.Rich ? 0.22f : 0.16f);
-            DrawColoredPolygon(new[] { centre + new Vector2(0, -r), centre + new Vector2(r, 0), centre + new Vector2(0, r), centre + new Vector2(-r, 0) }, colour);
+            this.FillPolygon(new[] { centre + new Vector2(0, -r), centre + new Vector2(r, 0), centre + new Vector2(0, r), centre + new Vector2(-r, 0) }, colour);
             var label = (Colonies.Goods.Find(g => g.Id == d.Mineral)?.Short ?? d.Mineral) + (d.Rich ? "+" : "");
             DrawString(font, new Vector2(d.X * c + 3, (d.Y + 1) * c - 4), label, HorizontalAlignment.Left, c - 4, 11, colour);
         }
@@ -195,7 +195,7 @@ public partial class BoardView : Control
                 var m = rect.GetCenter() + new Vector2(0, 6);
                 var r = Mathf.Clamp(c * 0.18f, 6, 14);
                 var bolt = new[] { m + new Vector2(r * 0.2f, -r), m + new Vector2(-r * 0.45f, r * 0.1f), m + new Vector2(0, r * 0.1f), m + new Vector2(-r * 0.2f, r), m + new Vector2(r * 0.45f, -r * 0.1f), m + new Vector2(0, -r * 0.1f) };
-                DrawColoredPolygon(bolt, !p.Powered ? new Color("ffd84d") : new Color(0.8f, 0.85f, 0.95f));
+                this.FillPolygon(bolt, !p.Powered ? new Color("ffd84d") : new Color(0.8f, 0.85f, 0.95f));
             }
             if (p.Built && p.Condition < 0.75)
             {

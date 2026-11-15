@@ -140,8 +140,8 @@ public partial class MapView
         if (d.LengthSquared() < 1) return;
         var n = new Vector2(-d.Y, d.X).Normalized() * (width / 2);
         var clear = new Color(color, 0);
-        DrawPolygon(new[] { a + n, b + n, b, a }, new[] { clear, clear, color, color });
-        DrawPolygon(new[] { a, b, b - n, a - n }, new[] { color, color, clear, clear });
+        this.FillPolygon(new[] { a + n, b + n, b, a }, new[] { clear, clear, color, color });
+        this.FillPolygon(new[] { a, b, b - n, a - n }, new[] { color, color, clear, clear });
     }
 
     private void LaneLabel(Vector2 a, Vector2 b, string text, Color color)
@@ -202,7 +202,7 @@ public partial class MapView
             var a = Mathf.Tau * i / n;
             pts[i] = at + along * (Mathf.Cos(a) * rx) + across * (Mathf.Sin(a) * ry);
         }
-        DrawColoredPolygon(pts, fill);
+        this.FillPolygon(pts, fill);
         for (var i = 0; i < n; i += 2) DrawLine(pts[i], pts[(i + 1) % n], line, 1.2f, true);
     }
 }

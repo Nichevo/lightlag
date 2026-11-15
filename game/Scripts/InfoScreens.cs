@@ -343,7 +343,7 @@ public partial class ProgressChart : Control
         for (var i = 1; i < band.Count; i++)
         {
             var pts = new[] { P(band[i - 1].Day, band[i - 1].Low), P(band[i].Day, band[i].Low), P(band[i].Day, band[i].High), P(band[i - 1].Day, band[i - 1].High) };
-            DrawColoredPolygon(pts, new Color(Ui.Rival, 0.08f));
+            this.FillPolygon(pts, new Color(Ui.Rival, 0.08f));
         }
         for (var i = 1; i < a.Count; i++) DrawLine(P(a[i - 1].Day, a[i - 1].V), P(a[i].Day, a[i].V), Ui.Player, 2, true);
         for (var i = 1; i < b.Count; i++) DrawDashedLine(P(b[i - 1].Day, b[i - 1].V), P(b[i].Day, b[i].V), Ui.Rival, 2, 5);

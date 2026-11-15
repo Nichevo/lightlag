@@ -75,7 +75,7 @@ public partial class MapView
     private void DrawTheySee()
     {
         var w = Sim.World;
-        var enemies = Sensors.Known(w, seat: Lagging).Where(s => s.SeenBy == Side.Player && !s.Own).ToList();
+        var enemies = PerStep(0, "they-see", () => Sensors.Known(w, seat: Lagging).Where(s => s.SeenBy == Side.Player && !s.Own).ToList());
         if (enemies.Count == 0) return;
         var anySensor = GameData.ShipClasses.Values.Max(k => k.SensorMm);
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => f.Id))
@@ -83,7 +83,7 @@ public partial class MapView
             if (!_drawn.TryGetValue(f.Id, out var p) || !p.IsFinite) continue;
             var near = enemies.MinBy(s => Vec2.Distance(s.Guess(DrawHour), p))!;
             var sensor = near.Classes.Count > 0 ? near.Classes.Max(c => GameData.ShipClass(c).SensorMm) : anySensor;
-            var range = Sensors.Range(sensor, Sensors.Signature(w, f));
+            var range = Sensors.Range(sensor, SignatureOf(f));
             var gap = Vec2.Distance(near.Guess(DrawHour), p);
             if (f.Id != SelectedId && gap > range * 3) continue;
             var at = Camera.ToScreen(p);

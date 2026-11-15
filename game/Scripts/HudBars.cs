@@ -179,6 +179,9 @@ public partial class Hud
         : _intel.Visible ? "intel" : _progress.Visible ? "progress" : null;
 
     /// <summary>Full screens cover the map under the bars; row one then gets a solid strip behind it.</summary>
+    /// <summary>A full screen covers the map, so the map need not be drawn.</summary>
+    public bool MapCovered => FullScreenOpen;
+
     private bool FullScreenOpen => _research.Visible || _colonies.Visible || _fleets.Visible || _ships.Visible || _ground.Visible;
 
     /// <summary>The Needs you items each screen's tab counts: supply chain problems on Supply, the rest by NeedScreens.</summary>

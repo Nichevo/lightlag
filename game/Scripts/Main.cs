@@ -227,6 +227,7 @@ public partial class Main : Node
         // Grab the screen before the dialog covers it.
         var shot = GetViewport().GetTexture().GetImage();
         var screenName = _screen?.GetType().Name ?? "none";
+        var timings = FrameTimes.Describe(_screen is GameScreen gs ? gs.ScreenNameForReport() : screenName);
         var wasPaused = GetTree().Paused;
         GetTree().Paused = true;
         _report = new ReportDialog();
@@ -236,7 +237,7 @@ public partial class Main : Node
             {
                 try
                 {
-                    var dir = Reports.WritePlayerReport(Paths, Log, Sim, note, screenName);
+                    var dir = Reports.WritePlayerReport(Paths, Log, Sim, note, screenName, timings);
                     shot.SavePng(System.IO.Path.Combine(dir, "screenshot.png"));
                     Toast("Report saved. Thanks!", dir);
                 }
@@ -456,11 +457,13 @@ public partial class Main : Node
             }
             BenchProbe.On = false;
             GD.Print($"BENCH {name}: wall {sw.Elapsed.TotalMilliseconds / frames:0.0} ms/frame, process {proc / frames:0.00} ms (worst {worst:0.0}), hud {BenchProbe.Ms.Values.Sum() / frames:0.00} :: "
-                     + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(6).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
+                     + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(8).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
         }
         if (!game.Paused) game.TogglePause();
         game.BattleView = true; await Measure("battle-view-paused");
         game.BattleView = false; await Measure("map-paused");
+        game.ShowFleets = true; await Measure("fleets-screen-paused");
+        game.ShowFleets = false;
         game.TogglePause();
         game.BattleView = true; await Measure("battle-view-running");
         game.BattleView = false; await Measure("map-running");

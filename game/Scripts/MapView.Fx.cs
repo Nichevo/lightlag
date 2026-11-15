@@ -242,7 +242,7 @@ public partial class MapView
                     var half = Mathf.Max((float)(e.Width * Camera.Scale) / 2, e.Width > 1 ? 6f : 1.5f);
                     var tip = to + dir * half * 0.5f;
                     var c = e.Side != Side.Player ? new Color(1f, 0.4f, 0.35f) : mine;
-                    DrawColoredPolygon(new[] { from, tip + across * half, tip - across * half }, new Color(c, 0.1f * fade));
+                    this.FillPolygon(new[] { from, tip + across * half, tip - across * half }, new Color(c, 0.1f * fade));
                     DrawLine(from, tip + across * half, new Color(c, 0.35f * fade), 1, true);
                     DrawLine(from, tip - across * half, new Color(c, 0.35f * fade), 1, true);
                     break;
@@ -315,7 +315,7 @@ public partial class MapView
             var a = d.Spin * t;
             var u = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * d.Size;
             var v = new Vector2(-u.Y, u.X) * 0.5f;
-            DrawColoredPolygon(new[] { at + u, at + v, at - u * 0.7f, at - v * 1.3f }, c);
+            this.FillPolygon(new[] { at + u, at + v, at - u * 0.7f, at - v * 1.3f }, c);
         }
     }
 
