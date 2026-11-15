@@ -251,4 +251,27 @@ public class EngagementTests
         Assert.Null(Engagement.HoursUntilWithin(new Vec2(100, 0), new Vec2(10, 0), 20));   // opening
         Assert.Null(Engagement.HoursUntilWithin(new Vec2(100, 50), new Vec2(-10, 0), 20)); // passes wide
     }
+
+    [Fact]
+    public void Long_trips_read_in_days_not_thousands_of_hours()
+    {
+        Assert.Equal("30 s", Engagement.Duration(30 / 3600.0));
+        Assert.Equal("90 min", Engagement.Duration(1.5));
+        Assert.Equal("7.5 h", Engagement.Duration(7.5));
+        Assert.Equal("121.3 days", Engagement.Duration(2912.3));
+        Assert.Equal("546.4 days", Engagement.Duration(13114.5));
+        Assert.Equal("a very long time", Engagement.Duration(double.PositiveInfinity));
+
+        // A far-off enemy: every option's text gives its times in days, never as a big number of hours.
+        var sim = Sandbox(new SandboxSetup(2, 1, 2, 0, 1, 1, Stance.Hold, Stance.Hold, 400));
+        var w = sim.World;
+        var mine = w.Fleets.First(f => f.Side == Side.Player);
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        theirs.Position = mine.Position + new Vec2(150_000, 0);
+        theirs.Velocity = new Vec2(0, 90);
+        Sensors.Reveal(w, Side.Player, theirs);
+        var e = Engagement.Of(w, mine, theirs.Id)!;
+        foreach (var o in e.Options)
+            Assert.DoesNotMatch(@"\d{3,}(\.\d)? h\b", o.Summary);
+    }
 }

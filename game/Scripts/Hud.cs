@@ -43,7 +43,7 @@ public partial class Hud : CanvasLayer
     private GroundScreen _ground = null!;
     private FittingPanel _fitting = null!;
     private EndPanel _end = null!;
-    private EngagementPanel _engagement = null!;
+    private BattleScreen _battleScreen = null!;
     private ContactsPanel _contacts = null!;
     private GameMenu _menu = null!;
     private PanelContainer _mindPanel = null!;
@@ -59,7 +59,6 @@ public partial class Hud : CanvasLayer
     private IntelScreen _intel = null!;
     private BottomBar _bottomBar = null!;
     private EventBanner _eventBanner = null!;
-    private BattleStrips _strips = null!;
     private Button _battleView = null!;
     private Label _help = null!;
 
@@ -165,8 +164,6 @@ public partial class Hud : CanvasLayer
         _contacts = new ContactsPanel(_screen) { Position = new Vector2(16, 124) };
         AddChild(_contacts);
 
-        _engagement = new EngagementPanel(_screen);
-        AddChild(_engagement);
 
         _fitting = new FittingPanel(_screen) { Visible = false };
         _fitting.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
@@ -190,8 +187,8 @@ public partial class Hud : CanvasLayer
         AddChild(_progress);
         _intel = new IntelScreen(_screen) { Visible = false };
         AddChild(_intel);
-        _strips = new BattleStrips(_screen) { Visible = false };
-        AddChild(_strips);
+        _battleScreen = new BattleScreen(_screen) { Visible = false };
+        AddChild(_battleScreen);
         _keyHelp = new KeyHelp(_screen) { Visible = false };
         AddChild(_keyHelp);
 
@@ -282,12 +279,13 @@ public partial class Hud : CanvasLayer
         _ships.Visible = w.Loop && _screen.ShowShips && !_research.Visible && !_colonies.Visible && !_ground.Visible && !_fleets.Visible;
         if (_ships.Visible) _ships.Refresh(sim);
         BenchProbe.Lap("ships-screen");
-        _bottomBar.UrgentOnly = _screen.Engagement != null;
+        _bottomBar.UrgentOnly = _screen.BattleView;
         if (w.Loop)
         {
             var view = GetViewport().GetVisibleRect().Size;
             var barWidth = Math.Min(view.X * 0.55f, 900);
-            _bottomBar.Position = new Vector2(16, view.Y - 64);
+            // In the battle view the news line sits just above its cards and timeline.
+            _bottomBar.Position = new Vector2(16, _screen.BattleView && _battleScreen.Visible ? _battleScreen.BottomTop - 36 : view.Y - 64);
             _bottomBar.Size = new Vector2(barWidth, 30);
             _bottomBar.Refresh(w, barWidth);
         BenchProbe.Lap("bottombar");
@@ -353,13 +351,11 @@ public partial class Hud : CanvasLayer
             _contacts.Position = new Vector2(leftEdge, _battle.Position.Y + _battle.Size.Y + 4);
         _mindPanel.Position = new Vector2(leftEdge, _mindPanel.Position.Y);
         var covered = _research.Visible || _colonies.Visible || _fleets.Visible || _ships.Visible || _ground.Visible || _fitting.Visible || _empire.Visible || _plannerPanel.Visible || _reportPanel.Visible || _replayPanel.Visible || _menu.Visible;
-        _engagement.Visible = engagement != null && !covered;
         _contacts.Refresh();
         BenchProbe.Lap("contacts");
         if (engagement != null || _empire.Visible || _mindPanel.Visible) _contacts.Visible = false;
         if (engagement != null)
         {
-            if (_engagement.Visible) _engagement.Refresh(sim, engagement);
             _fleetPanel.Visible = false;
             _groupPanel.Visible = false;
             _mindPanel.Visible = false;
@@ -403,18 +399,18 @@ public partial class Hud : CanvasLayer
         BenchProbe.Lap("info+battleview");
     }
 
-    /// <summary>Battle view (U): hide the menus and panels, keep the date, speeds and the control share, and show a strip per ship.</summary>
+    /// <summary>Battle view (U): hide the menus and panels, keep the date, speeds and the control share, and show the battle screen.</summary>
     private void ApplyBattleView(Simulation sim)
     {
         var on = _screen.BattleView;
-        _strips.Visible = on && !_menu.Visible;
+        _battleScreen.Visible = on && !_menu.Visible;
         _help.Visible = !on;
         _status.Visible = !on;
         if (!on) return;
-        foreach (var c in new Control[] { _side, _empire, _contacts, _fleetPanel, _groupPanel, _infoPanel, _planetPanel, _engagement, _mindPanel, _plannerPanel,
+        foreach (var c in new Control[] { _side, _empire, _contacts, _fleetPanel, _groupPanel, _infoPanel, _planetPanel, _mindPanel, _plannerPanel,
                      _research, _colonies, _ground, _fleets, _ships, _intel, _progress, _tray, _automation, _cards })
             c.Visible = false;
-        if (_strips.Visible) _strips.Refresh(sim);
+        if (_battleScreen.Visible) _battleScreen.Refresh(sim);
     }
 
     /// <summary>Debug (F7): the rival's temperament, beliefs, jobs and latest thoughts.</summary>

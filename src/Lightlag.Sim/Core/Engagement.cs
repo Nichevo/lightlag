@@ -328,6 +328,14 @@ public static class Engagement
             .OrderBy(x => x.ImpactHours).ToList();
     }
 
+    /// <summary>
+    /// A time span in words for the option texts: seconds, minutes, hours, then days past two days, so a long trip
+    /// reads "121 days" rather than "2912.3 h".
+    /// </summary>
+    public static string Duration(double hours) =>
+        double.IsInfinity(hours) || double.IsNaN(hours) ? "a very long time"
+        : hours < 1 / 60.0 ? $"{hours * 3600:0} s" : hours < 2 ? $"{hours * 60:0} min" : hours < 48 ? $"{hours:0.#} h" : $"{hours / 24:#,0.#} days";
+
     /// <summary>The "Let them go" option: the screen sends a stop order for it (it has no flight request).</summary>
     public const string LetGoKey = "letgo";
 
@@ -336,7 +344,7 @@ public static class Engagement
         var list = new List<ApproachOption>();
         var enemy = w.FindFleet(enemyId);
         string Fuel(FlightPlan p) => $"uses {p.FuelShare:P0} of its fuel";
-        string When(double hours) => hours < 1 / 60.0 ? $"{hours * 3600:0} s" : hours < 2 ? $"{hours * 60:0} min" : $"{hours:0.#} h";
+        string When(double hours) => Duration(hours);
         var theirSpeed = s.Velocity.Length;
 
         void Chase(string key, string label, ChaseMode mode, double speed, Func<FlightPlan, string> summary, string? noGo = null)

@@ -186,6 +186,9 @@ public partial class Main : Node
         });
     }
 
+    /// <summary>The game screen when one is showing (null on the title and other screens).</summary>
+    public GameScreen? Screen => _screen as GameScreen;
+
     private void SetScreen(Node screen)
     {
         if (screen is GameScreen) News.Clear();
@@ -612,9 +615,13 @@ public partial class Main : Node
                 await shoot("11b-battle-view-siege-orbit");
             }
             game.BattleView = false;
-            var enemy = Sim.World.Fleets.Where(f => f.Side != me).OrderBy(f => (f.Position - fleet.Position).Length).First();
-            game.OpenEngagement(fleet.Id, enemy.Id);
-            await shoot("12-engagement");
+            // The battle view on the fleet facing an enemy (FIX_BATTLE, else the one picked above), then its All fleets tab.
+            var facing = Sim.World.Fleets.FirstOrDefault(f => f.Side == me && f.Name == System.Environment.GetEnvironmentVariable("FIX_BATTLE")) ?? fleet;
+            game.OpenBattle(facing.Id);
+            await shoot("12-battle-view");
+            game.ChooseBattleTab(null);
+            await shoot("12b-battle-view-all-fleets");
+            game.CloseBattle();
         }
     }
 
@@ -918,14 +925,14 @@ public partial class Main : Node
             await Shoot("12-battle");
             battle.OpenEngagement(mine.Id, theirs.Id);
             battle.Camera.SetScale(battle.Camera.TargetScale, instant: true);
-            await Shoot("21-engagement");
+            await Shoot("21-battle-view");
             // Closer in, the railguns: spread fans from your guns, aimed fire coming back.
             Sim.Issue(new SetFireModeCommand(mine.Id, FireMode.Spread));
             for (var i = 0; i < 20000 && !Sim.Effects.Any(e => e.Kind == EffectKind.Volley && e.Hour >= Sim.World.Hour - 1e-9); i++) Sim.Step();
             battle.OpenEngagement(mine.Id, theirs.Id);
             battle.Camera.FitRadius(15, instant: true);
             await Shoot("22-railgun-fans");
-            battle.CloseEngagement();
+            battle.CloseBattle();
             var end = Sim.World.Tick + 72;
             while ((Sim.World.ActiveBattle != null || Sim.World.Sub != 0) && Sim.World.Tick < end) Sim.Step();
             battle.ShowLastReport();

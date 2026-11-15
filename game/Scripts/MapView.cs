@@ -245,6 +245,7 @@ public partial class MapView : Node2D
             foreach (var (fleet, flight) in PendingFlights()) DrawRoute(fleet, flight, false);
             if (Preview?.Flight is Flight preview && SelectedId is int sel && w.FindFleet(sel) is Fleet pf)
                 DrawRoute(pf, preview, true, Preview.Ok);
+            if (BattlePreview is (int bpId, Flight bp) && w.FindFleet(bpId) is Fleet bpf) DrawRoute(bpf, bp, true);
             if (PlayerInfo.Has(MapLayer.Lanes)) DrawLanesAndZones();
             if (PlayerInfo.Has(MapLayer.SupplyRuns)) DrawSupplyRuns();
             DrawPlannerWaypoints();
@@ -779,7 +780,9 @@ public partial class MapView : Node2D
             }
             else
             {
-                DrawArc(at, r, 0, Mathf.Tau, Math.Clamp((int)(r / 3), 96, 1024), new Color(ring.Color, 0.85f), ring.Width, true);
+                var lit = BattleReach == ring.Color;
+                DrawArc(at, r, 0, Mathf.Tau, Math.Clamp((int)(r / 3), 96, 1024), new Color(ring.Color, lit ? 1f : 0.85f), lit ? ring.Width * 2.2f : ring.Width, true);
+                if (lit) DrawCircle(at, r, new Color(ring.Color, 0.08f));
                 if (ring.Color == EngagementRings.Railguns) DrawCircle(at, r, new Color(ring.Color, 0.06f)); // where your guns bite
             }
             if (EngagementRings.LabelPoint(at, r, open) is Vector2 lp)
@@ -791,28 +794,7 @@ public partial class MapView : Node2D
             }
         }
 
-        // Courses ahead: both fleets, as dots, out to the look-ahead.
-        const int steps = 40;
-        for (var i = 1; i <= steps; i++)
-        {
-            var t = w.Hour + e.LookAheadHours * i / steps;
-            var a = Camera.ToScreen(Combat.PredictFleet(w, e.Mine, t));
-            DrawCircle(a, 1.6f, new Color(Ui.Player, 0.6f));
-            if (Sensors.Predict(w, Side.Player, e.EnemyId, t) is Vec2 b) DrawCircle(Camera.ToScreen(b), 1.6f, new Color(Ui.Rival, 0.6f));
-        }
-        if (e.ClosestInHours > 1e-3)
-        {
-            var t = w.Hour + e.ClosestInHours;
-            var a = Camera.ToScreen(Combat.PredictFleet(w, e.Mine, t));
-            var b = Sensors.Predict(w, Side.Player, e.EnemyId, t) is Vec2 bw ? Camera.ToScreen(bw) : a;
-            var gold = new Color(1f, 0.83f, 0.47f);
-            DrawLine(a, b, gold, 2);
-            DrawArc(a, 5, 0, Mathf.Tau, 16, gold, 1.5f, true);
-            var when = e.ClosestInHours < 1 / 60.0 ? $"{e.ClosestInHours * 3600:0} s" : e.ClosestInHours < 2 ? $"{e.ClosestInHours * 60:0} min" : $"{e.ClosestInHours:0.#} h";
-            DrawString(_font, a + new Vector2(10, 18), $"Closest pass in {when} · {Format.Distance(e.ClosestGap)}", HorizontalAlignment.Left, -1, 12, gold);
-        }
-        if (!e.InSight)
-            DrawString(_font, them + new Vector2(12, 24), "predicted position", HorizontalAlignment.Left, -1, 11, new Color(Ui.Rival, 0.7f));
+        DrawBattlePaths(e);
     }
 
     // Recent track of each enemy fleet you have seen: where it was each hour, and whether it was burning.
