@@ -198,8 +198,108 @@ public partial class GameScreen : Node2D
     /// <summary>The key help overlay (F1), the "How am I doing" chart (N) and the intelligence screen (I).</summary>
     public bool ShowHelp { get; set; }
 
-    /// <summary>Battle view (U): clears the screen to per-ship status strips and shrinks the menus.</summary>
-    public bool BattleView { get; set; }
+    /// <summary>
+    /// Battle view (U): the one screen for a fight: ships, enemy, map paths, cards and the timeline. Setting it opens
+    /// the view (with an engagement for the selected fleet when there is an enemy) or closes it.
+    /// </summary>
+    public bool BattleView
+    {
+        get => _battleView;
+        set { if (value != _battleView) { if (value) OpenBattle(); else CloseBattle(); } }
+    }
+    private bool _battleView;
+
+    /// <summary>The battle view's All fleets tab: orders go to every fleet of yours in the fight.</summary>
+    public bool BattleAll { get; private set; }
+
+    /// <summary>Open the battle view, on this fleet (or the selected one, or one in battle) and the enemy it faces.</summary>
+    public void OpenBattle(int? fleetId = null)
+    {
+        _battleView = true;
+        BattleAll = false;
+        var w = Sim.World;
+        var mine = fleetId ?? MyFleet?.Id ?? BattleFleets().FirstOrDefault(f => f.Side == Side.Player)?.Id ?? (Engagements.Count > 0 ? Engagements[0].Mine : null);
+        if (mine is int m && (Engagement is not (int had, _) || had != m)) OpenEngagement(m, quiet: true);
+        if (mine is int sel && Engagement == null) Select(sel);
+    }
+
+    public void CloseBattle()
+    {
+        _battleView = false;
+        BattleAll = false;
+        CloseEngagement();
+        SetBattlePreview(null, null);
+        SetBattleReach(null);
+        _map.BattleRows = new();
+    }
+
+    public void ToggleBattle()
+    {
+        if (BattleView) CloseBattle();
+        else OpenBattle();
+    }
+
+    /// <summary>Battle view tabs: one of your fleets (its orders only), or null for All fleets.</summary>
+    public void ChooseBattleTab(int? fleetId)
+    {
+        if (fleetId is not int id) { BattleAll = true; return; }
+        BattleAll = false;
+        Select(id);
+        if (Engagement is (_, int enemy) && Sensors.Find(Sim.World, Side.Player, enemy, seat: true) != null) Engagement = (id, enemy);
+        else OpenEngagement(id, quiet: true);
+        _engagementAge = 1;
+        UpdateEngagement(0);
+    }
+
+    /// <summary>Your fleets in this fight: those in battle, the engagement's, any of yours facing the same enemy, and ones split off from them.</summary>
+    public List<Fleet> BattleOurFleets()
+    {
+        var w = Sim.World;
+        var list = BattleFleets().Where(f => f.Side == Side.Player).ToList();
+        if (Engagement is (int mine, int enemy))
+        {
+            if (w.FindFleet(mine) is Fleet m) list.Add(m);
+            list.AddRange(Engagements.Where(p => p.Enemy == enemy).Select(p => w.FindFleet(p.Mine)).OfType<Fleet>());
+        }
+        if (list.Count == 0 && SelectedFleet is { Side: Side.Player } sel) list.Add(sel);
+        var ids = list.Select(f => f.Id).ToHashSet();
+        list.AddRange(w.Fleets.Where(f => f.Side == Side.Player && f.ShipIds.Count > 0 && f.RejoinFleetId is int r && ids.Contains(r)));
+        return list.Where(f => f.ShipIds.Count > 0).Distinct().OrderBy(f => f.Id).ToList();
+    }
+
+    /// <summary>Enemy fleets in this fight you know of: the engagement's and those in battle you can see.</summary>
+    public List<int> BattleEnemyIds()
+    {
+        var ids = new List<int>();
+        if (Engagement is (_, int enemy)) ids.Add(enemy);
+        ids.AddRange(BattleFleets().Where(f => f.Side != Side.Player && _map.Shown(f)).Select(f => f.Id));
+        return ids.Distinct().ToList();
+    }
+
+    // Enemy fleets whose out-of-sight ships you cleared from the battle view, with the sighting hour cleared (seen again: back).
+    private readonly Dictionary<int, double> _clearedGhosts = new();
+    public void ClearGhost(int enemyId, double sightingHour) => _clearedGhosts[enemyId] = sightingHour;
+    public bool GhostCleared(int enemyId, double sightingHour) => _clearedGhosts.TryGetValue(enemyId, out var h) && Math.Abs(h - sightingHour) < 1e-9;
+
+    /// <summary>The game hour to pause at (set from the battle timeline; null: none).</summary>
+    public double? PauseAtHour { get; private set; }
+    private string _pauseAtWhat = "";
+
+    public void SetPauseAt(double? hour, string what)
+    {
+        PauseAtHour = hour;
+        _pauseAtWhat = what;
+        _main.Toast(hour is double h ? $"Will pause at {GameTime.Format(h)}: {what}" : "Pause mark cleared");
+    }
+
+    /// <summary>Hovering an approach choice: its path on the map (null: none).</summary>
+    public void SetBattlePreview(int? fleetId, Flight? flight) => _map.BattlePreview = fleetId is int id && flight != null ? (id, flight) : null;
+
+    /// <summary>Hovering a weapon card: its reach ring lit on the map (null: none).</summary>
+    public void SetBattleReach(Color? ring) => _map.BattleReach = ring;
+
+    /// <summary>The battle view's fleets and their engagements, for the paths on the map.</summary>
+    public void SetBattleRows(List<EngagementInfo> rows) => _map.BattleRows = rows;
 
     /// <summary>Is this fleet drawn for the player (seen, or theirs, or every fleet in debug)?</summary>
     public bool ShownFleet(Fleet f) => _map.Shown(f);
@@ -318,6 +418,14 @@ public partial class GameScreen : Node2D
                     _lastStepHours = next;
                     _accum -= 1;
                     done++;
+                    if (PauseAtHour is double stopAt && Sim.World.Hour >= stopAt - 1e-9)
+                    {
+                        PauseAtHour = null;
+                        _paused = true;
+                        _accum = 0;
+                        _main.Toast($"Paused: {_pauseAtWhat}");
+                        break;
+                    }
                 }
                 if (done == 2000) _accum = 0;
             });
@@ -414,14 +522,16 @@ public partial class GameScreen : Node2D
     private const double EngagementGraceSeconds = 3;
 
     /// <summary>Open the engagement screen for one of your fleets (against the given enemy, or the one it is most concerned with).</summary>
-    public void OpenEngagement(int mineId, int? enemyId = null)
+    public void OpenEngagement(int mineId, int? enemyId = null, bool quiet = false)
     {
         var w = Sim.World;
         if (w.FindFleet(mineId) is not { Side: Side.Player } mine) return;
         var enemy = enemyId ?? Engagement_.EnemyFor(w, mine);
+        _battleView = true;
         if (enemy is not int e || Sensors.Find(w, Side.Player, e, seat: true) == null)
         {
-            _main.Toast($"{mine.Name} has no enemy fleet in sight or on record");
+            if (!quiet) _main.Toast($"{mine.Name} has no enemy fleet in sight or on record");
+            Select(mineId);
             return;
         }
         Planner = null;
@@ -486,13 +596,6 @@ public partial class GameScreen : Node2D
         Engagement = null;
         EngagementNow = null;
         _engagementLostFor = 0;
-    }
-
-    public void ToggleEngagement()
-    {
-        if (Engagement != null) { CloseEngagement(); return; }
-        if (MyFleet is Fleet f) OpenEngagement(f.Id);
-        else _main.Toast("Select one of your fleets first (V opens its engagement screen)");
     }
 
     private void UpdateEngagement(double delta)
@@ -711,7 +814,7 @@ public partial class GameScreen : Node2D
         PlanetScreenId = null;
         GroundScreenId = null;
         FittingFleetId = null;
-        if (Engagement != null) CloseEngagement();
+        if (BattleView) CloseBattle();
     }
 
     /// <summary>The fleets screen (K): opens it over anything else, picking the selected fleet; closes it when open.</summary>
@@ -1496,6 +1599,12 @@ public partial class GameScreen : Node2D
         {
             case Key.Space: TogglePause(); break;
             case Key.Quoteleft: SetSpeed(0); break;
+            case >= Key.Key0 and <= Key.Key9 when key.CtrlPressed && BattleView:
+                var fleets = BattleOurFleets();
+                var n = (int)key.Keycode - (int)Key.Key0;
+                if (n == 0) ChooseBattleTab(null);
+                else if (n <= fleets.Count) ChooseBattleTab(fleets[n - 1].Id);
+                break;
             case Key.Key1: SetSpeed(1); break;
             case Key.Key2: SetSpeed(2); break;
             case Key.Key3: SetSpeed(3); break;
@@ -1518,13 +1627,8 @@ public partial class GameScreen : Node2D
             case Key.C when Planner == null: EditRoute(); break;
             case Key.L: ToggleSide(); break;
             case Key.M: OrderMerge(); break;
-            case Key.V: ToggleEngagement(); break;
-            case Key.U:
-                BattleView = !BattleView;
-                _main.Toast(BattleView ? "Battle view: ship status only (U to bring the menus back)" : "Battle view off");
-                break;
-            case Key.Escape when BattleView: BattleView = false; break;
-            case Key.Escape when Engagement != null: CloseEngagement(); break;
+            case Key.U: ToggleBattle(); break;
+            case Key.Escape when BattleView: CloseBattle(); break;
             case Key.Tab when Engagement != null: CycleEngagement(key.ShiftPressed ? -1 : 1); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;
             case Key.P: PauseOnContact = !PauseOnContact; _main.Toast(PauseOnContact ? "Will pause when enemies are spotted" : "Will not pause when enemies are spotted"); break;

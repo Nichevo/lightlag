@@ -158,7 +158,7 @@ public partial class FleetRules : VBoxContainer
         _zonePanel.Refresh(w, f, zone);
     }
 
-    private static string RuleText(World w, Fleet f)
+    internal static string RuleText(World w, Fleet f)
     {
         if (f.Retreating) return $"Pulling back{(f.PullReason is { Length: > 0 } r ? $": {r}" : "")}";
         var preset = f.Rule.Preset;
@@ -173,7 +173,7 @@ public partial class FleetRules : VBoxContainer
         return text;
     }
 
-    private static string FormationText(World w, Fleet f)
+    internal static string FormationText(World w, Fleet f)
     {
         var shape = Formations.Shape(w, f);
         var text = f.Formation == Formation.Auto ? $"{Formations.Name(shape)} (Auto, from its weapons and the threat)" : $"{Formations.Name(shape)} (set by hand)";
@@ -226,7 +226,7 @@ public partial class FleetRules : VBoxContainer
         Do(f => new SetSecrecyCommand(f.Id, f.Shown, r), "weapons shown");
     }
 
-    private static string ShapeTip(Formation f) => f switch
+    internal static string ShapeTip(Formation f) => f switch
     {
         Formation.Auto => "Picks for you: Wall for missile boats behind heavy ships, Line for all-gun fleets against no missiles, Column when flying, else Staggered",
         Formation.Staggered => "Big ships apart in front, small ones in the gaps: nearly every gun clear, most ships near cover",

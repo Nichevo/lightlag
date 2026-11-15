@@ -137,7 +137,7 @@ public partial class Hud
         _menuRight = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         _menuRight.AddThemeConstantOverride("separation", 4);
         _battleView = SmallButton("Battle view  U", () => _screen.BattleView = !_screen.BattleView,
-            "Clear the screen to each ship's state in the fight: hull, weapons, engines, defence, crew, heat, with Eject heat sink buttons (U)");
+            "The battle view: your ships and the enemy's, approach and weapon cards, reach rings and when things arrive (U)");
         _menuRight.AddChild(_battleView);
         _gameMenu = new MenuButton { Text = "☰ Game  Esc", Flat = false, FocusMode = Control.FocusModeEnum.None, TooltipText = "Pause rules, radio silence, saving and loading, display options (Esc opens the full menu)" };
         _gameMenu.CustomMinimumSize = new Vector2(0, 32);

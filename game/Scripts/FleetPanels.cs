@@ -274,8 +274,8 @@ public partial class FleetPanel : PanelContainer
         box.AddChild(fireRow);
         _fireRow = fireRow;
         _heatRow = heatRow;
-        _engagementButton = Ui.SmallButton("Engagement (V)", () => _screen.ToggleEngagement(),
-            "Zoom in on this fleet and the enemy it faces: weapon reach, closest pass, missiles and ways to play it");
+        _engagementButton = Ui.SmallButton("Battle view (U)", () => { if (_screen.SelectedFleet is Fleet sel) _screen.OpenBattle(sel.Id); },
+            "Open the battle view on this fleet and the enemy it faces: ships, approach choices, weapon cards, reach rings and when things arrive");
         box.AddChild(_engagementButton);
         _supplyRun = new MenuButton { Text = "Supply run ▾", Flat = false, FocusMode = FocusModeEnum.None,
             TooltipText = "Auto supply run: this fleet's tankers and freighters fly out to the fleet you pick, top it up while they are together, go home to load when low, and repeat" };
@@ -509,7 +509,7 @@ public partial class FleetPanel : PanelContainer
                 "Fly to it and merge: to where it will stop, or on intercept tracks if it is drifting on");
         }
         popup.AddSeparator();
-        Add("Engagement view (V)", MoreEngagement, Lightlag.Sim.Core.Engagement.EnemyFor(w, f) != null, "Weapon reach, closest pass, missiles and ways to play it");
+        Add("Battle view (U)", MoreEngagement, Lightlag.Sim.Core.Engagement.EnemyFor(w, f) != null, "Weapon reach, closest pass, missiles and ways to play it");
         Add("Ships and fittings", MoreFittings, true, "Each ship's drawing, slots and modules");
         Add("Eject heat sinks", MoreSinks, w.ShipsOf(f).Any(s => s.HeatSinks > 0), "Every ship throws a heat sink overboard: sheds heat at once and can draw off missiles");
         var canDrop = w.ShipsOf(f).Any(x => x.Missiles > 0 && x.Disabled != Module.Missiles);
@@ -544,7 +544,7 @@ public partial class FleetPanel : PanelContainer
                 break;
             case MoreRoute: _screen.EditRoute(); break;
             case MoreMerge: _screen.OrderMerge(); break;
-            case MoreEngagement: _screen.ToggleEngagement(); break;
+            case MoreEngagement: _screen.OpenBattle(f.Id); break;
             case MoreFittings: _screen.FittingFleetId = _screen.FittingFleetId == null ? f.Id : null; break;
             case MoreSinks: _screen.EjectSinks(); break;
             case MoreDrone: _screen.SendDrone(); break;
@@ -1196,7 +1196,7 @@ public partial class FleetPanel : PanelContainer
         return list;
     }
 
-    private static string DoingNow(World w, Fleet f)
+    internal static string DoingNow(World w, Fleet f)
     {
         string? Name(int? id) => id is int b ? w.FindBody(b)?.Name : null;
         if (f.Retreating && f.Flight != null) return $"Retreating home, arrives {GameTime.Format(f.Flight.ArriveHour)}";

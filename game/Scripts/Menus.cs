@@ -229,7 +229,7 @@ public partial class HowToPlay : CenterContainer
         "• Empty planets with Industry can be claimed: park a fleet in orbit and keep the enemy away for 10 days (30 if the rival holds it). A held planet makes half its Industry until settlers arrive.\n" +
         "• Industry pays for ships at your shipyard and for buildings; research costs only scientist time (Empire panel, E).\n" +
         "• You only see what your ships and planets can see. Burning engines show from far away; coasting cold hides you. B cycles the sight view.\n" +
-        "• Right-click an enemy fleet to attack it. V opens the engagement screen: approach, burn and dodge choices, rings and a timeline.\n" +
+        "• Right-click an enemy fleet to attack it. U opens the battle view: your ships and theirs, approach, burn and weapon cards, rings and a timeline.\n" +
         "• Railguns hit hard up close, missiles reach further, point defence shoots missiles down, shields soak what gets through before armour.\n" +
         "• Heat: firing, dodging and burning heat the ships; radiators come in for battle. Overheated ships lose guns and shields until they cool. Heat sinks dump heat and can draw off missiles. Run cold to hide, until the cold clock runs out.\n" +
         "• Fleet panel: firing rule (nearest, largest, finish off, engines, split), long-range fire to make a chaser dodge, hold missiles until closer, or drop them to wake later.\n" +
