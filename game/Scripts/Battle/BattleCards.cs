@@ -108,7 +108,7 @@ public sealed class CardBuilder
         _context = context;
     }
 
-    public const int LabelWidth = 62;
+    public const int LabelWidth = 50;
     private static readonly Color Off = new(1, 1, 1, 0.7f);
 
     private void Act(Action<CardContext> act, string what) =>
@@ -129,12 +129,32 @@ public sealed class CardBuilder
         return b;
     }
 
+    private bool _join;
+    private HBoxContainer? _lastRow;
+
+    /// <summary>The next row's controls go on the end of the row before (keeps a card to three lines).</summary>
+    public void SameRow() => _join = true;
+
     private HBoxContainer NewRow(string? label)
     {
+        if (_join && _lastRow != null)
+        {
+            _join = false;
+            if (label != null)
+            {
+                var sep = RowLabel(label);
+                sep.CustomMinimumSize = new Vector2(0, 0);
+                sep.Text = "  " + label;
+                _lastRow.AddChild(sep);
+            }
+            return _lastRow;
+        }
+        _join = false;
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 3);
         if (label != null) row.AddChild(RowLabel(label));
         _body.AddChild(row);
+        _lastRow = row;
         return row;
     }
 
@@ -146,7 +166,8 @@ public sealed class CardBuilder
         Func<Fleet, T, GameCommand?> command, string what, Func<CardContext, bool>? visible = null)
     {
         var row = NewRow(label);
-        var tag = (Label)row.GetChild(0);
+        var tag = (Label)row.GetChild(row.GetChildCount() - 1);
+        var mine = new List<Control> { tag };
         var buttons = new List<(Button B, T V)>();
         foreach (var (text, tip, value) in options)
         {
@@ -154,13 +175,15 @@ public sealed class CardBuilder
             var b = Small(text, tip, () => Act(c => c.Issue(f => command(f, v), what), what));
             row.AddChild(b);
             buttons.Add((b, v));
+            mine.Add(b);
         }
+        var joined = tag.Text != label;
         _live.Add(c =>
         {
-            row.Visible = visible?.Invoke(c) ?? true;
+            Show(row, mine, visible?.Invoke(c) ?? true);
             var values = c.Fleets.Select(f => current(c, f)).Distinct().ToList();
             var mixed = values.Count > 1;
-            tag.Text = mixed ? $"{label} (mixed)" : label;
+            tag.Text = (joined ? "  " : "") + (mixed ? $"{label} (mixed)" : label);
             tag.AddThemeColorOverride("font_color", mixed ? Ui.Warn : Ui.Dim);
             foreach (var (b, v) in buttons) b.Modulate = !mixed && EqualityComparer<T>.Default.Equals(values[0], v) ? Ui.Player : Off;
         });
@@ -171,7 +194,7 @@ public sealed class CardBuilder
         Func<Fleet, T, GameCommand?> command, string what)
     {
         var row = NewRow(label);
-        var tag = (Label)row.GetChild(0);
+        var tag = (Label)row.GetChild(row.GetChildCount() - 1);
         var pick = new OptionButton { FocusMode = Control.FocusModeEnum.None, CustomMinimumSize = new Vector2(0, 22), FitToLongestItem = true };
         pick.AddThemeFontSizeOverride("font_size", 11);
         for (var i = 0; i < options.Count; i++)
@@ -179,13 +202,14 @@ public sealed class CardBuilder
             pick.AddItem(options[i].Text, i);
             pick.SetItemTooltip(i, options[i].Tip);
         }
+        var joinedPick = tag.Text != label;
         pick.ItemSelected += i => Act(c => c.Issue(f => command(f, options[(int)i].Value), what), what);
         row.AddChild(pick);
         _live.Add(c =>
         {
             var values = c.Fleets.Select(f => current(c, f)).Distinct().ToList();
             var mixed = values.Count > 1;
-            tag.Text = mixed ? $"{label} (mixed)" : label;
+            tag.Text = (joinedPick ? "  " : "") + (mixed ? $"{label} (mixed)" : label);
             tag.AddThemeColorOverride("font_color", mixed ? Ui.Warn : Ui.Dim);
             var at = mixed ? -1 : options.ToList().FindIndex(o => EqualityComparer<T>.Default.Equals(o.Value, values[0]));
             if (pick.Selected != at && !pick.GetPopup().Visible) pick.Select(at);
@@ -208,7 +232,7 @@ public sealed class CardBuilder
         row.AddChild(b);
         _live.Add(c =>
         {
-            row.Visible = visible?.Invoke(c) ?? true;
+            Show(row, new List<Control> { b }, visible?.Invoke(c) ?? true);
             var values = c.Fleets.Select(f => current(c, f)).Distinct().ToList();
             var mixed = values.Count > 1;
             b.Text = mixed ? $"{text}: mixed" : values[0] ? $"{text} ✓" : text;
@@ -229,17 +253,31 @@ public sealed class CardBuilder
         }
     }
 
-    /// <summary>A line of text worked out each frame (empty hides it).</summary>
-    public Label Line(Func<CardContext, string> text, Color? color = null, int size = 11, Func<CardContext, Color>? colorNow = null)
+    /// <summary>Show or hide a row's own controls; the row hides when nothing on it shows.</summary>
+    private static void Show(HBoxContainer row, List<Control> mine, bool on)
+    {
+        foreach (var m in mine) m.Visible = on;
+        row.Visible = row.GetChildren().OfType<Control>().Any(x => x.Visible);
+    }
+
+    /// <summary>
+    /// A line of text worked out each frame (empty hides it). It keeps to <paramref name="lines"/> lines across the card
+    /// (lines given with \n run on with " · "); the whole text is in its tooltip.
+    /// </summary>
+    public Label Line(Func<CardContext, string> text, Color? color = null, int size = 11, Func<CardContext, Color>? colorNow = null, int lines = 1)
     {
         var l = Ui.Label("", size, color ?? Ui.Text);
         l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         l.CustomMinimumSize = new Vector2(150, 0);
+        l.MaxLinesVisible = lines;
+        l.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        l.MouseFilter = Control.MouseFilterEnum.Pass;
         _body.AddChild(l);
         _live.Add(c =>
         {
             var t = text(c);
-            l.Text = t;
+            var flat = t.Replace("\n", " · ");
+            if (l.Text != flat) { l.Text = flat; l.TooltipText = t; }
             l.Visible = t != "";
             if (colorNow != null) l.AddThemeColorOverride("font_color", colorNow(c));
         });
@@ -249,7 +287,12 @@ public sealed class CardBuilder
     /// <summary>Anything else: add your own control, with an update each frame.</summary>
     public void Custom(Control control, Action<CardContext>? refresh = null)
     {
-        _body.AddChild(control);
+        if (_join && _lastRow != null) { _join = false; _lastRow.AddChild(control); }
+        else
+        {
+            _body.AddChild(control);
+            if (control is HBoxContainer row) _lastRow = row;
+        }
         if (refresh != null) _live.Add(refresh);
     }
 }

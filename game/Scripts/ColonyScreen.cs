@@ -451,7 +451,7 @@ public partial class ColonyScreen : PanelContainer
     }
 
     private string PlanetShape(World w, Body b) =>
-        $"planet|{b.Id}|{string.Join(",", b.Pieces.Select(p => $"{p.Id}:{p.Built}"))}|{b.Preset}|{string.Join(",", Colonies.Priority(b))}|{b.SiegeDays}"
+        $"planet|{b.Id}|{string.Join(",", b.Pieces.Select(p => $"{p.Id}:{p.Built}"))}|{string.Join(",", Colonies.QueueOrder(w, b).Select(p => p.Id))}|{b.Preset}|{string.Join(",", Colonies.Priority(b))}|{b.SiegeDays}"
         + $"|{Economy.Of(w, Side.Player).AutoTransport}|{string.Join(",", w.FixedRuns.Where(r => r.Side == Side.Player).Select(r => r.Id))}"
         + $"|{Economy.Of(w, Side.Player).Researched.Count}|{_area}|{_onlyHere}|{_buildSort}|{_placing}|{_selectedPiece}"
         + $"|{_runTo}|{_runGood}|{_runEvery}|{_runEscort}|{GetViewportRect().Size}|{(int)(Economy.Of(w, Side.Player).Industry / 20)}|{StationPanel.Shape(w, b)}";
@@ -560,21 +560,36 @@ public partial class ColonyScreen : PanelContainer
         return l;
     }
 
-    /// <summary>What is being built here and what is queued behind it, each with a button to call it off.</summary>
+    /// <summary>What is being built here and what is queued behind it, in the order they will start, each with ▲▼ to move it and a button to call it off.</summary>
     private Control BuildQueue(World w, Body b)
     {
         var col = Column(4);
         col.AddChild(Ui.Label("Building here", 16));
-        foreach (var p in b.Pieces.Where(p => !p.Built).OrderBy(p => p.Waiting).ThenBy(p => p.Id))
+        var queue = Colonies.QueueOrder(w, b);
+        var shown = b.Pieces.Where(p => !p.Built && !p.Waiting).OrderBy(p => p.Id).Concat(queue).ToList();
+        foreach (var p in shown)
         {
             var data = Planets.BuildingKind(p.Kind);
             var row = Row(8);
+            var place = queue.IndexOf(p);
+            row.AddChild(Ui.Label(place < 0 ? "▶" : $"{place + 1}.", 13, Ui.Dim));
             var name = Ui.SmallButton(data?.Name ?? p.Kind, () => _selectedPiece = p.Id, "Show it on the board");
             name.AddThemeFontSizeOverride("font_size", 13);
             row.AddChild(name);
             var state = LiveWrap(w2 => p.Waiting ? $"Queued: {Colonies.QueuedWhy(w2, b, p)} ({data?.Cost ?? 0:0} Industry when it starts)"
                 : $"{p.HoursLeft / 24:0.#} days left" + (Colonies.MaterialShort(b, p) is string waits ? $" · WAITING: {waits}" : ""), 13);
             row.AddChild(state);
+            if (place >= 0 && queue.Count > 1)
+            {
+                var up = Ui.SmallButton("▲", () => _screen.IssueNow(new MoveQueuedPieceCommand(Side.Player, b.Id, p.Id, -1), "queue order"),
+                    "Start it sooner: swap with the one above (only on this planet; the building under way keeps going)");
+                up.Disabled = place == 0;
+                row.AddChild(up);
+                var down = Ui.SmallButton("▼", () => _screen.IssueNow(new MoveQueuedPieceCommand(Side.Player, b.Id, p.Id, 1), "queue order"),
+                    "Start it later: swap with the one below");
+                down.Disabled = place == queue.Count - 1;
+                row.AddChild(down);
+            }
             row.AddChild(Ui.SmallButton("✕", () =>
             {
                 _screen.IssueNow(new DemolishCommand(Side.Player, b.Id, p.Kind, p.Id), "call off");

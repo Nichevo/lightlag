@@ -15,7 +15,6 @@ namespace Lightlag.Game;
 public partial class MapView
 {
     private static readonly Color OwnLane = new("4aa8ff");
-    private static readonly Color RaidColor = new("ffb347");
 
     private Vec2 DrawnAt(World w, int bodyId) => _drawn.TryGetValue(bodyId, out var p) ? p : w.FindBody(bodyId)?.Position ?? Vec2.Zero;
 
@@ -72,12 +71,7 @@ public partial class MapView
             var at = Camera.ToScreen(center);
             var r = (float)(z.RadiusMm * Camera.Scale);
             if (!Camera.OnScreen(at, r + 50)) continue;
-            var color = z.Side != side ? Ui.Rival : z.Kind switch
-            {
-                ZoneKind.Raid => RaidColor,
-                ZoneKind.Guard => Ui.Player,
-                _ => Ui.Dim,
-            };
+            var color = z.Side != side ? Ui.Rival : ZonePanel.KindColor(z.Kind);
             r = Mathf.Max(r, 6);
             // Along its lane: an ellipse stretched along the run; otherwise a circle.
             var along = Vector2.Right;
@@ -104,7 +98,7 @@ public partial class MapView
                 }
             }
             var holders = w.Fleets.Count(f => f.ZoneId == z.Id);
-            var hold = w.Fleets.FirstOrDefault(f => f.ZoneId == z.Id) is Fleet h ? $" · {h.Name} {(z.Hold == ZoneHold.Drift ? "drifting" : "keeping station")}" : "";
+            var hold = w.Fleets.FirstOrDefault(f => f.ZoneId == z.Id) is Fleet h ? $" · {h.Name} {(z.Hold switch { ZoneHold.Drift => "drifting", ZoneHold.Roam => "roaming", _ => "keeping station" })}" : "";
             DrawString(_font, at + new Vector2(rx * 0.7f + 4, -ry * 0.7f - 4), $"{z.Name}{hold}{(holders > 1 ? $" (+{holders - 1})" : "")}"
                 + (z.Catches > 0 ? $" · {z.Catches} caught" : ""), HorizontalAlignment.Left, -1, 11, new Color(color, 0.9f));
             if (onLane)
@@ -146,8 +140,8 @@ public partial class MapView
         if (d.LengthSquared() < 1) return;
         var n = new Vector2(-d.Y, d.X).Normalized() * (width / 2);
         var clear = new Color(color, 0);
-        DrawPolygon(new[] { a + n, b + n, b, a }, new[] { clear, clear, color, color });
-        DrawPolygon(new[] { a, b, b - n, a - n }, new[] { color, color, clear, clear });
+        this.FillPolygon(new[] { a + n, b + n, b, a }, new[] { clear, clear, color, color });
+        this.FillPolygon(new[] { a, b, b - n, a - n }, new[] { color, color, clear, clear });
     }
 
     private void LaneLabel(Vector2 a, Vector2 b, string text, Color color)
@@ -208,7 +202,7 @@ public partial class MapView
             var a = Mathf.Tau * i / n;
             pts[i] = at + along * (Mathf.Cos(a) * rx) + across * (Mathf.Sin(a) * ry);
         }
-        DrawColoredPolygon(pts, fill);
+        this.FillPolygon(pts, fill);
         for (var i = 0; i < n; i += 2) DrawLine(pts[i], pts[(i + 1) % n], line, 1.2f, true);
     }
 }

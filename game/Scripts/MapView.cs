@@ -33,6 +33,9 @@ public partial class MapView : Node2D
     /// <summary>The box being dragged out to pick fleets, in screen pixels.</summary>
     public Rect2? SelectionBox;
 
+    /// <summary>A zone being drawn: its centre and radius on screen, colour, and the hint line shown at the top.</summary>
+    public (Vector2 At, float Radius, Color Color, string Hint)? ZoneDraft;
+
     /// <summary>Which way each fleet's ships are drawn pointing; turns towards the fleet's facing over time.</summary>
     private readonly Dictionary<int, double> _shownFacing = new();
 
@@ -135,7 +138,8 @@ public partial class MapView : Node2D
             _drawn[f.Id] = p;
         }
         ApplyLag();
-        SyncPlanets();
+        // The planet pictures follow in SyncSprites, once the camera has moved this frame (placing them here too cost as much again).
+        if (BenchProbe.OldWay) SyncPlanets();
     }
 
     /// <summary>
@@ -180,7 +184,16 @@ public partial class MapView : Node2D
         }
     }
 
+    private readonly System.Diagnostics.Stopwatch _drawClock = new();
+
     public override void _Draw()
+    {
+        _drawClock.Restart();
+        DrawMap();
+        BenchProbe.Add("MAP-DRAW", _drawClock.Elapsed.TotalMilliseconds);
+    }
+
+    private void DrawMap()
     {
         if (Sim == null) return;
         var w = Sim.World;
@@ -273,6 +286,19 @@ public partial class MapView : Node2D
             DrawRect(box, new Color(Ui.Player, 0.08f));
             DrawRect(box, new Color(Ui.Player, 0.7f), false, 1);
         }
+        if (ZoneDraft is var (zAt, zR, zColor, zHint))
+        {
+            if (zR > 0)
+            {
+                DrawCircle(zAt, zR, new Color(zColor, 0.08f));
+                DrawArc(zAt, zR, 0, Mathf.Tau, 96, new Color(zColor, 0.85f), 1.5f, true);
+            }
+            DrawCircle(zAt, 3, zColor);
+            var size = _font.GetStringSize(zHint, HorizontalAlignment.Left, -1, 15);
+            var top = new Vector2((Camera.ScreenSize.X - size.X) / 2, Hud.ContentTop + 56);
+            DrawRect(new Rect2(top - new Vector2(10, size.Y), size + new Vector2(20, 12)), new Color(0, 0, 0, 0.7f));
+            DrawString(_font, top, zHint, HorizontalAlignment.Left, -1, 15, zColor);
+        }
     }
 
     /// <summary>Weapon reach of the selected fleet: railguns, missiles and contact.</summary>
@@ -349,7 +375,7 @@ public partial class MapView : Node2D
                     var tip = to + dir * half * 0.5f;
                     var incoming = e.Side != Side.Player;
                     var c = incoming ? new Color(1f, 0.4f, 0.35f) : mine;
-                    DrawColoredPolygon(new[] { from, tip + across * half, tip - across * half }, new Color(c, 0.12f * fade));
+                    this.FillPolygon(new[] { from, tip + across * half, tip - across * half }, new Color(c, 0.12f * fade));
                     DrawLine(from, tip + across * half, new Color(c, 0.4f * fade), 1);
                     DrawLine(from, tip - across * half, new Color(c, 0.4f * fade), 1);
                     break;
@@ -694,7 +720,7 @@ public partial class MapView : Node2D
     private void DrawDiamond(Vector2 at, float r, Color color, bool filled)
     {
         var pts = new[] { at + new Vector2(0, -r), at + new Vector2(r, 0), at + new Vector2(0, r), at + new Vector2(-r, 0), at + new Vector2(0, -r) };
-        if (filled) DrawColoredPolygon(pts[..4], new Color(color, 0.6f));
+        if (filled) this.FillPolygon(pts[..4], new Color(color, 0.6f));
         DrawPolyline(pts, color, 1.5f, true);
     }
 
@@ -740,7 +766,13 @@ public partial class MapView : Node2D
     }
 
     /// <summary>Is this fleet drawn: yours, an enemy your side can see, or everything in debug view.</summary>
-    public bool Shown(Fleet f) => RevealAll || (Lagging ? ShownLagging(f) : f.Side == Side.Player || Sensors.Sees(Sim.World, Side.Player, f));
+    public bool Shown(Fleet f)
+    {
+        if (RevealAll) return true;
+        FreshStep();
+        if (_shownMemo.TryGetValue(f.Id, out var shown)) return shown;
+        return _shownMemo[f.Id] = Lagging ? ShownLagging(f) : f.Side == Side.Player || Sensors.Sees(Sim.World, Side.Player, f);
+    }
 
     /// <summary>The engagement screen's overlay (null when it is closed).</summary>
     public EngagementInfo? Engagement { get; set; }
@@ -1028,19 +1060,19 @@ public partial class MapView : Node2D
         outline[^1] = pts[0];
         if (race == Races.Lattice)
         {
-            DrawColoredPolygon(pts, new Color(0.043f, 0.059f, 0.082f, color.A));
+            this.FillPolygon(pts, new Color(0.043f, 0.059f, 0.082f, color.A));
             DrawPolyline(outline, color, 1.2f, true);
             DrawCircle(at, 1.6f, color);
         }
         else if (race == Races.Hive)
         {
-            DrawColoredPolygon(pts, color);
+            this.FillPolygon(pts, color);
             DrawPolyline(outline, color.Darkened(0.55f), 2.4f, true);
             DrawCircle(at, 1.5f, color.Darkened(0.7f));
         }
         else
         {
-            DrawColoredPolygon(pts, color);
+            this.FillPolygon(pts, color);
             DrawPolyline(outline, color.Darkened(0.5f), 1, true);
         }
         if (s.Crippled) DrawCross(at, 7, Ui.Danger, 1.6f);

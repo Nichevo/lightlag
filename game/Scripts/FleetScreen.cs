@@ -57,7 +57,7 @@ public partial class FleetScreen : PanelContainer
                     + "|" + _screen.QuietWhenHandled
                     + "|" + string.Join(";", fleets.Select(f => f.Name))
                     + "|" + string.Join(",", w.Light.InTransit.Concat(w.Light.Held).Where(t => t.Command is SetFleetRoleCommand).Select(t => t.Command.GetHashCode()))
-                    + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}"))
+                    + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}:{z.Kind}"))
                     + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"))
                     + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : "");
         if (shape != _shape && !Ui.MouseHeld)
@@ -262,7 +262,7 @@ public partial class FleetScreen : PanelContainer
         col.AddChild(Heading("Zones"));
         var zones = w.Zones.Where(z => z.Side == Side.Player).OrderBy(z => z.Id).ToList();
         if (zones.Count == 0)
-            col.AddChild(Ui.Label("No zones. Draw one from a fleet's Zone menu", 13, Ui.Dim));
+            col.AddChild(Ui.Label("No zones. Draw one from a fleet's Zone menu (Raid, Guard or Picket)", 13, Ui.Dim));
         foreach (var z in zones)
         {
             var id = z.Id;
@@ -284,9 +284,23 @@ public partial class FleetScreen : PanelContainer
             nameRow.AddChild(Ui.SmallButton("Delete", () => _screen.IssueNow(new DeleteZoneCommand(Side.Player, id), "delete zone"),
                 "Remove the zone; fleets holding it stop"));
             line.AddChild(nameRow);
+            var jobs = Row(2);
+            jobs.AddChild(Ui.Label("Job", 12, Ui.Dim));
+            foreach (var kind in new[] { ZoneKind.Raid, ZoneKind.Guard, ZoneKind.Picket })
+            {
+                var k = kind;
+                var jb = Ui.SmallButton(kind.ToString(), () => SetKind(id, k), Lanes.KindTip(kind));
+                jb.ToggleMode = true;
+                jb.SetPressedNoSignal(z.Kind == kind);
+                if (z.Kind == kind) jb.Modulate = ZonePanel.KindColor(kind);
+                jobs.AddChild(jb);
+            }
+            line.AddChild(jobs);
             line.AddChild(Ui.Label($"{z.Kind} · radius {Format.Distance(z.RadiusMm)} · {where} · "
                                    + (holders.Count == 0 ? "no fleet holds it" : $"held by {string.Join(", ", holders)}"), 12, Ui.Dim));
             var tools = Row(4);
+            tools.AddChild(Ui.SmallButton("Redraw", () => _screen.StartZoneDraw(null, id, z.Kind),
+                "Draw this zone again on the map: click its centre and drag out its size (right-click or Esc to stop)"));
             tools.AddChild(Ui.SmallButton("Smaller", () => Resize(id, 0.75), "Shrink the zone by a quarter"));
             tools.AddChild(Ui.SmallButton("Bigger", () => Resize(id, 1.33), "Grow the zone by a third"));
             var near = Lanes.AnchorFor(w, Lanes.CenterOf(w, z));
@@ -309,6 +323,12 @@ public partial class FleetScreen : PanelContainer
     {
         if (Main.Instance.Sim?.World is not World w || w.Zones.Find(z => z.Id == zoneId) is not Zone z) return;
         _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, z.Center, z.RadiusMm * factor, z.FromBodyId, z.ToBodyId, z.T, z.Hold, z.Prey), "resize zone");
+    }
+
+    private void SetKind(int zoneId, ZoneKind kind)
+    {
+        if (Main.Instance.Sim?.World is not World w || w.Zones.Find(z => z.Id == zoneId) is not Zone z) return;
+        _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, z.Center, z.RadiusMm, z.FromBodyId, z.ToBodyId, z.T, z.Hold, z.Prey, kind), "zone job");
     }
 
     private void MoveTo(int zoneId, int fleetId)
@@ -523,7 +543,7 @@ public partial class FleetScreen : PanelContainer
             var parts = new List<string> { $"Fuel {fuel:P0}" };
             if (gunners.Count > 0) parts.Add($"railgun ammo {gunners.Average(s => s.Ammo / SupplyLines.MaxAmmo(s)):P0}");
             if (racks.Count > 0) parts.Add($"missiles {racks.Sum(s => s.Missiles)}/{racks.Sum(s => Tech.Racks(w2, s))}");
-            if (eaters.Count > 0) parts.Add(eaters.Any(SupplyLines.Hungry) ? "food: HUNGRY" : $"food {eaters.Min(s => s.Food):0} days");
+            if (eaters.Count > 0) parts.Add(eaters.Any(SupplyLines.Hungry) ? "food: HUNGRY" : $"food {eaters.Min(s => SupplyLines.FoodDaysLeft(w2, s)):0} days");
             var runners = w2.Fleets.Where(o => o.Side == g.Side && o.SupplyRunFor == g.Id).Select(o => o.Name).ToList();
             var line2 = runners.Count > 0 ? $"Kept topped up by {string.Join(", ", runners)}" : "No supply run to it";
             if (g.Resupplying) line2 += " · on its way to refill";
@@ -626,7 +646,7 @@ public partial class FleetScreen : PanelContainer
                 var bits = new List<string>();
                 if (SupplyLines.MaxAmmo(x) > 0) bits.Add($"ammo {x.Ammo / SupplyLines.MaxAmmo(x):P0}");
                 if (Fitting.Spec(x).Missiles > 0) bits.Add(x.Missiles <= 0 ? "NO MISSILES" : $"missiles {x.Missiles}/{Tech.Racks(w2, x)}");
-                if (SupplyLines.MaxFood(x) > 0) bits.Add(SupplyLines.Hungry(x) ? "HUNGRY" : $"food {x.Food:0} d");
+                if (SupplyLines.MaxFood(x) > 0) bits.Add(SupplyLines.Hungry(x) ? "HUNGRY" : $"food {SupplyLines.FoodDaysLeft(w2, x):0} d");
                 if (SupplyLines.IsSupplyShip(x)) bits.Add($"cargo {SupplyLines.CargoShare(x):P0}");
                 return bits.Count > 0 ? string.Join(" · ", bits) : "—";
             }, 12));

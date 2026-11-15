@@ -26,7 +26,16 @@ public partial class BattleTimeline : Control
     private Font _font = null!;
     private readonly List<(Vector2 At, double Hour, string Label)> _marks = new();
 
-    public const float LabelW = 170, Top = 20, RowH = 30, Foot = 30;
+    public const float LabelW = 200, Top = 2, RowH = 22, Foot = 14;
+
+    /// <summary>What the marks mean (the "?" beside the panel's title line).</summary>
+    public const string Legend = "When things arrive, if nobody changes course. Each fleet's row, top lane to bottom: your guns, your missiles, their guns, their missiles. "
+        + "Gold dashes: closest pass · dots: missiles land · green: you spot them. Click a mark to pause the game there (click it again to cancel).";
+
+    /// <summary>The title line for the panel (drawn there, not on the timeline).</summary>
+    public string Title => Rows.Count == 0 ? "When things arrive: no enemy in sight or on record"
+        : Rows.All(r => r.InSight) ? "When things arrive, if nobody changes course · click a mark to pause there"
+        : "When things arrive: GUESS (enemy out of sight, where it should be if it kept going)";
     public float WantHeight => Top + Math.Max(1, Rows.Count) * RowH + Foot;
 
     public override void _Ready()
@@ -72,10 +81,6 @@ public partial class BattleTimeline : Control
         var now = Main.Instance.Sim?.World.Hour ?? 0;
         var span = Span;
         var right = Size.X - 8;
-        var title = Rows.Count == 0 ? "When things arrive: no enemy in sight or on record"
-            : Rows.All(r => r.InSight) ? "When things arrive, if nobody changes course · click a mark to pause there"
-            : "When things arrive: GUESS (enemy out of sight, where it should be if it kept going) · click a mark to pause there";
-        DrawString(_font, new Vector2(0, 13), title, HorizontalAlignment.Left, right, 12, Rows.All(r => r.InSight) ? Ui.Text : Ui.Warn);
         if (Rows.Count == 0) return;
         var bottom = Top + Rows.Count * RowH;
 
@@ -88,9 +93,6 @@ public partial class BattleTimeline : Control
             var w = _font.GetStringSize(text, HorizontalAlignment.Left, -1, 11).X;
             DrawString(_font, new Vector2(Math.Clamp(x - w / 2, LabelW, right - w), bottom + 13), text, HorizontalAlignment.Left, -1, 11, Ui.Dim);
         }
-        DrawString(_font, new Vector2(0, bottom + 26),
-            "Each row, top lane to bottom: your guns, your missiles, their guns, their missiles · gold dashes: closest pass · dots: missiles land · green: you spot them",
-            HorizontalAlignment.Left, right, 10, new Color(Ui.Dim, 0.85f));
 
         for (var r = 0; r < Rows.Count; r++)
         {
@@ -98,10 +100,12 @@ public partial class BattleTimeline : Control
             var y = Top + r * RowH;
             var lit = Lit == null || Lit == e.Mine.Id;
             if (Lit == e.Mine.Id) DrawRect(new Rect2(0, y, right, RowH - 2), new Color(Ui.Player, 0.07f));
-            DrawString(_font, new Vector2(4, y + 13), e.Mine.Name, HorizontalAlignment.Left, LabelW - 8, 12, lit ? Ui.Player : new Color(Ui.Player, 0.6f));
-            DrawString(_font, new Vector2(4, y + 25), Summary(e), HorizontalAlignment.Left, LabelW - 8, 10, Ui.Dim);
+            // One line: the fleet, then the first thing that happens.
+            var nameW = Math.Min(_font.GetStringSize(e.Mine.Name, HorizontalAlignment.Left, -1, 12).X, LabelW * 0.6f);
+            DrawString(_font, new Vector2(4, y + 15), e.Mine.Name, HorizontalAlignment.Left, LabelW * 0.6f, 12, lit ? Ui.Player : new Color(Ui.Player, 0.6f));
+            DrawString(_font, new Vector2(10 + nameW, y + 15), Summary(e), HorizontalAlignment.Left, LabelW - 16 - nameW, 10, Ui.Dim);
 
-            var bar = new Rect2(LabelW, y + 4, right - LabelW, 20);
+            var bar = new Rect2(LabelW, y + 2, right - LabelW, 18);
             DrawRect(bar, new Color(Ui.Dim, e.InSight ? 0.12f : 0.06f));
             if (!e.InSight) DrawRect(bar, new Color(Ui.Warn, 0.5f), false, 1);
             void Lane(TimeWindow? win, int lane, Color color, string what)
@@ -109,8 +113,8 @@ public partial class BattleTimeline : Control
                 if (win == null) return;
                 var x0 = X(win.From);
                 var x1 = double.IsPositiveInfinity(win.To) ? right : X(win.To);
-                DrawRect(new Rect2(x0, bar.Position.Y + 1 + lane * 4.75f, Math.Max(3, x1 - x0), 4), new Color(color, lane % 2 == 0 ? 0.9f : 0.55f));
-                if (win.From > 1e-3) _marks.Add((new Vector2(x0, bar.Position.Y + 3 + lane * 4.75f), win.From, $"{e.Mine.Name}: {what} in {SimEngagement.Duration(win.From)}"));
+                DrawRect(new Rect2(x0, bar.Position.Y + 1 + lane * 4.25f, Math.Max(3, x1 - x0), 4), new Color(color, lane % 2 == 0 ? 0.9f : 0.55f));
+                if (win.From > 1e-3) _marks.Add((new Vector2(x0, bar.Position.Y + 3 + lane * 4.25f), win.From, $"{e.Mine.Name}: {what} in {SimEngagement.Duration(win.From)}"));
             }
             if (e.WeHaveRailguns) Lane(e.OurRailguns, 0, Ui.Player, "your guns reach");
             if (e.WeHaveMissiles) Lane(e.OurMissiles, 1, Ui.Player, "your missiles reach");
@@ -143,7 +147,7 @@ public partial class BattleTimeline : Control
         {
             var px = X(p - now);
             DrawLine(new Vector2(px, Top - 4), new Vector2(px, bottom + 2), Ui.Warn, 2);
-            DrawString(_font, new Vector2(Math.Min(px + 4, right - 90), Top - 6), "⏸ pauses here", HorizontalAlignment.Left, -1, 11, Ui.Warn);
+            DrawString(_font, new Vector2(Math.Min(px + 4, right - 90), bottom + 12), "⏸ pauses here", HorizontalAlignment.Left, -1, 11, Ui.Warn);
             _marks.Add((new Vector2(px, Top), p - now, "Pause mark"));
         }
     }

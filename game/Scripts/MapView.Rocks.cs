@@ -134,7 +134,7 @@ public partial class MapView
             points[i] = r.Screen + new Vector2(o.X * c - o.Y * s, o.X * s + o.Y * c);
         }
         var light = new Vector2(c, s).Dot(Vector2.Right) * 0.15f;
-        DrawColoredPolygon(points, new Color(r.Color.Lightened(light), 0.9f * r.Fade));
+        this.FillPolygon(points, new Color(r.Color.Lightened(light), 0.9f * r.Fade));
         var rim = new Vector2[points.Length + 1];
         points.CopyTo(rim, 0);
         rim[^1] = points[0];

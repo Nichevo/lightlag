@@ -205,7 +205,7 @@ public partial class OpsMap : Control
                 var fade = (float)Math.Clamp(1 - age / (Coverage.ThreatDays * 24), 0.25, 1);
                 var at = ToScreen(s.Position);
                 var col = new Color(Ui.SideColor(s.Of), fade);
-                DrawColoredPolygon(new[] { at + new Vector2(0, -7), at + new Vector2(6, 5), at + new Vector2(-6, 5) }, col);
+                this.FillPolygon(new[] { at + new Vector2(0, -7), at + new Vector2(6, 5), at + new Vector2(-6, 5) }, col);
                 // Under the triangle, so it doesn't sit on the planet's own name; kept inside the map.
                 var text = $"{s.Name} ({s.Ships}) · {(s.Visible ? "now" : Coverage.Age(age) + " ago")}";
                 var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 11).X;

@@ -223,6 +223,9 @@ public partial class GameScreen : Node2D
         if (mine is int sel && Engagement == null) Select(sel);
     }
 
+    /// <summary>Fold the battle view's bottom panel to its title line, or open it again (remembered).</summary>
+    public void ToggleBattleFold() => PlayerInfo.SetOpen(BattleScreen.FoldKey, !PlayerInfo.OpenSections.Contains(BattleScreen.FoldKey));
+
     public void CloseBattle()
     {
         _battleView = false;
@@ -393,9 +396,18 @@ public partial class GameScreen : Node2D
         _map.UpdatePositions();
     }
 
+    private readonly System.Diagnostics.Stopwatch _processClock = new();
+
     public override void _Process(double delta)
     {
         if (_main.Sim == null) return;
+        _processClock.Restart();
+        ProcessFrame(delta);
+        BenchProbe.Add("SCREEN-PROCESS", _processClock.Elapsed.TotalMilliseconds);
+    }
+
+    private void ProcessFrame(double delta)
+    {
         _camera.ScreenSize = GetViewportRect().Size;
         SelectSplitShip();
         if (!_paused)
@@ -456,17 +468,24 @@ public partial class GameScreen : Node2D
             _main.RunGuarded("autosave", () => SaveSlots.WriteAutosave(_main.Paths, Sim));
         }
 
+        BenchProbe.Add("p:sim+watch", _processClock.Elapsed.TotalMilliseconds);
+        var lap = _processClock.Elapsed.TotalMilliseconds;
+        void Lap(string n) { var t = _processClock.Elapsed.TotalMilliseconds; BenchProbe.Add(n, t - lap); lap = t; }
         KeyboardPan(delta);
         _map.TurnShips(delta);
         _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
         _map.UpdatePositions();
+        Lap("p:positions");
         if (_follow is int f && _map.DrawnPosition(f) is not { IsFinite: true }) _follow = null;
         _camera.Update(delta, FollowPoint());
         _map.SyncSprites(); // after the camera moves, so planet pictures sit on their orbits
+        Lap("p:sprites");
         if (_selected is int sel && Sim.World.FindBody(sel) == null && Sim.World.FindFleet(sel) == null) _selected = null;
         UpdatePlanner(delta);
         UpdateEngagement(delta);
+        Lap("p:planner+engagement");
         _map.HoverId = _map.HitTest(GetViewport().GetMousePosition());
+        Lap("p:hittest");
         _map.SelectedId = _selected;
         _group.RemoveAll(g => Sim.World.FindFleet(g) == null);
         if (_group.Count == 1) { var only = _group[0]; _group.Clear(); _selected = only; }
@@ -474,8 +493,56 @@ public partial class GameScreen : Node2D
         _map.Preview = Planner?.Plan;
         _map.PlannerWaypoints = Planner?.Waypoints;
         _map.DrawHour = Sim.World.Hour - (1 - _map.Blend) * _lastStepHours;
-        _map.QueueRedraw();
-        _hud.Refresh();
+        RedrawIfNeeded(delta);
+    }
+
+    // ---- Frame budget: draw the map and refresh the panels only when something changed --------------
+
+    private int _drawStamp;
+    private double _sinceDraw, _sinceHud;
+    private bool _inputSeen, _wasCovered;
+    private long _hudTick = -1;
+    private readonly System.Diagnostics.Stopwatch _frameClock = new();
+
+    /// <summary>What was showing, for the F8 report's frame timings.</summary>
+    public string ScreenNameForReport() =>
+        (BattleView ? "battle view" : _hud.MapCovered ? "a full screen" : "the map") + (_paused ? ", paused" : ", running") + $", {Camera.Scale:0.####} px per Mm";
+
+    /// <summary>Any input (keys, mouse, clicks on panels) makes the next frame draw and refresh at once.</summary>
+    public override void _Input(InputEvent e) => _inputSeen = true;
+
+    /// <summary>
+    /// The map is drawn every frame while time runs; paused, only when the view, the mouse, the selection or the
+    /// world changes (and a few times a second for anything else). Behind a full screen it is not drawn at all.
+    /// The panels refresh about ten times a second, and at once after input or a step.
+    /// </summary>
+    private void RedrawIfNeeded(double delta)
+    {
+        _frameClock.Restart();
+        var covered = _hud.MapCovered;
+        _map.Visible = !covered || BenchProbe.OldWay;
+        _sinceDraw += delta;
+        _sinceHud += delta;
+        var w = Sim.World;
+        var stamp = HashCode.Combine(HashCode.Combine(_camera.Center.X, _camera.Center.Y, _camera.Scale, _camera.ScreenSize, GetViewport().GetMousePosition(), _selected, _map.HoverId, _group.Count),
+            HashCode.Combine(w.Tick, w.Sub, Sim.Replay.Commands.Count, _map.Blend, BattleView, RevealAll, Planner?.Plan, _map.BattlePreview),
+            HashCode.Combine(_map.BattleReach, _map.SelectionBox, _map.ZoneDraft, EngagementNow, PlayerInfo.OpenSections.Count, _paused));
+        var uncovered = _wasCovered && !covered;
+        _wasCovered = covered;
+        if (BenchProbe.OldWay || !covered && (!_paused || stamp != _drawStamp || _inputSeen || uncovered || _sinceDraw >= 0.25))
+        {
+            _drawStamp = stamp;
+            _sinceDraw = 0;
+            _map.QueueRedraw();
+        }
+        if (BenchProbe.OldWay || _inputSeen || _sinceHud >= 0.1 || w.Tick != _hudTick)
+        {
+            _inputSeen = false;
+            _sinceHud = 0;
+            _hudTick = w.Tick;
+            _hud.Refresh();
+        }
+        FrameTimes.Note(delta, _frameClock.Elapsed.TotalMilliseconds);
     }
 
     // ---- Commands the HUD can call --------------------------------------------------------
@@ -598,6 +665,9 @@ public partial class GameScreen : Node2D
         _engagementLostFor = 0;
     }
 
+    private (long, int, int, int, int, double) _engagementKey;
+    private (long, int, int) _contactsKey = (-1, 0, 0);
+
     private void UpdateEngagement(double delta)
     {
         // The contacts list (map side panel and engagement tabs) stays fresh even with no engagement open.
@@ -605,7 +675,12 @@ public partial class GameScreen : Node2D
         if (_contactsAge >= 0.25)
         {
             _contactsAge = 0;
-            _main.RunGuarded("contacts", () => Engagements = Engagement_.All(Sim.World, Side.Player));
+            var contactsKey = (Sim.World.Tick, Sim.World.Sub, Sim.Replay.Commands.Count);
+            if (contactsKey != _contactsKey)
+            {
+                _contactsKey = contactsKey;
+                _main.RunGuarded("contacts", () => Engagements = Engagement_.All(Sim.World, Side.Player));
+            }
         }
         if (Engagement is not (int mineId, int enemyId)) { _map.Engagement = null; return; }
         _engagementAge += delta;
@@ -627,6 +702,10 @@ public partial class GameScreen : Node2D
             return;
         }
         _engagementLostFor = 0;
+        // Worked out again only when the world, the pair or the burn changed (paused and still: never).
+        var key = (w.Tick, w.Sub, Sim.Replay.Commands.Count, mineId, enemyId, EngagementBurn);
+        if (EngagementNow != null && key == _engagementKey && !BenchProbe.OldWay) { _map.Engagement = EngagementNow; return; }
+        _engagementKey = key;
         _main.RunGuarded("engagement", () =>
         {
             EngagementNow = Engagement_.Of(w, mine, enemyId, EngagementBurn);
@@ -815,6 +894,21 @@ public partial class GameScreen : Node2D
         GroundScreenId = null;
         FittingFleetId = null;
         if (BattleView) CloseBattle();
+    }
+
+    /// <summary>Close every menu screen (empire, supply, planets, fleets, ships, research, intel, progress, the planet and ground boards, fittings), so one shows at a time.</summary>
+    public void CloseMenuScreens()
+    {
+        ShowEmpire = false;
+        ShowResearch = false;
+        ShowPlanets = false;
+        PlanetScreenId = null;
+        GroundScreenId = null;
+        ShowFleets = false;
+        ShowShips = false;
+        FittingFleetId = null;
+        ShowIntel = false;
+        ShowProgress = false;
     }
 
     /// <summary>The fleets screen (K): opens it over anything else, picking the selected fleet; closes it when open.</summary>
@@ -1465,6 +1559,7 @@ public partial class GameScreen : Node2D
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (ZoneDrawInput(e)) { GetViewport().SetInputAsHandled(); return; }
         switch (e)
         {
             case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.WheelUp or MouseButton.WheelDown } wheel:

@@ -374,7 +374,7 @@ public static class SupplyChain
     public static double? FoodDays(World w, Fleet f)
     {
         var crewed = w.ShipsOf(f).Where(s => SupplyLines.MaxFood(s) > 0).ToList();
-        return crewed.Count == 0 ? null : crewed.Min(s => s.Food);
+        return crewed.Count == 0 ? null : crewed.Min(s => SupplyLines.FoodDaysLeft(w, s));
     }
 
     /// <summary>Everything wrong in the side's supply chain with the fixes for it, ranked: Short, Risk, Soon, Stock, then how bad.</summary>

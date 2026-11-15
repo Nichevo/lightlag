@@ -111,7 +111,8 @@ public class PlaytestFixTests
     [Fact]
     public void Two_fleets_holding_position_in_orbit_out_of_railgun_reach_let_time_run_at_normal_speed()
     {
-        var (sim, mine, theirs, _) = SharedOrbit(58, Stance.HoldPosition, Stance.HoldPosition);
+        // 62 Mm apart: outside railgun and missile reach (60 Mm), so neither side can open fire.
+        var (sim, mine, theirs, _) = SharedOrbit(62, Stance.HoldPosition, Stance.HoldPosition);
         var w = sim.World;
         var start = w.Hour;
         while (w.Hour < start + 48) sim.Step();

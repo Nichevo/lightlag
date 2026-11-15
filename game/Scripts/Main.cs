@@ -91,6 +91,11 @@ public partial class Main : Node
             _ = TakeBudgetShots(budgetShots["--budget-shots=".Length..].Trim('"'));
             return;
         }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--battle-shots=")) is string battleShots)
+        {
+            _ = TakeShots(battleShots["--battle-shots=".Length..].Trim('"'), ShootBattleSave);
+            return;
+        }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--fix-shots=")) is string fixShots)
         {
             _ = TakeShots(fixShots["--fix-shots=".Length..].Trim('"'), ShootFixes);
@@ -222,6 +227,7 @@ public partial class Main : Node
         // Grab the screen before the dialog covers it.
         var shot = GetViewport().GetTexture().GetImage();
         var screenName = _screen?.GetType().Name ?? "none";
+        var timings = FrameTimes.Describe(_screen is GameScreen gs ? gs.ScreenNameForReport() : screenName);
         var wasPaused = GetTree().Paused;
         GetTree().Paused = true;
         _report = new ReportDialog();
@@ -231,7 +237,7 @@ public partial class Main : Node
             {
                 try
                 {
-                    var dir = Reports.WritePlayerReport(Paths, Log, Sim, note, screenName);
+                    var dir = Reports.WritePlayerReport(Paths, Log, Sim, note, screenName, timings);
                     shot.SavePng(System.IO.Path.Combine(dir, "screenshot.png"));
                     Toast("Report saved. Thanks!", dir);
                 }
@@ -451,11 +457,13 @@ public partial class Main : Node
             }
             BenchProbe.On = false;
             GD.Print($"BENCH {name}: wall {sw.Elapsed.TotalMilliseconds / frames:0.0} ms/frame, process {proc / frames:0.00} ms (worst {worst:0.0}), hud {BenchProbe.Ms.Values.Sum() / frames:0.00} :: "
-                     + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(6).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
+                     + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(8).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
         }
         if (!game.Paused) game.TogglePause();
         game.BattleView = true; await Measure("battle-view-paused");
         game.BattleView = false; await Measure("map-paused");
+        game.ShowFleets = true; await Measure("fleets-screen-paused");
+        game.ShowFleets = false;
         game.TogglePause();
         game.BattleView = true; await Measure("battle-view-running");
         game.BattleView = false; await Measure("map-running");
@@ -623,6 +631,32 @@ public partial class Main : Node
             await shoot("12b-battle-view-all-fleets");
             game.CloseBattle();
         }
+    }
+
+    /// <summary>Only the battle view from a save (--battle-shots=DIR, BATTLE_SAVE): the fleet nearest an enemy, its panel open and folded.</summary>
+    private async Task ShootBattleSave(Func<string, Task> shoot)
+    {
+        if (System.Environment.GetEnvironmentVariable("BATTLE_SAVE") is not string save || !File.Exists(save)) return;
+        // BATTLE_SIZE=1920x1369: the window size to shoot at.
+        if (System.Environment.GetEnvironmentVariable("BATTLE_SIZE")?.Split('x') is [var sw, var sh] && int.TryParse(sw, out var bw) && int.TryParse(sh, out var bh))
+        {
+            GetWindow().ContentScaleSize = new Vector2I(bw, bh);
+            GetWindow().Size = new Vector2I(bw, bh);
+        }
+        LoadGame(save);
+        var game = (GameScreen)_screen!;
+        if (!game.Paused) game.TogglePause();
+        var w = Sim!.World;
+        var me = Lightlag.Sim.Core.Side.Player;
+        var fleet = w.Fleets.Where(f => f.Side == me && f.ShipIds.Count > 0 && Combat.Armed(w, f))
+            .OrderBy(f => w.Fleets.Where(o => o.Side != me && o.ShipIds.Count > 0).Select(o => (o.Position - f.Position).Length).DefaultIfEmpty(double.MaxValue).Min())
+            .First();
+        game.OpenBattle(fleet.Id);
+        await shoot("battle-view");
+        game.ToggleBattleFold();
+        await shoot("battle-view-folded");
+        game.ToggleBattleFold();
+        game.CloseBattle();
     }
 
     private async Task TakeBarShots(string dir)

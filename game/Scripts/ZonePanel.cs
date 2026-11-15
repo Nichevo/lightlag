@@ -16,7 +16,8 @@ public partial class ZonePanel : VBoxContainer
     private readonly GameScreen _screen;
     private Fleet? _fleet;
     private Zone? _zone;
-    private Button _drift = null!, _keep = null!, _roam = null!, _prey = null!;
+    private Button _drift = null!, _keep = null!, _roam = null!;
+    private readonly Dictionary<ZoneKind, Button> _jobs = new();
     private Label _fuel = null!, _days = null!, _catch = null!, _note = null!;
     private Label _hidden = null!, _due = null!, _caught = null!, _window = null!;
     private VBoxContainer _held = null!;
@@ -36,9 +37,9 @@ public partial class ZonePanel : VBoxContainer
 
         var toggle = new HBoxContainer();
         toggle.AddThemeConstantOverride("separation", 2);
-        _drift = Ui.SmallButton("Drift", () => SetHold(ZoneHold.Drift), "Drift in the zone with small nudges: nearly no fuel, but the fleet wanders across it");
-        _keep = Ui.SmallButton("Station-keep", () => SetHold(ZoneHold.StationKeep), "Hold still in the zone for a little fuel a day");
-        _roam = Ui.SmallButton("Roam", () => SetHold(ZoneHold.Roam), "Every day or two a small burn takes the fleet to a new spot in the zone, then it drifts: covers the zone for a little fuel");
+        _drift = Ui.SmallButton("Drift", () => SetHold(ZoneHold.Drift), "Coast through the zone; near the edge one push sends it back across. Cheapest: a burn every few days");
+        _keep = Ui.SmallButton("Station-keep", () => SetHold(ZoneHold.StationKeep), "Hold still where you put it: small corrections all the time, the costliest way to hold");
+        _roam = Ui.SmallButton("Roam", () => SetHold(ZoneHold.Roam), "Every day or two a short kick (no braking) sends the fleet toward a new spot in the zone: covers more of it for a little fuel");
         foreach (var b in new[] { _drift, _keep, _roam })
         {
             b.ToggleMode = true;
@@ -56,14 +57,22 @@ public partial class ZonePanel : VBoxContainer
         _held.AddChild(tiles);
         _note = Line(_held);
 
-        var preyRow = new HBoxContainer();
-        preyRow.AddThemeConstantOverride("separation", 6);
-        preyRow.AddChild(Caption("Prey on passing ships"));
-        _prey = Ui.SmallButton("On", TogglePrey, "Go after enemy cargo and supply ships that come within reach");
-        _prey.CustomMinimumSize = new Vector2(0, 24);
-        _prey.AddThemeFontSizeOverride("font_size", 12);
-        preyRow.AddChild(_prey);
-        _held.AddChild(preyRow);
+        var jobRow = new HBoxContainer();
+        jobRow.AddThemeConstantOverride("separation", 2);
+        jobRow.AddChild(Caption("Job"));
+        foreach (var kind in new[] { ZoneKind.Raid, ZoneKind.Guard, ZoneKind.Picket })
+        {
+            var k = kind;
+            var b = Ui.SmallButton(kind.ToString(), () => SetKind(k), Lanes.KindTip(kind));
+            b.ToggleMode = true;
+            b.CustomMinimumSize = new Vector2(0, 24);
+            b.AddThemeFontSizeOverride("font_size", 12);
+            _jobs[kind] = b;
+            jobRow.AddChild(b);
+        }
+        jobRow.AddChild(Ui.SmallButton("Redraw", () => { if (_zone is Zone z) _screen.StartZoneDraw(_fleet?.Id, z.Id, z.Kind); },
+            "Draw this zone again on the map: click its centre and drag out its size"));
+        _held.AddChild(jobRow);
         _hidden = Fact(_held, "Hidden");
         _due = Fact(_held, "Next ship due");
         _caught = Fact(_held, "Caught so far");
@@ -130,10 +139,10 @@ public partial class ZonePanel : VBoxContainer
         _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, z.Center, z.RadiusMm, z.FromBodyId, z.ToBodyId, z.T, hold, z.Prey), "zone hold");
     }
 
-    private void TogglePrey()
+    private void SetKind(ZoneKind kind)
     {
         if (_zone is not Zone z) return;
-        _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, z.Center, z.RadiusMm, z.FromBodyId, z.ToBodyId, z.T, z.Hold, !z.Prey), "zone prey");
+        _screen.IssueNow(new EditZoneCommand(Side.Player, z.Id, z.Center, z.RadiusMm, z.FromBodyId, z.ToBodyId, z.T, z.Hold, z.Prey, kind), "zone job");
     }
 
     /// <summary>Show the panel for a fleet (the zone part only while it holds one; known lanes while any are known).</summary>
@@ -161,23 +170,25 @@ public partial class ZonePanel : VBoxContainer
             days = ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s) * Lanes.KeepStationPerDay));
         if (w.Rules.SupplyLines && ships.Count > 0)
         {
-            var food = ships.Min(s => s.Food);
+            var food = ships.Min(s => SupplyLines.FoodDaysLeft(w, s));
             days = days is double d ? Math.Min(d, food) : food;
         }
         _days.Text = days is double dd ? $"{dd:0} days" : "no limit";
         var (catches, due, chance) = Lanes.Info(w, z);
         _catch.Text = chance > 0 ? $"{chance:P0}" : "no lane";
+        var burns = Lanes.BurnsLastDay(w, f);
+        var burnText = $" {burns} burn{(burns == 1 ? "" : "s")} in the last day.";
         _note.Text = z.Hold switch
         {
-            ZoneHold.Drift => "Drifting: nearly no fuel, but the fleet wanders across the zone and may be out of place when a ship comes.",
-            ZoneHold.Roam => $"Roaming: a small burn to a new spot in the zone every day or two, then drifting"
-                             + (f.NextRoamHour > w.Hour ? $" (next move in {f.NextRoamHour - w.Hour:0} h)." : "."),
+            ZoneHold.Drift => (Lanes.NextPushHours(w, f, z) is double next ? $"Drifting · next correction in ~{next:0} h." : "Drifting · no correction due for days.")
+                              + burnText + " It coasts to near the edge, then one push sends it back across.",
+            ZoneHold.Roam => "Roaming: a short kick to a new spot in the zone every day or two, no braking"
+                             + (f.NextRoamHour > w.Hour ? $" (next kick in {f.NextRoamHour - w.Hour:0} h)." : ".") + burnText,
             _ => "Keeping station: holds still where you put it, for a little fuel a day.",
         };
         if (z.AnchorBodyId is int pin && w.FindBody(pin) is Body pb)
             _note.Text += $" The zone moves with {pb.Name}, keeping its place beside it as it orbits.";
-        _prey.Text = z.Prey ? "On · support ships only" : "Off";
-        _prey.Modulate = z.Prey ? RaidTint : Colors.White;
+        foreach (var (kind, jb) in _jobs) { jb.SetPressedNoSignal(z.Kind == kind); jb.Modulate = z.Kind == kind ? KindColor(kind) : Colors.White; }
         var state = Sensors.StateOf(f);
         var seen = Sensors.Range(Sensors.SensorOf(w, f), Sensors.Signature(w, f));
         _hidden.Text = state switch
@@ -204,6 +215,9 @@ public partial class ZonePanel : VBoxContainer
     }
 
     private static readonly Color RaidTint = new("ffb347");
+
+    /// <summary>A zone's colour on the map and its job button: raid orange, guard blue, picket grey.</summary>
+    public static Color KindColor(ZoneKind k) => k switch { ZoneKind.Raid => RaidTint, ZoneKind.Guard => Ui.Player, _ => new Color("a9b4c2") };
 
     private void FillLanes(World w, Fleet f)
     {

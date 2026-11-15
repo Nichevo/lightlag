@@ -24,6 +24,8 @@ public partial class BattleScreen : Control
     private VBoxContainer _legend = null!;
     private string? _legendKey;
     private HBoxContainer _tabs = null!, _cardsRow = null!;
+    private Button _fold = null!;
+    private Label _timelineTitle = null!;
     private string _tabsKey = "";
     private readonly List<CardView> _cards = new();
     private string _cardsKey = "";
@@ -88,12 +90,25 @@ public partial class BattleScreen : Control
         _rightPanel = Ui.Panel(_rightScroll, 10);
         AddChild(_rightPanel);
 
-        // Bottom, the whole width: fleet tabs, cards, timeline.
+        // Bottom, the whole width: a title line (fold, fleet tabs, what the timeline shows), the cards, the timeline.
         var bottom = new VBoxContainer();
-        bottom.AddThemeConstantOverride("separation", 6);
+        bottom.AddThemeConstantOverride("separation", 4);
+        var titleRow = new HBoxContainer();
+        titleRow.AddThemeConstantOverride("separation", 6);
+        _fold = CardBuilder.Small("▾ Orders", "Fold the cards and timeline down to this line, or open them again (remembered)", () => _screen.ToggleBattleFold());
+        _fold.AddThemeFontSizeOverride("font_size", 12);
+        titleRow.AddChild(_fold);
         _tabs = new HBoxContainer();
         _tabs.AddThemeConstantOverride("separation", 4);
-        bottom.AddChild(_tabs);
+        titleRow.AddChild(_tabs);
+        var gap = new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        titleRow.AddChild(gap);
+        _timelineTitle = Ui.Label("", 12, Ui.Text);
+        titleRow.AddChild(_timelineTitle);
+        var help = CardBuilder.Small("?", BattleTimeline.Legend, () => { });
+        help.AddThemeFontSizeOverride("font_size", 12);
+        titleRow.AddChild(help);
+        bottom.AddChild(titleRow);
         _cardsRow = new HBoxContainer();
         _cardsRow.AddThemeConstantOverride("separation", 6);
         bottom.AddChild(_cardsRow);
@@ -114,6 +129,9 @@ public partial class BattleScreen : Control
         parent.AddChild(l);
         return l;
     }
+
+    /// <summary>Kept in ui.cfg: the bottom panel is folded.</summary>
+    public const string FoldKey = "battle-panel-folded";
 
     /// <summary>The top of the cards and timeline panel (for the news line above it).</summary>
     public float BottomTop => _bottomPanel.Position.Y;
@@ -139,6 +157,12 @@ public partial class BattleScreen : Control
         _timeline.PauseAt = _screen.PauseAtHour;
         _timeline.CustomMinimumSize = new Vector2(0, _timeline.WantHeight);
         _timeline.QueueRedraw();
+        var folded = PlayerInfo.OpenSections.Contains(FoldKey);
+        _fold.Text = folded ? "▸ Orders" : "▾ Orders";
+        _cardsRow.Visible = !folded;
+        _timeline.Visible = !folded;
+        _timelineTitle.Text = folded ? FoldedSummary() : _timeline.Title;
+        _timelineTitle.AddThemeColorOverride("font_color", _timeline.Rows.All(r => r.InSight) ? Ui.Dim : Ui.Warn);
         _ours.Refresh(w, fleets, all ? null : lead?.Id);
         _enemy.Refresh(w, fleets, enemyIds);
         RefreshLegend();
@@ -254,6 +278,10 @@ public partial class BattleScreen : Control
         return string.Join(" · ", parts);
     }
 
+    /// <summary>The folded panel's line: each card's folded summary, run together.</summary>
+    private string FoldedSummary() =>
+        _context is CardContext c ? string.Join("  ·  ", _cards.Select(v => $"{v.Card.Title}: {v.Card.Folded(c).Replace("\n", ", ")}")) : "";
+
     /// <summary>A tab per fleet of yours in the fight (Ctrl+1, 2, 3...) and All fleets.</summary>
     private void RefreshTabs(List<Fleet> fleets, int? lit)
     {
@@ -263,7 +291,7 @@ public partial class BattleScreen : Control
         foreach (var c in _tabs.GetChildren()) c.QueueFree();
         _tabs.Visible = fleets.Count > 1;
         if (fleets.Count < 2) return;
-        _tabs.AddChild(Ui.Label("Orders for", 12, Ui.Dim));
+        _tabs.AddChild(Ui.Label("for", 12, Ui.Dim));
         for (var i = 0; i < fleets.Count; i++)
         {
             var id = fleets[i].Id;

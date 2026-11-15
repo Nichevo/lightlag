@@ -296,4 +296,36 @@ public class BudgetTests
         static string World(Simulation s) => System.Text.RegularExpressions.Regex.Replace(s.ToSave().ToJson(), "\"savedAtUtc\": \"[^\"]*\"", "");
         Assert.Equal(World(a), World(b));
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_planets_queued_buildings_can_be_moved_up_and_down_its_own_queue(bool budget)
+    {
+        var sim = NewGame(options: new GameOptions { Events = EventRate.Off, Budget = budget });
+        Manual(sim);
+        var w = sim.World;
+        var verdant = BodyNamed(sim, "verdant");
+        var rust = w.Bodies.FirstOrDefault(b => b.Owner == Side.Player && b.Id != verdant.Id && b.Board != null);
+        Fill(sim);
+        foreach (var kind in new[] { Planets.Mine, Planets.Farm, Planets.Mine })
+            sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, kind, Queue: true));
+        if (rust != null) sim.Issue(new BuildOnPlanetCommand(Side.Player, rust.Id, Planets.Farm, Queue: true));
+        sim.ApplyPending();
+        var queue = Colonies.QueueOrder(w, verdant);
+        Assert.Equal(3, queue.Count);
+        var last = queue[2];
+        sim.Issue(new MoveQueuedPieceCommand(Side.Player, verdant.Id, last.Id, -1));
+        sim.ApplyPending();
+        sim.Issue(new MoveQueuedPieceCommand(Side.Player, verdant.Id, last.Id, -1));
+        sim.ApplyPending();
+        var now = Colonies.QueueOrder(w, verdant);
+        Assert.Equal(last, now[0]);
+        Assert.Equal(new[] { queue[0], queue[1] }, now.Skip(1));
+        Assert.Equal(last, budget ? Budget.NextPiece(w, verdant) : verdant.Pieces.First(p => p.Waiting));
+        // Moving past the end does nothing.
+        sim.Issue(new MoveQueuedPieceCommand(Side.Player, verdant.Id, last.Id, -1));
+        sim.ApplyPending();
+        Assert.Equal(last, Colonies.QueueOrder(w, verdant)[0]);
+    }
 }

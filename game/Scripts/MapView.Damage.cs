@@ -171,8 +171,8 @@ public partial class MapView
             var dir = new Vector2(Mathf.Cos(heading), Mathf.Sin(heading));
             var across = new Vector2(-dir.Y, dir.X);
             var c = new Color(color.Darkened(0.4f), 0.7f);
-            DrawColoredPolygon(new[] { at + dir * 2 + across * 3, at + dir * 7, at + dir * 2 - across * 3 }, c);
-            DrawColoredPolygon(new[] { at - dir * 2 + across * 3, at - dir * 7 + across * 1, at - dir * 7 - across * 2, at - dir * 2 - across * 3 }, c);
+            this.FillPolygon(new[] { at + dir * 2 + across * 3, at + dir * 7, at + dir * 2 - across * 3 }, c);
+            this.FillPolygon(new[] { at - dir * 2 + across * 3, at - dir * 7 + across * 1, at - dir * 7 - across * 2, at - dir * 2 - across * 3 }, c);
             for (var i = 0; i < 4; i++)
                 DrawCircle(at + new Vector2((float)(H(wr.Id, i) - 0.5) * 18, (float)(H(wr.Id, i + 9) - 0.5) * 18), 0.9f, c);
             if (Camera.Scale > 0.01)

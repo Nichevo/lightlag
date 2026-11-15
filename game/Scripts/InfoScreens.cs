@@ -140,7 +140,7 @@ public partial class ShipCard : PanelContainer
             lines.Add("Fit: " + string.Join(", ", fit) + (mine && Refits.Outdated(w, s) ? " (behind the current design)" : ""));
             lines.Add($"Fuel {s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)):P0}"
                       + (SupplyLines.MaxAmmo(s) > 0 ? $" · railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}" : "")
-                      + (SupplyLines.MaxFood(s) > 0 ? $" · food {s.Food:0} d" : "")
+                      + (SupplyLines.MaxFood(s) > 0 ? $" · food {SupplyLines.FoodDaysLeft(w, s):0} of {SupplyLines.FoodDaysFull(w, s):0} d" : "")
                       + (cls.Missiles > 0 ? (s.Missiles <= 0 ? " · OUT OF MISSILES" : $" · missiles {s.Missiles}/{Tech.Racks(w, s)}") : "")
                       + (Heat.Capacity(s) > 0 ? $" · heat {s.Heat / Heat.Capacity(s):P0}" : ""));
             var built = s.BuiltHour is double h
@@ -343,7 +343,7 @@ public partial class ProgressChart : Control
         for (var i = 1; i < band.Count; i++)
         {
             var pts = new[] { P(band[i - 1].Day, band[i - 1].Low), P(band[i].Day, band[i].Low), P(band[i].Day, band[i].High), P(band[i - 1].Day, band[i - 1].High) };
-            DrawColoredPolygon(pts, new Color(Ui.Rival, 0.08f));
+            this.FillPolygon(pts, new Color(Ui.Rival, 0.08f));
         }
         for (var i = 1; i < a.Count; i++) DrawLine(P(a[i - 1].Day, a[i - 1].V), P(a[i].Day, a[i].V), Ui.Player, 2, true);
         for (var i = 1; i < b.Count; i++) DrawDashedLine(P(b[i - 1].Day, b[i - 1].V), P(b[i].Day, b[i].V), Ui.Rival, 2, 5);

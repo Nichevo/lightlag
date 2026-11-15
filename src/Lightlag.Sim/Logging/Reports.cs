@@ -44,7 +44,7 @@ public static class Reports
     }
 
     /// <summary>An F8 report: the player's note plus the same game files. Returns the folder, so the game can add a screenshot.</summary>
-    public static string WritePlayerReport(DataPaths paths, GameLog log, Simulation? sim, string note, string? screen = null)
+    public static string WritePlayerReport(DataPaths paths, GameLog log, Simulation? sim, string note, string? screen = null, string? extra = null)
     {
         var dir = MakeFolder(paths.Reports, "report");
         var problems = new List<string>();
@@ -62,6 +62,11 @@ public static class Reports
         md.AppendLine();
         AppendFacts(md, log, sim);
         if (screen != null) md.AppendLine($"- Screen: {screen}");
+        if (!string.IsNullOrEmpty(extra))
+        {
+            md.AppendLine();
+            md.AppendLine(extra.TrimEnd());
+        }
         AppendHowTo(md, sim);
         AppendProblems(md, problems);
         Try(problems, "README.md", () => File.WriteAllText(Path.Combine(dir, "README.md"), md.ToString()));

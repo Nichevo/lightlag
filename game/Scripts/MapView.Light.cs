@@ -21,7 +21,13 @@ public partial class MapView
     private Sighting? News(Fleet f) => Sim.World.Light.On ? Light.Known(Sim.World, Side.Player, f.Id) : null;
 
     /// <summary>Is this fleet live (inside your command range, so the map shows it as it is)?</summary>
-    private bool Live(Fleet f) => !Lagging || Light.DelayHours(Sim.World, Side.Player, f.Position) <= 0;
+    private bool Live(Fleet f)
+    {
+        if (!Lagging) return true;
+        FreshStep();
+        if (_liveMemo.TryGetValue(f.Id, out var live)) return live;
+        return _liveMemo[f.Id] = DelayTo(f) <= 0;
+    }
 
     /// <summary>Moves each fleet that isn't live (and its ships) to where the news of it puts it.</summary>
     private void ApplyLag()
@@ -30,7 +36,7 @@ public partial class MapView
         var w = Sim.World;
         foreach (var f in w.Fleets)
         {
-            if (Live(f) || OnPlan(f) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var at)) continue;
+            if (Live(f) || PerStep(f.Id, "onplan", () => OnPlan(f)) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var at)) continue;
             var shift = s.Position - f.Position;
             _drawn[f.Id] = at + shift;
             foreach (var id in f.ShipIds)
@@ -115,7 +121,7 @@ public partial class MapView
             var color = mine ? Ui.Player : Ui.Rival;
             if (s.LostHour != null) color = new Color(color, 0.4f);
             var d = new[] { at + new Vector2(0, -4), at + new Vector2(4, 0), at + new Vector2(0, 4), at + new Vector2(-4, 0), at + new Vector2(0, -4) };
-            if (s.Arrived && s.LostHour == null) DrawColoredPolygon(d[..4], color);
+            if (s.Arrived && s.LostHour == null) this.FillPolygon(d[..4], color);
             DrawPolyline(d, color, 1, true);
             if (s.LostHour != null) DrawCross(at, 5, Ui.Danger, 1.2f);
             if (!s.Arrived && s.LostHour == null && w.FindBody(s.BodyId) is Body b)
@@ -168,9 +174,9 @@ public partial class MapView
             if (!Camera.OnScreen(at, 300)) continue;
             var color = Ui.SideColor(f.Side);
             var age = Math.Max(0, w.Hour - s.Hour);
-            if (OnPlan(f))
+            if (PerStep(f.Id, "onplan", () => OnPlan(f)))
             {
-                DrawString(_font, at + new Vector2(12, 8), $"on plan · {Format.Lag(Light.DelayHours(w, Side.Player, f.Position))} of light, last report {Format.Lag(age)} ago",
+                DrawString(_font, at + new Vector2(12, 8), $"on plan · {Format.Lag(DelayTo(f))} of light, last report {Format.Lag(age)} ago",
                     HorizontalAlignment.Left, -1, 11, new Color(color, 0.75f));
                 continue;
             }
@@ -183,7 +189,7 @@ public partial class MapView
             }
             // The light delay itself, and the age of the picture: the picture is taken once a game hour,
             // so it can be up to an hour older than the light delay alone.
-            var light = Light.DelayHours(w, Side.Player, s.Position);
+            var light = PerStep(f.Id, "newsdelay", () => Light.DelayHours(w, Side.Player, s.Position));
             DrawString(_font, at + new Vector2(12, 8), $"{Format.Lag(light)} of light · seen {Format.Lag(age)} ago", HorizontalAlignment.Left, -1, 11, new Color(color, 0.75f));
         }
         var row = new Dictionary<int, int>();

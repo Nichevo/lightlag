@@ -248,7 +248,7 @@ public partial class MapView
             var a1 = color.A * (1 - (float)(i + 1) / n);
             var c0 = new Color(color, a0);
             var c1 = new Color(color, a1);
-            DrawPolygon(new[] { left[i], left[i + 1], right[i + 1], right[i] }, new[] { c0, c1, c1, c0 });
+            this.FillPolygon(new[] { left[i], left[i + 1], right[i + 1], right[i] }, new[] { c0, c1, c1, c0 });
         }
     }
 }
@@ -297,8 +297,20 @@ public partial class BeltSpecks : MultiMeshInstance2D
         return s;
     }
 
+    private (Vec2, double, Vector2, Vec2, double) _placed;
+    private ulong _placedMs;
+
     public void Place(MapCamera camera, Vec2 center, double gm, double hours)
     {
+        // Only when the view or the time moves (paused and still, nothing to do).
+        var stamp = (camera.Center, camera.Scale, camera.ScreenSize, center, hours);
+        if (stamp == _placed && gm == _gm && !BenchProbe.OldWay) return;
+        // With the view still and only time moving, specks creep along their orbits: 15 times a second is plenty.
+        var now = Time.GetTicksMsec();
+        var viewMoved = (stamp.Item1, stamp.Item2, stamp.Item3, stamp.Item4) != (_placed.Item1, _placed.Item2, _placed.Item3, _placed.Item4);
+        if (!viewMoved && now - _placedMs < 66 && !BenchProbe.OldWay) return;
+        _placedMs = now;
+        _placed = stamp;
         if (gm != _gm)
         {
             _gm = gm;

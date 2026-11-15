@@ -148,6 +148,9 @@ public class FleetTests
         var sim = NewGame();
         var fleet = PlayerFleet(sim);
         foreach (var s in sim.World.ShipsOf(fleet)) s.Supplies = 1;
+        // Full tanks hold fuel for 8000 Mm/h of speed change: more than the home's starting store, so stock it up.
+        if (fleet.OrbitBodyId is int home && sim.World.FindBody(home) is Body b)
+            foreach (var good in new[] { "fuel", "water" }) b.Stock[good] = 2000;
         sim.StepMany(10 * GameTime.TicksPerDay);
         Assert.All(sim.World.ShipsOf(fleet), s => Assert.Equal(GameData.ShipClass(s.ClassId).Supplies, s.Supplies, 6));
     }

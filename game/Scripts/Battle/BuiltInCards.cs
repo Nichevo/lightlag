@@ -41,29 +41,20 @@ public sealed class MoveCard : BattleCard
             foreach (var (bt, share) in burnButtons) bt.Modulate = Math.Abs(share - c.Screen.EngagementBurn) < 1e-6 ? Ui.Player : new Color(1, 1, 1, 0.7f);
         });
 
-        var grid = new ApproachGrid();
-        b.Custom(grid, grid.Refresh);
-        var explain = b.Line(c => c.Info == null ? "No enemy in sight or on record: nothing to close on." : grid.Explain(c), Ui.Dim);
-        explain.MaxLinesVisible = 2;
-        explain.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
-        explain.CustomMinimumSize = new Vector2(420, 0);
-        explain.MouseFilter = Control.MouseFilterEnum.Pass;
-        b.Custom(new Control(), c => explain.TooltipText = explain.Text);
-
+        // On contact goes on the Burn line; the approach choices (and Leave support behind) four across under it.
+        b.SameRow();
         b.Choice("On contact", new (string, string, Stance)[]
             {
                 ("Engage", "Close in and fight whatever comes into contact. In orbit it slides round the planet into railgun reach.", Stance.Engage),
                 ("If stronger", $"Fight only when clearly stronger ({Combat.StrongerBy:0.#}x their power; even odds are enough in an orbit standoff, where it slides in)", Stance.EngageIfStronger),
                 ("Hold", "Keep course and fire only at what comes into reach. In orbit it slides away to keep the planet between it and an enemy that would fight", Stance.Hold),
-                ("Hold position", "Stay exactly where it is, in orbit too: fire at what comes into reach, never slide", Stance.HoldPosition),
+                ("Stay put", "Hold position: stay exactly where it is, in orbit too: fire at what comes into reach, never slide", Stance.HoldPosition),
             },
             (c, f) => c.Pending<SetStanceCommand>(f)?.Stance ?? f.Stance,
             (f, s) => new SetStanceCommand(f.Id, s, f.RetreatWhenDamaged), "stance");
-        b.Toggle("Leave support behind",
-            "When this fleet goes in to fight (Burn and engage, Hold at missile range, Burn past), its unarmed ships such as supply tenders split off and wait, then fly to rejoin once the fight is over. The fleet then burns at its warships' pace",
-            (c, f) => c.Pending<SetLeaveSupportCommand>(f)?.On ?? f.LeaveSupportBehind,
-            (f, on) => new SetLeaveSupportCommand(f.Id, on), "leave support behind",
-            c => c.Ships.Any(Fleets.Unarmed) || c.Fleets.Any(f => f.LeaveSupportBehind));
+        var grid = new ApproachGrid();
+        b.Custom(grid, grid.Refresh);
+        b.Line(c => c.Info == null ? "No enemy in sight or on record: nothing to close on." : "", Ui.Dim);
     }
 
     public override string Folded(CardContext c)
@@ -99,7 +90,8 @@ public partial class ApproachGrid : GridContainer
 
     public ApproachGrid()
     {
-        Columns = 3;
+        Columns = 4;
+        TooltipText = "Hover a choice to see its path on the map; click to give the order";
         AddThemeConstantOverride("h_separation", 3);
         AddThemeConstantOverride("v_separation", 3);
     }
@@ -110,7 +102,8 @@ public partial class ApproachGrid : GridContainer
         Visible = c.Info != null;
         if (c.Info is not EngagementInfo e) return;
         RefreshTogether(c, e);
-        var keys = string.Join(",", e.Options.Select(o => o.Key)) + "|" + string.Join(",", _together.Select(t => t.Fleet.Id));
+        var support = c.Ships.Any(Fleets.Unarmed) || c.Fleets.Any(f => f.LeaveSupportBehind);
+        var keys = string.Join(",", e.Options.Select(o => o.Key)) + "|" + string.Join(",", _together.Select(t => t.Fleet.Id)) + $"|{support}";
         if (keys != _keys && !Ui.MouseHeld)
         {
             _keys = keys;
@@ -118,9 +111,18 @@ public partial class ApproachGrid : GridContainer
             _buttons.Clear();
             foreach (var o in e.Options) Add(o.Key);
             foreach (var t in _together) Add($"together:{t.Fleet.Id}");
+            if (support) Add(SupportKey);
         }
         foreach (var (bt, key) in _buttons)
         {
+            if (key == SupportKey)
+            {
+                var on = c.Fleets.Select(f => c.Pending<SetLeaveSupportCommand>(f)?.On ?? f.LeaveSupportBehind).Distinct().ToList();
+                bt.Text = on.Count > 1 ? "Leave support: mixed" : on[0] ? "Leave support ✓" : "Leave support";
+                bt.Modulate = on.Count > 1 ? Ui.Warn : on[0] ? Ui.Player : new Color(1, 1, 1, 0.7f);
+                bt.TooltipText = "When this fleet goes in to fight (Burn and engage, Hold at missile range, Burn past), its unarmed ships such as supply tenders split off and wait, then fly to rejoin once the fight is over. The fleet then burns at its warships' pace";
+                continue;
+            }
             if (key.StartsWith("together:"))
             {
                 var id = int.Parse(key[9..]);
@@ -137,30 +139,19 @@ public partial class ApproachGrid : GridContainer
             var lead = e.Options.FirstOrDefault(o => o.Key == key);
             if (lead == null) continue;
             var current = states.Where(s => s != null).Select(s => s!.Current).Distinct().ToList();
-            bt.Text = lead.Label + (current.Count > 1 ? " (some)" : "");
+            bt.Text = Short(lead.Key, lead.Label) + (current.Count > 1 ? " (some)" : "");
             bt.Disabled = states.All(s => s == null || s.Problem != null);
-            bt.TooltipText = lead.Problem != null ? $"Can't: {lead.Problem}" : lead.Summary;
+            bt.TooltipText = lead.Problem != null ? $"{lead.Label}: can't. {lead.Problem}" : $"{lead.Label}: {lead.Summary}";
             bt.Modulate = current.Count == 1 && current[0] ? Ui.Player : current.Count > 1 ? Ui.Warn : bt.Disabled ? new Color(1, 1, 1, 0.5f) : Colors.White;
         }
     }
 
-    /// <summary>The line under the grid: the hovered choice, else the one in force.</summary>
-    public string Explain(CardContext c)
-    {
-        if (c.Info is not EngagementInfo e) return "";
-        if (_hover is string h && h.StartsWith("together:")) return "Arrive together: both fleets reach them at the same time.";
-        var o = e.Options.FirstOrDefault(x => x.Key == _hover) ?? e.Options.FirstOrDefault(x => x.Current);
-        if (o == null) return "Hover a choice to see its path on the map; click to give the order.";
-        var text = o.Problem != null ? $"{o.Label}: can't. {o.Problem}" : $"{o.Label}: {o.Summary}";
-        return text;
-    }
-
     private void Add(string key)
     {
-        var bt = new Button { FocusMode = FocusModeEnum.None, Alignment = HorizontalAlignment.Left, CustomMinimumSize = new Vector2(140, 22), ClipText = true };
+        var bt = new Button { FocusMode = FocusModeEnum.None, Alignment = HorizontalAlignment.Left, CustomMinimumSize = new Vector2(104, 22), ClipText = true };
         bt.AddThemeFontSizeOverride("font_size", 11);
         bt.Pressed += () => Main.Instance.RunGuarded("approach order", () => Choose(key));
-        bt.MouseEntered += () => { _hover = key; Preview(key); };
+        bt.MouseEntered += () => { _hover = key; if (key != SupportKey) Preview(key); };
         bt.MouseExited += () => { if (_hover == key) { _hover = null; Main.Instance.Screen?.SetBattlePreview(null, null); } };
         AddChild(bt);
         _buttons.Add((bt, key));
@@ -175,10 +166,27 @@ public partial class ApproachGrid : GridContainer
         screen.SetBattlePreview(e.Mine.Id, plan.Ok ? plan.Flight : null);
     }
 
+    private const string SupportKey = "support";
+
+    /// <summary>Short button words, so four fit across (the full name leads the tooltip).</summary>
+    private static string Short(string key, string label) => key switch
+    {
+        "engage" => "Close in",
+        "missiles" => "Missile range",
+        "rails" => "Rail range",
+        _ => label,
+    };
+
     private void Choose(string key)
     {
         if (_c == null) return;
         var sim = _c.Sim;
+        if (key == SupportKey)
+        {
+            var on = _c.Fleets.All(f => _c.Pending<SetLeaveSupportCommand>(f)?.On ?? f.LeaveSupportBehind);
+            _c.Issue(f => new SetLeaveSupportCommand(f.Id, !on), "leave support behind");
+            return;
+        }
         if (key.StartsWith("together:"))
         {
             var id = int.Parse(key[9..]);
@@ -234,6 +242,7 @@ public sealed class RailgunCard : BattleCard
             },
             (c, f) => c.Pending<SetFireModeCommand>(f)?.Fire ?? f.Fire,
             (f, m) => new SetFireModeCommand(f.Id, m), "fire mode");
+        b.SameRow();
         b.Toggle("Long range",
             $"Also fire beyond normal reach, out to {Format.Distance(Heat.D.LongRangeMm)}: slugs fly so long that they hit only a ship holding its course (at best about {GameData.Combat.Railgun.Accuracy * Heat.D.LongAccuracy:P0}), at half the rate. It makes them dodge and burn fuel.",
             (c, f) => c.Pending<SetFireControlCommand>(f)?.LongShots ?? f.LongShots,
@@ -312,7 +321,7 @@ public sealed class LanceCard : BattleCard
         {
             var n = c.Ships.Sum(s => s.Out(Module.Railguns) ? 0 : Fitting.Spec(s).Lances);
             return $"{n} lance{(n == 1 ? "" : "s")} working\nReach {Format.Distance(GameData.Weapons.L.RangeMm)}: fire by themselves at anything that close";
-        }, Ui.Dim);
+        }, Ui.Dim, lines: 2);
 
     public override string Folded(CardContext c) => $"Reach {Format.Distance(GameData.Weapons.L.RangeMm)}";
 }
@@ -352,7 +361,8 @@ public sealed class DefenceCard : BattleCard
             var ships = c.Ships.ToList();
             var pd = ships.Count(s => Fitting.Spec(s).PointDefence > 0 && s.Disabled != Module.PointDefence);
             var supplies = c.Fleets.Min(f => Combat.SupplyShare(c.World, f));
-            var lines = new List<string> { $"Point defence on {pd} of {ships.Count} ships, reach {Format.Distance(GameData.Combat.PointDefence.RangeMm)}", $"Supplies {supplies:P0}" };
+            // Most urgent first: the card shows one line, the rest are in its tooltip.
+            var lines = new List<string>();
             if (c.Info is EngagementInfo e) lines.Add(BattleText.Incoming(c.World, e));
             if (c.Fleets.Any(f => f.Dodge != DodgeMode.Off && !Combat.Dodging(c.World, f)))
                 lines.Add($"Dodging stopped: supplies below {GameData.Combat.DodgeStopsBelow:P0}");
@@ -363,9 +373,15 @@ public sealed class DefenceCard : BattleCard
                 else if (Combat.Unseen(c.World, f))
                     lines.Add($"Unseen: your first shots catch them unawares for {Combat.SurpriseHours * 60:0} min");
             }
+            lines.Sort((x, y) => Urgent(y).CompareTo(Urgent(x)));
+            lines.Add($"Supplies {supplies:P0}");
+            lines.Add($"Point defence on {pd} of {ships.Count} ships, reach {Format.Distance(GameData.Combat.PointDefence.RangeMm)}");
             return string.Join("\n", lines.Distinct());
         }, Ui.Dim);
     }
+
+    private static int Urgent(string line) => line.StartsWith("CAUGHT", StringComparison.Ordinal) ? 3 : line.StartsWith("Incoming", StringComparison.Ordinal) ? 2
+        : line.StartsWith("Dodging stopped", StringComparison.Ordinal) ? 1 : 0;
 
     public override string Folded(CardContext c)
     {
@@ -398,6 +414,7 @@ public sealed class HeatCard : BattleCard
         b.Toggle("Auto sinks", "Ships throw heat sinks on their own when they run hot or missiles close in",
             (c, f) => c.Pending<SetHeatCommand>(f)?.AutoSinks ?? f.AutoSinks,
             (f, on) => new SetHeatCommand(f.Id, Main.Instance.Sim?.PendingCommands.OfType<SetHeatCommand>().LastOrDefault(x => x.FleetId == f.Id)?.Radiators ?? f.Radiators, on), "auto sinks");
+        b.SameRow();
         b.Actions(("Eject all sinks", "Every ship throws a heat sink now: sheds heat at once and can draw off missiles closing in", f => new EjectHeatSinksCommand(f.Id), false));
         b.Line(c =>
         {
@@ -425,8 +442,7 @@ public sealed class FormationCard : BattleCard
         b.Dropdown("Shape", Shapes.Select(s => (Formations.Name(s), FleetRules.ShapeTip(s), s)).ToList(),
             (c, f) => c.Pending<SetFormationCommand>(f)?.Formation ?? f.Formation,
             (f, s) => new SetFormationCommand(f.Id, s), "formation");
-        b.Line(c => c.All ? string.Join("\n", c.Fleets.Select(f => $"{f.Name}: {Formations.Name(Formations.Shape(c.World, f))}")) : FleetRules.FormationText(c.World, c.Lead),
-            colorNow: c => c.Fleets.Any(f => Formations.BlockedShips(c.World, f) > 0) ? Ui.Warn : Ui.Dim);
+        b.SameRow();
         b.Custom(ProtectPicker(out var refresh), refresh);
         b.Choice("Cover", new (string, string, CoverStyle)[]
             {
@@ -436,7 +452,9 @@ public sealed class FormationCard : BattleCard
             },
             (c, f) => c.Pending<SetCoverCommand>(f)?.Cover ?? f.Cover,
             (f, cover) => new SetCoverCommand(f.Id, cover, f.FireAt), "cover");
-        b.Line(c => string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + $"protects {BattleMoves.ProtectText(c.World, f)}")), Ui.Dim);
+        b.Line(c => (c.All ? string.Join("\n", c.Fleets.Select(f => $"{f.Name}: {Formations.Name(Formations.Shape(c.World, f))}")) : FleetRules.FormationText(c.World, c.Lead))
+                    + "\n" + string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + $"protects {BattleMoves.ProtectText(c.World, f)}")),
+            colorNow: c => c.Fleets.Any(f => Formations.BlockedShips(c.World, f) > 0) ? Ui.Warn : Ui.Dim);
     }
 
     /// <summary>
@@ -534,8 +552,11 @@ public sealed class SecretsCard : BattleCard
             Shown, (f, m) => new SetSecrecyCommand(f.Id, m, f.Secrecy.Copy()), "weapons shown");
         Rule(b, "Hide range", $"Open fire at {GameData.Weapons.K.HideRangeShare:P0} of true reach until the advanced weapons come out, so they don't learn your real reach",
             r => r.HideRange, (r, on) => r.HideRange = on);
+        b.SameRow();
         Rule(b, "Out when hurt", $"Bring them out when a ship falls below {GameData.Weapons.K.BelowHull:P0} hull", r => r.WhenHurt, (r, on) => r.WhenHurt = on);
+        b.SameRow();
         Rule(b, "Out when losing", "Bring them out when the odds turn against you", r => r.WhenLosing, (r, on) => r.WhenLosing = on);
+        b.SameRow();
         Rule(b, "Out when more join", "Bring them out when more enemy warships join the fight", r => r.WhenJoined, (r, on) => r.WhenJoined = on);
         b.Line(c => string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + FleetRules.ShownText(c.World, f))),
             colorNow: c => c.Fleets.Any(f => f.AdvancedOut) ? Ui.Warn : Ui.Dim);
@@ -567,6 +588,7 @@ public sealed class OrdersCard : BattleCard
     {
         b.Toggle("Hold on", "Ignore the pull-back rule and fight on (click again to let it apply)",
             (c, f) => c.Pending<HoldOnCommand>(f)?.On ?? f.HoldOn, (f, on) => new HoldOnCommand(f.Id, on), "hold on");
+        b.SameRow();
         b.Actions(("Pull back now", "Break off and leave the fight now, by the fleet's pull-back rule", f => new PullBackNowCommand(f.Id), true));
         b.Line(c => string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + FleetRules.RuleText(c.World, f))), Ui.Dim);
         b.Line(c => c.Info is EngagementInfo e ? BattleText.HoldingFire(c.World, c.Lead, e) ?? "" : "", Ui.Warn);

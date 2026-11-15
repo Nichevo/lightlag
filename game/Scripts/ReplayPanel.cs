@@ -231,7 +231,7 @@ public partial class ReplayView : Control
             var big = r.ClassId.Contains("destroyer");
             var size = big ? 7f : 5f;
             if (dead) col = col with { A = 1 - k };
-            DrawColoredPolygon(new[] { pos + new Vector2(0, -size), pos + new Vector2(size, size * 0.8f), pos + new Vector2(-size, size * 0.8f) }, col);
+            this.FillPolygon(new[] { pos + new Vector2(0, -size), pos + new Vector2(size, size * 0.8f), pos + new Vector2(-size, size * 0.8f) }, col);
             var share = r.MaxArmour > 0 ? (float)Math.Clamp(Mathf.Lerp((float)s.Armour, (float)to.Armour, k) / r.MaxArmour, 0, 1) : 1;
             DrawRect(new Rect2(pos + new Vector2(-8, size + 3), new Vector2(16, 2)), new Color(0.2f, 0.2f, 0.2f));
             DrawRect(new Rect2(pos + new Vector2(-8, size + 3), new Vector2(16 * share, 2)), share > 0.5f ? new Color("6bd16b") : Ui.Danger);
