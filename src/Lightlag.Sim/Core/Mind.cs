@@ -751,6 +751,7 @@ public static class Mind
             foreach (var run in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && _w.ShipsOf(f).All(SupplyLines.IsSupplyShip)
                                                      && !_w.ShipsOf(f).All(SupplyLines.IsFreighter)).ToList())
             {
+                if (run.TenderOf != null) continue; // a tender restocking for its own fleet goes back to it
                 var current = run.SupplyRunFor is int id ? _w.FindFleet(id) : null;
                 if (current is { ShipIds.Count: > 0 } && current.Side == _side && !SupplyOnly(current)
                     && (served == null || current.Id == served.Id || run.Flight != null)) continue;

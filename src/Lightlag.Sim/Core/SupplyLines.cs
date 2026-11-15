@@ -38,6 +38,45 @@ public static class SupplyLines
     public static double MaxAmmo(Ship s) => Fitting.Spec(s).Railguns * AmmoPerRailgun;
     public static double MaxFood(Ship s) => Crews.Crewed(s) ? Fitting.Spec(s).FoodDays : 0;
 
+    /// <summary>
+    /// How big a crew the ship has, in crews of a 110 m ship: a day of food in a supply ship's hold feeds one of
+    /// those, so a capital ship draws several times what an escort does.
+    /// </summary>
+    public static double CrewSize(Ship s) => Math.Clamp(Fitting.Spec(s).LengthM / 110.0, 0.5, 4);
+
+    /// <summary>
+    /// How fast crews eat their stores (1 = a day of food a day): food recyclers, closed-loop life support and
+    /// compressed rations each stretch the same stores further.
+    /// </summary>
+    public static double EatFactor(World w, Side side) =>
+        Tech.Factor(w, side, Tech.FoodRecyclers) * Tech.Factor(w, side, "closed-loop") * Tech.Factor(w, side, Tech.CompressedRations);
+
+    /// <summary>Days the ship's food lasts at the side's eating rate (what the screens show).</summary>
+    public static double FoodDaysLeft(World w, Ship s) => s.Food / Math.Max(0.05, EatFactor(w, s.Side));
+
+    /// <summary>Days a full store lasts at the side's eating rate.</summary>
+    public static double FoodDaysFull(World w, Ship s) => MaxFood(s) / Math.Max(0.05, EatFactor(w, s.Side));
+
+    /// <summary>
+    /// A fleet's ships stop eating their stores in orbit of one of their side's planets, or beside one of its
+    /// starbases (a starbase, fortress or orbital ring feeds visiting crews).
+    /// </summary>
+    public static bool AtOwnBase(World w, Fleet f, List<Fleet>? bases = null)
+    {
+        if (f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side) return true;
+        foreach (var o in bases ?? BaseFleets(w))
+            if (o.Side == f.Side && Vec2.Distance(o.Position, f.Position) <= BaseReachMm) return true;
+        return false;
+    }
+
+    /// <summary>Fleets holding a starbase, fortress or orbital ring.</summary>
+    public static List<Fleet> BaseFleets(World w) => w.Fleets.Where(o => o.ShipIds.Count > 0 && w.ShipsOf(o).Any(IsBase)).ToList();
+
+    /// <summary>How close a fleet must be to a starbase to eat from it (Mm).</summary>
+    public const double BaseReachMm = 2;
+
+    private static bool IsBase(Ship s) => s.ClassId is "station-starbase" or "station-fortress" or "station-ring";
+
     /// <summary>A hauler that carries goods between planets (freighters of every kind, sail freighters too).</summary>
     public static bool IsFreighter(Ship s) => s.ClassId is "freighter" or "bulk-freighter" or "sail-freighter";
 
@@ -145,22 +184,110 @@ public static class SupplyLines
             // Supply lines switched off: ships keep full ammunition and food wherever they are.
             foreach (var s in w.Ships) { s.Ammo = MaxAmmo(s); s.Food = MaxFood(s); }
         }
+        var bases = BaseFleets(w);
         foreach (var f in w.Fleets.ToList())
         {
-            var home = f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side;
+            if (f.ShipIds.Count == 0) continue;
+            var home = AtOwnBase(w, f, bases);
+            var eat = EatFactor(w, f.Side);
             foreach (var s in w.ShipsOf(f))
             {
                 if (home || MaxFood(s) <= 0 || !w.Rules.SupplyLines) continue;
                 var before = s.Food;
-                s.Food = Math.Max(0, s.Food - GameTime.HoursPerTick / 24 * Tech.Factor(w, f.Side, Tech.FoodRecyclers) * Tech.Factor(w, f.Side, "closed-loop"));
+                s.Food = Math.Max(0, s.Food - GameTime.HoursPerTick / 24 * eat);
                 if (before > 0 && s.Food <= 0)
                     Autonomy.Report(sim, f, $"{s.Name} has run out of food: the crew is hungry (worse aim, slower reloads)", NoteKind.Supply);
             }
             var suppliers = w.ShipsOf(f).Where(IsSupplyShip).ToList();
-            foreach (var s in suppliers) RefuelSelf(w, s);
+            foreach (var s in suppliers) { RefuelSelf(w, s); FeedSelf(s); }
             if (suppliers.Count > 0 && f.ShipIds.Count > suppliers.Count) Deliver(w, suppliers, w.ShipsOf(f).Where(s => !IsSupplyShip(s)).ToList());
         }
-        if (w.Loop) Runs(sim);
+        if (w.Loop) { TenderRestock(sim); Runs(sim); }
+    }
+
+    // ---- Tenders that restock themselves ---------------------------------------------------------
+
+    /// <summary>A fleet's own supply ship heads off to restock once its hold falls below this share.</summary>
+    public const double TenderRestockBelow = 0.25;
+
+    /// <summary>
+    /// A supply ship sailing with a fleet (a tender) whose hold runs low splits off, loads at the nearest planet
+    /// its side holds and flies back to rejoin, unless the fleet is told to keep it, is fighting, or enemies are
+    /// near (then the supply chain calls a run instead). The rival's tenders do the same.
+    /// </summary>
+    public static void TenderRestock(Simulation sim)
+    {
+        var w = sim.World;
+        var bases = BaseFleets(w);
+        foreach (var f in w.Fleets.Where(f => f.ShipIds.Count > 1 && f.SupplyRunFor == null && f.TenderOf == null && !f.TenderStays).OrderBy(f => f.Id).ToList())
+        {
+            var ships = w.ShipsOf(f).ToList();
+            if (ships.All(IsSupplyShip) || !Combat.Armed(w, f) || AtOwnBase(w, f, bases) || f.Retreating || f.Refit != null || Heat.InBattle(w, f)) continue;
+            var low = ships.Where(s => IsSupplyShip(s) && !IsFreighter(s) && CargoShare(s) < TenderRestockBelow).Select(s => s.Id).ToList();
+            if (low.Count == 0 || low.Count == ships.Count || DangerAt(w, f.Side, f.Position) != null) continue;
+            if (Supply.Nearest(w, f) is not (Body body, _)) continue;
+            var before = w.Fleets.Count;
+            new SplitFleetCommand(f.Id, low) { Source = "tender" }.Apply(w, sim);
+            if (w.Fleets.Count == before) continue;
+            var run = w.Fleets[^1];
+            run.SupplyRunFor = f.Id;
+            run.TenderOf = f.Id;
+            run.AutoRun = true;
+            if (!GoLoad(sim, run, f))
+            {
+                // Can't get there: back into the fleet, and a supply run is called the usual way.
+                Fleets.Absorb(w, f, run);
+                continue;
+            }
+            var days = run.Flight is Flight fl ? Math.Max(0, fl.ArriveHour - w.Hour) / 24 * 2 + 2 : 2;
+            Autonomy.Report(sim, f, $"{run.Name} leaves {f.Name} to restock at {body.Name}: back in about {days:0} days", NoteKind.Supply);
+            sim.Log.Info("supply", "Tender leaves its fleet to restock", new { fleetId = f.Id, tenderFleetId = run.Id, bodyId = body.Id, days = Math.Round(days, 1) });
+        }
+    }
+
+    // ---- Danger near a meeting point -------------------------------------------------------------
+
+    /// <summary>Armed enemies seen this close to a meeting point (or enemy forts) keep supply ships away.</summary>
+    public const double DangerAu = 0.12;
+
+    /// <summary>Sightings older than this no longer count as danger.</summary>
+    public const double DangerSeenHours = 24;
+
+    /// <summary>
+    /// What makes a place unsafe for unarmed supply ships, from what the side knows: an armed enemy fleet seen
+    /// near it lately, or an enemy planet with working forts or a defence station. Null: safe as far as it knows.
+    /// </summary>
+    public static string? DangerAt(World w, Side side, Vec2 at)
+    {
+        var reach = DangerAu * Physics.MmPerAu;
+        foreach (var s in w.Sightings)
+        {
+            if (s.SeenBy != side || s.Own || s.Of == side || w.Hour - s.Hour > DangerSeenHours || s.Ships <= 0) continue;
+            if (Vec2.Distance(s.Guess(w.Hour), at) > reach) continue;
+            if (s.Classes.Count > 0 && !s.Classes.Any(ArmedClass)) continue;
+            return $"enemy {s.Name} seen near";
+        }
+        foreach (var b in w.Bodies)
+            if (b.Owner is Side o && o != side && Vec2.Distance(b.Position, at) <= reach && Starbases.Fort(w, b) != null)
+                return $"enemy guns at {b.Name}";
+        return null;
+    }
+
+    private static bool ArmedClass(string classId) =>
+        !GameData.TryClass(classId, out var c) || c.Railguns + c.Missiles + c.Lances > 0;
+
+    /// <summary>
+    /// Where a supply run waits when the fleet it serves is in danger: back along the way from home, just outside
+    /// the danger reach (null if that spot is unsafe too).
+    /// </summary>
+    public static Vec2? SafeMeetPoint(World w, Fleet run, Fleet target)
+    {
+        var from = Supply.Nearest(w, run) is (Body home, _) ? home.Position : run.Position;
+        var away = from - target.Position;
+        if (away.Length < 1e-6) return null;
+        var spot = target.Position + away * (DangerAu * 1.5 * Physics.MmPerAu / away.Length);
+        if (Vec2.Distance(target.Position, from) < DangerAu * 1.5 * Physics.MmPerAu) spot = from;
+        return DangerAt(w, run.Side, spot) == null ? spot : null;
     }
 
     /// <summary>
@@ -172,6 +299,16 @@ public static class SupplyLines
         var max = Fitting.MaxSupplies(w, s);
         if (s.Supplies >= max * 0.5) return;
         s.Supplies += Fuels.TakeCargo(s, Fuels.IdOf(s), max * SelfFuelTo - s.Supplies);
+    }
+
+    /// <summary>A supply ship's own crew eats from its hold once its stores fall below half (it carries the food).</summary>
+    public static void FeedSelf(Ship s)
+    {
+        var max = MaxFood(s);
+        if (max <= 0 || s.Food >= max * 0.5 || s.CargoFood <= 1e-9) return;
+        var take = Math.Min(max - s.Food, s.CargoFood / CrewSize(s));
+        s.Food += take;
+        s.CargoFood = Math.Max(0, s.CargoFood - take * CrewSize(s));
     }
 
     /// <summary>Share of its own tanks a supply ship refuels to from its cargo.</summary>
@@ -224,9 +361,11 @@ public static class SupplyLines
             var eaters = to.Where(s => MaxFood(s) - s.Food > 1e-9).OrderBy(s => s.Food / MaxFood(s)).ThenBy(s => s.Id).ToList();
             for (var i = 0; i < eaters.Count && food > 1e-9; i++)
             {
+                // The hold counts crew-days of a 110 m ship: a bigger crew draws more of it for each day it takes on.
                 var s = eaters[i];
-                var take = Math.Min(food / (eaters.Count - i), MaxFood(s) - s.Food);
-                s.Food += take; src.CargoFood -= take; food -= take;
+                var crew = CrewSize(s);
+                var take = Math.Min(food / (eaters.Count - i) / crew, MaxFood(s) - s.Food);
+                s.Food += take; src.CargoFood -= take * crew; food -= take * crew;
             }
         }
     }
@@ -313,6 +452,14 @@ public static class SupplyLines
             if ((outbound || f.Flight == null && !home) && target.Hold != HoldStyle.Orbit && !f.Maneuvering
                 && !NearBody(w, target) && !Together(w, f, target) && PassedClose(f, target))
                 ComeAlongside(sim, f, target);
+            // A tender back from restocking, loaded and alongside its fleet: it rejoins.
+            if (f.TenderOf == target.Id && Together(w, f, target) && CargoShare(w, f) >= 0.9 && !Heat.InBattle(w, target))
+            {
+                Fleets.Absorb(w, target, f);
+                Autonomy.Report(sim, target, $"Restocked tender rejoins {target.Name}", NoteKind.Supply);
+                sim.Log.Info("supply", "Tender rejoins its fleet", new { fleetId = target.Id });
+                continue;
+            }
             if (Together(w, f, target))
             {
                 // Drifting together: keep matching its speed so the two stay side by side while cargo goes over.
@@ -334,6 +481,28 @@ public static class SupplyLines
             {
                 if (GoLoad(sim, f, target, refuel: true)) continue;
             }
+            // Danger where the fleet is: don't fly into it. On the way out, turn for a safe spot to wait;
+            // at home, stay and say why. The fleet's panel shows where its supplies wait.
+            var danger = DangerAt(w, f.Side, target.Position);
+            if (danger != null)
+            {
+                var meet = SafeMeetPoint(w, f, target);
+                target.SupplyMeetAt = meet;
+                f.SupplyRunProblem = meet != null ? $"waiting at a safe point: {danger} {target.Name}" : $"waiting: {danger} {target.Name}";
+                var outward = f.Flight is { } way2 && (way2.TargetFleetId == target.Id || f.Chase?.TargetFleetId == target.Id);
+                if (outward || f.Flight == null && !home && meet is Vec2 && Vec2.Distance(f.Position, meet.Value) > TogetherMm * 4)
+                {
+                    f.Chase = null;
+                    f.Flight = null;
+                    if (meet is Vec2 m)
+                        new PlanFlightCommand(f.Id, new FlightRequest(null, m, Economy.ReinforceSpeed, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick)) { Source = "supply" }.Apply(w, sim);
+                    else GoLoad(sim, f, target);
+                    Autonomy.Report(sim, f, $"{f.Name} holds back: {danger} {target.Name}", NoteKind.Supply);
+                    sim.Log.Info("supply", "Supply run holds back from danger", new { fleetId = f.Id, target = target.Id, danger });
+                }
+                continue;
+            }
+            if (target.SupplyMeetAt != null) target.SupplyMeetAt = null;
             if (f.Flight is { } fl && (fl.TargetFleetId == target.Id || f.Chase != null)) continue; // on its way out
             // Loading and refuelling. It sets out once full, or once the hold stops filling (the planet is out of
             // something), or, for a fleet already running short, once the hold is nearly half full.
@@ -341,7 +510,7 @@ public static class SupplyLines
             if (home && (!loaded || Combat.SupplyShare(w, f) < Supply.RefilledAt)) continue;
             if (f.Flight != null && !home) continue;                                                // on its way home
             if (cargo < ReloadBelow) { GoLoad(sim, f, target); continue; }
-            if (!Needs(w, target) && home) continue;                                                // nothing wanted yet
+            if (!Needs(w, target) && home && f.TenderOf != target.Id) continue;                     // nothing wanted yet (a tender goes back anyway)
             f.SupplyRunProblem = null;
             if (Fleets.FlyToJoin(w, f, target, Economy.ReinforceSpeed) is string problem)
             {

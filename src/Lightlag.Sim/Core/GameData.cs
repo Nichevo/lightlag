@@ -61,7 +61,7 @@ public sealed record ShipClass(
     int Missiles, double Cost, string Role, double SensorMm, double SignatureSize,
     double HeatCapacity = 100, int HeatSinks = 2, double Shield = 0,
     string Needs = "", double LengthM = 100, double Power = 0, double HeatBudget = 0, double Cargo = 0, List<SlotData>? Slots = null,
-    double FoodDays = 60, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false,
+    double FoodDays = 120, string CargoKind = "", Dictionary<string, double>? Materials = null, bool AiCrew = false,
     bool Lifeboats = false, bool AiRunAllowed = true, int Lances = 0, bool Sail = false)
 {
     /// <summary>A station hull (stations.json): no engine, never flies, listed apart in the Designs screen.</summary>

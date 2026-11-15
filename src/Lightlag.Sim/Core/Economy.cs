@@ -276,6 +276,7 @@ public static class Tech
     public const string TankerHull = "tanker-hull";
     public const string FreighterHull = "freighter-hull";
     public const string FoodRecyclers = "food-recyclers";
+    public const string CompressedRations = "compressed-rations";
     public const string EfficientUpkeep = "efficient-upkeep";
 
     public const string MissileBrain5 = "missile-brain-5";

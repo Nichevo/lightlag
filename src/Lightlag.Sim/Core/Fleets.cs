@@ -267,6 +267,15 @@ public sealed class Fleet
 
     public int? SupplyRunFor { get; set; }
 
+    /// <summary>A supply ship that left this fleet to restock: it rejoins the fleet once loaded (see SupplyLines.TenderRestock).</summary>
+    public int? TenderOf { get; set; }
+
+    /// <summary>The fleet's own supply ships stay with it when their holds run low, and a supply run is called instead.</summary>
+    public bool TenderStays { get; set; }
+
+    /// <summary>A supply run waiting at a safe point because the fleet it serves is in danger (shown on the fleet).</summary>
+    public Vec2? SupplyMeetAt { get; set; }
+
     /// <summary>A supply run's cargo share an hour ago, to tell a hold still filling from one the planet can't fill further.</summary>
     public double SupplyRunLastCargo { get; set; }
 
