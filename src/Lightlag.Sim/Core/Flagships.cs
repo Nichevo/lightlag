@@ -29,9 +29,32 @@ public static class Flagships
     public static FlagshipData D => GameData.Flagships;
 
     /// <summary>Is this ship marked to be protected? By default only the flagship is.</summary>
-    public static bool IsProtected(World w, Ship s) => s.Protect ?? Light.Flagship(w, s.Side)?.Id == s.Id;
+    public static bool IsProtected(World w, Ship s) => s.Protect ?? (Light.Flagship(w, s.Side)?.Id == s.Id || IsWorst(w, s));
 
-    public static bool GuardsSomething(World w, Fleet f) => f.Cover != CoverStyle.Loose && w.ShipsOf(f).Any(s => IsProtected(w, s));
+    /// <summary>Marked by hand or the flagship (what an enemy watching the fleet's cover can pick out; not the Auto worst-ship mark).</summary>
+    public static bool Marked(World w, Ship s) => s.Protect ?? Light.Flagship(w, s.Side)?.Id == s.Id;
+
+    public static bool GuardsSomething(World w, Fleet f) => f.Cover != CoverStyle.Loose && w.ShipsOf(f).Any(s => Marked(w, s));
+
+    /// <summary>Hull share below which a ship counts as damaged for the Auto protect mark.</summary>
+    public const double DamagedBelow = 0.98;
+
+    /// <summary>The fleet's most damaged ship (lowest hull share, under DamagedBelow), when it protects its worst; null when none is hurt.</summary>
+    public static Ship? Worst(World w, Fleet f)
+    {
+        if (!f.ProtectWorst || f.ShipIds.Count < 2) return null;
+        Ship? worst = null;
+        var low = DamagedBelow;
+        foreach (var s in w.ShipsOf(f))
+        {
+            if (s.Protect == false) continue;
+            var hull = s.Armour / Math.Max(1, Tech.MaxArmour(w, s));
+            if (hull < low) { low = hull; worst = s; }
+        }
+        return worst;
+    }
+
+    private static bool IsWorst(World w, Ship s) => w.FleetOf(s) is Fleet f && f.ProtectWorst && Worst(w, f)?.Id == s.Id;
 
     /// <summary>
     /// A shot or salvo aimed at a protected ship in a screening fleet may meet another ship first: one of

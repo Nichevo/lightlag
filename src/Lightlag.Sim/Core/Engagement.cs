@@ -359,7 +359,7 @@ public static class Engagement
             var plan = FlightPlanner.Plan(w, mine, req);
             // With "leave support behind" the warships go in alone: show the trip as they will fly it.
             var withAll = "";
-            if (mode is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.Overtake && WithoutSupport(req) is { Ok: true, Flight: Flight lean } leanPlan)
+            if (mode is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.RailRange or ChaseMode.Overtake && WithoutSupport(req) is { Ok: true, Flight: Flight lean } leanPlan)
             {
                 if (plan is { Ok: true, Flight: Flight slow }) withAll = $" (warships only; with the support ships: {When(slow.ArriveHour - w.Hour)})";
                 plan = leanPlan;
@@ -427,6 +427,16 @@ public static class Engagement
         Chase("missiles", "Hold at missile range", ChaseMode.MissileRange, burn,
             p => $"Sit inside missile range ({C.Missile.LaunchRangeMm * 0.8 * 1000:#,0} km) out of their railguns' reach: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}.{Combat(p.Flight!)}{Overshoot(p.Flight!)}{held}",
             hasMissiles ? null : "No missiles left in this fleet");
+        // Hold at rail range: inside its own railgun reach, outside lances and close-in fire. Warn when their rails reach further.
+        var hold = Core.Combat.RailHold(w, mine);
+        var reach = RivalTech.Guess(w, mine.Side, enemyId);
+        var outshot = reach.Rail > Secrecy.RailRange(w, mine) * 1.001
+            ? $" Careful: their railguns reach {reach.Rail * 1000:#,0} km ({reach.How}), further than yours, so they can outshoot you there."
+            : "";
+        Chase("rails", "Hold at rail range", ChaseMode.RailRange, burn,
+            p => $"Sit at {hold * 1000:#,0} km, inside your railguns' reach and outside pulse lances: there in {When(p.Flight!.ArriveHour - w.Hour)}, {Fuel(p)}. "
+                 + $"Backs off if they charge, while supplies stay above {Core.Combat.RailHoldFuelFloor:P0}; then stands and fights. Slugs fly longer out there, so more are dodged.{outshot}{Combat(p.Flight!)}{held}",
+            hasRails ? null : "No working railguns in this fleet");
         Chase("burn", "Burn past", ChaseMode.Overtake, burn, p =>
         {
             var last = p.Flight!.Legs[^1];

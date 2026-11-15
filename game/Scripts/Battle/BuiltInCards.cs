@@ -339,6 +339,14 @@ public sealed class DefenceCard : BattleCard
             },
             (c, f) => c.Pending<SetDodgeCommand>(f)?.Dodge ?? f.Dodge,
             (f, d) => new SetDodgeCommand(f.Id, d), "dodge");
+        var fd = Formations.D;
+        b.Choice("PD for", new (string, string, PdGuard)[]
+            {
+                ("Fleet", $"Each point defence mount fires at missiles aimed at any ship of the fleet: fully within {fd.PdCoverMm * 1000:#,0} km of it, at {fd.PdOutsideFactor:P0} further out. Every mount that fires warms up a little", PdGuard.Fleet),
+                ("Self", $"Each mount fires only at missiles aimed at its own ship, {fd.PdSelfFactor:0.#}x as hard: that ship is safer, the rest get no help from it, and less heat builds up. Best for a lone ship or one spread far from the others", PdGuard.Self),
+            },
+            (c, f) => c.Pending<SetPdGuardCommand>(f)?.Guard ?? f.PdGuard,
+            (f, g) => new SetPdGuardCommand(f.Id, g), "point defence guard");
         b.Line(c =>
         {
             var ships = c.Ships.ToList();
@@ -363,7 +371,9 @@ public sealed class DefenceCard : BattleCard
     {
         var d = c.Fleets.Select(f => c.Pending<SetDodgeCommand>(f)?.Dodge ?? f.Dodge).Distinct().ToList();
         var dodge = d.Count > 1 ? "mixed" : d[0] switch { DodgeMode.Off => "No dodge", DodgeMode.Sidestep => "Sidestep", _ => "Hard burn" };
-        return $"{dodge}\nSupplies {c.Fleets.Min(f => Combat.SupplyShare(c.World, f)):P0}";
+        var g = c.Fleets.Select(f => c.Pending<SetPdGuardCommand>(f)?.Guard ?? f.PdGuard).Distinct().ToList();
+        var guard = g.Count > 1 ? "PD mixed" : g[0] == PdGuard.Self ? "PD self" : "PD fleet";
+        return $"{dodge} · {guard}\nSupplies {c.Fleets.Min(f => Combat.SupplyShare(c.World, f)):P0}";
     }
 }
 
@@ -417,6 +427,71 @@ public sealed class FormationCard : BattleCard
             (f, s) => new SetFormationCommand(f.Id, s), "formation");
         b.Line(c => c.All ? string.Join("\n", c.Fleets.Select(f => $"{f.Name}: {Formations.Name(Formations.Shape(c.World, f))}")) : FleetRules.FormationText(c.World, c.Lead),
             colorNow: c => c.Fleets.Any(f => Formations.BlockedShips(c.World, f) > 0) ? Ui.Warn : Ui.Dim);
+        b.Custom(ProtectPicker(out var refresh), refresh);
+        b.Choice("Cover", new (string, string, CoverStyle)[]
+            {
+                ("Loose", "No special care: the protected ship only gets the safest slot and point defence first", CoverStyle.Loose),
+                ("Screen", $"Other ships put themselves in the way: {Flagships.D.ScreenChance:P0} of the shots at the protected ship hit one of them instead", CoverStyle.Screen),
+                ("Close", $"Tight round it: {Flagships.D.CloseChance:P0} of the shots at it hit another ship and its point defence works harder, but the fleet dodges worse", CoverStyle.Close),
+            },
+            (c, f) => c.Pending<SetCoverCommand>(f)?.Cover ?? f.Cover,
+            (f, cover) => new SetCoverCommand(f.Id, cover, f.FireAt), "cover");
+        b.Line(c => string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + $"protects {BattleMoves.ProtectText(c.World, f)}")), Ui.Dim);
+    }
+
+    /// <summary>
+    /// The Protect drop-down: the flagship (as before), the most damaged ship (Auto), nobody, or (one fleet on the tab) a
+    /// ship by name. Its list follows the fleet's ships, so it is a custom row rather than a fixed drop-down.
+    /// </summary>
+    private static Control ProtectPicker(out Action<CardContext> refresh)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 3);
+        var tag = Ui.Label("Protect", 11, Ui.Dim);
+        tag.CustomMinimumSize = new Vector2(CardBuilder.LabelWidth, 0);
+        row.AddChild(tag);
+        var pick = new OptionButton { FocusMode = Control.FocusModeEnum.None, CustomMinimumSize = new Vector2(0, 22), FitToLongestItem = true };
+        pick.AddThemeFontSizeOverride("font_size", 11);
+        row.AddChild(pick);
+        var items = new List<(ProtectPick Pick, int? Ship)>();
+        var key = "";
+        CardContext? last = null;
+        pick.ItemSelected += i =>
+        {
+            if (last is not CardContext c || i < 0 || i >= items.Count) return;
+            var (p, ship) = items[(int)i];
+            Main.Instance.RunGuarded("protect", () =>
+                c.Issue(f => p == ProtectPick.Ship ? (f.ShipIds.Contains(ship!.Value) ? new ProtectShipCommand(f.Id, p, ship) : null) : new ProtectShipCommand(f.Id, p), "protect"));
+        };
+        refresh = c =>
+        {
+            last = c;
+            var ships = c.All ? new List<Ship>() : c.World.ShipsOf(c.Lead).ToList();
+            var k = string.Join(",", ships.Select(s => s.Id));
+            if (k != key && !pick.GetPopup().Visible)
+            {
+                key = k;
+                items.Clear();
+                pick.Clear();
+                void Add(string text, string tip, ProtectPick p, int? ship = null)
+                {
+                    pick.AddItem(text, items.Count);
+                    pick.SetItemTooltip(items.Count, tip);
+                    items.Add((p, ship));
+                }
+                Add("Most damaged (Auto)", "The ship with the least hull left takes the safest slot, point defence puts it first, and (in Screen or Close cover) others take fire meant for it", ProtectPick.Worst);
+                Add("Flagship only", "Only the flagship, when it is in this fleet: point defence puts it first and (in Screen or Close cover) others take fire meant for it, but it keeps its place in the formation", ProtectPick.Flagship);
+                Add("Nobody", "Every ship takes its place by size; no ship gets special care", ProtectPick.None);
+                foreach (var s in ships) Add(s.Name, $"Protect {s.Name} ({s.Code}) whatever its state", ProtectPick.Ship, s.Id);
+            }
+            var now = c.Fleets.Select(f => c.Pending<ProtectShipCommand>(f) is ProtectShipCommand p ? (p.Pick, p.ShipId) : BattleMoves.Protecting(c.World, f)).Distinct().ToList();
+            var mixed = now.Count > 1;
+            tag.Text = mixed ? "Protect (mixed)" : "Protect";
+            tag.AddThemeColorOverride("font_color", mixed ? Ui.Warn : Ui.Dim);
+            var at = mixed ? -1 : items.FindIndex(x => x.Pick == now[0].Item1 && (x.Pick != ProtectPick.Ship || x.Ship == now[0].Item2));
+            if (pick.Selected != at && !pick.GetPopup().Visible) pick.Select(at);
+        };
+        return row;
     }
 
     public override string Folded(CardContext c) => string.Join(", ", c.Fleets.Select(f => Formations.Name(Formations.Shape(c.World, f))).Distinct());

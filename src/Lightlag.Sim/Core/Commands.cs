@@ -138,6 +138,10 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetLeaveSupportCommand), "setLeaveSupport")]
 [JsonDerivedType(typeof(SetMissileBudgetCommand), "setMissileBudget")]
 [JsonDerivedType(typeof(SendShipHomeCommand), "sendShipHome")]
+[JsonDerivedType(typeof(SetPdGuardCommand), "setPdGuard")]
+[JsonDerivedType(typeof(ProtectShipCommand), "protectShip")]
+[JsonDerivedType(typeof(SplitOffCommand), "splitOff")]
+[JsonDerivedType(typeof(SetRejoinWhenCommand), "setRejoinWhen")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand
@@ -198,7 +202,7 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
         }
         // Going in to fight with "leave support ships behind" on: the tenders stay back first, so the burn is planned without them.
         if (fleet.LeaveSupportBehind && Request.TargetFleetId is int foe && world.FindFleet(foe) is Fleet enemy && enemy.Side != fleet.Side
-            && Request.Chase is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.Overtake)
+            && Request.Chase is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.RailRange or ChaseMode.Overtake)
             Fleets.HoldBackSupport(world, sim, fleet);
         var plan = FlightPlanner.Plan(world, fleet, Request);
         if (!plan.Ok || plan.Flight == null)
