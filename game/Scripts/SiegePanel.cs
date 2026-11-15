@@ -230,7 +230,7 @@ public partial class SiegePanel : PanelContainer
                 : missiles > 0 && d <= missiles ? $"in missile reach: your ships launch at it from orbit (guns at {rails * 1000:#,0} km)"
                 : missiles > 0 ? $"out of reach: missiles launch at {missiles * 1000:#,0} km, guns at {rails * 1000:#,0} km"
                 : $"out of reach: guns at {rails * 1000:#,0} km";
-            var held = o.Retreating && mine.Chase?.TargetFleetId != o.Id ? " HOLDING FIRE: it is pulling back, and your fleets let a retreating fleet go (Fight it ▸ to chase)." : "";
+            var held = Combat.LetsGo(mine, o) ? " HOLDING FIRE: it is pulling back, and Let fleeing go is on for your fleet (Fight it ▸ to chase)." : "";
             text.Text = $"{o.Name} ({o.ShipIds.Count} ships) {d * 1000:#,0} km away, {reach}.{held}";
         }
     }

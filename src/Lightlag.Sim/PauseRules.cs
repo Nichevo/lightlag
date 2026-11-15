@@ -57,10 +57,12 @@ public sealed class PauseRules
             PauseEvent.ResearchDone or PauseEvent.ShipLaunched or PauseEvent.EventAutoPicked => PauseResponse.Ignore,
             _ => PauseResponse.Notice,
         },
-        // Standard: how the game behaved before these settings existed.
+        // Standard: stop only for what needs an order now. A claim takes days to land and a far battle is fought on
+        // standing orders, so those pop up instead. (An enemy spotted far from your fleets and planets only pops
+        // up in every preset: see GameScreen.WatchSightings.)
         _ => e switch
         {
-            PauseEvent.EnemySpotted or PauseEvent.BattleStarts or PauseEvent.FarBattle or PauseEvent.PlanetClaimed
+            PauseEvent.EnemySpotted or PauseEvent.BattleStarts
                 or PauseEvent.ShipyardAttacked or PauseEvent.CommandCall or PauseEvent.EventCall => PauseResponse.Pause,
             _ => PauseResponse.Notice,
         },
@@ -68,7 +70,7 @@ public sealed class PauseRules
 
     public static string Name(PauseEvent e) => e switch
     {
-        PauseEvent.EnemySpotted => "Enemy fleet spotted",
+        PauseEvent.EnemySpotted => "Enemy fleet spotted near you",
         PauseEvent.BattleStarts => "Battle starts near you",
         PauseEvent.FarBattle => "Light arrives from a far battle",
         PauseEvent.EnemyClosing => "Enemy heading for one of your fleets",

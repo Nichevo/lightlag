@@ -245,6 +245,12 @@ public sealed class Fleet
     public bool LongShots { get; set; }
     public MissileLaunch MissileLaunch { get; set; }
 
+    /// <summary>
+    /// Let an enemy fleet that pulls back go without shooting at it (unless chasing it). Off by default: the
+    /// guns keep firing at a retreating fleet while it is still in reach, but the fleet doesn't close on it.
+    /// </summary>
+    public bool LetRetreatGo { get; set; }
+
     /// <summary>Fire dumb (brain 1) salvos: they can't be hijacked or jammed, but are easier to dodge and shoot down.</summary>
     public bool DumbSalvos { get; set; }
 

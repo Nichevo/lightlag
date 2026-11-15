@@ -248,7 +248,7 @@ public partial class Hud
         }
         _battleView.Visible = true;
         _battleView.Text = battleView ? "Menus back  U" : "Battle view  U";
-        _battleView.Modulate = battleView ? Ui.Player : _screen.InBattle ? Ui.Danger : new Color(1, 1, 1, 0.8f);
+        _battleView.Modulate = battleView ? Ui.Player : _screen.MyBattle ? Ui.Danger : new Color(1, 1, 1, 0.8f);
         _gameMenu.Visible = !battleView;
 
         // Hide when idle: slides away after 5 s; the mouse at the bottom edge of row one, or any screen open, brings it back.

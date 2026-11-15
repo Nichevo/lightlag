@@ -342,22 +342,29 @@ public partial class BattleScreen : Control
         for (var i = 0; i < _cards.Count; i++) _cards[i].SetOpen(open[i]);
     }
 
+    /// <summary>
+    /// Sets a control's size and position only when they change. (Shrinking a panel to nothing and growing it back
+    /// each refresh, as ResetSize then Size did, made Godot lay out and re-wrap every label inside it twice a refresh.)
+    /// </summary>
+    private static void Place(Control c, Vector2 size, Vector2? at = null)
+    {
+        if (c.Size != size) c.Size = size;
+        if (at is Vector2 p && c.Position != p) c.Position = p;
+    }
+
+    private static void Fit(Control c) => Place(c, c.GetCombinedMinimumSize());
+
     private void Layout()
     {
         var size = GetViewportRect().Size;
-        Position = Vector2.Zero;
-        Size = size;
-        _headPanel.ResetSize();
-        _headPanel.Size = _headPanel.GetCombinedMinimumSize();
-        _headPanel.Position = new Vector2(Mathf.Max(16, (size.X - _headPanel.Size.X) / 2), Hud.ContentTop + 6);
+        Place(this, size, Vector2.Zero);
         var top = Hud.ContentTop + 6;
 
         var width = size.X - 32;
         FitCards(width - 16);
         _timeline.CustomMinimumSize = new Vector2(width - 16, _timeline.WantHeight);
-        _bottomPanel.ResetSize();
-        _bottomPanel.Size = new Vector2(width, _bottomPanel.GetCombinedMinimumSize().Y);
-        _bottomPanel.Position = new Vector2(16, size.Y - _bottomPanel.Size.Y - 12);
+        var bottom = new Vector2(width, _bottomPanel.GetCombinedMinimumSize().Y);
+        Place(_bottomPanel, bottom, new Vector2(16, size.Y - bottom.Y - 12));
 
         // The side columns run from under the top bar to the bottom panel, scrolling when they don't fit.
         var room = _bottomPanel.Position.Y - top - 30;
@@ -365,18 +372,16 @@ public partial class BattleScreen : Control
         {
             var want = inner.GetCombinedMinimumSize();
             scroll.CustomMinimumSize = new Vector2(want.X + 12, Mathf.Max(80, Mathf.Min(want.Y, room)));
-            panel.ResetSize();
-            panel.Size = panel.GetCombinedMinimumSize();
+            Fit(panel);
         }
-        _leftPanel.Position = new Vector2(16, top);
-        _rightPanel.Position = new Vector2(size.X - _rightPanel.Size.X - 16, top);
+        Place(_leftPanel, _leftPanel.Size, new Vector2(16, top));
+        Place(_rightPanel, _rightPanel.Size, new Vector2(size.X - _rightPanel.Size.X - 16, top));
         // The header sits between the columns, below the top bar.
         var between = _rightPanel.Position.X - (_leftPanel.Position.X + _leftPanel.Size.X) - 24;
         var headW = Mathf.Clamp(between - 20, 380, 760);
         foreach (var l in new[] { _header, _now, _lag, _transit, _fight }) l.CustomMinimumSize = new Vector2(headW - (l == _header ? 110 : 0), 0);
-        _headPanel.ResetSize();
-        _headPanel.Size = _headPanel.GetCombinedMinimumSize();
-        _headPanel.Position = new Vector2(_leftPanel.Position.X + _leftPanel.Size.X + 12 + Mathf.Max(0, (between - _headPanel.Size.X) / 2), top);
+        Fit(_headPanel);
+        Place(_headPanel, _headPanel.Size, new Vector2(_leftPanel.Position.X + _leftPanel.Size.X + 12 + Mathf.Max(0, (between - _headPanel.Size.X) / 2), top));
     }
 
     private void RefreshSiege(World w)
@@ -386,7 +391,7 @@ public partial class BattleScreen : Control
         {
             _siege.Visible = true;
             _siege.Refresh(w, body, mine);
-            _siege.ResetSize();
+            Fit(_siege);
             // Between the header and the cards, shrunk to fit when the screen is short.
             var top = _headPanel.Position.Y + _headPanel.Size.Y + 8;
             var room = _bottomPanel.Position.Y - 8 - top;

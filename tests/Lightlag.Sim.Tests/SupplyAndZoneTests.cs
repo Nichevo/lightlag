@@ -119,6 +119,7 @@ public class SupplyAndZoneTests
         var at = OpenSpace(sim);
         var fleet = NewFleet(sim, Side.Player, at, "gun-frigate");
         var enemy = NewFleet(sim, Side.Rival, at + new Vec2(30, 0), "gun-frigate", "gun-frigate");
+        enemy.LetRetreatGo = true; // our lone frigate pulls back from the pair: keep it alive so the supply run has a fleet to serve
         w.Sightings.Add(new Sighting { SeenBy = Side.Player, Of = Side.Rival, FleetId = enemy.Id, Name = enemy.Name, Ships = 2, Position = enemy.Position,
             Hour = w.Hour, SpottedHour = w.Hour, Visible = true, Classes = Sensors.ClassesOf(w, enemy) });
         Assert.NotNull(SupplyLines.DangerAt(w, Side.Player, fleet.Position));

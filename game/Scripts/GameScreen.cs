@@ -113,9 +113,11 @@ public partial class GameScreen : Node2D
     /// Something happened: pause, slow to 1x, pop up or only a News line, as the pause settings say for it
     /// (PauseSettings, Pause settings button). With <paramref name="inNews"/> the caller has already put it in News.
     /// </summary>
-    private void Alert(PauseEvent e, string text, Action? onClick = null, bool inNews = false)
+    private void Alert(PauseEvent e, string text, Action? onClick = null, bool inNews = false, PauseResponse? atMost = null)
     {
-        switch (PauseSettings.Rules[e])
+        var response = PauseSettings.Rules[e];
+        if (atMost is PauseResponse cap && response < cap) response = cap; // the enum runs from Pause (most) to Ignore (least)
+        switch (response)
         {
             case PauseResponse.Pause:
                 _main.Toast(text + ". Paused.", onClick: onClick);
@@ -155,6 +157,10 @@ public partial class GameScreen : Node2D
 
     /// <summary>Battle time is running (a standoff, where nobody can fight, runs at normal speed).</summary>
     public bool InBattle => Sim.World.Sub != 0 || (Sim.World.ActiveBattle != null && !Combat.Standoff(Sim.World));
+
+    /// <summary>Most milliseconds of simulation a frame may take: past this, a busy battle runs slower than asked rather than freeze the screen.</summary>
+    private const double StepBudgetMs = 12;
+    private readonly System.Diagnostics.Stopwatch _stepClock = new();
 
     /// <summary>The empire panel (E): Industry, shipyard, research, claims.</summary>
     public bool ShowEmpire { get; set; }
@@ -397,31 +403,36 @@ public partial class GameScreen : Node2D
     }
 
     private readonly System.Diagnostics.Stopwatch _processClock = new();
+    private double? _hudMs;
 
     public override void _Process(double delta)
     {
         if (_main.Sim == null) return;
         _processClock.Restart();
+        _hudMs = null;
         ProcessFrame(delta);
         BenchProbe.Add("SCREEN-PROCESS", _processClock.Elapsed.TotalMilliseconds);
+        if (_hudMs is double hud) FrameTimes.Note(delta, hud, _processClock.Elapsed.TotalMilliseconds);
     }
 
     private void ProcessFrame(double delta)
     {
         _camera.ScreenSize = GetViewportRect().Size;
+        MyBattle = InBattle && OwnThreat() != null;
         SelectSplitShip();
         if (!_paused)
         {
             // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
             // battle time, which runs 360 times slower: 1x is then one game minute per second.
             var cost = Sim.PeekStepHours();
-            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick && SlowForBattle() ? BattleSlowdown : 1);
+            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick ? BattlePace() : 1);
             _accum += delta * rate / cost;
+            _stepClock.Restart();
             var switched = false;
             var ok = _main.RunGuarded("running the simulation", () =>
             {
                 var done = 0;
-                while (_accum >= 1 && done < 2000) // never freeze the screen catching up
+                while (_accum >= 1 && done < 2000 && _stepClock.Elapsed.TotalMilliseconds < StepBudgetMs) // never freeze the screen catching up
                 {
                     var next = Sim.PeekStepHours();
                     if (next != cost) { switched = true; break; } // switching in or out of battle time
@@ -439,7 +450,8 @@ public partial class GameScreen : Node2D
                         break;
                     }
                 }
-                if (done == 2000) _accum = 0;
+                // Out of time this frame: drop the backlog rather than carry it (the game runs slower than asked).
+                if (_accum >= 1) _accum = Math.Min(_accum, 1);
             });
             if (!ok)
             {
@@ -511,6 +523,9 @@ public partial class GameScreen : Node2D
     /// <summary>Any input (keys, mouse, clicks on panels) makes the next frame draw and refresh at once.</summary>
     public override void _Input(InputEvent e) => _inputSeen = true;
 
+    /// <summary>Bench only: behave as if the mouse moved this frame (the HUD and map refresh as they do while you move it).</summary>
+    public void BenchInput() => _inputSeen = true;
+
     /// <summary>
     /// The map is drawn every frame while time runs; paused, only when the view, the mouse, the selection or the
     /// world changes (and a few times a second for anything else). Behind a full screen it is not drawn at all.
@@ -542,7 +557,7 @@ public partial class GameScreen : Node2D
             _hudTick = w.Tick;
             _hud.Refresh();
         }
-        FrameTimes.Note(delta, _frameClock.Elapsed.TotalMilliseconds);
+        _hudMs = _frameClock.Elapsed.TotalMilliseconds;
     }
 
     // ---- Commands the HUD can call --------------------------------------------------------
@@ -1002,22 +1017,87 @@ public partial class GameScreen : Node2D
     private bool Heard(double hour, Vec2 where) => Sim.World.Hour - hour >= Light.DelayHours(Sim.World, Side.Player, where) - 1e-9;
 
     /// <summary>
-    /// Should battle time slow the clock? Without light lag, whenever the game runs in battle time. With
-    /// it, only when you could know: a battle whose news has reached you, or enemies close to a fleet
-    /// within your command range. A far battle you have not heard of yet runs at the normal speed.
+    /// The real seconds an enemy's approach to weapon range takes at the least, whatever the speed setting:
+    /// battle time eases in over them, so there is time to set orders without hours of game minutes ticking by.
     /// </summary>
-    private bool SlowForBattle()
+    public const double ApproachSeconds = 4;
+
+    /// <summary>Within this of your fleet or planet an enemy counts as close enough for battle time to matter.</summary>
+    private static double ThreatZoneMm => GameData.Combat.ContactRangeMm * 2;
+
+    /// <summary>The longest reach that can open a fight: long-range railguns or a missile launch, with a little to spare.</summary>
+    private static double ApproachReachMm => Math.Max(GameData.Combat.Missile.LaunchRangeMm, GameData.Heat.LongRangeMm) * 1.1;
+
+    /// <summary>
+    /// The nearest enemy to one of your fleets, or closing on a planet you hold, as the gap to it and how fast
+    /// it is closing (Mm an hour); a gap of 0 when missiles are flying to or from you. Null: no fight of yours.
+    /// Other races fighting each other are not yours. With light lag, only what you could know: fleets within
+    /// command range, or the fleets of a battle of yours whose news has reached you.
+    /// </summary>
+    private (double Gap, double Closing)? OwnThreat()
     {
         var w = Sim.World;
-        if (!w.Light.On) return true;
-        if (w.ActiveBattle is Battle b && Heard(b.StartHour, b.Where)) return true;
-        var near = GameData.Combat.ContactRangeMm * 2;
-        foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player && Light.DelayHours(w, Side.Player, f.Position) <= 0))
-            if (w.Fleets.Any(e => e.Side != Side.Player && Vec2.Distance(e.Position, mine.Position) <= near)
-                || w.Missiles.Any(m => Vec2.Distance(m.Position, mine.Position) <= near))
-                return true;
-        return false;
+        var heardBattle = w.ActiveBattle is Battle b && b.For(Side.Player).Fleets.Count > 0 && Heard(b.StartHour, b.Where)
+            ? b.For(Side.Player).Fleets.ToHashSet() : null;
+        bool Known(Fleet f) => !w.Light.On || heardBattle?.Contains(f.Name) == true || Light.DelayHours(w, Side.Player, f.Position) <= 0;
+        bool KnownAt(Vec2 at) => !w.Light.On || Light.DelayHours(w, Side.Player, at) <= 0;
+        foreach (var m in w.Missiles)
+            if ((m.Side == Side.Player || w.FindShip(m.TargetShipId)?.Side == Side.Player) && (heardBattle != null || KnownAt(m.Position)))
+                return (0, 0);
+        var zone = ThreatZoneMm;
+        var reach = ApproachReachMm;
+        var standoff = Combat.Standoff(w) && w.ActiveBattle is Battle sb ? sb.Foes(Side.Player).Fleets.Concat(sb.For(Side.Player).Fleets).ToHashSet() : null;
+        (double Gap, double Closing)? best = null;
+        var bestHours = double.PositiveInfinity;
+        void Consider(Vec2 at, Vec2 motion, Fleet enemy, bool closingOnly)
+        {
+            var gapVec = enemy.Position - at;
+            var d = gapVec.Length;
+            if (!double.IsFinite(d)) return;
+            var closing = d > 1e-9 ? -Vec2.Dot(gapVec, Sensors.MotionOf(w, enemy) - motion) / d : 0;
+            if (closingOnly && closing <= 0) return;
+            var hours = d <= reach ? 0 : closing > 1e-6 ? (d - reach) / closing : double.PositiveInfinity;
+            // Close by, or fast enough to reach weapon range within the next couple of hours.
+            if (d > zone && !(hours <= 2)) return;
+            if (best == null || hours < bestHours) { best = (d, closing); bestHours = hours; }
+        }
+        var enemies = w.Fleets.Where(e => e.Side != Side.Player && e.Position.IsFinite).ToList();
+        if (enemies.Count == 0) return null;
+        foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player && f.Position.IsFinite && Known(f)))
+        {
+            var motion = Sensors.MotionOf(w, mine);
+            foreach (var e in enemies)
+            {
+                // Fleets already in contact that can't reach each other (a standoff) don't hold the clock back.
+                if (standoff != null && standoff.Contains(mine.Name) && standoff.Contains(e.Name)) continue;
+                Consider(mine.Position, motion, e, false);
+            }
+        }
+        // A planet of yours counts only while an enemy is closing on it: one parked in orbit there doesn't.
+        foreach (var body in w.Bodies.Where(x => x.Owner == Side.Player && KnownAt(x.Position)))
+        {
+            var motion = FlightPlanner.PredictBody(w, body, w.Hour + 1) - body.Position;
+            foreach (var e in enemies) Consider(body.Position, motion, e, true);
+        }
+        return best;
     }
+
+    /// <summary>
+    /// How much battle time slows the clock: 1 not at all, down to BattleSlowdown. Only a fight of yours slows it
+    /// (OwnThreat); other races fighting run at the normal speed. While the enemy is still outside weapon reach,
+    /// the clock slows gradually as it closes, so the approach takes ApproachSeconds of real time, not minutes.
+    /// </summary>
+    private double BattlePace()
+    {
+        if (OwnThreat() is not var (gap, closing)) return 1;
+        var outside = gap - ApproachReachMm;
+        if (outside <= 0) return BattleSlowdown;
+        if (closing <= 1e-6) return 1; // drifting apart or holding off: nothing comes of it soon
+        return Math.Clamp(outside / closing / (Speeds[_speed] * ApproachSeconds), BattleSlowdown, 1);
+    }
+
+    /// <summary>Battle time is on for a fight of yours (worked out once a frame): the banner and the battle view button show it.</summary>
+    public bool MyBattle { get; private set; }
 
     /// <summary>Pause when a battle starts (so orders can be given), and show the report when it ends.</summary>
     private void WatchBattles()
@@ -1026,6 +1106,12 @@ public partial class GameScreen : Node2D
         if (w.ActiveBattle is Battle b && b.Id != _lastBattleSeen && Heard(b.StartHour, b.Where))
         {
             _lastBattleSeen = b.Id;
+            // Other races fighting each other: no pause and no battle time, only a News line if you can see it.
+            if (!Mine(b))
+            {
+                if (SeenFight(b)) _main.AddNews($"Battle seen near {NearestBodyName(b.Where)}: {string.Join(" and ", b.Sides.Where(x => x.Fleets.Count > 0).Select(x => string.Join(", ", x.Fleets)))}", FocusBattle);
+                return;
+            }
             // The same fleets meeting again soon after a contact ended (drifting in and out of range): no new pause.
             var again = w.Battles.Any(o => o.Id != b.Id && o.EndHour is double end && b.StartHour - end < RecontactQuietHours
                                            && o.For(Side.Player).Fleets.Intersect(b.For(Side.Player).Fleets).Any()
@@ -1062,6 +1148,7 @@ public partial class GameScreen : Node2D
         if (last != null && last.Id > _lastReportShown)
         {
             _lastReportShown = last.Id;
+            if (!Mine(last)) return; // someone else's fight: no report for you
             if (!last.Fought)
             {
                 // Came within range and parted with no shots: a News line, not a battle report.
@@ -1080,6 +1167,20 @@ public partial class GameScreen : Node2D
                 () => OpenReplay(battle), keep: true);
         }
     }
+
+    /// <summary>One of your fleets is in this battle (not only other races fighting each other).</summary>
+    private static bool Mine(Battle b) => b.For(Side.Player).Fleets.Count > 0;
+
+    /// <summary>Your sensors have one of the battle's fleets in sight now.</summary>
+    private bool SeenFight(Battle b)
+    {
+        var w = Sim.World;
+        var names = b.Sides.SelectMany(x => x.Fleets).ToHashSet();
+        return w.Fleets.Any(f => names.Contains(f.Name) && Sensors.Find(w, Side.Player, f.Id, seat: true)?.Visible == true);
+    }
+
+    private string NearestBodyName(Vec2 at) =>
+        Sim.World.Bodies.Where(x => x.Kind != BodyKind.Star).OrderBy(x => Vec2.Distance(x.Position, at)).FirstOrDefault()?.Name ?? "open space";
 
     /// <summary>The standing orders and autonomy of our fleets in a battle, for news of a far fight.</summary>
     private string FarOrders(Battle b) => string.Join("; ", Sim.World.Fleets
@@ -1156,9 +1257,17 @@ public partial class GameScreen : Node2D
             var nearest = w.Fleets.Where(f => f.Side == Side.Player).OrderBy(f => Vec2.Distance(f.Position, s.Position)).FirstOrDefault();
             var where = nearest != null ? $", {Vec2.Distance(nearest.Position, s.Position) * 1000:#,0} km from {nearest.Name}" : "";
             var fleetId = s.FleetId;
-            Alert(PauseEvent.EnemySpotted, $"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}", () => GoToSighting(fleetId));
+            // Only a fleet near one of your fleets or planets stops the clock; one seen far off pops up (one
+            // heading for you is caught by the Enemy heading for one of your fleets warning).
+            var near = w.Fleets.Any(f => f.Side == Side.Player && f.Position.IsFinite && Vec2.Distance(f.Position, s.Position) <= SpottedNearMm)
+                       || w.Bodies.Any(b => b.Owner == Side.Player && Vec2.Distance(b.Position, s.Position) <= SpottedNearMm);
+            Alert(PauseEvent.EnemySpotted, $"Spotted {s.Name} ({s.Ships} ships, {FleetPanel.StateText(s.State)}){where}", () => GoToSighting(fleetId),
+                atMost: near ? null : PauseResponse.Notice);
         }
     }
+
+    /// <summary>An enemy spotted within this of one of your fleets or planets counts as near you (0.1 AU).</summary>
+    private const double SpottedNearMm = 15000;
 
     /// <summary>Once an hour: warn when a seen enemy fleet's track is closing on one of your fleets.</summary>
     private void WatchChasers()

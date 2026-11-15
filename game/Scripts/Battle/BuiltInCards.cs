@@ -247,6 +247,11 @@ public sealed class RailgunCard : BattleCard
             $"Also fire beyond normal reach, out to {Format.Distance(Heat.D.LongRangeMm)}: slugs fly so long that they hit only a ship holding its course (at best about {GameData.Combat.Railgun.Accuracy * Heat.D.LongAccuracy:P0}), at half the rate. It makes them dodge and burn fuel.",
             (c, f) => c.Pending<SetFireControlCommand>(f)?.LongShots ?? f.LongShots,
             (f, on) => new SetFireControlCommand(f.Id, on, Main.Instance.Sim?.PendingCommands.OfType<SetFireControlCommand>().LastOrDefault(x => x.FleetId == f.Id)?.Launch ?? f.MissileLaunch), "long-range fire");
+        b.SameRow();
+        b.Toggle("Let fleeing go",
+            "On: when an enemy fleet pulls back, stop shooting at it (unless you chase it), so fights end sooner and fewer ships are lost on both sides. Off (the default): keep firing at it while it is still in reach.",
+            (c, f) => c.Pending<SetLetRetreatGoCommand>(f)?.LetGo ?? f.LetRetreatGo,
+            (f, on) => new SetLetRetreatGoCommand(f.Id, on), "letting a retreating fleet go");
         b.Line(c =>
         {
             var guns = c.Ships.Where(s => Fitting.Spec(s).Railguns > 0).ToList();
@@ -624,8 +629,15 @@ public static class BattleText
         if (w.FindFleet(e.EnemyId) is not Fleet enemy || !e.InSight) return null;
         if (f.Retreating && enemy.Chase?.TargetFleetId != f.Id)
             return "HOLDING FIRE: your fleet is pulling back, so it doesn't shoot. Pick an approach to fight again.";
-        if (enemy.Retreating && f.Chase?.TargetFleetId != enemy.Id)
-            return $"HOLDING FIRE: {e.EnemyName} is pulling back and your fleets let a retreating fleet go. Chase it (Burn and engage or Hold at missile range) to keep shooting.";
+        if (Combat.LetsGo(f, enemy))
+            return $"HOLDING FIRE: {e.EnemyName} is pulling back, and Let fleeing go is on (Railguns card). Turn it off to keep firing while it is in reach, or chase it.";
+        if (enemy.Retreating)
+        {
+            var reach = Math.Max(Tech.RailRange(w, f.Side), w.ShipsOf(f).Any(s => s.Missiles > 0) ? Heat.LaunchRange(f) : 0);
+            var gap = Vec2.Distance(f.Position, enemy.Position);
+            if (gap > reach && f.Chase?.TargetFleetId != enemy.Id)
+                return $"OUT OF REACH: {e.EnemyName} is pulling back, {Format.Distance(gap)} away (your reach {Format.Distance(reach)}). Your fleet doesn't follow a fleeing enemy: chase it (Burn and engage) to catch it.";
+        }
         var d = Vec2.Distance(f.Position, enemy.Position);
         var launch = Heat.LaunchRange(f);
         if (w.ShipsOf(f).Any(s => s.Missiles > 0) && d > launch && d <= GameData.Combat.Missile.LaunchRangeMm)

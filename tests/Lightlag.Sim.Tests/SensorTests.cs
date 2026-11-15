@@ -127,4 +127,16 @@ public class SensorTests
         // The player was told where the rival is, so the player can.
         Assert.True(FlightPlanner.Plan(sim.World, player, req with { TargetFleetId = rival.Id }).Ok);
     }
+
+    [Fact]
+    public void Only_a_fresh_track_lets_sensors_see_further()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 5, GameLog.Memory());
+        var w = sim.World;
+        var enemy = w.Fleets.First(f => f.Side == Side.Rival);
+        var s = new Sighting { SeenBy = Side.Player, Of = Side.Rival, FleetId = enemy.Id, Position = enemy.Position, Hour = w.Hour };
+        Assert.Equal(GameData.Sensors.CuedFactor, Sensors.Cue(w, s, enemy.Position, w.Hour + 1));
+        // Seen weeks ago at the same spot: sensors no longer know to look there.
+        Assert.Equal(1, Sensors.Cue(w, s, enemy.Position, w.Hour + 19 * 24));
+    }
 }
