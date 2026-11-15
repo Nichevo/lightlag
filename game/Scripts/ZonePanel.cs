@@ -170,7 +170,7 @@ public partial class ZonePanel : VBoxContainer
             days = ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s) * Lanes.KeepStationPerDay));
         if (w.Rules.SupplyLines && ships.Count > 0)
         {
-            var food = ships.Min(s => s.Food);
+            var food = ships.Min(s => SupplyLines.FoodDaysLeft(w, s));
             days = days is double d ? Math.Min(d, food) : food;
         }
         _days.Text = days is double dd ? $"{dd:0} days" : "no limit";

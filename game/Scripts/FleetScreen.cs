@@ -543,7 +543,7 @@ public partial class FleetScreen : PanelContainer
             var parts = new List<string> { $"Fuel {fuel:P0}" };
             if (gunners.Count > 0) parts.Add($"railgun ammo {gunners.Average(s => s.Ammo / SupplyLines.MaxAmmo(s)):P0}");
             if (racks.Count > 0) parts.Add($"missiles {racks.Sum(s => s.Missiles)}/{racks.Sum(s => Tech.Racks(w2, s))}");
-            if (eaters.Count > 0) parts.Add(eaters.Any(SupplyLines.Hungry) ? "food: HUNGRY" : $"food {eaters.Min(s => s.Food):0} days");
+            if (eaters.Count > 0) parts.Add(eaters.Any(SupplyLines.Hungry) ? "food: HUNGRY" : $"food {eaters.Min(s => SupplyLines.FoodDaysLeft(w2, s)):0} days");
             var runners = w2.Fleets.Where(o => o.Side == g.Side && o.SupplyRunFor == g.Id).Select(o => o.Name).ToList();
             var line2 = runners.Count > 0 ? $"Kept topped up by {string.Join(", ", runners)}" : "No supply run to it";
             if (g.Resupplying) line2 += " · on its way to refill";
@@ -646,7 +646,7 @@ public partial class FleetScreen : PanelContainer
                 var bits = new List<string>();
                 if (SupplyLines.MaxAmmo(x) > 0) bits.Add($"ammo {x.Ammo / SupplyLines.MaxAmmo(x):P0}");
                 if (Fitting.Spec(x).Missiles > 0) bits.Add(x.Missiles <= 0 ? "NO MISSILES" : $"missiles {x.Missiles}/{Tech.Racks(w2, x)}");
-                if (SupplyLines.MaxFood(x) > 0) bits.Add(SupplyLines.Hungry(x) ? "HUNGRY" : $"food {x.Food:0} d");
+                if (SupplyLines.MaxFood(x) > 0) bits.Add(SupplyLines.Hungry(x) ? "HUNGRY" : $"food {SupplyLines.FoodDaysLeft(w2, x):0} d");
                 if (SupplyLines.IsSupplyShip(x)) bits.Add($"cargo {SupplyLines.CargoShare(x):P0}");
                 return bits.Count > 0 ? string.Join(" · ", bits) : "—";
             }, 12));

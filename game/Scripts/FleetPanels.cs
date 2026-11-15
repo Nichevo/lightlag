@@ -286,6 +286,13 @@ public partial class FleetPanel : PanelContainer
             if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetSupplyRunCommand(Side.Player, sf.Id, id == Ui.MenuNone ? null : (int)id), "supply run");
         });
         box.AddChild(_supplyRun);
+        _tenderStays = Ui.SmallButton("Tender restocks itself", () =>
+        {
+            if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SetTenderStaysCommand(sf.Id, !sf.TenderStays), "tender choice");
+        }, "Tender restocks itself: when its hold falls below a quarter it leaves to load at your nearest planet and comes back (not during a fight or with enemies near).\n"
+           + "Tender stays: it never leaves; call supply runs out to the fleet instead");
+        _tenderStays.AddThemeFontSizeOverride("font_size", 13);
+        box.AddChild(_tenderStays);
         _getSupplies = new MenuButton { Text = "Get supplies out here ▾", Flat = false, FocusMode = FocusModeEnum.None,
             TooltipText = "Have fuel, ammunition, missiles and food brought out to this fleet: send a fleet with tankers or freighters on a supply run to it, or order a new tanker or freighter to join it" };
         _getSupplies.AddThemeFontSizeOverride("font_size", 15);
@@ -452,7 +459,7 @@ public partial class FleetPanel : PanelContainer
         _secOrders = Make("Orders", "Mission and autonomy, what to do in contact, cover and targeting, heat and weapons",
             _orders, _missionRow, _coverRow, _heatRow, _heat, _fireRow);
         _secRules = Make("Battle rules", "When the fleet pulls back from a fight; Hold on and Pull back now", _rules);
-        _secSupply = Make("Supply", "Fuel and speed left, food and ammunition, cargo, and supply runs", _supplyText, _supplyRun, _getSupplies);
+        _secSupply = Make("Supply", "Fuel and speed left, food and ammunition, cargo, and supply runs", _supplyText, _supplyRun, _tenderStays, _getSupplies);
         _secShips = Make("Ships", "Each ship's bars; ⓘ opens a ship's card with its full status; ⇱ splits one ship off to give it its own orders; tick several and press Split to make a new fleet", _shipList, _splitHere, _barsKey, _fittings);
         _secRefit = Make("Refit", "Send the fleet to a yard to refit to the current designs", _rules.RefitBox);
         _secZone = Make("Zone", "Hold or draw a raiding zone, or hunt a spotted supply lane", _rules.ZoneBox);
@@ -599,7 +606,7 @@ public partial class FleetPanel : PanelContainer
         var fuel = ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)));
         parts.Add($"fuel {fuel:P0}");
         var fed = ships.Where(s => SupplyLines.MaxFood(s) > 0).ToList();
-        if (fed.Count > 0) parts.Add($"food {fed.Min(s => s.Food):0} d");
+        if (fed.Count > 0) parts.Add($"food {fed.Min(s => SupplyLines.FoodDaysLeft(w, s)):0} d");
         var armed = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
         if (armed.Count > 0) parts.Add($"railgun ammo {armed.Sum(s => s.Ammo) / armed.Sum(s => SupplyLines.MaxAmmo(s)):P0}");
         var racks = ships.Sum(s => Tech.Racks(w, s));
@@ -613,16 +620,42 @@ public partial class FleetPanel : PanelContainer
         var kinds = w.Rules.FuelTypes ? string.Join(", ", ships.GroupBy(s => Fuels.Of(w, s).Name).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key} ×{g.Count()}")) : "";
         var tip = $"Fuel {fuel:P0} (lowest ship): {Format.Speed(perf.DeltaVLeft)} of speed change left, top speed {Format.Speed(perf.MaxSpeed)} (slowest ship)"
                   + (kinds.Length > 0 ? $"\nIn the tanks: {kinds}" : "")
-                  + (fed.Count > 0 ? $"\nFood for {fed.Min(s => s.Food):0} days (lowest ship)" : "")
+                  + $"\n{RangeText(w, ships)}"
+                  + (fed.Count > 0 ? $"\nFood for {fed.Min(s => SupplyLines.FoodDaysLeft(w, s)):0} days (lowest ship); {FullFoodText(w, fed)}" : "")
                   + (armed.Count > 0 ? $"\nRailgun ammunition {armed.Sum(s => s.Ammo):0} of {armed.Sum(s => SupplyLines.MaxAmmo(s)):0}" : "")
                   + (racks > 0 ? $"\nMissiles {missiles} of {racks}: reloaded at a shipyard or dry dock, or by a tanker or supply run with ammunition aboard" : "")
                   + (w.Light.On ? "\nLight lag from your flagship each way; live means orders arrive at once" : "");
         return (string.Join(" · ", parts), tip);
     }
 
+    /// <summary>Full-tank range of the shortest-legged ship, and further on the best fuel its engines can burn.</summary>
+    private static string RangeText(World w, List<Ship> ships)
+    {
+        var full = ships.Min(s => Fitting.MaxSupplies(w, s) / Tech.SuppliesPerDeltaV(w, s));
+        var text = $"Full tanks: range {Format.Speed(full)} of speed change (shortest-legged ship)";
+        if (!w.Rules.FuelTypes) return text;
+        var best = Fuels.All.Where(fu => ships.All(s => Fuels.CanBurn(w, s, fu.Id))).OrderByDescending(fu => fu.Reach).FirstOrDefault();
+        if (best == null) return text;
+        var onBest = ships.Min(s => Fitting.MaxSupplies(w, s) / Tech.SuppliesPerDeltaV(w, s) * best.Reach / Math.Max(1e-9, Fuels.Reach(w, s)));
+        return onBest > full * 1.01 ? text + $" ({Format.Speed(onBest)} on {best.Name.ToLowerInvariant()})" : text;
+    }
+
+    /// <summary>"full stores last 120 days (180 with your research)".</summary>
+    private static string FullFoodText(World w, List<Ship> fed)
+    {
+        var baseDays = fed.Min(SupplyLines.MaxFood);
+        var withResearch = fed.Min(s => SupplyLines.FoodDaysFull(w, s));
+        return $"full stores last {baseDays:0} days" + (withResearch > baseDays + 0.5 ? $" ({withResearch:0} with your research)" : "");
+    }
+
     private static string SupplySummary(World w, Fleet f)
     {
         if (f.Resupplying) return "coasting to refill";
+        if (w.Fleets.FirstOrDefault(o => o.TenderOf == f.Id && o.ShipIds.Count > 0) is Fleet away)
+            return away.SupplyRunProblem is string why ? $"tender away: {why}"
+                : away.Flight is Flight fl ? $"tender away restocking, back in ~{Math.Max(1, (fl.ArriveHour - w.Hour) * 2 / 24):0} d" : "tender away restocking";
+        if (f.TenderOf is int home && w.FindFleet(home) is Fleet served) return $"restocking to rejoin {served.Name}";
+        if (w.Fleets.FirstOrDefault(o => o.SupplyRunFor == f.Id && o.SupplyRunProblem != null) is Fleet stuck) return $"{stuck.Name} {stuck.SupplyRunProblem}";
         if (f.SupplyRunFor is int run && w.FindFleet(run) is Fleet t) return $"supply run for {t.Name}";
         if (w.Fleets.FirstOrDefault(o => o.SupplyRunFor == f.Id) is Fleet tanker) return $"{tanker.Name} keeps it supplied";
         return f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int b && w.FindBody(b)?.Owner == f.Side ? "refilling in orbit" : "no supply run";
@@ -673,6 +706,7 @@ public partial class FleetPanel : PanelContainer
 
     private Button _engagementButton = null!;
     private MenuButton _supplyRun = null!;
+    private Button _tenderStays = null!;
     private MenuButton _fuel = null!;
 
     /// <summary>Auto, then each fuel the fleet's engines can burn, with how it burns.</summary>
@@ -813,6 +847,8 @@ public partial class FleetPanel : PanelContainer
         var perf = FleetPerformance.Of(w, f);
         _supplyRun.Visible = mine && ships.Any(SupplyLines.IsSupplyShip);
         _getSupplies.Visible = mine && w.Loop && !ships.Any(SupplyLines.IsSupplyShip);
+        _tenderStays.Visible = mine && w.Loop && f.SupplyRunFor == null && f.TenderOf == null && ships.Any(SupplyLines.IsSupplyShip) && ships.Any(s => !SupplyLines.IsSupplyShip(s));
+        _tenderStays.Text = f.TenderStays ? "Tender stays, call supply runs" : "Tender restocks itself";
         if (_getSupplies.Visible)
             _getSupplies.Text = w.Fleets.FirstOrDefault(o => o.SupplyRunFor == f.Id && o.Side == f.Side) is Fleet server
                 ? $"Supplied by {server.Name} ▾" : "Get supplies out here ▾";
@@ -965,7 +1001,7 @@ public partial class FleetPanel : PanelContainer
             var armour = s.Armour / Tech.MaxArmour(w, s);
             var bits = new List<string> { $"armour {armour:P0}", w.Rules.FuelTypes ? $"{Fuels.Of(w, s).Short} {share:P0}" : $"fuel {share:P0}" };
             if (mine && SupplyLines.MaxAmmo(s) > 0) bits.Add($"railgun ammo {s.Ammo / SupplyLines.MaxAmmo(s):P0}{(s.RailGrade >= 2 ? " (Mk III slugs)" : "")}");
-            if (mine && SupplyLines.MaxFood(s) > 0) bits.Add(SupplyLines.Hungry(s) ? "HUNGRY" : $"food {s.Food:0} d");
+            if (mine && SupplyLines.MaxFood(s) > 0) bits.Add(SupplyLines.Hungry(s) ? "HUNGRY" : $"food {SupplyLines.FoodDaysLeft(w, s):0} d");
             if (mine && SupplyLines.IsSupplyShip(s)) bits.Add($"cargo {SupplyLines.CargoShare(s):P0}");
             if (cls.Missiles > 0) bits.Add(s.Missiles <= 0 ? "OUT OF MISSILES" : $"missiles {s.Missiles}/{Tech.Racks(w, s)} (brain {Munitions.Brain(w, s)}{(mine && Munitions.Brain(w, s) < w.MissileBrain[(int)s.Side] ? $", {w.MissileBrain[(int)s.Side]} researched" : "")})");
             var heat = Heat.Capacity(s) > 0 ? s.Heat / Heat.Capacity(s) : 0;
@@ -1045,6 +1081,7 @@ public partial class FleetPanel : PanelContainer
         _droneButton.Visible = mine && open && w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0 && !Light.SignalClear(w, Side.Player, f.Position);
         _supplyRun.Visible &= mine;
         _getSupplies.Visible &= mine;
+        _tenderStays.Visible &= mine;
         _fuel.Visible &= mine;
         if (_cover.Selected != (int)f.Cover) _cover.Select((int)f.Cover);
         if (_fireAt.Selected != (int)f.FireAt) _fireAt.Select((int)f.FireAt);
