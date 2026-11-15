@@ -1,7 +1,7 @@
 # Adding to the battle view
 
 The battle view (U) has a row of cards along the bottom: Move, Railguns, Missiles, Pulse lances, Defence, Heat,
-Formation and Orders. Each card is one small class. A new weapon or mechanic gets a new card (or a new row on an
+Formation, Secrets and Orders. Each card is one small class. A new weapon or mechanic gets a new card (or a new row on an
 existing card), and the screen handles the rest:
 
 - placing the cards left to right, and folding them to one or two lines when they don't fit (rightmost first);
@@ -15,7 +15,7 @@ The code lives in `game/Scripts/Battle/`:
 | File | What it holds |
 | --- | --- |
 | `BattleCards.cs` | `BattleCard` (the base class), `BattleCards.Makers` (the list of cards), `CardContext`, `CardBuilder` |
-| `BuiltInCards.cs` | The eight cards above; copy one to start a new card |
+| `BuiltInCards.cs` | The nine cards above; copy one to start a new card |
 | `BattleScreen.cs` | The screen: header, tabs, card row and folding, layout |
 | `BattleShips.cs` | Your ships (left) and the enemy by what you know (right), the odds bar |
 | `BattleTimeline.cs` | When things arrive: a row per fleet, click a mark to pause there |
@@ -34,7 +34,7 @@ Map paths for the view are in `game/Scripts/MapView.Battle.cs`.
    {
        public override string Id => "decoys";          // kept in ui.cfg for the pin: don't rename it later
        public override string Title => "Decoys";
-       public override int Order => 45;                 // left to right: Move 10, Railguns 20, Missiles 30, Lances 35, Defence 40, Heat 50, Formation 60, Orders 90
+       public override int Order => 45;                 // left to right: Move 10, Railguns 20, Missiles 30, Lances 35, Defence 40, Heat 50, Formation 60, Secrets 70, Orders 90
        public override Color? Reach => null;            // a ring colour from EngagementRings to light on hover
 
        // Show the card only when a ship carries the system.

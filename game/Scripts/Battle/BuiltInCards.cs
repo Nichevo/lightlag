@@ -497,6 +497,64 @@ public sealed class FormationCard : BattleCard
     public override string Folded(CardContext c) => string.Join(", ", c.Fleets.Select(f => Formations.Name(Formations.Shape(c.World, f))).Distinct());
 }
 
+/// <summary>
+/// Keeping tech secret: fight with common weapons and open fire short of true reach (hiding range), bringing the
+/// advanced ones out only when hurt, losing or more enemies join; or always show everything, or never. The same
+/// setting as Battle rules › Weapons shown on the fleet panel.
+/// </summary>
+public sealed class SecretsCard : BattleCard
+{
+    public override string Id => "secrets";
+    public override string Title => "Secrets";
+    public override int Order => 70;
+    public override bool Shows(CardContext c) => true;
+
+    private static SecrecyRules Rules(CardContext c, Fleet f) => c.Pending<SetSecrecyCommand>(f)?.Rules ?? f.Secrecy;
+    private static WeaponsShown Shown(CardContext c, Fleet f) => c.Pending<SetSecrecyCommand>(f)?.Shown ?? f.Shown;
+
+    // A rule switch: the fleet's rules with one changed, keeping its Weapons shown setting (and any order not yet applied).
+    private static void Rule(CardBuilder b, string text, string tip, Func<SecrecyRules, bool> get, Action<SecrecyRules, bool> set) =>
+        b.Toggle(text, tip, (c, f) => get(Rules(c, f)),
+            (f, on) =>
+            {
+                var pending = Main.Instance.Sim?.PendingCommands.OfType<SetSecrecyCommand>().LastOrDefault(x => x.FleetId == f.Id);
+                var r = (pending?.Rules ?? f.Secrecy).Copy();
+                set(r, on);
+                return new SetSecrecyCommand(f.Id, pending?.Shown ?? f.Shown, r);
+            }, "secrecy rule", c => c.Fleets.Any(f => Shown(c, f) == WeaponsShown.HoldBack));
+
+    public override void Build(CardBuilder b)
+    {
+        b.Choice("Weapons", new (string, string, WeaponsShown)[]
+            {
+                ("Hold back", "Fight with common weapons and open fire short of true reach; bring the advanced ones out when the switches below say so. What the rival never sees, it can't learn", WeaponsShown.HoldBack),
+                ("Show all", "Always fire everything at full reach", WeaponsShown.ShowAll),
+                ("Never", "Never use the advanced weapons, even when losing", WeaponsShown.NeverShow),
+            },
+            Shown, (f, m) => new SetSecrecyCommand(f.Id, m, f.Secrecy.Copy()), "weapons shown");
+        Rule(b, "Hide range", $"Open fire at {GameData.Weapons.K.HideRangeShare:P0} of true reach until the advanced weapons come out, so they don't learn your real reach",
+            r => r.HideRange, (r, on) => r.HideRange = on);
+        Rule(b, "Out when hurt", $"Bring them out when a ship falls below {GameData.Weapons.K.BelowHull:P0} hull", r => r.WhenHurt, (r, on) => r.WhenHurt = on);
+        Rule(b, "Out when losing", "Bring them out when the odds turn against you", r => r.WhenLosing, (r, on) => r.WhenLosing = on);
+        Rule(b, "Out when more join", "Bring them out when more enemy warships join the fight", r => r.WhenJoined, (r, on) => r.WhenJoined = on);
+        b.Line(c => string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + FleetRules.ShownText(c.World, f))),
+            colorNow: c => c.Fleets.Any(f => f.AdvancedOut) ? Ui.Warn : Ui.Dim);
+    }
+
+    public override string Folded(CardContext c)
+    {
+        if (Secrecy.Advanced(c.World, Side.Player).Count == 0) return "Nothing to hold back yet";
+        if (c.Fleets.Any(f => f.AdvancedOut)) return "Advanced weapons OUT";
+        var modes = c.Fleets.Select(f => Shown(c, f)).Distinct().ToList();
+        return modes.Count > 1 ? "mixed" : modes[0] switch
+        {
+            WeaponsShown.ShowAll => "Showing all",
+            WeaponsShown.NeverShow => "Never showing",
+            _ => c.Fleets.All(f => Rules(c, f).HideRange) ? "Holding back, range hidden" : "Holding back",
+        };
+    }
+}
+
 /// <summary>Orders for the fight as a whole: hold on past the pull-back rule, or pull back now.</summary>
 public sealed class OrdersCard : BattleCard
 {
