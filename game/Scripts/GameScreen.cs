@@ -817,6 +817,21 @@ public partial class GameScreen : Node2D
         if (BattleView) CloseBattle();
     }
 
+    /// <summary>Close every menu screen (empire, supply, planets, fleets, ships, research, intel, progress, the planet and ground boards, fittings), so one shows at a time.</summary>
+    public void CloseMenuScreens()
+    {
+        ShowEmpire = false;
+        ShowResearch = false;
+        ShowPlanets = false;
+        PlanetScreenId = null;
+        GroundScreenId = null;
+        ShowFleets = false;
+        ShowShips = false;
+        FittingFleetId = null;
+        ShowIntel = false;
+        ShowProgress = false;
+    }
+
     /// <summary>The fleets screen (K): opens it over anything else, picking the selected fleet; closes it when open.</summary>
     public void ToggleFleets()
     {
@@ -1465,6 +1480,7 @@ public partial class GameScreen : Node2D
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (ZoneDrawInput(e)) { GetViewport().SetInputAsHandled(); return; }
         switch (e)
         {
             case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.WheelUp or MouseButton.WheelDown } wheel:

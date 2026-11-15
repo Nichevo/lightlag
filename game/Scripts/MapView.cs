@@ -33,6 +33,9 @@ public partial class MapView : Node2D
     /// <summary>The box being dragged out to pick fleets, in screen pixels.</summary>
     public Rect2? SelectionBox;
 
+    /// <summary>A zone being drawn: its centre and radius on screen, colour, and the hint line shown at the top.</summary>
+    public (Vector2 At, float Radius, Color Color, string Hint)? ZoneDraft;
+
     /// <summary>Which way each fleet's ships are drawn pointing; turns towards the fleet's facing over time.</summary>
     private readonly Dictionary<int, double> _shownFacing = new();
 
@@ -272,6 +275,19 @@ public partial class MapView : Node2D
         {
             DrawRect(box, new Color(Ui.Player, 0.08f));
             DrawRect(box, new Color(Ui.Player, 0.7f), false, 1);
+        }
+        if (ZoneDraft is var (zAt, zR, zColor, zHint))
+        {
+            if (zR > 0)
+            {
+                DrawCircle(zAt, zR, new Color(zColor, 0.08f));
+                DrawArc(zAt, zR, 0, Mathf.Tau, 96, new Color(zColor, 0.85f), 1.5f, true);
+            }
+            DrawCircle(zAt, 3, zColor);
+            var size = _font.GetStringSize(zHint, HorizontalAlignment.Left, -1, 15);
+            var top = new Vector2((Camera.ScreenSize.X - size.X) / 2, Hud.ContentTop + 56);
+            DrawRect(new Rect2(top - new Vector2(10, size.Y), size + new Vector2(20, 12)), new Color(0, 0, 0, 0.7f));
+            DrawString(_font, top, zHint, HorizontalAlignment.Left, -1, 15, zColor);
         }
     }
 

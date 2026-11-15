@@ -247,7 +247,8 @@ public partial class FleetRules : VBoxContainer
 
     // ---- Zones ----------------------------------------------------------------------------------
 
-    private const int Leave = 1, DrawHere = 2, ToggleHold = 3, DrawPinned = 4, ZoneBase = 1000, LaneBase = 100000;
+    private const int Leave = 1, DrawHere = 2, ToggleHold = 3, DrawPinned = 4, DrawMap = 5, DrawMapPinned = 6, KindBase = 10, ZoneBase = 1000, LaneBase = 100000;
+    private ZoneKind _drawKind = ZoneKind.Raid;
 
     private void FillZoneMenu()
     {
@@ -261,10 +262,26 @@ public partial class FleetRules : VBoxContainer
             menu.AddItem("Switch drift / keep station / roam", ToggleHold);
             menu.AddSeparator();
         }
-        menu.AddItem("Draw a raiding zone here (fixed in space)", DrawHere);
+        // The job first (Raid, Guard, Picket), then how to draw it.
+        menu.AddSeparator("New zone's job");
+        foreach (var kind in new[] { ZoneKind.Raid, ZoneKind.Guard, ZoneKind.Picket })
+        {
+            menu.AddRadioCheckItem(kind.ToString(), KindBase + (int)kind);
+            var at = menu.GetItemIndex(KindBase + (int)kind);
+            menu.SetItemChecked(at, _drawKind == kind);
+            menu.SetItemTooltip(at, Lanes.KindTip(kind));
+            menu.SetHideOnCheckableItemSelection(false);
+        }
+        var word = Lanes.KindWord(_drawKind).ToLowerInvariant();
+        menu.AddItem($"Draw a {word} zone on the map…", DrawMap);
+        menu.SetItemTooltip(menu.GetItemIndex(DrawMap), $"Click the zone's centre on the map and drag out its size; it stays fixed in space. {Lanes.KindTip(_drawKind)}");
+        menu.AddItem($"{Format.Title(word)} zone right here ({Format.Distance(300)} across the fleet)", DrawHere);
+        menu.SetItemTooltip(menu.GetItemIndex(DrawHere), $"A zone centred on the fleet, fixed in space. {Lanes.KindTip(_drawKind)}");
         if (Lanes.AnchorFor(w, _fleet.Position) is Body pin)
         {
-            menu.AddItem($"Draw a raiding zone here, moving with {pin.Name}", DrawPinned);
+            menu.AddItem($"Draw a {word} zone on the map that moves with a planet…", DrawMapPinned);
+            menu.SetItemTooltip(menu.GetItemIndex(DrawMapPinned), "As above, but the zone keeps its place beside the planet or moon nearest its centre as it orbits");
+            menu.AddItem($"{Format.Title(word)} zone right here, moving with {pin.Name}", DrawPinned);
             menu.SetItemTooltip(menu.GetItemIndex(DrawPinned), $"The zone keeps its place beside {pin.Name} as it orbits, so it stays between {pin.Name} and the same area");
         }
         foreach (var z in w.Zones.Where(z => z.Side == Side.Player && z.Id != _fleet.ZoneId).OrderBy(z => z.Id))
@@ -286,9 +303,12 @@ public partial class FleetRules : VBoxContainer
         var w = Main.Instance.Sim!.World;
         var f = _fleet;
         if (id == Leave) _screen.IssueNow(new SetZoneFleetCommand(f.Id, null), "leave zone");
-        else if (id == DrawHere) _screen.IssueNow(new CreateZoneCommand(Side.Player, ZoneKind.Raid, f.Position, 300, FleetId: f.Id), "draw zone");
+        else if (id is >= KindBase and < KindBase + 3) { _drawKind = (ZoneKind)(id - KindBase); FillZoneMenu(); }
+        else if (id == DrawMap) _screen.StartZoneDraw(f.Id, null, _drawKind);
+        else if (id == DrawMapPinned) _screen.StartZoneDraw(f.Id, null, _drawKind, pin: true);
+        else if (id == DrawHere) _screen.IssueNow(new CreateZoneCommand(Side.Player, _drawKind, f.Position, 300, FleetId: f.Id), "draw zone");
         else if (id == DrawPinned && Lanes.AnchorFor(w, f.Position) is Body pin)
-            _screen.IssueNow(new CreateZoneCommand(Side.Player, ZoneKind.Raid, f.Position, 300, FleetId: f.Id, AnchorBodyId: pin.Id), "draw pinned zone");
+            _screen.IssueNow(new CreateZoneCommand(Side.Player, _drawKind, f.Position, 300, FleetId: f.Id, AnchorBodyId: pin.Id), "draw pinned zone");
         else if (id == ToggleHold && w.Zones.Find(z => z.Id == f.ZoneId) is Zone zone)
             _screen.IssueNow(new EditZoneCommand(Side.Player, zone.Id, zone.Center, zone.RadiusMm, zone.FromBodyId, zone.ToBodyId, zone.T,
                 zone.Hold switch { ZoneHold.Drift => ZoneHold.StationKeep, ZoneHold.StationKeep => ZoneHold.Roam, _ => ZoneHold.Drift }, zone.Prey), "zone hold");

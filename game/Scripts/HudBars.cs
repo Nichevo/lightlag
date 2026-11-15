@@ -155,26 +155,20 @@ public partial class Hud
     {
         _menuActiveMs = Time.GetTicksMsec();
         _menuSlide = 0;
+        // One screen at a time: the open one's tab closes it; any other tab closes it and opens its own.
+        var showing = OpenScreenId() == id || id == "planets" && _screen.PlanetScreenId != null;
+        _screen.CloseMenuScreens();
+        if (showing) return;
         switch (id)
         {
-            case "empire":
-                var onEmpire = _screen.ShowEmpire && _empire.Current != EmpirePanel.Tab.Supply;
-                _screen.ShowShips = false;
-                _screen.ShowEmpire = !onEmpire;
-                if (!onEmpire && _empire.Current == EmpirePanel.Tab.Supply) _screen.EmpireTabWanted = EmpirePanel.Tab.Overview;
-                break;
-            case "supply":
-                var open = _screen.ShowEmpire && _empire.Current == EmpirePanel.Tab.Supply;
-                _screen.ShowShips = false;
-                _screen.ShowEmpire = !open;
-                if (!open) _screen.EmpireTabWanted = EmpirePanel.Tab.Supply;
-                break;
-            case "planets": _screen.ShowShips = false; _screen.TogglePlanets(); break;
-            case "fleets": _screen.ShowShips = false; _screen.ToggleFleets(); break;
+            case "empire": _screen.ShowEmpire = true; if (_empire.Current == EmpirePanel.Tab.Supply) _screen.EmpireTabWanted = EmpirePanel.Tab.Overview; break;
+            case "supply": _screen.ShowEmpire = true; _screen.EmpireTabWanted = EmpirePanel.Tab.Supply; break;
+            case "planets": _screen.TogglePlanets(); break;
+            case "fleets": _screen.ToggleFleets(); break;
             case "ships": _screen.ToggleShips(); break;
-            case "research": _screen.ShowResearch = !_screen.ShowResearch; break;
-            case "intel": _screen.ShowIntel = !_screen.ShowIntel; break;
-            case "progress": _screen.ShowProgress = !_screen.ShowProgress; break;
+            case "research": _screen.ShowResearch = true; break;
+            case "intel": _screen.ShowIntel = true; break;
+            case "progress": _screen.ShowProgress = true; break;
         }
     }
 
