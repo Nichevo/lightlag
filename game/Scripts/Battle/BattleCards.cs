@@ -48,6 +48,7 @@ public static class BattleCards
         () => new DefenceCard(),
         () => new HeatCard(),
         () => new FormationCard(),
+        () => new SecretsCard(),
         () => new OrdersCard(),
     };
 

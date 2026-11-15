@@ -182,7 +182,7 @@ public partial class FleetRules : VBoxContainer
         return text;
     }
 
-    private static string ShownText(World w, Fleet f)
+    internal static string ShownText(World w, Fleet f)
     {
         var adv = Secrecy.Advanced(w, f.Side);
         if (adv.Count == 0) return "No advanced weapons yet: nothing to hold back";
