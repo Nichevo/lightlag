@@ -500,7 +500,7 @@ public partial class GameScreen : Node2D
 
     private int _drawStamp;
     private double _sinceDraw, _sinceHud;
-    private bool _inputSeen;
+    private bool _inputSeen, _wasCovered;
     private long _hudTick = -1;
     private readonly System.Diagnostics.Stopwatch _frameClock = new();
 
@@ -527,7 +527,9 @@ public partial class GameScreen : Node2D
         var stamp = HashCode.Combine(HashCode.Combine(_camera.Center.X, _camera.Center.Y, _camera.Scale, _camera.ScreenSize, GetViewport().GetMousePosition(), _selected, _map.HoverId, _group.Count),
             HashCode.Combine(w.Tick, w.Sub, Sim.Replay.Commands.Count, _map.Blend, BattleView, RevealAll, Planner?.Plan, _map.BattlePreview),
             HashCode.Combine(_map.BattleReach, _map.SelectionBox, _map.ZoneDraft, EngagementNow, PlayerInfo.OpenSections.Count, _paused));
-        if (BenchProbe.OldWay || !covered && (!_paused || stamp != _drawStamp || _inputSeen || _sinceDraw >= 0.25))
+        var uncovered = _wasCovered && !covered;
+        _wasCovered = covered;
+        if (BenchProbe.OldWay || !covered && (!_paused || stamp != _drawStamp || _inputSeen || uncovered || _sinceDraw >= 0.25))
         {
             _drawStamp = stamp;
             _sinceDraw = 0;
