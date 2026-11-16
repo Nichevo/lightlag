@@ -177,6 +177,13 @@ public partial class IntelScreen : PanelContainer
             Line($"Best guess: {name} ({sure:P0}). Counter: {counter}.", Gold, 14);
         else if (f.Habits.Count > 0)
             Line("A best guess at its temperament comes at intel level 3 (Understood)", Ui.Dim, 12);
+        var spoils = WarTab.SpoilsLines(w);
+        if (spoils.Count > 0)
+        {
+            Section("What prisoners, captures and wrecks told us");
+            Line(spoils[0], Ui.Text, 13);
+            foreach (var line in spoils.Skip(1)) Line(line, Ui.Dim, 12);
+        }
         if (f.Notes.Count > 0)
         {
             Section("Notes");

@@ -5,7 +5,7 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The Empire screen's Supply tab: the chain view (planets and fleets, goods between them; line width is
+/// The Supply view (G): the chain view (planets and fleets, goods between them; line width is
 /// the amount a day, red is short, dashed is at risk), the routes table with freighter use and the year's
 /// losses, the problems Auto ranks with one-click fixes, and each planet's stock targets with siege mode.
 /// Everything shown comes from SupplyChain; every button issues a command that takes effect at once,

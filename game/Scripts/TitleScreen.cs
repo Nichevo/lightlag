@@ -159,7 +159,7 @@ public partial class TitleScreen : Control
         orbits.ItemSelected += i => main.PlanetOrbitsChoice = orbitChoices[(int)i];
         row.AddChild(orbits);
         Box("Industry budget", main.BudgetChoice, v => main.BudgetChoice = v,
-            "Each day's Industry is split into six pots (ships, buildings, stations, refits, transport, reserve) that save up and pay only for their own things; set shares and goals under Empire > Budget. Off: one pool, spent by whatever asks first");
+            "Each day's Industry is split into six pots (ships, buildings, stations, refits, transport, reserve) that save up and pay only for their own things; set shares and goals in the Budget menu (E). Off: one pool, spent by whatever asks first");
         Box("Contact offers", main.ContactOffersChoice, v => main.ContactOffersChoice = v,
             "With a second rival: once you know a race's tongue (Words), send it gifts and ask it to go after the other rival or leave a planet alone. Rivals do the same. Off: no offers; the language track still raises intel");
         Box("Ironman", main.IronmanChoice, v => main.IronmanChoice = v,

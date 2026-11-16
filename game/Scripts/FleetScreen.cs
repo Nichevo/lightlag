@@ -59,7 +59,7 @@ public partial class FleetScreen : PanelContainer
                     + "|" + string.Join(",", w.Light.InTransit.Concat(w.Light.Held).Where(t => t.Command is SetFleetRoleCommand).Select(t => t.Command.GetHashCode()))
                     + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}:{z.Kind}"))
                     + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"))
-                    + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : "");
+                    + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : _screen.FleetsTab == "war" ? WarTab.Shape(w) + EmpireTabs.AutomationShape(w) : "");
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
@@ -171,6 +171,21 @@ public partial class FleetScreen : PanelContainer
         return HelpCalls.Free(w, f) ? $"{HelpCalls.RoleName(f.Role)}: ready" : $"{HelpCalls.RoleName(f.Role)}: busy";
     }
 
+    /// <summary>The War tab: boarding, ground fighting, after battle and survivors (WarTab), then the pull-back defaults.</summary>
+    private void BuildWar(World w)
+    {
+        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var box = Column(4);
+        box.CustomMinimumSize = new Vector2(780, 0);
+        scroll.AddChild(Box(box, 16));
+        _root.AddChild(scroll);
+        var live = new List<(Label Label, Func<World, string> Text)>();
+        new WarTab(_screen, box, live, 760).Build(w);
+        box.AddChild(new HSeparator());
+        new EmpireTabs(_screen, box, live).PullDefaults(w);
+        _live.Add(w2 => { foreach (var (label, text) in live) label.Text = text(w2); });
+    }
+
     // ---- Layout --------------------------------------------------------------------------------
 
     private void Build(World w, List<Fleet> fleets, Fleet? picked)
@@ -181,6 +196,7 @@ public partial class FleetScreen : PanelContainer
                  {
                      ("fleets", "Fleets list", "Every fleet with its role, orders, supplies and ships"),
                      ("operations", "Operations", "The map: who covers what, strikes and patrol loops"),
+                     ("war", "War", "Boarding, ground fighting, clearing up after battles, survivors adrift, and the pull-back rule Auto gives fleets"),
                  })
         {
             var tab = Ui.SmallButton(label, () => _screen.FleetsTab = key, tip);
@@ -190,6 +206,7 @@ public partial class FleetScreen : PanelContainer
         }
         var note = Ui.Label(_screen.FleetsTab == "operations"
             ? "What is covered and what is not, strikes with several fleets, and patrol loops"
+            : _screen.FleetsTab == "war" ? "Boardings, ground fights and clearing up after battles, with their calls; works while paused"
             : "Pick a fleet to see its ships, role and supplies. Roles let free fleets answer calls for help by themselves", 13, Ui.Dim);
         note.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         top.AddChild(note);
@@ -205,6 +222,11 @@ public partial class FleetScreen : PanelContainer
         if (_screen.FleetsTab == "operations")
         {
             BuildOperations(w, fleets, picked);
+            return;
+        }
+        if (_screen.FleetsTab == "war")
+        {
+            BuildWar(w);
             return;
         }
 

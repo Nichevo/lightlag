@@ -33,10 +33,11 @@ public partial class Hud
     /// <summary>The menu bar's screens: id, name, key, what it holds.</summary>
     private static readonly (string Id, string Name, string Key, string Tip)[] Screens =
     {
-        ("empire", "Empire", "E", "Industry, shipyard, stations, claims, war and automation"),
-        ("planets", "Planets", "Y", "Your planets and every other world: people, goods, status"),
-        ("fleets", "Fleets", "K", "Every fleet: roles, ships, supplies, distances and calls for help"),
-        ("ships", "Ships", "J", "Ship designs, models in service, crewing and the class tree"),
+        ("budget", "Budget", "E", "The Industry budget: pots, goals and what each pot pays for"),
+        ("planets", "Planets", "Y", "Your planets and every other world: people, goods, status; stations, satellites and claims"),
+        ("fleets", "Fleets", "K", "Every fleet: roles, ships, supplies, calls for help, operations and war (boarding, ground fighting, after battle)"),
+        ("ships", "Ships", "J", "Ship designs, models in service, crews and the class tree"),
+        ("shipyard", "Shipyard", "V", "Build ships, put the queue in order and pick the fleet each one joins"),
         ("supply", "Supply", "G", "Where goods come from and go, routes and their risk (G with no fleet selected)"),
         ("research", "Research", "T", "Research teams, ideas and the discovery web"),
         ("intel", "Intel", "I", "What you know about each rival, and how sure you are"),
@@ -161,7 +162,8 @@ public partial class Hud
         if (showing) return;
         switch (id)
         {
-            case "empire": _screen.ShowEmpire = true; if (_empire.Current == EmpirePanel.Tab.Supply) _screen.EmpireTabWanted = EmpirePanel.Tab.Overview; break;
+            case "budget": _screen.ShowEmpire = true; _screen.EmpireTabWanted = EmpirePanel.Tab.Budget; break;
+            case "shipyard": _screen.ShowEmpire = true; _screen.EmpireTabWanted = EmpirePanel.Tab.Shipyard; break;
             case "supply": _screen.ShowEmpire = true; _screen.EmpireTabWanted = EmpirePanel.Tab.Supply; break;
             case "planets": _screen.TogglePlanets(); break;
             case "fleets": _screen.ToggleFleets(); break;
@@ -175,7 +177,7 @@ public partial class Hud
     /// <summary>Which screen is showing (for the highlighted tab).</summary>
     private string? OpenScreenId() =>
         _research.Visible ? "research" : _colonies.Visible ? "planets" : _fleets.Visible ? "fleets" : _ships.Visible ? "ships"
-        : _empire.Visible ? (_empire.Current == EmpirePanel.Tab.Supply ? "supply" : "empire")
+        : _empire.Visible ? _empire.Current switch { EmpirePanel.Tab.Supply => "supply", EmpirePanel.Tab.Budget => "budget", EmpirePanel.Tab.Shipyard => "shipyard", _ => null }
         : _intel.Visible ? "intel" : _progress.Visible ? "progress" : null;
 
     /// <summary>Full screens cover the map under the bars; row one then gets a solid strip behind it.</summary>
@@ -230,12 +232,20 @@ public partial class Hud
             NeedLevel? worst = list is { Count: > 0 } ? list.Min(n => n.Level) : null;
             var tip = list is { Count: > 0 } ? "\n\nNeeds you here:\n" + string.Join("\n", list.OrderBy(n => n.Level).Take(5).Select(n => $"{n.Level}: {n.Text}")) : "";
             var extra = "";
-            if (tab.Id == "empire" && w.Loop)
+            if (tab.Id == "budget" && w.Loop)
             {
                 var held = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
-                var attacked = Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double h } && w.Hour - h <= 24;
                 extra = $"\n\nIndustry {me.Industry:0} (+{Economy.IncomePerDay(w, Side.Player):0.#}/d) · planets {held}/{Economy.Claimable(w).Count()} · {Planets.PopulationOf(w, Side.Player):0}k people"
-                        + (Planets.Tipped(w, Side.Player) ? " · TIPPED" : "") + (attacked ? "\nSHIPYARD UNDER ATTACK" : "");
+                        + (Planets.Tipped(w, Side.Player) ? " · TIPPED" : "");
+            }
+            if (tab.Id == "shipyard" && w.Loop)
+            {
+                var ships = Budget.ShipQueue(w, Side.Player);
+                var attacked = Economy.ShipyardOf(w, Side.Player) is { LastBombardedHour: double h } && w.Hour - h <= 24;
+                var stuck = ships.FirstOrDefault(o => !o.Paid) is WorkOrder next && next.Waiting != null && !next.Waiting.Contains("more Industry", StringComparison.Ordinal);
+                extra = (ships.Count == 0 ? "\n\nNothing being built" : $"\n\n{ships.Count} ship{(ships.Count == 1 ? "" : "s")} in the queue")
+                        + (stuck ? $"\nWAITING: {ships.First(o => !o.Paid).Waiting}" : "") + (attacked ? "\nSHIPYARD UNDER ATTACK" : "");
+                if (stuck && worst is null or > NeedLevel.Soon) worst = NeedLevel.Soon;
                 if (attacked) worst = NeedLevel.Urgent;
             }
             if (tab.Id == "research" && w.Loop)
@@ -457,10 +467,16 @@ public partial class MenuIcon : Control
         var m = new Vector2(s.X / 2, s.Y / 2);
         switch (_id)
         {
-            case "empire": // a grid: holdings
-                DrawRect(new Rect2(2, 2, s.X - 4, s.Y - 4), c, false, w);
-                DrawLine(new Vector2(m.X, 2), new Vector2(m.X, s.Y - 2), c, w);
-                DrawLine(new Vector2(2, m.Y), new Vector2(s.X - 2, m.Y), c, w);
+            case "budget": // a pie: shares of each day's Industry
+                DrawArc(m, s.X * 0.38f, 0, Mathf.Tau, 24, c, w, true);
+                DrawLine(m, new Vector2(m.X, m.Y - s.X * 0.38f), c, w);
+                DrawLine(m, new Vector2(m.X + s.X * 0.33f, m.Y + s.X * 0.19f), c, w);
+                break;
+            case "shipyard": // a gantry over a hull on the slip
+                DrawLine(new Vector2(2, 2), new Vector2(2, s.Y - 2), c, w);
+                DrawLine(new Vector2(2, 2), new Vector2(s.X - 2, 2), c, w);
+                DrawLine(new Vector2(s.X - 4, 2), new Vector2(s.X - 4, 6), c, w);
+                DrawPolyline(new[] { new Vector2(5, m.Y + 1), new Vector2(s.X - 4, m.Y + 1), new Vector2(s.X - 1, m.Y + 4), new Vector2(s.X - 4, m.Y + 7), new Vector2(5, m.Y + 7), new Vector2(5, m.Y + 1) }, c, w, true);
                 break;
             case "planets": // a planet and its ring
                 DrawArc(m, s.X * 0.28f, 0, Mathf.Tau, 24, c, w, true);

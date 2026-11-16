@@ -217,6 +217,7 @@ public partial class ProgressScreen : PanelContainer
     private readonly GameScreen _screen;
     private ProgressChart _chart = null!;
     private Label _note = null!;
+    private Label _standing = null!;
     private readonly List<Button> _tabs = new();
 
     public static readonly string[] Metrics = { "Control", "Industry", "Fleet strength", "Research", "Losses" };
@@ -254,12 +255,17 @@ public partial class ProgressScreen : PanelContainer
         _note.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _note.CustomMinimumSize = new Vector2(760, 0);
         v.AddChild(_note);
+        _standing = Ui.Label("", 13, Ui.Text);
+        _standing.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _standing.CustomMinimumSize = new Vector2(760, 0);
+        v.AddChild(_standing);
         AddChild(v);
     }
 
     public void Refresh(Simulation sim)
     {
         _chart.World = sim.World;
+        _standing.Text = StandingText(sim.World);
         for (var i = 0; i < _tabs.Count; i++) _tabs[i].Modulate = i == _chart.Metric ? Ui.Player : new Color(1, 1, 1, 0.7f);
         _note.Text = _chart.Metric switch
         {
@@ -270,6 +276,28 @@ public partial class ProgressScreen : PanelContainer
             _ => "Ships you have lost (solid) and rival ships you have destroyed (dashed), over the game.",
         };
         _chart.QueueRedraw();
+    }
+}
+
+/// <summary>Helpers for the progress screen.</summary>
+public partial class ProgressScreen
+{
+    /// <summary>Control share now, planets and people held on each side, and how the game is won.</summary>
+    public static string StandingText(World w)
+    {
+        var d = Planets.D;
+        var c = Planets.Control(w, Side.Player);
+        var mine = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
+        var rivals = string.Join(", ", Sides.Enemies(w, Side.Player).Select(r =>
+            $"{(Sides.Three(w) ? Races.Of(w, r).Name : "rival")} {Economy.Claimable(w).Count(b => b.Owner == r)} planets, {Planets.PopulationOf(w, r):0}k people"));
+        var line = $"Control: you {c.Share:P0} (people {c.People:P0}, Industry {c.Industry:P0}, planets {c.Bodies:P0}, fleets {c.Fleets:P0}). "
+                   + $"Held: you {mine} planets of {Economy.Claimable(w).Count()}, {Planets.PopulationOf(w, Side.Player):0}k people; {rivals}.\n"
+                   + $"At {d.TipShare:P0} control a side has tipped the game: planets it blockades give up sooner (below happiness {d.SurrenderBelowTipped:0}, not {d.SurrenderBelow:0}). "
+                   + $"Hold {d.TipShare:P0} for {d.WinAfterDays:0} days, or reach {d.WinShare:P0}, to win. Destroying the rival shipyard also wins (with two rivals, it puts that rival out; the last one standing wins).";
+        foreach (var side in Sides.InPlay(w))
+            if (Economy.Of(w, side).MajoritySinceHour is double since)
+                line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + d.WinAfterDays * 24)} if nothing changes.";
+        return line;
     }
 }
 

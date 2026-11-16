@@ -170,7 +170,7 @@ public partial class GameScreen : Node2D
     private const double StepBudgetMs = 12;
     private readonly System.Diagnostics.Stopwatch _stepClock = new();
 
-    /// <summary>The empire panel (E): Industry, shipyard, research, claims.</summary>
+    /// <summary>The drop-down panel under the menu bar: Shipyard (V), Budget (E), Supply (G) or the Needs you list.</summary>
     public bool ShowEmpire { get; set; }
 
     /// <summary>The fleet whose ships and fittings are shown (null: none).</summary>
@@ -187,6 +187,9 @@ public partial class GameScreen : Node2D
 
     /// <summary>Which tab of the fleets screen is showing: "fleets" (the list) or "operations" (the map).</summary>
     public string FleetsTab { get; set; } = "fleets";
+
+    /// <summary>The planets list's tab: "worlds" or "holdings" (stations, satellites and claims).</summary>
+    public string PlanetsTab { get; set; } = "worlds";
     /// <summary>The ships screen (J): designs, models in service and the class tree.</summary>
     public bool ShowShips { get; set; }
     public int? FleetScreenId { get; set; }
@@ -474,7 +477,7 @@ public partial class GameScreen : Node2D
             WatchChasers();
             WatchEconomy();
             if (Sim.World.Loop) RivalAdvisor.Tick(Sim, _main);
-            WarTab.WatchCalls(Sim.World, _warCallsSeen, text => Alert(PauseEvent.CommandCall, text, () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.War; }));
+            WarTab.WatchCalls(Sim.World, _warCallsSeen, text => Alert(PauseEvent.CommandCall, text, () => { CloseMenuScreens(); FleetsTab = "war"; if (!ShowFleets) ToggleFleets(); }));
             EmpireTabs.WatchEvents(Sim.World, _eventsSeen, (text, stop) => Alert(stop ? PauseEvent.EventCall : PauseEvent.EventAutoPicked, text,
                 () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.Needs; }));
             // Pausing, or switching in or out of battle time: show where things really are now, so the
@@ -1348,7 +1351,7 @@ public partial class GameScreen : Node2D
     }
 
     /// <summary>The fleet last picked for a ship being built (new orders start with it).</summary>
-    public int? BuildForFleetId { get; private set; }
+    public int? BuildForFleetId { get; set; }
 
     /// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
     public void SetOrderFleet(int orderId, int? fleetId)
@@ -1862,7 +1865,8 @@ public partial class GameScreen : Node2D
                 break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
-            case Key.E when Sim.World.Loop: _hud.OpenScreen("empire"); break;
+            case Key.E when Sim.World.Loop: _hud.OpenScreen("budget"); break;
+            case Key.V when Sim.World.Loop: _hud.OpenScreen("shipyard"); break;
             case Key.T when Sim.World.Loop: _hud.OpenScreen("research"); break;
             case Key.Y when Sim.World.Loop: _hud.OpenScreen("planets"); break;
             case Key.K: _hud.OpenScreen("fleets"); break;

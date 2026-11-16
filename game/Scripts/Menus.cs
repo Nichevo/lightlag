@@ -123,7 +123,7 @@ public partial class DisplayOptionsPage : CenterContainer
         Choice("Strength bar", new[] { "Always shown" }, 0, _ => { }, "The control share (yours against the rival's estimate) stays on screen, even in Battle view");
         _rows.AddChild(Ui.Label("Needs you", 17, Ui.Player));
         Choice("Needs you tray", new[] { "Opens on the badge", "Off (keys only)" }, (int)PlayerInfo.Tray,
-            i => PlayerInfo.SetTray((TrayMode)i), "It never opens by itself: a new urgent item flashes the badge until you look. Off still leaves the badge count and the \".\" key (the badge then opens the Empire screen's Needs you tab)");
+            i => PlayerInfo.SetTray((TrayMode)i), "It never opens by itself: a new urgent item flashes the badge until you look. Off still leaves the badge count and the \".\" key (the badge then opens the Needs you list)");
         Choice("Pins on the map", new[] { "On", "Urgent and soon", "Off" }, PlayerInfo.PinMode, PlayerInfo.SetPinMode,
             "Also a tick in Map layers, so you can flick it without opening options");
         Choice("Advice from automation", new[] { "In the tray, folded", "Its own list", "Off" }, (int)PlayerInfo.Advice,
