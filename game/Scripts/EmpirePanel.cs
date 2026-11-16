@@ -5,11 +5,11 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The empire screen (E), in tabs: Overview (Industry, the shipyard and its build queue, research,
-/// stations and claims), Needs you (what wants a look, with act, jump and dismiss), Automation (the nine
-/// areas, each Auto, Advise or Manual, with overrides and the pull-back defaults), Resources (goods made,
-/// used and held) and Buildings (the catalogue). Buttons issue commands; the panel rebuilds its buttons
-/// only when what it shows changes shape, and updates the numbers every frame.
+/// The drop-downs under the menu bar (the Empire menu is gone; its parts live where they are about):
+/// Shipyard (V: build ships, the queue with its order and the fleet each ship joins), Budget (E: the
+/// Industry budget), Supply (G: the supply chain, with the goods totals) and the Needs you list (the
+/// badge, when the tray is off). Buttons issue commands; the panel rebuilds its buttons only when what
+/// it shows changes shape, and updates the numbers every frame.
 /// </summary>
 public partial class EmpirePanel : PanelContainer
 {
@@ -17,14 +17,14 @@ public partial class EmpirePanel : PanelContainer
     private VBoxContainer _box = null!;
     private string _shape = "";
     private readonly List<(Label Label, Func<World, string> Text)> _live = new();
-    private Tab _tab = Tab.Overview;
+    private Tab _tab = Tab.Shipyard;
 
-    public enum Tab { Overview, Needs, War, Budget, Automation, Resources, Supply, Buildings }
+    public enum Tab { Shipyard, Budget, Supply, Needs }
 
     private SupplyTab? _supply;
     private SupplyTab SupplyView => _supply ??= new SupplyTab(_screen);
 
-    /// <summary>Open on a tab (from the HUD's Needs you count, for example).</summary>
+    /// <summary>Open on a view (from the menu bar, a key or the Needs you badge).</summary>
     public void Show(Tab tab) { _tab = tab; _shape = ""; }
 
     public EmpirePanel() : this(null!) { }
@@ -71,37 +71,29 @@ public partial class EmpirePanel : PanelContainer
     private const float Width = 520;
 
     /// <summary>Everything that changes which buttons and rows exist.</summary>
-    private string Shape(World w) => _tab + "|" + Economy.Of(w, Side.Player).Needs.Count + Economy.Of(w, Side.Player).Needs.Any(n => n.Level == NeedLevel.Urgent) + "|" + _tab switch
+    private string Shape(World w) => _tab + "|" + _tab switch
     {
         Tab.Needs => EmpireTabs.NeedsShape(w),
-        Tab.War => WarTab.Shape(w),
         Tab.Budget => BudgetTab.Shape(w),
-        Tab.Automation => EmpireTabs.AutomationShape(w),
-        Tab.Resources => string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id)),
-        Tab.Buildings => string.Join(",", Economy.Of(w, Side.Player).Researched),
         Tab.Supply => "",
-        _ => OverviewShape(w),
+        _ => ShipyardShape(w),
     };
 
-    private static string OverviewShape(World w) =>
-        string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}"))
+    private string ShipyardShape(World w) =>
+        string.Join(",", w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}{o.JoinFleetId}"))
         + "|" + string.Join(",", Budget.ShipQueue(w, Side.Player).Select(o => o.Id))
-        + "|" + string.Join(",", Economy.Of(w, Side.Player).Researched)
-        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner
-        + "|" + string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => o.JoinFleetId))
-        + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"))
-        + "|" + string.Join(",", w.Bodies.Where(b => b.Owner == Side.Player).Select(b => b.Id))
-        + "|" + string.Join(",", w.Stations.Where(st => st.Side == Side.Player).Select(st => $"{st.Id}{(w.Hour >= st.ReadyHour ? "r" : "")}"))
-        + "|" + string.Join(",", w.Starbases.Select(st => $"{st.Id}{st.Side}{st.ClassId}"))
-        + "|" + string.Join(",", w.Satellites.Where(s => s.Side == Side.Player && s.LostHour == null).Select(s => s.Id));
+        + "|" + Economy.Of(w, Side.Player).Researched.Count
+        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner + "|" + _screen.BuildForFleetId
+        + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"));
 
-    /// <summary>The Supply tab is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
+    /// <summary>The Supply view is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
     private void RebuildSupply(Simulation sim)
     {
         foreach (var c in _box.GetChildren()) c.QueueFree();
         _live.Clear();
         _box.CustomMinimumSize = new Vector2(SupplyTab.Width, 0);
-        Tabs(sim.World);
+        Header("Supply", "The supply chain: where goods come from and go, routes and their risk, problems with fixes, stock targets and siege mode", "G");
+        new EmpireTabs(_screen, _box, _live).Goods(sim.World, SupplyTab.Width);
         SupplyView.Build(sim, _box, _live);
     }
 
@@ -110,29 +102,46 @@ public partial class EmpirePanel : PanelContainer
         _box.CustomMinimumSize = new Vector2(Width, 0);
         foreach (var c in _box.GetChildren()) c.QueueFree();
         _live.Clear();
-        Tabs(w);
-        var tabs = new EmpireTabs(_screen, _box, _live);
         switch (_tab)
         {
-            case Tab.Needs: tabs.Needs(w); return;
-            case Tab.War: new WarTab(_screen, _box, _live).Build(w); return;
-            case Tab.Budget: new BudgetTab(_screen, _box, _live).Build(w); return;
-            case Tab.Automation: tabs.Automation(w); return;
-            case Tab.Resources: tabs.Resources(w); return;
-            case Tab.Buildings: tabs.Buildings(w); return;
+            case Tab.Needs:
+                Header("Needs you", "What wants your look, with a button to act on each", "");
+                new EmpireTabs(_screen, _box, _live).Needs(w);
+                return;
+            case Tab.Budget:
+                Header("Budget", "The Industry budget: six pots with shares of each day's Industry, goals to save for, and the items each pot pays for in your order", "E");
+                new BudgetTab(_screen, _box, _live).Build(w);
+                return;
+            default:
+                Shipyard(w);
+                return;
         }
+    }
 
-        Heading("Empire");
-        Live(14, Ui.Text, w2 =>
-        {
-            var me = Economy.Of(w2, Side.Player);
-            return $"Industry {me.Industry:0} · +{Economy.IncomePerDay(w2, Side.Player):0.#} a day";
-        });
-        Live(13, Ui.Dim, PlanetsLine);
-        Live(13, Ui.Dim, RaceLine);
+    /// <summary>The view's name, a line of what it is, and a close button.</summary>
+    private void Header(string title, string tip, string key)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 6);
+        var name = Ui.Label(title, 17, Ui.Player);
+        name.TooltipText = tip;
+        name.MouseFilter = MouseFilterEnum.Pass;
+        name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        row.AddChild(name);
+        var close = Ui.SmallButton("✕", () => _screen.ShowEmpire = false, key.Length > 0 ? $"Close ({key} or Esc)" : "Close (Esc)");
+        close.CustomMinimumSize = new Vector2(28, 28);
+        row.AddChild(close);
+        _box.AddChild(row);
+    }
 
-        // Shipyard and build queue.
-        Heading("Shipyard");
+    /// <summary>The view showing now.</summary>
+    public Tab Current => _tab;
+
+    // ---- Shipyard -------------------------------------------------------------------------------
+
+    private void Shipyard(World w)
+    {
+        Header("Shipyard", "Build ships, put the queue in order and pick the fleet each one joins", "V");
         Live(13, Ui.Dim, w2 => Economy.ShipyardOf(w2, Side.Player) is Body yard
             ? $"At {yard.Name} · armour {yard.ShipyardArmour / GameData.Economy.Shipyard.Armour * 100:0} %"
               + (yard.LastBombardedHour is double h && w2.Hour - h <= 24 ? " · UNDER ATTACK" : "")
@@ -149,11 +158,11 @@ public partial class EmpirePanel : PanelContainer
                 if (cls.Id == Planets.SettlerClass) continue; // built by a settle order on a planet
                 var id = cls.Id;
                 var days = cls.Cost / GameData.Economy.BuildIndustryPerDay;
-                var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0}", () => _screen.Queue(OrderKind.Ship, id),
+                var b = Ui.SmallButton($"{cls.Name} · {cls.Cost:0} · {days:0.#} d", () => _screen.Queue(OrderKind.Ship, id),
                     $"Build a {cls.Name}: {cls.Cost:0} Industry"
                     + (Races.BiomassFor(w, Side.Player, cls.Cost) is var bio && bio > 0 ? $" and {bio:0.#} biomass (food)" : "")
                     + $", {days:0.#} days. {cls.Role}");
-                b.CustomMinimumSize = new Vector2(186, 26);
+                b.CustomMinimumSize = new Vector2(250, 26);
                 b.AddThemeFontSizeOverride("font_size", 13);
                 b.ClipText = true;
                 if (cls.Needs.Length > 0 && !Tech.Has(w, Side.Player, cls.Needs))
@@ -164,7 +173,9 @@ public partial class EmpirePanel : PanelContainer
                 grid.AddChild(b);
             }
         }
+        if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null) DefaultJoinRow(w);
         var ships = Budget.ShipQueue(w, Side.Player);
+        if (ships.Count > 0) Live(12, Ui.Dim, w2 => QueueLine(w2));
         if (ships.Count == 0) Live(13, Ui.Dim, _ => "Nothing being built");
         var shipQueue = ships.Where(o => !o.Paid).ToList();
         for (var i = 0; i < ships.Count; i++)
@@ -172,167 +183,53 @@ public partial class EmpirePanel : PanelContainer
             OrderRow(ships[i], i == 0, shipQueue.IndexOf(ships[i]), shipQueue.Count);
             if (ships[i].SettleBodyId == null) JoinRow(w, ships[i]);
         }
-
-        // Research: a summary here; teams, ideas and the discovery web are on the research screen (T).
-        Heading("Research");
-        var queued = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research).ToList();
-        foreach (var o in queued)
-        {
-            var order = o;
-            Live(12, Ui.Dim, w2 => $"{GameData.Research(order.Key).Name} · "
-                + (order.TeamId is int t && Research.Team(w2, Side.Player, t) is ResearchTeam team ? team.Name : "no team")
-                + $" · {Research.DaysUntilDone(w2, order):0.#} d");
-        }
-        if (queued.Count == 0) Live(12, Ui.Dim, _ => "No research queued");
-        var open = Row();
-        var rb = Ui.SmallButton("Open research (T)", () => _screen.ShowResearch = true, "Teams, ideas and the discovery web");
-        rb.CustomMinimumSize = new Vector2(190, 28);
-        open.AddChild(rb);
-
-        // Stations on the bodies you hold.
-        if (GameData.Economy.Stations is { Count: > 0 } kinds)
-        {
-            Heading("Stations");
-            Live(12, Ui.Dim, w2 => string.Join("\n", kinds.Where(k => k.Bay == null).Select(k => $"{k.Name} ({k.Cost:0}, {k.Days:0} d): {k.Effect}"
-                + (k.Id == Economy.Relay && !w.Light.On ? " (light lag only)" : "")
-                + (k.Needs is string n && !Tech.Has(w2, Side.Player, n) ? $" · needs {GameData.Research(n).Name}" : ""))));
-            foreach (var b in w.Bodies.Where(b => b.Owner == Side.Player).OrderBy(b => b.Id))
-            {
-                var row = Row();
-                var name = Ui.Label(b.Name, 13, Ui.Text);
-                name.CustomMinimumSize = new Vector2(110, 0);
-                row.AddChild(name);
-                // The station line: what is over it (build and upgrade it on the planet screen, or here while there is none).
-                var lineLabel = Ui.Label("", 12, Ui.Dim);
-                lineLabel.CustomMinimumSize = new Vector2(150, 0);
-                var bid = b.Id;
-                _live.Add((lineLabel, w2 => w2.FindBody(bid) is Body bb ? StationPanel.Short(w2, bb) : ""));
-                row.AddChild(lineLabel);
-                if (Starbases.At(w, b.Id) == null && w.Winner == null && Starbases.TopTier(w, Side.Player) > 0 && Starbases.Queued(w, Side.Player, b.Id) is QueuedStarbase sbQueued)
-                {
-                    var qid = sbQueued.Id;
-                    var qlabel = Ui.Label("", 12, Ui.Warn);
-                    qlabel.CustomMinimumSize = new Vector2(130, 0);
-                    _live.Add((qlabel, w2 => w2.StarbaseQueue.Find(x => x.Id == qid) is QueuedStarbase q2 ? $"Queued: {Starbases.QueuedWhy(w2, q2)}" : "Starting"));
-                    row.AddChild(qlabel);
-                    row.AddChild(Ui.SmallButton("✕", () => _screen.IssueNow(new CancelQueuedStarbaseCommand(Side.Player, qid), "cancelling a queued station"), "Take it off the queue"));
-                }
-                else if (Starbases.At(w, b.Id) == null && w.Winner == null && Starbases.TopTier(w, Side.Player) > 0)
-                {
-                    var t1 = Starbases.TierAt(1)!;
-                    var cls = GameData.ShipClass(t1.ClassId);
-                    var why = Starbases.CanBuild(w, Side.Player, b.Id, t1.ClassId);
-                    var queue = why != null && Starbases.CanBuild(w, Side.Player, b.Id, t1.ClassId, queue: true) == null;
-                    var build = Ui.SmallButton((queue ? "Queue " : "") + $"{cls.Name} · {cls.Cost:0}", () => _screen.IssueNow(new BuildStarbaseCommand(Side.Player, bid, t1.ClassId, Queue: queue), queue ? "queueing a station" : "building a station"),
-                        (why != null ? why + (queue ? ": queue it and it starts when the Stations pot can pay" : "") + ". " : "") + $"Start the station line over {b.Name}: {cls.Cost:0} Industry, {t1.Days:0} days. {t1.Blurb} Upgrade it on the planet screen, or build a higher tier there.");
-                    build.Disabled = why != null && !queue;
-                    build.CustomMinimumSize = new Vector2(130, 26);
-                    row.AddChild(build);
-                }
-                foreach (var k in kinds)
-                {
-                    if (k.Id == Economy.SensorStation && b.Shipyard) continue; // the shipyard planet already sees full range
-                    var st = w.Stations.Find(x => x.Side == Side.Player && x.BodyId == b.Id && x.Kind == k.Id);
-                    if (st != null)
-                    {
-                        var stId = st.Id;
-                        var label = Ui.Label("", 12, Ui.Dim);
-                        label.CustomMinimumSize = new Vector2(130, 0);
-                        row.AddChild(label);
-                        _live.Add((label, w2 => w2.Stations.Find(x => x.Id == stId) is Station s2
-                            ? w2.Hour < s2.ReadyHour ? $"{k.Name}: {Format.Hours(s2.ReadyHour - w2.Hour)}"
-                            : k.Armour > 0 ? $"{k.Name} ✓ armour {100 * s2.Armour / k.Armour:0} %" + (s2.LastHitHour is double hit && w2.Hour - hit < 2 ? " UNDER FIRE" : "")
-                            : $"{k.Name} ✓" : ""));
-                        continue;
-                    }
-                    if (w.Winner != null || k.Bay != null) continue; // relays, sensor and laser stations are bays on the line now
-                    // Only stations that can go here and are researched (the list above says what the rest need).
-                    if (k.Needs is string needs && !Tech.Has(w, Side.Player, needs)) continue;
-                    if (k.OnTypes is { Count: > 0 } types && !types.Contains(b.Type) || k.Ground && b.Board == null) continue;
-                    var bodyId = b.Id;
-                    var kind = k.Id;
-                    var button = Ui.SmallButton($"{k.Name} · {k.Cost:0}", () => _screen.BuildStation(bodyId, kind),
-                        $"Build a {k.Name.ToLowerInvariant()} at {b.Name}: {k.Cost:0} Industry, {k.Days:0} days. {k.Effect}. The order goes out at light speed.");
-                    button.CustomMinimumSize = new Vector2(130, 26);
-                    row.AddChild(button);
-                }
-            }
-        }
-
-        // Satellites: each one, where it is and how it is doing, with a button to scrap it; and what the lift to orbit costs.
-        Heading("Satellites and lift");
-        Live(12, Ui.Dim, w2 =>
-        {
-            var lines = new List<string>();
-            var mine = w2.Satellites.Where(s => s.Side == Side.Player).OrderBy(s => s.Id).ToList();
-            lines.Add(mine.Count == 0
-                ? (Tech.Has(w2, Side.Player, Satellites.D.Needs) ? "No satellites. Launch one from a planet's panel (Satellite ▾)" : $"Satellites need {GameData.Research(Satellites.D.Needs).Name}")
-                : $"{Satellites.Live(w2, Side.Player).Count()} of {Satellites.D.MaxPerSide} satellites:");
-            lines.AddRange(mine.Select(s => "  " + Satellites.Describe(w2, s)));
-            lines.Add($"Lift to orbit paid so far: {Economy.Of(w2, Side.Player).Totals.LiftSpent:0} Industry");
-            return string.Join("\n", lines);
-        });
-        var scrap = Row();
-        foreach (var s in w.Satellites.Where(s => s.Side == Side.Player && s.LostHour == null).OrderBy(s => s.Id))
-        {
-            var id = s.Id;
-            var button = Ui.SmallButton($"Scrap {s.Name}", () => _screen.IssueNow(new ScrapSatelliteCommand(Side.Player, id), "scrapping a satellite"),
-                $"Switch {s.Name} off and let it fall: frees its place under the limit of {Satellites.D.MaxPerSide}");
-            scrap.AddChild(button);
-        }
-
-        // Claims under way.
-        Heading("Claims");
-        Live(13, Ui.Dim, ClaimsText);
+        if (Races.Of(w, Side.Player).Grown) Live(12, Ui.Dim, BiomassLine);
+        var links = Row();
+        links.AddChild(Ui.SmallButton("Designs and refits (J)", () => { _screen.ShowEmpire = false; if (!_screen.ShowShips) _screen.ToggleShips(); }, "The ships screen: designs, variants and the class tree"));
+        links.AddChild(Ui.SmallButton("Ships pot (E)", () => Show(Tab.Budget), "The Industry budget, where the Ships pot's share is set"));
     }
 
-    /// <summary>The tab row along the top; the Needs you tab shows how many items wait (red with urgent ones).</summary>
-    private void Tabs(World w)
+    /// <summary>"Queue: 3 ships, all done in about 19 d": the queue's length and when the last is done at the yard's pace.</summary>
+    private static string QueueLine(World w)
     {
-        // Wraps onto a second line rather than pushing tabs off a scaled screen.
-        var row = new HFlowContainer { CustomMinimumSize = new Vector2(Width, 0) };
-        row.AddThemeConstantOverride("h_separation", 3);
-        row.AddThemeConstantOverride("v_separation", 3);
-        _box.AddChild(row);
-        foreach (var tab in Enum.GetValues<Tab>())
-        {
-            var t = tab;
-            var needs = Economy.Of(w, Side.Player).Needs;
-            var name = tab switch
-            {
-                Tab.Needs => $"Needs you ({needs.Count})",
-                _ => tab.ToString(),
-            };
-            var b = Ui.SmallButton(name, () => Show(t), TabTip(tab));
-            b.CustomMinimumSize = new Vector2(0, 28);
-            b.AddThemeFontSizeOverride("font_size", 13);
-            if (tab == _tab) b.Modulate = Ui.Player;
-            else if (tab == Tab.Needs && needs.Any(n => n.Level == NeedLevel.Urgent)) b.Modulate = Ui.Danger;
-            row.AddChild(b);
-        }
-        var research = Ui.SmallButton("Research ↗", () => _screen.ShowResearch = true, "Teams, ideas and the discovery web (T)");
-        research.CustomMinimumSize = new Vector2(0, 28);
-        research.AddThemeFontSizeOverride("font_size", 13);
-        row.AddChild(research);
-        var close = Ui.SmallButton("✕", () => _screen.ShowEmpire = false, "Close (E, or click the Needs you badge again)");
-        close.CustomMinimumSize = new Vector2(28, 28);
-        row.AddChild(close);
+        var ships = Budget.ShipQueue(w, Side.Player);
+        var hours = ships.Sum(o => o.Paid ? o.HoursLeft : o.TotalHours > 0 ? o.TotalHours : Economy.CostOf(o) / GameData.Economy.BuildIndustryPerDay * 24);
+        return $"Queue: {ships.Count} ship{(ships.Count == 1 ? "" : "s")}, about {Format.Hours(hours)} of yard time";
     }
 
-    /// <summary>The tab showing now.</summary>
-    public Tab Current => _tab;
-
-    private static string TabTip(Tab tab) => tab switch
+    /// <summary>"New ships join": the fleet each new order starts with (each row can still be changed).</summary>
+    private void DefaultJoinRow(World w)
     {
-        Tab.Needs => "What wants your look: troubles, things due soon, advice and news, with a button to act on each",
-        Tab.War => "Boarding, ground fighting, clearing up after battles, crews and what prisoners told us",
-        Tab.Budget => "The Industry budget: six pots with shares of each day's Industry, goals to save for, and the items each pot pays for in your order",
-        Tab.Automation => "Hand each area to automation (Auto), have it suggest (Advise) or keep it yourself (Manual)",
-        Tab.Resources => "Goods made, used and held across your planets",
-        Tab.Supply => "The supply chain: where goods come from and go, routes and their risk, problems with fixes, stock targets and siege mode",
-        Tab.Buildings => "Every building: what it costs, needs and does",
-        _ => "Industry, the shipyard, research, stations and claims",
-    };
+        var row = Row();
+        var label = Ui.Label("New ships join", 13, Ui.Text);
+        label.CustomMinimumSize = new Vector2(120, 0);
+        row.AddChild(label);
+        var pick = new OptionButton { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(330, 26), FitToLongestItem = false, ClipText = true,
+            TooltipText = "The fleet new ships join when they are launched: set it once here instead of on every ship. A fleet away from the shipyard: the ship flies out to it" };
+        pick.AddThemeFontSizeOverride("font_size", 12);
+        var ids = new List<int?> { null };
+        pick.AddItem("the fleet at the shipyard (or a new one)");
+        var yard = Economy.ShipyardOf(w, Side.Player);
+        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player))
+        {
+            ids.Add(f.Id);
+            var where = yard != null && Economy.InOrbitAt(f, yard) && f.Flight == null ? "at the shipyard" : FleetPanel.Doing(w, f);
+            pick.AddItem($"{f.Name} ({f.ShipIds.Count}) · {where}");
+        }
+        var current = _screen.BuildForFleetId is int j && w.FindFleet(j)?.Side == Side.Player ? _screen.BuildForFleetId : null;
+        pick.Selected = Math.Max(0, ids.IndexOf(current));
+        pick.ItemSelected += index => _screen.BuildForFleetId = ids[(int)index];
+        row.AddChild(pick);
+    }
+
+    /// <summary>For a race that grows its ships: the biomass at the shipyard.</summary>
+    private static string BiomassLine(World w)
+    {
+        var me = Races.Of(w, Side.Player);
+        if (Economy.ShipyardOf(w, Side.Player) is not Body yard) return "";
+        return yard.Hungry ? "Your planets are STARVING: the brood yard grows no ships until they are fed."
+            : $"Biomass (food) in store at {yard.Name}: {Races.BiomassAt(w, yard):0.#}; each ship takes {me.BiomassPerIndustry * 100:0.#} per 100 Industry of its price.";
+    }
 
     private void OrderRow(WorkOrder order, bool first, int place = -1, int queued = 0)
     {
@@ -403,44 +300,6 @@ public partial class EmpirePanel : PanelContainer
         var income = Economy.IncomePerDay(w, Side.Player);
         var wait = have >= cost ? ", starts next hour" : income > 0 ? $", about {Format.Hours((cost - have) / income * 24)}" : ", no Industry coming in";
         return $"{name}: waiting for {cost:0} Industry{wait}";
-    }
-
-    /// <summary>Your race and the rival's, and for a race that grows its ships, the biomass at the shipyard.</summary>
-    private static string RaceLine(World w)
-    {
-        var me = Races.Of(w, Side.Player);
-        var them = Sides.Enemies(w, Side.Player).Select(r => Races.Of(w, r).Name + (Sides.Out(w, r) ? " (out)" : "")).ToList();
-        var line = them.Count > 1 ? $"You are {me.Name}; the rivals are {string.Join(" and ", them)}." : $"You are {me.Name}; the rival is {them[0]}.";
-        if (me.Grown && Economy.ShipyardOf(w, Side.Player) is Body yard)
-            line += yard.Hungry ? " Your planets are STARVING: the brood yard grows no ships until they are fed."
-                : $" Biomass (food) in store at {yard.Name}: {Races.BiomassAt(w, yard):0.#}; each ship takes {me.BiomassPerIndustry * 100:0.#} per 100 Industry of its price.";
-        return line;
-    }
-
-    private static string PlanetsLine(World w)
-    {
-        var d = Planets.D;
-        var c = Planets.Control(w, Side.Player);
-        var mine = Economy.Claimable(w).Count(b => b.Owner == Side.Player);
-        var rivals = string.Join(", ", Sides.Enemies(w, Side.Player).Select(r =>
-            $"{(Sides.Three(w) ? Races.Of(w, r).Name : "rival")} {Economy.Claimable(w).Count(b => b.Owner == r)} planets, {Planets.PopulationOf(w, r):0}k people"));
-        var line = $"Control: you {c.Share:P0} (people {c.People:P0}, Industry {c.Industry:P0}, planets {c.Bodies:P0}, fleets {c.Fleets:P0}). "
-                   + $"Held: you {mine} planets of {Economy.Claimable(w).Count()}, {Planets.PopulationOf(w, Side.Player):0}k people; {rivals}.\n"
-                   + $"At {d.TipShare:P0} control a side has tipped the game: planets it blockades give up sooner (below happiness {d.SurrenderBelowTipped:0}, not {d.SurrenderBelow:0}). "
-                   + $"Hold {d.TipShare:P0} for {d.WinAfterDays:0} days, or reach {d.WinShare:P0}, to win. Destroying the rival shipyard also wins (with two rivals, it puts that rival out; the last one standing wins).";
-        foreach (var side in Sides.InPlay(w))
-            if (Economy.Of(w, side).MajoritySinceHour is double since)
-                line += $"\n{(side == Side.Player ? "You win" : "The rival wins")} on {GameTime.Format(since + d.WinAfterDays * 24)} if nothing changes.";
-        return line;
-    }
-
-    private static string ClaimsText(World w)
-    {
-        var lines = w.Bodies.Where(b => b.ClaimSide != null).Select(b =>
-            $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days").ToList();
-        var e = GameData.Economy;
-        return lines.Count > 0 ? string.Join("\n", lines)
-            : $"Hold orbit at a planet or moon, with no enemy in orbit, to claim it: {e.ClaimDays:0} days for an empty one, {(e.ClaimHeldDays > 0 ? e.ClaimHeldDays : e.ClaimDays):0} for one the rival holds.";
     }
 
     private void Heading(string text)

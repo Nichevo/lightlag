@@ -241,8 +241,11 @@ public partial class ColonyScreen : PanelContainer
 
     // ---- The planets list ----------------------------------------------------------------------
 
+    /// <summary>The planets list's tab: the worlds, or the stations, satellites and claims across them.</summary>
+    private string ListTab { get => _screen.PlanetsTab; set => _screen.PlanetsTab = value; }
+
     private string ListShape(World w) =>
-        $"list|{_owner}|{_kind}|{_mineral}|{_has}|{_sort}|{GetViewportRect().Size}|"
+        $"list|{ListTab}|{(ListTab == "holdings" ? HoldingsTab.Shape(w) : "")}|{_owner}|{_kind}|{_mineral}|{_has}|{_sort}|{GetViewportRect().Size}|"
         + string.Join(",", Rows(w).Select(b => $"{b.Id}:{b.Owner}:{b.Pieces.Count}"));
 
     private IEnumerable<Body> Rows(World w)
@@ -290,7 +293,18 @@ public partial class ColonyScreen : PanelContainer
     {
         var top = Row(16);
         top.AddChild(Ui.Label("Planets", 26, new Color("f2f5fa")));
-        var note = Ui.Label("Double-click a planet of yours to open it, any other to go to it on the map", 13, Ui.Dim);
+        foreach (var (key, label, tip) in new[]
+                 {
+                     ("worlds", "Worlds", "Every world: people, what it makes, minerals and status"),
+                     ("holdings", "Stations and claims", "Stations over your worlds, satellites and the lift to orbit, and claims under way"),
+                 })
+        {
+            var tab = Ui.SmallButton(label, () => ListTab = key, tip);
+            tab.ToggleMode = true;
+            tab.ButtonPressed = ListTab == key;
+            top.AddChild(tab);
+        }
+        var note = Ui.Label(ListTab == "holdings" ? "Start a station line from here or from the planet's own screen" : "Double-click a planet of yours to open it, any other to go to it on the map", 13, Ui.Dim);
         note.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         top.AddChild(note);
         top.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
@@ -301,6 +315,18 @@ public partial class ColonyScreen : PanelContainer
         }, 13, Ui.Dim));
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowPlanets = false, "Close the planets list (Y or Esc)"));
         _root.AddChild(top);
+        if (ListTab == "holdings")
+        {
+            var holdScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+            var box = Column(4);
+            box.CustomMinimumSize = new Vector2(900, 0);
+            holdScroll.AddChild(Box(box, 16));
+            _root.AddChild(holdScroll);
+            var live = new List<(Label Label, Func<World, string> Text)>();
+            new HoldingsTab(_screen, box, live, 880).Build(w);
+            _live.Add(w2 => { foreach (var (label, text) in live) label.Text = text(w2); });
+            return;
+        }
 
         var filters = Row(10);
         filters.AddChild(Ui.Label("Owner", 13, Ui.Dim));
@@ -650,7 +676,7 @@ public partial class ColonyScreen : PanelContainer
         filters.AddChild(Pick(new[] { ("", "All areas") }.Concat(Colonies.Areas.Where(a => a != "shipyard").Select(a => (a, Colonies.AreaName(a)))).ToList(), _area, k => _area = k, "Show one area"));
         filters.AddChild(Pick(BuildSorts.Select(s => (s, "By " + s)).ToList(), _buildSort, k => _buildSort = k, "Order of the list"));
         col.AddChild(filters);
-        // This planet's own automation level for buildings (or the Empire screen's level for the area).
+        // This planet's own automation level for buildings (or the area's level in the tray's Automation menu).
         var own = Economy.Of(w, Side.Player).AutoOverrides.Find(o => o.Area == AutoArea.Building && o.BodyId == b.Id && o.FleetId == null);
         var autoRow = Row(6);
         autoRow.AddChild(Ui.Label("Automation", 13, Ui.Dim));

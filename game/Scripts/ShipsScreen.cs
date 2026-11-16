@@ -211,6 +211,11 @@ public partial class ShipsScreen : PanelContainer
         top.AddChild(Ui.SmallButton("Next ▶", () => Step(w, 1), "The next class in the list (])"));
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowShips = false, "Close the ships screen (J or Esc)"));
         _root.AddChild(top);
+        var crews = Ui.Label("", 13, Ui.Dim);
+        crews.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        crews.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _root.AddChild(crews);
+        _live.Add(w2 => crews.Text = WarTab.CrewsText(w2));
         if (_tab == "tree") { BuildTree(w); return; }
 
         var body = Row(14);

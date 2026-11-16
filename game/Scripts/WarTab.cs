@@ -5,21 +5,22 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The Empire screen's War tab: boardings under way (progress, chance and the calls with their options),
+/// The fleets screen's War tab: boardings under way (progress, chance and the calls with their options),
 /// ground fights (plan, front, days left, calls, pull out, open the board), fleets clearing up after a
-/// battle (steps that can be unticked, and the way home), then crews (ranks, reserve crews waiting at
-/// home) and what prisoners and wrecks taught about the rival. Every button issues a command, so it all
+/// battle (steps that can be unticked, and the way home) and survivors adrift. Crews show on the ships
+/// screen and what prisoners and wrecks taught on the intel screen. Every button issues a command, so it all
 /// works while paused. The tab also pauses the game when a call waits for the player (see WatchCalls).
 /// </summary>
 public sealed class WarTab
 {
-    private const float Width = 520;
+    private readonly float Width;
     private readonly GameScreen _screen;
     private readonly VBoxContainer _box;
     private readonly List<(Label Label, Func<World, string> Text)> _live;
 
-    public WarTab(GameScreen screen, VBoxContainer box, List<(Label Label, Func<World, string> Text)> live)
+    public WarTab(GameScreen screen, VBoxContainer box, List<(Label Label, Func<World, string> Text)> live, float width = 520)
     {
+        Width = width;
         _screen = screen;
         _box = box;
         _live = live;
@@ -80,8 +81,6 @@ public sealed class WarTab
         }
         if (!any)
             Text("No boarding, ground fighting or clearing up just now. Board crippled enemy ships from the fleet panel (Board ▾); land troops from orbit over an enemy planet.");
-        Crews(w);
-        Spoils(w);
     }
 
     // ---- Boarding -------------------------------------------------------------------------------
@@ -224,25 +223,27 @@ public sealed class WarTab
 
     // ---- Crews and spoils -----------------------------------------------------------------------
 
-    private void Crews(World w)
+    /// <summary>Ships by crew rank and the rescued crews waiting for a ship (on the ships screen).</summary>
+    public static string CrewsText(World w)
     {
-        Heading("Crews");
         var ships = w.Ships.Where(s => s.Side == Side.Player && Lightlag.Sim.Core.Crews.Crewed(s)).ToList();
         var ranks = Enum.GetValues<Rank>().Select(r => $"{ships.Count(s => Lightlag.Sim.Core.Crews.RankOf(s) == r)} {r}");
-        Text($"Ships by crew rank: {string.Join(", ", ranks)}. Crews gain rank in battle, on patrol and at an academy; casualties replaced with new hands dilute it.");
+        var text = $"Crews: {string.Join(", ", ranks)}. Crews gain rank in battle, on patrol and at an academy; casualties replaced with new hands dilute it.";
         var reserve = Economy.Of(w, Side.Player).ReserveCrews;
         if (reserve.Count > 0)
-            Text($"Rescued crews waiting for a ship: {string.Join(", ", reserve.OrderByDescending(x => x).Select(x => Lightlag.Sim.Core.Crews.RankOf(x).ToString()))}. The next ships built take them on.");
+            text += $" Rescued crews waiting for a ship: {string.Join(", ", reserve.OrderByDescending(x => x).Select(x => Lightlag.Sim.Core.Crews.RankOf(x).ToString()))}; the next ships built take them on.";
+        return text;
     }
 
-    private void Spoils(World w)
+    /// <summary>What prisoners, captures and wrecks taught us of the rival (on the intel screen); empty before any.</summary>
+    public static List<string> SpoilsLines(World w)
     {
         var s = Economy.Of(w, Side.Player).Spoils;
         var t = Economy.Of(w, Side.Player).Totals;
-        if (s.Scraps == 0 && t.PrisonersTaken <= 0 && t.ShipsCaptured == 0) return;
-        Heading("What we learned of the rival");
-        Text($"Intel level {Lightlag.Sim.Core.Spoils.Level(w, Side.Player)} · {s.Scraps} scraps · {t.PrisonersTaken * 1000:0} prisoners · {t.ShipsCaptured} ships captured");
-        foreach (var note in s.Notes.TakeLast(5).Reverse()) Text("· " + note, 12);
+        if (s.Scraps == 0 && t.PrisonersTaken <= 0 && t.ShipsCaptured == 0) return new();
+        var lines = new List<string> { $"Intel level {Lightlag.Sim.Core.Spoils.Level(w, Side.Player)} · {s.Scraps} scraps · {t.PrisonersTaken * 1000:0} prisoners · {t.ShipsCaptured} ships captured" };
+        lines.AddRange(s.Notes.TakeLast(5).Reverse().Select(n => "· " + n));
+        return lines;
     }
 
     // ---- Calls waiting: pause and tell -----------------------------------------------------------

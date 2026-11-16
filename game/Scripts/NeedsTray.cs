@@ -56,6 +56,7 @@ public static class NeedsUi
         {
             NeedScreens.Research => ("Research screen", () => screen.ShowResearch = true),
             NeedScreens.Ships => ("Ships screen", () => { if (!screen.ShowShips) screen.ToggleShips(); }),
+            NeedScreens.Shipyard => ("Shipyard", () => { screen.ShowEmpire = true; screen.EmpireTabWanted = EmpirePanel.Tab.Shipyard; }),
             _ => null,
         };
     }
@@ -400,7 +401,7 @@ public partial class NeedsTray : PanelContainer
             row.AddChild(NeedsUi.Menu("Not this kind ▾", "Put it aside, or stop suggesting this kind", NeedsUi.SnoozeItems(_screen, n).AsEnumerable().Reverse().ToList()));
             box.AddChild(row);
         }
-        if (advice.Count > 8) box.AddChild(Ui.Label($"and {advice.Count - 8} more (Empire › Needs you lists them all)", 12, Ui.Dim));
+        if (advice.Count > 8) box.AddChild(Ui.Label($"and {advice.Count - 8} more (with the tray off, the badge lists them all)", 12, Ui.Dim));
     }
 
     private void AutoStrip(World w, List<AutoNote> today)
@@ -471,7 +472,7 @@ public partial class AutomationMenu : PanelContainer
     public void Refresh(World w)
     {
         var state = Economy.Of(w, Side.Player);
-        var shape = EmpireTabs.AutomationShape(w) + "|" + string.Join(",", state.MutedKinds);
+        var shape = EmpireTabs.AutomationShape(w) + "|" + string.Join(",", state.MutedKinds) + "|" + string.Join(",", state.AutoScores.Select(kv => $"{kv.Key}{kv.Value.Good}{kv.Value.Bad}"));
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         foreach (var c in _root.GetChildren()) c.QueueFree();
@@ -511,11 +512,30 @@ public partial class AutomationMenu : PanelContainer
                 }.Where(x => x != null)) + " set apart";
                 var label = Ui.Label(note, 12, NeedsUi.Amber);
                 label.TooltipText = string.Join("\n", apart.Select(o => $"{(o.FleetId is int f ? w.FindFleet(f)?.Name : o.BodyId is int bb ? w.FindBody(bb)?.Name : "?")}: {o.Level}"))
-                                    + "\nThe Empire screen's Automation tab clears them";
+                                    + "\nThe list below clears them";
                 label.MouseFilter = MouseFilterEnum.Pass;
                 row.AddChild(label);
             }
+            if (state.AutoScores.TryGetValue(area, out var sc) && sc.Good + sc.Bad > 0)
+                row.AddChild(Ui.Label($"judged {sc.Good} good, {sc.Bad} poor", 11, Ui.Dim));
             _root.AddChild(row);
+        }
+        if (state.AutoOverrides.Count > 0)
+        {
+            _root.AddChild(new HSeparator());
+            _root.AddChild(Ui.Label("Set apart from their area", 13, Ui.Text));
+            foreach (var o in state.AutoOverrides.ToList())
+            {
+                var row = new HBoxContainer();
+                var who = o.FleetId is int f ? w.FindFleet(f)?.Name ?? "a fleet" : o.BodyId is int bb ? w.FindBody(bb)?.Name ?? "a planet" : "?";
+                var label = Ui.Label($"{who}: {Stewards.AreaName(o.Area)} {o.Level}", 13);
+                label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                row.AddChild(label);
+                var ov = o;
+                row.AddChild(NeedsUi.Small("✕", () => _screen.IssueNow(new SetAutoLevelCommand(Side.Player, ov.Area, null, ov.BodyId, ov.FleetId) { Source = "player" }, "clearing an override"),
+                    "Back to the area's level"));
+                _root.AddChild(row);
+            }
         }
         _root.AddChild(Ui.Label("Set one planet or fleet apart with ⟳ Auto or ⋯ on its tray row; Take it back sets it to Advise.", 11, Ui.Dim));
         if (state.MutedKinds.Count > 0)

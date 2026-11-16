@@ -5,7 +5,7 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The Empire screen's Budget tab: the six pots with their shares of the day's Industry, what each has saved and
+/// The Budget drop-down (E): the six pots with their shares of the day's Industry, what each has saved and
 /// what it is paying for; a pot opens to the items drawing on it in the player's order (move, pause, make a goal);
 /// a cut-off place offers "Share it out again" or "Hold it for ..."; By place compares what each planet earns with
 /// what is spent there; By project lists what is being saved for; the Reserve card sends Reserve to a pot.

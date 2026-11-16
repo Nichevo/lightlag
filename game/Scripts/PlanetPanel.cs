@@ -44,13 +44,13 @@ public partial class PlanetPanel : PanelContainer
         _build.AddChild(Ui.SmallButton("Planets list", () => _screen.ShowPlanets = true, "All worlds in one list (Y)"));
         box.AddChild(_build);
 
-        // Who builds here: this planet's own automation level for buildings, or the empire's (Empire screen, E, Automation tab).
+        // Who builds here: this planet's own automation level for buildings, or the empire's (the tray's Automation menu).
         var autoRow = new HBoxContainer();
         autoRow.AddThemeConstantOverride("separation", 6);
         autoRow.AddChild(Ui.Label("Buildings:", 14, Ui.Dim));
         _autoBuild = new OptionButton { FocusMode = FocusModeEnum.None,
             TooltipText = "Auto: buildings are laid down for you. Advise: suggested under Needs you, you say yes. Manual: you build them on the planet screen.\n"
-                          + "\"As the empire\" follows the Building level on the Empire screen (E), Automation tab" };
+                          + "\"As the empire\" follows the Building level in the tray's Automation menu" };
         _autoBuild.AddThemeFontSizeOverride("font_size", 14);
         _autoBuild.ItemSelected += i => Main.Instance.RunGuarded("planet automation", () =>
             _screen.IssueNow(new SetAutoLevelCommand(Side.Player, AutoArea.Building, i == 0 ? null : (AutoLevel)(i - 1), _bodyId), "planet automation"));

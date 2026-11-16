@@ -820,10 +820,25 @@ public partial class Main : Node
             pale.ClaimHours = 4 * 24;
             empire.TogglePause();
             empire.ShowEmpire = true;
+            empire.EmpireTabWanted = EmpirePanel.Tab.Shipyard;
             empire.ShowWholeSystem(); // stop following, then frame Verdant and Pale
             empire.Camera.Center = Sim.World.Bodies.Single(b => b.Key == "verdant").Position + new Vec2(-150, 0);
             empire.Camera.FitRadius(600, instant: true);
-            await Shoot("17-empire");
+            await Shoot("17-shipyard");
+
+            // Where the old Empire screen's parts went: stations and claims on the planets screen, the War tab on fleets.
+            empire.ShowEmpire = false;
+            empire.ShowPlanets = true;
+            empire.PlanetScreenId = null;
+            empire.PlanetsTab = "holdings";
+            await Shoot("17c-planets-holdings");
+            empire.PlanetsTab = "worlds";
+            empire.ShowPlanets = false;
+            empire.FleetsTab = "war";
+            empire.ShowFleets = true;
+            await Shoot("17d-fleets-war");
+            empire.ShowFleets = false;
+            empire.FleetsTab = "fleets";
 
             // The research screen: the first team at work, two empty slots, idea cards and the discovery web.
             empire.ShowEmpire = false;

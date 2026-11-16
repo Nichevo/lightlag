@@ -32,20 +32,21 @@ public sealed class NeedItem
     public string? AltLabel { get; set; }
 }
 
-/// <summary>Which screen a Needs you item belongs to, for the tab badges: fleets, planets, ships, research or empire.</summary>
+/// <summary>Which menu a Needs you item belongs to, for the tab badges: fleets, planets, ships, the shipyard, research or the budget.</summary>
 public static class NeedScreens
 {
-    public const string Fleets = "fleets", Planets = "planets", Ships = "ships", Research = "research", Empire = "empire";
+    public const string Fleets = "fleets", Planets = "planets", Ships = "ships", Shipyard = "shipyard", Research = "research", Budget = "budget";
 
     public static string For(World w, NeedItem n) => n.Area switch
     {
         AutoArea.Research => Research,
-        AutoArea.Shipyard or AutoArea.Designs or AutoArea.Refits or AutoArea.Crews => Ships,
+        AutoArea.Shipyard => Shipyard,
+        AutoArea.Designs or AutoArea.Refits or AutoArea.Crews => Ships,
         AutoArea.Building or AutoArea.Workers or AutoArea.Transport or AutoArea.Settling => Planets,
-        AutoArea.Supply or AutoArea.Battle or AutoArea.Boarding or AutoArea.AfterBattle => Fleets,
+        AutoArea.Supply or AutoArea.Battle or AutoArea.Boarding or AutoArea.AfterBattle or AutoArea.Ground => Fleets,
         _ when n.FleetId != null => Fleets,
         _ when n.BodyId != null => Planets,
-        _ => Empire,
+        _ => Budget,
     };
 }
 

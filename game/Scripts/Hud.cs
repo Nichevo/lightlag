@@ -442,8 +442,13 @@ public partial class Hud : CanvasLayer
     {
         var top = ContentTop + 8;
         _side.Position = new Vector2(16, top);
-        _empire.Position = new Vector2(16, top);
         var view = GetViewport().GetVisibleRect().Size;
+        // The Shipyard and Budget drop-downs hang under their own menu tab; the wide Supply view sits at the left.
+        var x = 16f;
+        var tabId = _empire.Current switch { EmpirePanel.Tab.Shipyard => "shipyard", EmpirePanel.Tab.Budget => "budget", _ => null };
+        if (tabId != null && _tabs.Find(t => t.Id == tabId) is MenuTab under && under.Visible && _menuBar.Visible)
+            x = Mathf.Clamp(under.GlobalPosition.X, 16, Mathf.Max(16, view.X - _empire.Size.X - 16));
+        _empire.Position = new Vector2(x, top);
         var statusSize = _status.GetCombinedMinimumSize();
         _status.Position = new Vector2(view.X - statusSize.X - 16, ContentTop + 2);
         _plannerPanel.Position = new Vector2(_plannerPanel.Position.X, ContentTop + 44);
@@ -469,7 +474,7 @@ public partial class Hud : CanvasLayer
     /// <summary>The Needs you badge opens the list, and closes it again when it is already showing.</summary>
     public bool SideVisible => _side.Visible;
 
-    /// <summary>The badge drops the tray (or, with the tray off, opens the Empire screen's Needs you tab); again closes it.</summary>
+    /// <summary>The badge drops the tray (or, with the tray off, opens the Needs you list); again closes it.</summary>
     private void ToggleNeeds()
     {
         if (PlayerInfo.Tray == TrayMode.Off)
@@ -616,9 +621,10 @@ public partial class Hud : CanvasLayer
     {
         // Go where the fix is: the research or ships screen, your planet's screen, or the fleet on the map.
         var w = Main.Instance.Sim?.World;
-        var screen = w == null ? NeedScreens.Empire : NeedScreens.For(w, n);
+        var screen = w == null ? NeedScreens.Budget : NeedScreens.For(w, n);
         if (screen == NeedScreens.Research && n.FleetId == null && n.BodyId == null) _screen.ShowResearch = true;
         else if (screen == NeedScreens.Ships && n.FleetId == null) { if (!_screen.ShowShips) _screen.ToggleShips(); }
+        else if (screen == NeedScreens.Shipyard && n.FleetId == null) { _screen.ShowEmpire = true; _empire.Show(EmpirePanel.Tab.Shipyard); }
         else if (n.FleetId is int f && w?.FindFleet(f) != null) _screen.PickFleet(f);
         else if (n.BodyId is int b && screen == NeedScreens.Planets && w?.FindBody(b)?.Owner == Side.Player) { _screen.PickBody(b); _screen.OpenPlanet(b); }
         else if (n.BodyId is int b2) _screen.PickBody(b2);

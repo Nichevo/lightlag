@@ -422,7 +422,7 @@ public partial class FleetPanel : PanelContainer
         if (!_boardRow.Visible) return;
         _boardShip.Visible = boarding == null;
         _boardNote.Text = boarding != null
-            ? $"Boarding {boarding.TargetName}: {boarding.Progress:P0} across, chance {Boarders.WinChance(w, boarding):P0} (Empire > War)"
+            ? $"Boarding {boarding.TargetName}: {boarding.Progress:P0} across, chance {Boarders.WinChance(w, boarding):P0} (Fleets › War)"
             : $"{targets.Count} crippled enem{(targets.Count == 1 ? "y" : "ies")} in reach";
     }
 
