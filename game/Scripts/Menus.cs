@@ -231,7 +231,7 @@ public partial class HowToPlay : CenterContainer
         "• You only see what your ships and planets can see. Burning engines show from far away; coasting cold hides you. B cycles the sight view.\n" +
         "• Right-click an enemy fleet to attack it. U opens the battle view: your ships and theirs, approach, burn and weapon cards, rings and a timeline.\n" +
         "• Railguns hit hard up close, missiles reach further, point defence shoots missiles down, shields soak what gets through before armour.\n" +
-        "• Heat: firing, dodging and burning heat the ships; radiators come in for battle. Overheated ships lose guns and shields until they cool. Heat sinks dump heat and can draw off missiles. Run cold to hide, until the cold clock runs out.\n" +
+        "• Heat: firing, dodging and burning heat the ships; radiators come in only while under fire. Overheated ships lose guns and shields until they cool. Heat sinks dump heat and can draw off missiles. Run cold to hide, until the cold clock runs out.\n" +
         "• Fleet panel: firing rule (nearest, largest, finish off, engines, split), long-range fire to make a chaser dodge, hold missiles until closer, or drop them to wake later.\n" +
         "• Click a finished battle in News to watch it again, with the key moments marked.\n\n" +
         "LIGHT LAG (if on)\n" +

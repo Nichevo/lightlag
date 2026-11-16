@@ -248,9 +248,11 @@ public class HelpCallTests
         main.Position = tender.Position + new Vec2(0.2 * Physics.MmPerAu, 0);
         foreach (var s in w.ShipsOf(main)) { s.Position = main.Position + s.FormationOffset; s.Supplies = Fitting.MaxSupplies(w, s) * 0.3; }
         Assert.True(SupplyLines.Short(w, main));
-        for (var i = 0; i < 3 && tender.SupplyRunFor == null; i++) sim.Step();
-        Assert.Equal(main.Id, tender.SupplyRunFor);
-        Assert.True(tender.SupplyRunByRole);
+        // The home transport starts on the Supply role too: whichever Supply fleet is free and loaded goes.
+        for (var i = 0; i < 3 && !w.Fleets.Any(f => f.SupplyRunFor == main.Id); i++) sim.Step();
+        var runner = w.Fleets.Single(f => f.SupplyRunFor == main.Id);
+        Assert.Equal(FleetRole.Supply, runner.Role);
+        Assert.True(runner.SupplyRunByRole);
     }
 
     private static (Fleet Hunters, Fleet Tanker, Fleet Pirate, Fleet Pack) PirateSetup(Simulation sim)

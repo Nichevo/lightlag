@@ -19,7 +19,7 @@ public class ScreensOptionsTests
         var rules = new PauseRules();
         Assert.Equal(PauseRules.Standard, rules.Preset);
         Assert.Equal(PauseResponse.Pause, rules[PauseEvent.EnemySpotted]);
-        Assert.Equal(PauseResponse.Pause, rules[PauseEvent.BattleStarts]);
+        Assert.Equal(PauseResponse.Notice, rules[PauseEvent.BattleStarts]); // battles never pause by themselves
         Assert.Equal(PauseResponse.Pause, rules[PauseEvent.ShipyardAttacked]);
         Assert.Equal(PauseResponse.Notice, rules[PauseEvent.ResearchDone]);
         Assert.Equal(PauseResponse.Notice, rules[PauseEvent.EnemyClosing]);
@@ -34,7 +34,7 @@ public class ScreensOptionsTests
         rules.Apply(PauseRules.HandsOff);
         Assert.Equal(PauseRules.HandsOff, rules.Preset);
         Assert.Equal(PauseResponse.Slow, rules[PauseEvent.EnemySpotted]);
-        Assert.Equal(PauseResponse.Pause, rules[PauseEvent.BattleStarts]);
+        Assert.Equal(PauseResponse.Notice, rules[PauseEvent.BattleStarts]);
         rules[PauseEvent.ResearchDone] = PauseResponse.Pause;
         Assert.Null(rules.Preset); // changed by hand
 
@@ -44,7 +44,11 @@ public class ScreensOptionsTests
         // Broken or unknown lines are skipped and keep the Standard response.
         var odd = PauseRules.Parse("EnemySpotted=Ignore\nNoSuchThing=Pause\nBattleStarts=Sideways\n");
         Assert.Equal(PauseResponse.Ignore, odd[PauseEvent.EnemySpotted]);
-        Assert.Equal(PauseResponse.Pause, odd[PauseEvent.BattleStarts]);
+        Assert.Equal(PauseResponse.Notice, odd[PauseEvent.BattleStarts]);
+
+        // An old settings file (no version) that paused for battles moves to the new default; a new one keeps a hand-set pause.
+        Assert.Equal(PauseResponse.Notice, PauseRules.Parse("BattleStarts=Pause\n")[PauseEvent.BattleStarts]);
+        Assert.Equal(PauseResponse.Pause, PauseRules.Parse("version=2\nBattleStarts=Pause\n")[PauseEvent.BattleStarts]);
 
         var watchful = new PauseRules();
         watchful.Apply(PauseRules.Watchful);

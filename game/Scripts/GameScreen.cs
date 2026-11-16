@@ -29,13 +29,24 @@ namespace Lightlag.Game;
 /// </summary>
 public partial class GameScreen : Node2D
 {
-    /// <summary>Game hours per real second at ½x, 1x, 2x, 4x, 8x. At 1x a game day takes 4 seconds.</summary>
-    public static readonly double[] Speeds = { 3, 6, 12, 24, 48 };
-    public static readonly string[] SpeedNames = { "½x", "1x", "2x", "4x", "8x" };
+    /// <summary>
+    /// Game hours per real second: three slow speeds for watching a fight (1 game minute, 10 game minutes and 1 game
+    /// hour a second), then ½x, 1x, 2x, 4x, 8x. At 1x a game day takes 4 seconds. Nothing slows the clock by itself:
+    /// a fight runs at the speed you pick (as fast as the computer can step it, at the fast speeds).
+    /// </summary>
+    public static readonly double[] Speeds = { 1.0 / 60, 1.0 / 6, 1, 3, 6, 12, 24, 48 };
+    public static readonly string[] SpeedNames = { "1m", "10m", "1h", "½x", "1x", "2x", "4x", "8x" };
+    /// <summary>What each speed is, for its button's tooltip.</summary>
+    public static readonly string[] SpeedTips =
+    {
+        "1 game minute a second: watch a missile exchange shot by shot", "10 game minutes a second: a whole fight in about a minute",
+        "1 game hour a second: an approach or close manoeuvring", "3 game hours a second", "6 game hours a second (a day in 4 seconds)",
+        "12 game hours a second", "a game day a second", "2 game days a second",
+    };
     /// <summary>Index of 1x in Speeds (the normal speed; the game starts and slows to it).</summary>
-    public const int NormalSpeed = 1;
-    /// <summary>The key shown for each speed button.</summary>
-    public static readonly string[] SpeedKeys = { "`", "1", "2", "3", "4" };
+    public const int NormalSpeed = 4;
+    /// <summary>The key shown for each speed button (the slow ones: - and + step down and up).</summary>
+    public static readonly string[] SpeedKeys = { "-", "-", "-", "`", "1", "2", "3", "4" };
     private const double AutosaveEverySeconds = 300; // real time spent playing (not paused)
     private const double IronmanSaveEverySeconds = 60;
 
@@ -148,9 +159,6 @@ public partial class GameScreen : Node2D
 
     /// <summary>Map panning with the keyboard, in screen pixels per real second (Shift for faster).</summary>
     private const float KeyPanSpeed = 900;
-
-    /// <summary>Battle time runs this much slower than normal time at the same speed setting.</summary>
-    public const double BattleSlowdown = 1.0 / 360;
 
     /// <summary>The battle whose report is open, if any.</summary>
     public Battle? Report { get; private set; }
@@ -422,10 +430,10 @@ public partial class GameScreen : Node2D
         SelectSplitShip();
         if (!_paused)
         {
-            // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in
-            // battle time, which runs 360 times slower: 1x is then one game minute per second.
+            // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in battle
+            // time; the clock runs at the speed picked either way (battle time takes more steps for the same hour).
             var cost = Sim.PeekStepHours();
-            var rate = Speeds[_speed] * (cost < GameTime.HoursPerTick ? BattlePace() : 1);
+            var rate = Speeds[_speed];
             _accum += delta * rate / cost;
             _stepClock.Restart();
             var switched = false;
@@ -672,9 +680,16 @@ public partial class GameScreen : Node2D
         OpenEngagement(next.Mine, next.Enemy);
     }
 
-    public void CloseEngagement()
+    /// <param name="stayOnFleet">The enemy is gone (destroyed, or out of sight after the fight): stay on this fleet of
+    /// yours rather than gliding back to the view from before, so the view doesn't jump about after a win.</param>
+    public void CloseEngagement(int? stayOnFleet = null)
     {
-        if (Engagement != null) RestoreView();
+        if (stayOnFleet is int stay && Sim.World.FindFleet(stay) != null)
+        {
+            _viewBefore = null;
+            _follow = stay; // drops the gone enemy from the camera lock too
+        }
+        else if (Engagement != null) RestoreView();
         Engagement = null;
         EngagementNow = null;
         _engagementLostFor = 0;
@@ -705,15 +720,21 @@ public partial class GameScreen : Node2D
         // A sighting can drop for a moment (a hard turn, a planet's shadow): keep the screen open for a
         // few seconds before closing, so it does not flick between the map and the engagement.
         var mine = w.FindFleet(mineId);
-        if (mine == null || Sensors.Find(w, Side.Player, enemyId, seat: true) == null)
+        if (mine == null || w.FindFleet(enemyId) == null || Sensors.Find(w, Side.Player, enemyId, seat: true) == null)
         {
             _engagementLostFor += 0.25;
-            if (mine == null || _engagementLostFor >= EngagementGraceSeconds || EngagementNow == null)
+            // An enemy fleet that no longer exists was beaten (or broke up): stop locking the view on it at once.
+            var gone = w.FindFleet(enemyId) == null;
+            if (mine == null || gone || _engagementLostFor >= EngagementGraceSeconds || EngagementNow == null)
             {
-                CloseEngagement();
+                CloseEngagement(stayOnFleet: mine?.Id);
                 _map.Engagement = null;
             }
-            else _map.Engagement = EngagementNow;
+            else
+            {
+                if (_followAlso.Contains(enemyId)) _followAlso.Remove(enemyId); // keep the view on ours while the sighting is lost
+                _map.Engagement = EngagementNow;
+            }
             return;
         }
         _engagementLostFor = 0;
@@ -1016,12 +1037,6 @@ public partial class GameScreen : Node2D
     /// <summary>Has news of something that happened at this hour and place reached your flagship yet?</summary>
     private bool Heard(double hour, Vec2 where) => Sim.World.Hour - hour >= Light.DelayHours(Sim.World, Side.Player, where) - 1e-9;
 
-    /// <summary>
-    /// The real seconds an enemy's approach to weapon range takes at the least, whatever the speed setting:
-    /// battle time eases in over them, so there is time to set orders without hours of game minutes ticking by.
-    /// </summary>
-    public const double ApproachSeconds = 4;
-
     /// <summary>Within this of your fleet or planet an enemy counts as close enough for battle time to matter.</summary>
     private static double ThreatZoneMm => GameData.Combat.ContactRangeMm * 2;
 
@@ -1080,20 +1095,6 @@ public partial class GameScreen : Node2D
             foreach (var e in enemies) Consider(body.Position, motion, e, true);
         }
         return best;
-    }
-
-    /// <summary>
-    /// How much battle time slows the clock: 1 not at all, down to BattleSlowdown. Only a fight of yours slows it
-    /// (OwnThreat); other races fighting run at the normal speed. While the enemy is still outside weapon reach,
-    /// the clock slows gradually as it closes, so the approach takes ApproachSeconds of real time, not minutes.
-    /// </summary>
-    private double BattlePace()
-    {
-        if (OwnThreat() is not var (gap, closing)) return 1;
-        var outside = gap - ApproachReachMm;
-        if (outside <= 0) return BattleSlowdown;
-        if (closing <= 1e-6) return 1; // drifting apart or holding off: nothing comes of it soon
-        return Math.Clamp(outside / closing / (Speeds[_speed] * ApproachSeconds), BattleSlowdown, 1);
     }
 
     /// <summary>Battle time is on for a fight of yours (worked out once a frame): the banner and the battle view button show it.</summary>
@@ -1802,17 +1803,17 @@ public partial class GameScreen : Node2D
         switch (key.Keycode)
         {
             case Key.Space: TogglePause(); break;
-            case Key.Quoteleft: SetSpeed(0); break;
+            case Key.Quoteleft: SetSpeed(NormalSpeed - 1); break;
             case >= Key.Key0 and <= Key.Key9 when key.CtrlPressed && BattleView:
                 var fleets = BattleOurFleets();
                 var n = (int)key.Keycode - (int)Key.Key0;
                 if (n == 0) ChooseBattleTab(null);
                 else if (n <= fleets.Count) ChooseBattleTab(fleets[n - 1].Id);
                 break;
-            case Key.Key1: SetSpeed(1); break;
-            case Key.Key2: SetSpeed(2); break;
-            case Key.Key3: SetSpeed(3); break;
-            case Key.Key4: SetSpeed(4); break;
+            case Key.Key1: SetSpeed(NormalSpeed); break;
+            case Key.Key2: SetSpeed(NormalSpeed + 1); break;
+            case Key.Key3: SetSpeed(NormalSpeed + 2); break;
+            case Key.Key4: SetSpeed(NormalSpeed + 3); break;
             case Key.Equal or Key.KpAdd: SetSpeed(_speed + 1); break;
             case Key.Minus or Key.KpSubtract: SetSpeed(_speed - 1); break;
             case Key.Home or Key.H: ShowWholeSystem(); break;

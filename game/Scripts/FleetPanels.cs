@@ -229,7 +229,7 @@ public partial class FleetPanel : PanelContainer
         _radiators = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "Where the radiators are" };
         _radiators.AddThemeFontSizeOverride("font_size", 13);
         _radiators.AddItem("Radiators auto", 0);
-        _radiators.SetItemTooltip(0, "Out normally, pulled in for battle (radiators are fragile): heat builds while it fights");
+        _radiators.SetItemTooltip(0, "Out normally, pulled in only while under fire (radiators are fragile): heat builds while shots can reach it");
         _radiators.AddItem("Radiators out", 1);
         _radiators.SetItemTooltip(1, "Always out: stays cool in battle, but hits do more harm");
         _radiators.AddItem("Run cold", 2);

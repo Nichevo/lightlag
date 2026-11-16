@@ -327,6 +327,19 @@ public static class Budget
         return ordered[0];
     }
 
+    /// <summary>
+    /// A side's ship orders in the order the yards take them: ships under way first, then the queue (budget
+    /// ranking first with the budget on, else the order list; paused items keep their place).
+    /// </summary>
+    public static List<WorkOrder> ShipQueue(World w, Side side)
+    {
+        var ships = w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship).ToList();
+        if (!On(w)) return ships.Where(o => o.Paid).Concat(ships.Where(o => !o.Paid)).ToList();
+        var bs = Of(w, side);
+        return ships.Where(o => o.Paid).Concat(ships.Where(o => !o.Paid).Select((o, i) => (o, r: bs.Ranked.IndexOf("order:" + o.Id), i))
+            .OrderBy(x => x.r < 0 ? int.MaxValue : x.r).ThenBy(x => x.i).Select(x => x.o)).ToList();
+    }
+
     /// <summary>The queued building a planet starts next: the first unpaused one in budget order.</summary>
     public static Piece? NextPiece(World w, Body b)
     {
@@ -1022,6 +1035,41 @@ public sealed record RankItemCommand(Side Side, string Key, int Delta) : GameCom
         bs.Ranked = keys;
         bs.CacheStamp = -1;
         sim.Log.Info("budget", "Item moved in its pot", new { side = Side.ToString(), Key, Delta, Source });
+    }
+}
+
+/// <summary>
+/// Move a queued ship (not yet started) up or down the ship queue, swapping it with the one beside it: in the
+/// order list (which the yard follows with the budget off) and in the budget ranking (with it on).
+/// </summary>
+public sealed record MoveShipOrderCommand(Side Side, int OrderId, int Delta) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null;
+
+    public override void Apply(World world, Simulation sim)
+    {
+        var queue = Budget.ShipQueue(world, Side).Where(o => !o.Paid).ToList();
+        var at = queue.FindIndex(o => o.Id == OrderId);
+        if (at < 0) { sim.Log.Warn("economy", "No queued ship to move", new { side = Side.ToString(), OrderId, Source }); return; }
+        var to = Math.Clamp(at + Math.Sign(Delta), 0, queue.Count - 1);
+        if (to == at) return;
+        var (a, b) = (queue[at], queue[to]);
+        // The budget's order, read before the order list changes (it is worked out from it).
+        var keys = Budget.On(world) ? Budget.Items(world, Side).Select(i => i.Key).ToList() : null;
+        var (ia, ib) = (world.Orders.IndexOf(a), world.Orders.IndexOf(b));
+        (world.Orders[ia], world.Orders[ib]) = (world.Orders[ib], world.Orders[ia]);
+        if (keys != null)
+        {
+            var bs = Budget.Of(world, Side);
+            var (ka, kb) = (keys.IndexOf("order:" + a.Id), keys.IndexOf("order:" + b.Id));
+            if (ka >= 0 && kb >= 0)
+            {
+                (keys[ka], keys[kb]) = (keys[kb], keys[ka]);
+                bs.Ranked = keys;
+            }
+            bs.CacheStamp = -1;
+        }
+        sim.Log.Info("economy", "Ship moved in the queue", new { side = Side.ToString(), OrderId, Delta, Source });
     }
 }
 

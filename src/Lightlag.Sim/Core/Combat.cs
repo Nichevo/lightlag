@@ -29,6 +29,8 @@ public sealed class BattleSide
     public int RailShots { get; set; }
     public int RailHits { get; set; }
     public int MissilesFired { get; set; }
+    /// <summary>Heat sinks this side threw in the fight (hot and bright: the other side sees them go).</summary>
+    public int SinksThrown { get; set; }
 
     /// <summary>Times this side opened fire on a fleet that had not seen it (Combat.Ambush).</summary>
     public int Ambushes { get; set; }

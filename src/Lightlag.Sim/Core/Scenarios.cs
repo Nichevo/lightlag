@@ -166,6 +166,8 @@ public static class Scenarios
             fleet.OrbitRadius = Fleets.OrbitRadiusFor(near);
             fleet.OrbitAngle = rng.Range(0, Math.PI * 2);
             fleet.Position = near.Position + new Vec2(DetMath.Cos(fleet.OrbitAngle), DetMath.Sin(fleet.OrbitAngle)) * fleet.OrbitRadius;
+            // A fleet of supply ships (the home transport) starts on the Supply role (computer-run sides ignore roles).
+            if (HelpCalls.SupplyOnly(w, fleet)) { fleet.Role = FleetRole.Supply; FleetNames.Refresh(w, fleet); }
             Fleets.Arrange(w, fleet);
         }
         return w;

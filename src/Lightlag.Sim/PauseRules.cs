@@ -52,17 +52,18 @@ public sealed class PauseRules
         },
         HandsOff => e switch
         {
-            PauseEvent.BattleStarts or PauseEvent.ShipyardAttacked or PauseEvent.CommandCall or PauseEvent.EventCall => PauseResponse.Pause,
+            PauseEvent.ShipyardAttacked or PauseEvent.CommandCall or PauseEvent.EventCall => PauseResponse.Pause,
             PauseEvent.EnemySpotted or PauseEvent.FarBattle or PauseEvent.PlanetClaimed => PauseResponse.Slow,
             PauseEvent.ResearchDone or PauseEvent.ShipLaunched or PauseEvent.EventAutoPicked => PauseResponse.Ignore,
             _ => PauseResponse.Notice,
         },
         // Standard: stop only for what needs an order now. A claim takes days to land and a far battle is fought on
-        // standing orders, so those pop up instead. (An enemy spotted far from your fleets and planets only pops
-        // up in every preset: see GameScreen.WatchSightings.)
+        // standing orders, so those pop up instead. A battle starting pops up too: you pause, or pick a slow speed,
+        // when you want to. (An enemy spotted far from your fleets and planets only pops up in every preset: see
+        // GameScreen.WatchSightings.)
         _ => e switch
         {
-            PauseEvent.EnemySpotted or PauseEvent.BattleStarts
+            PauseEvent.EnemySpotted
                 or PauseEvent.ShipyardAttacked or PauseEvent.CommandCall or PauseEvent.EventCall => PauseResponse.Pause,
             _ => PauseResponse.Notice,
         },
@@ -95,18 +96,25 @@ public sealed class PauseRules
     };
 
     /// <summary>One "Event=Response" line each, for the settings file.</summary>
-    public string ToText() => string.Join("\n", Enum.GetValues<PauseEvent>().Select(e => $"{e}={this[e]}")) + "\n";
+    /// <summary>The settings file's version: 2 is when a battle starting stopped pausing by default.</summary>
+    public const int Version = 2;
+
+    public string ToText() => $"version={Version}\n" + string.Join("\n", Enum.GetValues<PauseEvent>().Select(e => $"{e}={this[e]}")) + "\n";
 
     /// <summary>Reads the settings file; unknown or broken lines are skipped (they keep the Standard response).</summary>
     public static PauseRules Parse(string? text)
     {
         var rules = new PauseRules();
+        var version = 1;
         foreach (var line in (text ?? "").Split('\n'))
         {
             var parts = line.Trim().Split('=', 2);
+            if (parts.Length == 2 && parts[0].Trim() == "version" && int.TryParse(parts[1].Trim(), out var v)) version = v;
             if (parts.Length == 2 && Enum.TryParse<PauseEvent>(parts[0].Trim(), out var e) && Enum.TryParse<PauseResponse>(parts[1].Trim(), out var r))
                 rules[e] = r;
         }
+        // Older files paused for every battle by default: from version 2 a battle starting only pops up.
+        if (version < 2 && rules[PauseEvent.BattleStarts] == PauseResponse.Pause) rules[PauseEvent.BattleStarts] = PauseResponse.Notice;
         return rules;
     }
 }

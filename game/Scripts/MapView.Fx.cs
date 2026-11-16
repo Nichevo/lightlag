@@ -329,7 +329,7 @@ public partial class MapView
             {
                 var p = m.Position;
                 if (_prevMissile.TryGetValue(m.Id, out var prev)) p = prev + (p - prev) * Blend;
-                list.Add((p, DrawHour));
+                list.Add((p + MissileShift(m), DrawHour));
             }
         }
         foreach (var (id, list) in _smoke.ToList())

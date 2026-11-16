@@ -434,6 +434,12 @@ public static class SupplyChain
                             new ShipGoodsCommand(side, source.Id, to.Id, good, Math.Max(20, Colonies.Target(to, good) * 1.5) - held)));
                     else if (FreighterFix(w, side) is ChainFix build) fixes.Add(build);
                 }
+                else if (Underway(w, side, good) is string sorted)
+                {
+                    // Already being dealt with: say so (with when), and offer nothing more to build.
+                    cause = sorted;
+                    title = "Being sorted: " + title;
+                }
                 else
                 {
                     var all = w.Bodies.Where(b => b.Owner == side).ToList();
@@ -453,6 +459,22 @@ public static class SupplyChain
                 var severity = ShortSeverity(to, good);
                 list.Add(new ChainProblem(ProblemKind.Short, $"chain:short:{to.Id}:{good}", title, cause, fixes, severity, to.Id, null, good));
             }
+    }
+
+    /// <summary>
+    /// A building that will make this good, being built or queued on one of the side's planets (the soonest), as
+    /// a line saying so: "Being sorted: a mine is being built at Verdant (2.5 days left)". Null: nothing under way.
+    /// </summary>
+    public static string? Underway(World w, Side side, string good)
+    {
+        var best = w.Bodies.Where(b => b.Owner == side && b.Board != null)
+            .SelectMany(b => b.Pieces.Where(p => !p.Built && Colonies.PieceMakes(b, p, good)).Select(p => (b, p)))
+            .OrderBy(x => x.p.Waiting).ThenBy(x => x.p.HoursLeft).ThenBy(x => x.p.Id).FirstOrDefault();
+        if (best.p == null) return null;
+        var name = Planets.BuildingKind(best.p.Kind)?.Name.ToLowerInvariant() ?? best.p.Kind;
+        return best.p.Waiting
+            ? $"Being sorted: a {name} is queued at {best.b.Name} (it starts when the queue reaches it)."
+            : FormattableString.Invariant($"Being sorted: a {name} is being built at {best.b.Name} ({best.p.HoursLeft / 24:0.#} days left).");
     }
 
     /// <summary>

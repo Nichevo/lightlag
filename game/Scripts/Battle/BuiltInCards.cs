@@ -41,6 +41,10 @@ public sealed class MoveCard : BattleCard
             foreach (var (bt, share) in burnButtons) bt.Modulate = Math.Abs(share - c.Screen.EngagementBurn) < 1e-6 ? Ui.Player : new Color(1, 1, 1, 0.7f);
         });
 
+        // The heat clock for each burn while under fire (radiators in): picking a burn is a heat choice too.
+        b.Line(c => c.Info == null || c.Fleets.Count == 0 ? "" : "Overheats under fire: " + string.Join(" · ", new[] { ("Gentle", 0.4), ("Cruise", 0.7), ("Hard", 1.0) }
+            .Select(x => $"{x.Item1} {(Heat.HoursToOverheat(c.World, c.Lead, x.Item2, radiatorsIn: true, combatBurn: true) is double h ? Format.Hours(h) : "never")}")), Ui.Dim);
+
         // On contact goes on the Burn line; the approach choices (and Leave support behind) four across under it.
         b.SameRow();
         b.Choice("On contact", new (string, string, Stance)[]
@@ -410,8 +414,8 @@ public sealed class HeatCard : BattleCard
     {
         b.Choice("Radiators", new (string, string, RadiatorMode)[]
             {
-                ("Auto", "Pulled in for battle, out otherwise", RadiatorMode.Auto),
-                ("Out", "Out in battle too: sheds heat fast, but they are fragile and easy to see", RadiatorMode.Out),
+                ("Auto", "Pulled in only while under fire (enemy guns in reach or missiles coming), out otherwise", RadiatorMode.Auto),
+                ("Out", "Out under fire too: sheds heat 30 times faster, but hits do 15 % more damage", RadiatorMode.Out),
                 ("Run cold", "Pulled in and quiet: hard to spot, but heat builds up", RadiatorMode.Cold),
             },
             (c, f) => c.Pending<SetHeatCommand>(f)?.Radiators ?? f.Radiators,
@@ -426,8 +430,17 @@ public sealed class HeatCard : BattleCard
             var ships = c.Ships.ToList();
             if (ships.Count == 0) return "";
             var hottest = ships.Max(s => s.Heat / Math.Max(1e-6, Heat.Capacity(s)));
-            return $"Sinks left {ships.Sum(s => s.HeatSinks)} · hottest ship {hottest:P0}" + (ships.Any(s => s.Overheated) ? " · OVERHEATED" : "");
-        }, colorNow: c => c.Ships.Any(s => s.Overheated) ? Ui.Danger : Ui.Dim);
+            var sinks = ships.Sum(s => s.HeatSinks);
+            var hf = c.Lead;
+            var radiators = hf.Radiators switch
+            {
+                RadiatorMode.Out => " · radiators OUT: cool, but hits do 15 % more",
+                RadiatorMode.Cold => " · running cold",
+                _ => Heat.UnderFire(c.World, hf) ? " · radiators in: under fire" : " · radiators out: no enemy guns in reach",
+            };
+            return (sinks == 0 ? "OUT OF HEAT SINKS (a supply tender or a planet of yours reloads them)" : $"Sinks left {sinks}")
+                   + $" · hottest ship {hottest:P0}" + radiators + (ships.Any(s => s.Overheated) ? " · OVERHEATED" : "");
+        }, colorNow: c => c.Ships.Any(s => s.Overheated) || c.Ships.Any() && c.Ships.Sum(s => s.HeatSinks) == 0 ? Ui.Danger : Ui.Dim);
     }
 
     public override string Folded(CardContext c) => $"{c.Ships.Sum(s => s.HeatSinks)} sinks left";

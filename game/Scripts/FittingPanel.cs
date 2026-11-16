@@ -133,7 +133,8 @@ public partial class FittingPanel : PanelContainer
         if (m.Armour > 0) bits.Add($"+{m.Armour * n:0} armour");
         if (m.SensorMm > 0) bits.Add($"+{m.SensorMm * n * 1000:#,0} km sensors");
         if (m.Supplies > 0) bits.Add($"+{m.Supplies * n:0} supplies");
-        if (m.HeatSinks > 0) bits.Add($"+{m.HeatSinks * n} heat sink");
+        if (m.HeatSinks > 0) bits.Add($"+{m.HeatSinks * n} heat sink{(m.HeatSinks * n > 1 ? "s" : "")}");
+        if (m.HeatCapacity > 0) bits.Add($"+{m.HeatCapacity * n:0} heat capacity");
         if (Math.Abs(m.AccelFactor - 1) > 1e-9) bits.Add($"thrust x{m.AccelFactor:0.##}");
         if (Math.Abs(m.BurnHeatFactor - 1) > 1e-9) bits.Add($"burn heat x{m.BurnHeatFactor:0.##}");
         if (m.Slot == "E" && Main.Instance.Sim?.World.Rules.FuelTypes == true) bits.Add($"burns {string.Join(", ", Fuels.Burns(m).Select(Fuels.Name))}");
