@@ -1156,16 +1156,17 @@ public partial class GameScreen : Node2D
                 _main.AddNews($"Contact ended, no shots fired: {string.Join(", ", last.For(Side.Player).Fleets)} and {string.Join(", ", last.Foes(Side.Player).Fleets)}");
                 return;
             }
-            if (Replay?.Id != last.Id) Report = last;
-            // Keep the result in the News menu: who fought, losses on each side; click to reopen the report.
+            // No pop-up report in the way: a notice to click, and the result kept in the News log for the whole game
+            // (click either for the report, which has the replay; R opens the last one).
             var us = last.For(Side.Player);
             var them = last.Foes(Side.Player);
             var battle = last;
             var lost = us.ShipsLost.Count == 0 ? "no ships lost" : $"lost {us.ShipsLost.Count} ({string.Join(", ", us.ShipsLost)})";
             var sunk = them.ShipsLost.Count == 0 ? "none of theirs destroyed" : $"destroyed {them.ShipsLost.Count} of theirs";
+            _main.Toast($"Battle over: {lost}, {sunk}. Click for the report (R)", onClick: () => ShowReportOf(battle), addNews: false);
             _main.AddNews($"Battle over: {string.Join(", ", us.Fleets)} and {string.Join(", ", them.Fleets)}: {lost}, {sunk}. "
-                          + $"Railgun hits {us.RailHits}/{us.RailShots}, missile hits {us.MissileHits}/{us.MissilesFired}. Click to watch it again",
-                () => OpenReplay(battle), keep: true);
+                          + $"Railgun hits {us.RailHits}/{us.RailShots}, missile hits {us.MissileHits}/{us.MissilesFired}. Click for the report",
+                () => ShowReportOf(battle), keep: true);
         }
     }
 
