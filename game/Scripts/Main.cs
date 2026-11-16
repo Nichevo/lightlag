@@ -302,10 +302,10 @@ public partial class Main : Node
         _overlay.AddChild(panel);
     }
 
-    public void Toast(string text, string? folderToOpen = null, Action? onClick = null)
+    public void Toast(string text, string? folderToOpen = null, Action? onClick = null, bool addNews = true)
     {
         _overlay.AddChild(new Toast(text, folderToOpen, onClick));
-        if (Sim == null || folderToOpen != null) return;
+        if (Sim == null || folderToOpen != null || !addNews) return;
         AddNews(text, onClick);
     }
 

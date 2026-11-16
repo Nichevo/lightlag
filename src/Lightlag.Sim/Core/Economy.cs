@@ -329,7 +329,8 @@ public static class Tech
         foreach (var s in w.Ships)
         {
             s.TechHeat = Factor(w, s.Side, "heat-sink-tanks") * Factor(w, s.Side, "heat-sink-armour");
-            s.TechSinks = Has(w, s.Side, "ejectable-heat-sinks") ? 1 : 0;
+            s.TechSinks = (Has(w, s.Side, "ejectable-heat-sinks") ? 1 : 0)
+                          + (Has(w, s.Side, "sink-lockers") ? (int)Math.Ceiling(Fitting.Spec(s).HeatSinks * (Factor(w, s.Side, "sink-lockers") - 1)) : 0);
             s.TechPeople = Has(w, s.Side, "cryo-sleep") ? GameData.Research("cryo-sleep").Factor : 1;
         }
         foreach (var b in w.Bodies)
@@ -372,7 +373,7 @@ public static class Tech
 
     /// <summary>Missiles a ship's racks hold: Heavy warheads hold 20 % fewer.</summary>
     public static int Racks(World w, Ship s) =>
-        Has(w, s.Side, "heavy-warheads") ? (int)Math.Round(Fitting.Spec(s).Missiles * 0.8) : Fitting.Spec(s).Missiles;
+        (int)Math.Round(Fitting.Spec(s).Missiles * (Has(w, s.Side, "heavy-warheads") ? 0.8 : 1) * Factor(w, s.Side, "deep-magazines"));
 
     /// <summary>
     /// Point defence kill chance factor for a side against a missile of this brain: Mk II and III, counter-missiles,
@@ -702,6 +703,8 @@ public static class Economy
             waiting.OrbitRadius = Fleets.OrbitRadiusFor(yard);
             waiting.OrbitAngle = angle;
             waiting.Position = yard.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * waiting.OrbitRadius;
+            // A new supply ship on its own starts on the Supply role, unless it is built to join a fleet.
+            if (target == null && HelpCalls.SupplyOnly(w, waiting)) { waiting.Role = FleetRole.Supply; FleetNames.Refresh(w, waiting); }
         }
         foreach (var s in w.ShipsOf(waiting)) s.Position = waiting.Position + s.FormationOffset;
         sim.Log.Info("economy", $"{ship.Name} is launched at {yard.Name} and joins {waiting.Name}",

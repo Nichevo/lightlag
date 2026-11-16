@@ -3,7 +3,7 @@ using Lightlag.Sim.Logging;
 namespace Lightlag.Sim.Core;
 
 /// <summary>
-/// Where a fleet's radiators are. Auto: out, but pulled in for battle (radiators are fragile and
+/// Where a fleet's radiators are. Auto: out, but pulled in while under fire (radiators are fragile and
 /// glow on sensors). Out: always out (cool, but hits do more harm in battle). Cold: always in, to stay
 /// hidden: the signature drops, but heat builds and the ship must vent when it is full (the cold clock).
 /// </summary>
@@ -44,9 +44,33 @@ public static class Heat
     /// <summary>Is this fleet in the battle being fought (so Auto radiators are in)?</summary>
     public static bool InBattle(World w, Fleet f) => w.ActiveBattle is Battle b && b.For(f.Side).Fleets.Contains(f.Name);
 
-    /// <summary>Are this ship's radiators out right now?</summary>
+    /// <summary>Are this ship's radiators out right now? Auto pulls them in only while the fleet is under fire.</summary>
     public static bool RadiatorsOut(World w, Fleet f, Ship s) =>
-        s.Overheated || f.Radiators == RadiatorMode.Out || f.Radiators == RadiatorMode.Auto && !InBattle(w, f);
+        s.Overheated || f.Radiators == RadiatorMode.Out || f.Radiators == RadiatorMode.Auto && !UnderFire(w, f);
+
+    /// <summary>A little beyond the furthest enemy guns, so radiators are in before the first slug can arrive.</summary>
+    public const double UnderFireMargin = 1.1;
+
+    /// <summary>
+    /// Is this fleet under fire (Auto radiators in)? In the battle being fought, and either an enemy missile is
+    /// flying at one of its ships, or an enemy fleet of the battle is within that fleet's railgun reach (long shots
+    /// counted). A long approach or a chase outside every gun keeps the radiators out, so it costs little heat.
+    /// </summary>
+    public static bool UnderFire(World w, Fleet f)
+    {
+        if (w.ActiveBattle is not Battle b || !b.For(f.Side).Fleets.Contains(f.Name)) return false;
+        foreach (var m in w.Missiles)
+            if (m.Side != f.Side && w.FindShip(m.TargetShipId) is Ship t && t.FleetId == f.Id) return true;
+        var foes = b.Foes(f.Side).Fleets;
+        foreach (var e in w.Fleets)
+        {
+            if (e.Side == f.Side || !foes.Contains(e.Name) || e.ShipIds.Count == 0) continue;
+            var rail = Secrecy.RailRange(w, e);
+            var reach = e.LongShots || Combat.AiLongShots(w, e) ? Math.Max(rail, D.LongRangeMm) : rail;
+            if (Vec2.Distance(e.Position, f.Position) <= reach * UnderFireMargin) return true;
+        }
+        return false;
+    }
 
     /// <summary>A fleet running cold with every radiator in looks smaller on enemy sensors.</summary>
     public static double SignatureFactor(World w, Fleet f) =>
@@ -81,6 +105,28 @@ public static class Heat
         return least;
     }
 
+    /// <summary>
+    /// The heat clock for a burn: hours until the first ship of the fleet overheats if it keeps burning at this
+    /// share of top speed (a combat burn heats twice as much), with radiators in or out, counting the heat sinks
+    /// it would throw on Auto sinks. Null: it never overheats like that.
+    /// </summary>
+    public static double? HoursToOverheat(World w, Fleet f, double speedFraction, bool radiatorsIn, bool combatBurn)
+    {
+        double? least = null;
+        var share = 0.5 + 0.5 * Math.Clamp(speedFraction, 0, 1);
+        foreach (var s in w.ShipsOf(f))
+        {
+            var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position)
+                       + D.BurnPerHour * share * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (combatBurn ? FlightPlanner.CombatBurnHeat : 1);
+            var net = gain - (radiatorsIn ? D.RadiateInPerHour : D.RadiateOutPerHour);
+            if (net <= 0) continue;
+            var room = Math.Max(0, Capacity(s) - s.Heat) + (f.AutoSinks ? s.HeatSinks * D.SinkHeat : 0);
+            var h = room / net;
+            least = least is double l ? Math.Min(l, h) : h;
+        }
+        return least;
+    }
+
     /// <summary>Average heat of a fleet as a share of capacity.</summary>
     public static double Share(World w, Fleet f)
     {
@@ -96,12 +142,13 @@ public static class Heat
         if (dt <= 0) return;
         foreach (var f in w.Fleets)
         {
+            var underFire = f.Radiators == RadiatorMode.Auto && UnderFire(w, f);
             foreach (var s in w.ShipsOf(f))
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
                 var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (f.Flight?.CombatBurn == true ? FlightPlanner.CombatBurnHeat : 1) : 0);
-                var shed = RadiatorsOut(w, f, s) ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
+                var shed = s.Overheated || f.Radiators == RadiatorMode.Out || f.Radiators == RadiatorMode.Auto && !underFire ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 // Past twice its capacity the hull and crew take the heat instead: it stops climbing, so a ship
                 // can always cool down again in reasonable time.
                 s.Heat = Math.Clamp(s.Heat + (gain - shed) * dt, 0, Math.Max(s.Heat, cap * D.MaxHeatShare));
@@ -156,6 +203,7 @@ public static class Heat
         if (s.HeatSinks <= 0) return;
         s.HeatSinks--;
         s.Heat = Math.Max(0, s.Heat - D.SinkHeat);
+        if (w.ActiveBattle is Battle thrownIn && thrownIn.For(f.Side).Fleets.Contains(f.Name)) thrownIn.For(f.Side).SinksThrown++;
         var fooled = 0;
         foreach (var m in w.Missiles.ToList())
         {

@@ -85,6 +85,7 @@ public partial class EmpirePanel : PanelContainer
 
     private static string OverviewShape(World w) =>
         string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}"))
+        + "|" + string.Join(",", Budget.ShipQueue(w, Side.Player).Select(o => o.Id))
         + "|" + string.Join(",", Economy.Of(w, Side.Player).Researched)
         + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner
         + "|" + string.Join(",", w.Orders.Where(o => o.Side == Side.Player).Select(o => o.JoinFleetId))
@@ -163,11 +164,12 @@ public partial class EmpirePanel : PanelContainer
                 grid.AddChild(b);
             }
         }
-        var ships = w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship).ToList();
+        var ships = Budget.ShipQueue(w, Side.Player);
         if (ships.Count == 0) Live(13, Ui.Dim, _ => "Nothing being built");
+        var shipQueue = ships.Where(o => !o.Paid).ToList();
         for (var i = 0; i < ships.Count; i++)
         {
-            OrderRow(ships[i], i == 0);
+            OrderRow(ships[i], i == 0, shipQueue.IndexOf(ships[i]), shipQueue.Count);
             if (ships[i].SettleBodyId == null) JoinRow(w, ships[i]);
         }
 
@@ -332,14 +334,26 @@ public partial class EmpirePanel : PanelContainer
         _ => "Industry, the shipyard, research, stations and claims",
     };
 
-    private void OrderRow(WorkOrder order, bool first)
+    private void OrderRow(WorkOrder order, bool first, int place = -1, int queued = 0)
     {
         var row = Row();
         var id = order.Id;
         var label = Ui.Label("", 13, first ? Ui.Text : Ui.Dim);
-        label.CustomMinimumSize = new Vector2(330, 0);
+        label.CustomMinimumSize = new Vector2(place >= 0 && queued > 1 ? 266 : 330, 0);
         row.AddChild(label);
         _live.Add((label, w => w.Orders.Find(o => o.Id == id) is WorkOrder o ? OrderText(w, o, first) : ""));
+        // Ships not started yet can be moved up or down the queue (the one under way keeps going).
+        if (place >= 0 && queued > 1)
+        {
+            var up = Ui.SmallButton("▲", () => _screen.IssueNow(new MoveShipOrderCommand(Side.Player, id, -1), "ship queue order"), "Build it sooner: swap with the ship above");
+            up.Disabled = place == 0;
+            up.CustomMinimumSize = new Vector2(30, 26);
+            row.AddChild(up);
+            var down = Ui.SmallButton("▼", () => _screen.IssueNow(new MoveShipOrderCommand(Side.Player, id, 1), "ship queue order"), "Build it later: swap with the ship below");
+            down.Disabled = place == queued - 1;
+            down.CustomMinimumSize = new Vector2(30, 26);
+            row.AddChild(down);
+        }
         var cancel = Ui.SmallButton("✕", () => _screen.CancelOrder(id), "Cancel (a started order gives its Industry back)");
         cancel.CustomMinimumSize = new Vector2(32, 26);
         row.AddChild(cancel);

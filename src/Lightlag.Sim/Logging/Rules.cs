@@ -50,6 +50,10 @@ public sealed class RuleBook
     /// <summary>The rules every game uses.</summary>
     public static RuleBook Default() => new RuleBook()
         .Add("time-not-negative", w => w.Tick < 0 ? new[] { $"tick is {w.Tick}" } : Array.Empty<string>())
+        // Planets and moons are where their orbits put them at this very hour, battle-time steps included (they once moved
+        // only at whole hours, then jumped on to fleets beside them, which were shoved out: "bouncing off a planet").
+        .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
+            .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
         .Add("needs-respect-snoozes", w => w.Sides.SelectMany(state => state.Needs
                 .Where(n => state.MutedKinds.Contains(NeedKinds.KindOf(n.Key)) || state.SnoozedText.TryGetValue(n.Key, out var t) && t == n.Text)

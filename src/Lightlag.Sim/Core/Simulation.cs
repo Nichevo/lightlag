@@ -149,6 +149,8 @@ public sealed class Simulation
                 World.Tick++;
                 UpdateBodyPositions(World);
             }
+            // Planets and moons move every battle step too, not once an hour (else they jump on to fleets beside them).
+            else MoveBodiesTo(World, World.Hour);
             var t1 = World.Hour;
             using (SectionTimer.Time("combat-steer")) Combat.Steer(this, t0, t1);
             var before = World.Minefields.Count > 0 ? World.Fleets.Select(f => (f, f.Position)).ToList() : null;
@@ -320,6 +322,13 @@ public sealed class Simulation
             }
             b.Position = parent.Position + new Vec2(DetMath.Cos(b.Angle), DetMath.Sin(b.Angle)) * b.OrbitRadius;
         }
+    }
+
+    /// <summary>Puts every body where it is part way through the hour (battle-time steps); its orbit angle stays the hour's.</summary>
+    public static void MoveBodiesTo(World world, double hour)
+    {
+        foreach (var b in world.Bodies)
+            if (b.ParentId != null) b.Position = FlightPlanner.PredictBody(world, b, hour);
     }
 
     /// <summary>Supplies a fleet in orbit at a planet its side holds gets back each day, as a share of a full load.</summary>

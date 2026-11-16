@@ -589,6 +589,14 @@ def s_heavy_warheads(p):
     flash(p, 440, 96, 30, "glowr")
 
 
+def s_deep_magazines(p):
+    hull(p, 90, 110, 380, 40, radiators=False)
+    # Racks opened along the hull, packed deep with missiles.
+    for row in range(2):
+        for i in range(7):
+            missile(p, 170 + i * 38, 70 + row * 16, 0, 0.6, 0)
+
+
 def s_precision_strikes(p):
     ground(p, 150, "ground")
     block(p, 140, 40, 30)
@@ -785,6 +793,17 @@ def s_ejectable_heat_sinks(p):
         p.add(f'<rect x="{x - 14}" y="{y - 8}" width="28" height="16" rx="8" fill="#ffb36b" stroke="#ffe2a8"/>')
         heat_haze(p, x, y, 22, 14)
     missile(p, 40, 60, 30, 1, 40)
+
+
+def s_sink_lockers(p):
+    hull(p, 200, 96, 320, 34)
+    # A long row of lockers along the hull, each holding a sink ready to throw.
+    for i in range(8):
+        x = 236 + i * 30
+        p.add(f'<rect x="{x}" y="66" width="22" height="12" rx="6" fill="#ffb36b" stroke="#ffe2a8" opacity=".9"/>')
+    for (x, y) in [(150, 120), (110, 140)]:
+        p.add(f'<rect x="{x - 14}" y="{y - 8}" width="28" height="16" rx="8" fill="#ffb36b" stroke="#ffe2a8"/>')
+        heat_haze(p, x, y, 22, 14)
 
 
 def s_heat_sink_armour(p):

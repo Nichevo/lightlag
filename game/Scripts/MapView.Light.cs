@@ -32,17 +32,29 @@ public partial class MapView
     /// <summary>Moves each fleet that isn't live (and its ships) to where the news of it puts it.</summary>
     private void ApplyLag()
     {
+        _lagShift.Clear();
         if (!Lagging) return;
         var w = Sim.World;
         foreach (var f in w.Fleets)
         {
             if (Live(f) || PerStep(f.Id, "onplan", () => OnPlan(f)) || News(f) is not Sighting s || !_drawn.TryGetValue(f.Id, out var at)) continue;
             var shift = s.Position - f.Position;
+            _lagShift[f.Id] = shift;
             _drawn[f.Id] = at + shift;
             foreach (var id in f.ShipIds)
                 if (_drawn.TryGetValue(id, out var p)) _drawn[id] = p + shift;
         }
     }
+
+    /// <summary>How far each fleet drawn from old news is moved from where it really is this frame (none: drawn where it is).</summary>
+    private readonly Dictionary<int, Vec2> _lagShift = new();
+
+    /// <summary>
+    /// Missiles are drawn with the same light lag as the ship they fly at, so a salvo meets its target on the map
+    /// rather than landing in empty space where the ship really is but the news has not yet shown it.
+    /// </summary>
+    private Vec2 MissileShift(Missile m) =>
+        _lagShift.Count > 0 && Sim.World.FindShip(m.TargetShipId) is Ship t && t.FleetId is int fid && _lagShift.TryGetValue(fid, out var shift) ? shift : Vec2.Zero;
 
     /// <summary>
     /// One of your far fleets still doing what you last ordered: you know its plan, so the map shows it

@@ -445,6 +445,7 @@ public partial class MapView : Node2D
         {
             var p = m.Position;
             if (_prevMissile.TryGetValue(m.Id, out var prev)) p = prev + (p - prev) * Blend;
+            p += MissileShift(m);
             var at = Camera.ToScreen(p);
             if (!Camera.OnScreen(at, 20)) continue;
             var color = Ui.SideColor(m.Side);

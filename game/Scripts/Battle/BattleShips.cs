@@ -420,18 +420,22 @@ public partial class EnemyColumn : VBoxContainer
 
     /// <summary>
     /// Their missiles and heat sinks left, as a guess: full racks and sinks for the classes made out, less the missiles
-    /// seen fired at you in this fight. Ships never made out add nothing.
+    /// seen fired and heat sinks seen thrown in this fight. Ships never made out add nothing.
     /// </summary>
     private static string Guess(World w, Sighting s)
     {
         var classes = s.Classes.Select(c => GameData.ShipClasses.TryGetValue(c, out var k) ? k : null).OfType<ShipClass>().ToList();
         if (classes.Count == 0) return "Missiles and heat sinks left: unknown until you make out their ships";
-        var fired = w.ActiveBattle is Battle b && b.Foes(Side.Player).Fleets.Contains(s.Name) ? b.Foes(Side.Player).MissilesFired : 0;
+        var foes = w.ActiveBattle is Battle b && b.Foes(Side.Player).Fleets.Contains(s.Name) ? b.Foes(Side.Player) : null;
+        var fired = foes?.MissilesFired ?? 0;
+        var thrown = foes?.SinksThrown ?? 0;
         var racks = classes.Sum(k => k.Missiles);
         var sinks = classes.Sum(k => k.HeatSinks);
         var unknown = s.Ships > classes.Count ? $", plus {s.Ships - classes.Count} unknown ship{(s.Ships - classes.Count == 1 ? "" : "s")}" : "";
         var missiles = racks == 0 ? "no missile racks seen" : $"up to {Math.Max(0, racks - fired)} missiles left" + (fired > 0 ? $" ({fired} seen fired)" : "");
-        return $"Guess: {missiles}, up to {sinks} heat sinks{unknown}";
+        var sinksLeft = Math.Max(0, sinks - thrown);
+        var sinkText = sinksLeft == 0 ? "NO heat sinks left (all seen thrown)" : $"up to {sinksLeft} heat sinks" + (thrown > 0 ? $" ({thrown} seen thrown)" : "");
+        return $"Guess: {missiles}, {sinkText}{unknown}";
     }
 
     private Control SeenStrip(int shipId)

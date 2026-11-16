@@ -94,8 +94,8 @@ public partial class PauseSettingsPage : CenterContainer
     private static string PresetTip(string preset) => preset switch
     {
         PauseRules.Watchful => "Pause for nearly everything; slow down for supply warnings and planets changing hands",
-        PauseRules.HandsOff => "Pause only for battles, calls and the shipyard; slow down for sightings and claims; news only for research and launches",
-        _ => "How the game has always behaved: pause for sightings, battles, claims, the shipyard and calls; pop-ups for the rest",
+        PauseRules.HandsOff => "Pause only for calls and the shipyard; slow down for sightings and claims; news only for research and launches",
+        _ => "Pause for sightings near you, the shipyard and calls; pop-ups for the rest, battles too (pause or pick a slow speed yourself)",
     };
 
     public void Refresh()
