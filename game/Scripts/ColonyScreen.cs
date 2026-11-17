@@ -71,7 +71,7 @@ public partial class ColonyScreen : PanelContainer
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
-            foreach (var c in _root.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_root);
             _live.Clear();
             _buildButtons.Clear();
             _shownGood = null;
@@ -895,7 +895,7 @@ public partial class ColonyScreen : PanelContainer
             var stamp = $"{(long)(w2.Hour / 6)}|{w2.Shipments.Count}|{w2.FixedRuns.Count}|{Economy.Of(w2, Side.Player).AutoTransport}";
             if (stamp == shown || Ui.MouseHeld) return;
             shown = stamp;
-            foreach (var c in box.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(box);
             var ideas = Colonies.Ideas(w2, Side.Player, b);
             box.AddChild(Ui.Label("Suggested loads", 13, Ui.Dim));
             if (ideas.Count == 0) { box.AddChild(Wrap("Nothing needed: no shortages here, and no spare another planet is short of.", 12, Ui.Dim)); return; }

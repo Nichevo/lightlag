@@ -47,7 +47,7 @@ public partial class GroundScreen : PanelContainer
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
-            foreach (var c in _root.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_root);
             _live.Clear();
             Build(w, body);
         }

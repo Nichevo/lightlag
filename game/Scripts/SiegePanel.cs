@@ -203,7 +203,7 @@ public partial class SiegePanel : PanelContainer
         if (key != _threatKey)
         {
             _threatKey = key;
-            foreach (var c in _threats.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_threats);
             foreach (var o in enemies)
             {
                 var row = new HBoxContainer();

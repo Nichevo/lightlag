@@ -51,7 +51,7 @@ public partial class BottomBar : PanelContainer
         var shape = $"{width}|{_offset}|{UrgentOnly}|" + string.Join(";", needs.Select(n => n.Key + n.Text));
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
-        foreach (var c in _row.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_row);
         var back = Ui.SmallButton("◀", () => { _offset = Math.Max(0, _offset - 1); _shape = ""; }, "Earlier items");
         back.Disabled = _offset == 0;
         _row.AddChild(back);

@@ -114,7 +114,7 @@ public partial class DisplayOptionsPage : CenterContainer
 
     public void Refresh()
     {
-        foreach (var c in _rows.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_rows);
         _rows.AddChild(Ui.Label("Top bar", 17, Ui.Player));
         Choice("Menu bar", new[] { "Always shown", "Hide when idle", "Off (keys only)" }, (int)PlayerInfo.MenuBar,
             i => PlayerInfo.SetMenuBar((MenuBarMode)i), "Hide when idle slides it away after 5 s; move the mouse to the bottom edge of row one, or press any screen key, to bring it back");
@@ -181,7 +181,7 @@ public partial class SavesList : CenterContainer
 
     public void Refresh()
     {
-        foreach (var c in _rows.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_rows);
         var saves = SaveSlots.List(Main.Instance.Paths);
         if (saves.Count == 0) _rows.AddChild(Ui.Label("No saves yet.", 15, Ui.Dim));
         foreach (var s in saves.Take(40))

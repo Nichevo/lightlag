@@ -100,7 +100,7 @@ public partial class PauseSettingsPage : CenterContainer
 
     public void Refresh()
     {
-        foreach (var c in _rows.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_rows);
         _preset.Text = PauseSettings.Rules.Preset is string p ? $"(now: {p})" : "(now: your own)";
         foreach (var e in Enum.GetValues<PauseEvent>())
         {

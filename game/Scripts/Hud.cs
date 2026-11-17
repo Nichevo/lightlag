@@ -497,6 +497,9 @@ public partial class Hud : CanvasLayer
     /// <summary>The tray is down (set by the badge, a pin or the "." key; never by itself).</summary>
     public bool TrayOpen { get; set; }
 
+    /// <summary>The tray's height this frame (0 while hidden), for the --tray-probe check.</summary>
+    public float TrayHeight => _tray.Visible ? _tray.Size.Y : 0;
+
     /// <summary>The tray row the mouse is over (its pin rings), and the selected one (lit with its pin).</summary>
     public string? HoverNeed { get; set; }
     public string? SelectedNeed { get; set; }

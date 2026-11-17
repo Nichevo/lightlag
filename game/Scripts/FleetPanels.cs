@@ -946,7 +946,7 @@ public partial class FleetPanel : PanelContainer
         if (key != _shipKey && !Ui.MouseHeld)
         {
             _shipKey = key;
-            foreach (var c in _shipList.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_shipList);
             _rows.Clear();
             _protect.Clear();
             foreach (var s in ships)
@@ -1582,7 +1582,7 @@ public partial class PlannerPanel : PanelContainer
         if (_rowsFor != p || _waypointRows.Count != p.Waypoints.Count)
         {
             _rowsFor = p;
-            foreach (var c in _waypointBox.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_waypointBox);
             _waypointRows.Clear();
             for (var i = 0; i < p.Waypoints.Count; i++)
             {
