@@ -353,7 +353,15 @@ public static class SupplyChain
 
     /// <summary>Above this stock may be shipped away: its export-above rule (not under what is waited for), else its keep level.</summary>
     public static double ExportLine(Body b, string good) =>
-        Rule(b, good)?.ExportAbove is double above ? Math.Max(above, Colonies.Want(b, good)) : Colonies.Target(b, good);
+        Rule(b, good)?.ExportAbove is double above ? Math.Max(above, Colonies.Want(b, good))
+        // Food feeds people: a world that grows more than it eats shares it down to FoodKeepDays of its own eating,
+        // not its whole siege store. A world that lives on shipped food never sends it on.
+        : good == Colonies.Food ? Colonies.MadePerDay(b, good) < Colonies.UsePerDay(b, good) ? Math.Max(Colonies.Target(b, good), Colonies.Held(b, good))
+            : Math.Min(Colonies.Target(b, good), FoodKeepDays * Colonies.UsePerDay(b, good))
+        : Colonies.Target(b, good);
+
+    /// <summary>Days of its own eating a world keeps back when it ships food to hungrier worlds (unless its export rule says otherwise).</summary>
+    public const double FoodKeepDays = 10;
 
     /// <summary>The stock targets row text for a planet and good: "keep 80", "import &lt;20", "export &gt;30".</summary>
     public static string RuleText(Body b, string good)

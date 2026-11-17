@@ -32,7 +32,7 @@ public sealed record BuildingData(string Id, string Name, string Effect, double 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
-    double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double SettlerFoodDays = 25, double BaseStaffK = 5, double UnsettledShare = 0.5,
+    double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double SettlerFoodDays = 25, double[]? SettlerCrowding = null, double UpkeepPerAu = 0.1, double UpkeepFreeAu = 0.5, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
     double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30, double LandAfterBlockadeDays = 20,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
@@ -147,12 +147,40 @@ public static class Planets
     public static bool Contested(World w, Body b) =>
         b.Owner != null && (Economy.Fort(w, b) != null || Colonies.Sum(w, b, k => k.GunDamage) > 0);
 
+    /// <summary>
+    /// Where a side's worlds are run from: its home and shipyard worlds, and worlds with a working starbase of any tier.
+    /// Upkeep grows with distance from the nearest of them.
+    /// </summary>
+    public static IEnumerable<Body> Hubs(World w, Side side) =>
+        w.Bodies.Where(b => b.Owner == side && (b.Home || b.Shipyard)
+                            || w.Starbases.Any(st => st.Side == side && st.BodyId == b.Id && st.ReadyHour <= w.Hour) && b.Owner == side);
+
+    /// <summary>The nearest hub to a body and its distance in AU (null: the side has none).</summary>
+    public static (Body Hub, double Au)? NearestHub(World w, Side side, Body b) =>
+        Hubs(w, side).Select(h => (h, Vec2.Distance(h.Position, b.Position) / Physics.MmPerAu)).OrderBy(x => x.Item2).ThenBy(x => x.h.Id)
+            .Select(x => ((Body, double)?)x).FirstOrDefault();
+
+    /// <summary>
+    /// Industry a day a held world costs to run: upkeepPerAu for each AU beyond upkeepFreeAu from the nearest hub
+    /// (home, shipyard or starbase). Hubs themselves cost nothing.
+    /// </summary>
+    public static double UpkeepOf(World w, Body b)
+    {
+        if (b.Owner is not Side side || b.Kind == BodyKind.Star) return 0;
+        if (NearestHub(w, side, b) is not var (_, au)) return 0;
+        return Math.Max(0, au - D.UpkeepFreeAu) * D.UpkeepPerAu;
+    }
+
+    /// <summary>A side's upkeep for all its worlds, Industry a day (taken off income before the budget splits it).</summary>
+    public static double UpkeepPerDay(World w, Side side) => w.Bodies.Where(b => b.Owner == side).Sum(b => UpkeepOf(w, b));
+
     /// <summary>Industry a day this body makes for its holder (before Automated industry).</summary>
     public static double IndustryPerDay(World w, Body b)
     {
         if (b.Owner == null || b.Kind == BodyKind.Star) return 0;
         if (Economy.Blockaded(w, b)) return 0;
-        if (b.PopK <= 0) return b.Abandoned ? 0 : b.Industry * D.UnsettledShare;
+        // An empty world makes nothing until people land, except one nobody can live on (a gas giant held by its skimmer).
+        if (b.PopK <= 0) return b.Abandoned || Settleable(b) ? 0 : b.Industry * D.UnsettledShare;
         var mines = Colonies.Sum(w, b, k => k.Industry) * Races.Get(b.PeopleRace).MineralIndustry;
         return (b.Industry * b.BaseStaff + mines) * HappyFactor(w, b);
     }
@@ -815,6 +843,7 @@ public static class Planets
     {
         if (w.FindBody(bodyId) is not Body to) return "Unknown planet";
         if (!Settleable(to)) return $"Nobody can live on {to.Name}";
+        if (to.Owner == null && !to.Surveyed[(int)side]) return $"{to.Name} needs a survey first: a ship holding orbit there for a day surveys it";
         if (to.Owner is Side o && o != side) return $"{to.Name} is held by the rival";
         if (to.Owner == null && to.PopK > 0) return $"{to.Name} has its own people: hold orbit to win it over";
         if (to.PopK >= Cap(to) - 0.1) return $"{to.Name} is full";
@@ -845,6 +874,39 @@ public static class Planets
     }
 
     /// <summary>Puts a settle order on the shipyard queue (checked first with CanSettle).</summary>
+    /// <summary>
+    /// How keen people are to leave a planet, as a factor on the settler ship's price: from its fill (people over
+    /// room), along the points in economy.json settlerCrowding (fill, factor pairs; straight lines between them).
+    /// Few want to leave a half-empty home (3x); a crowded one sends them cheaply (0.5x when full).
+    /// </summary>
+    public static double CrowdingFactor(Body from)
+    {
+        var pts = D.SettlerCrowding is { Length: >= 2 } c ? c : new[] { 0.5, 3.0, 0.85, 1.0, 1.0, 0.5 };
+        var fill = Math.Clamp(from.PopK / Math.Max(1e-9, Cap(from)), 0, 1);
+        if (fill <= pts[0]) return pts[1];
+        for (var i = 2; i + 1 < pts.Length; i += 2)
+            if (fill <= pts[i])
+                return pts[i - 1] + (pts[i + 1] - pts[i - 1]) * (fill - pts[i - 2]) / Math.Max(1e-9, pts[i] - pts[i - 2]);
+        return pts[^1];
+    }
+
+    /// <summary>The Industry a settler ship costs now, from the planet the settlers would leave (the shipyard planet).</summary>
+    public static double SettlerPrice(World w, Side side) =>
+        Math.Round(GameData.ShipClass(SettlerClass).Cost * (Economy.ShipyardOf(w, side) is Body yard ? CrowdingFactor(yard) : 1), 1);
+
+    /// <summary>Why the settler price is what it is: "120 Industry: Verdant is 50 % full, so few want to leave (40 once it is 85 % full)".</summary>
+    public static string SettlerPriceWhy(World w, Side side)
+    {
+        var price = SettlerPrice(w, side);
+        if (Economy.ShipyardOf(w, side) is not Body yard) return $"{price:0} Industry";
+        var full = yard.PopK / Math.Max(1e-9, Cap(yard));
+        var basePrice = GameData.ShipClass(SettlerClass).Cost;
+        var factor = CrowdingFactor(yard);
+        var mood = factor > 1.05 ? "few want to leave" : factor < 0.95 ? "people are keen to leave" : "the usual price";
+        var hint = factor > 1.05 ? FormattableString.Invariant($" ({basePrice:0} once it is 85 % full)") : "";
+        return FormattableString.Invariant($"{price:0} Industry: {yard.Name} is {full * 100:0} % full, so {mood}{hint}");
+    }
+
     public static WorkOrder QueueSettlers(Simulation sim, Side side, Body to, int? escortFleetId, bool auto)
     {
         var w = sim.World;
@@ -852,6 +914,7 @@ public static class Planets
         {
             Id = w.NextId++, Side = side, Kind = OrderKind.Ship, Key = SettlerClass, TotalHours = Economy.HoursFor(w, side, OrderKind.Ship, SettlerClass),
             SettleBodyId = to.Id, SettleName = to.Name, EscortFleetId = escortFleetId, Auto = auto,
+            FitCost = SettlerPrice(w, side), // fixed when ordered
         };
         order.HoursLeft = order.TotalHours;
         w.Orders.Add(order);
@@ -1050,6 +1113,9 @@ public static class Planets
     }
 
     /// <summary>Planets marked for Auto top-up get settlers ordered for them, one order at a time per side.</summary>
+    /// <summary>Auto top-up orders no settlers while they cost more than this times the usual price.</summary>
+    public const double TopUpMaxFactor = 1.5;
+
     private static void TopUps(Simulation sim)
     {
         var w = sim.World;
@@ -1057,6 +1123,8 @@ public static class Planets
         foreach (var side in Sides.InPlay(w))
         {
             if (w.Orders.Any(o => o.Side == side && o.Auto) || w.Fleets.Any(f => f.Side == side && f.PeopleRun?.Auto == true)) continue;
+            // Auto top-up waits while settlers are dear (home not crowded enough to send them cheaply).
+            if (Economy.ShipyardOf(w, side) is Body yard && CrowdingFactor(yard) > TopUpMaxFactor) continue;
             var to = w.Bodies.Where(b => b.Owner == side && b.AutoTopUp && b.PopK < Cap(b) * 0.9 && CanSettle(w, side, b.Id) == null)
                 .OrderBy(b => b.PopK / Math.Max(1e-9, Cap(b))).ThenBy(b => b.Id).FirstOrDefault();
             if (to == null) continue;

@@ -168,19 +168,25 @@ public class EconomyTests
     }
 
     [Fact]
-    public void Holding_orbit_for_ten_days_claims_a_planet()
+    public void Holding_orbit_surveys_an_empty_planet_but_never_claims_it()
     {
         var sim = NewGame();
         var vela = BodyNamed(sim, "vela");
         PlaceInOrbit(sim, FleetOf(sim, Side.Player), vela);
-        Days(sim, GameData.Economy.ClaimDays - 1);
+        Days(sim, GameData.Economy.ClaimDays + 2);
         Assert.Null(vela.Owner);
-        Assert.Equal(Side.Player, vela.ClaimSide);
-        Days(sim, 1.1);
-        Assert.Equal(Side.Player, vela.Owner);
-        var income = Economy.IncomePerDay(sim.World, Side.Player);
-        // An empty planet you hold makes part of its industry until settlers arrive.
-        Assert.Equal(Planets.IndustryPerDay(sim.World, BodyNamed(sim, "verdant")) + vela.Industry * Planets.D.UnsettledShare, income, 9);
+        Assert.Null(vela.ClaimSide);
+        Assert.True(vela.Surveyed[(int)Side.Player], "a day in orbit surveys it");
+        Assert.Null(Planets.CanSettle(sim.World, Side.Player, vela.Id));
+    }
+
+    [Fact]
+    public void An_empty_world_you_hold_makes_nothing_until_people_land()
+    {
+        var sim = NewGame();
+        var vela = BodyNamed(sim, "vela");
+        vela.Owner = Side.Player;
+        Assert.Equal(0, Planets.IndustryPerDay(sim.World, vela));
     }
 
     [Fact]
@@ -242,7 +248,11 @@ public class EconomyTests
     {
         var sim = NewGame();
         var w = sim.World;
-        foreach (var b in Economy.Claimable(w).Where(b => b.Owner == null)) b.Owner = Side.Player;
+        foreach (var b in Economy.Claimable(w).Where(b => b.Owner == null))
+        {
+            b.Owner = Side.Player;
+            if (Planets.Settleable(b)) b.PopK = Math.Min(5, Planets.Cap(b)); // empty worlds make nothing: a few people on each
+        }
         BodyNamed(sim, "rust").PopK = 40; // enough to staff its farms and its mines
         foreach (var ship in w.Ships.Where(s => s.Side == Side.Rival).ToList()) Combat.Destroy(sim, ship);
         Economy.Of(w, Side.Rival).FlagshipId = null;

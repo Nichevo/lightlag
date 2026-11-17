@@ -524,7 +524,11 @@ public static class Economy
         if (!w.Loop) return "There is no economy in the battle sandbox";
         if (w.Winner != null) return "The game is over";
         if (StationKind(kind) is not StationData data) return $"Unknown station '{kind}'";
-        if (w.FindBody(bodyId) is not Body b || b.Owner != side) return "Only on a body you hold";
+        if (w.FindBody(bodyId) is not Body b) return "Only on a body you hold";
+        // A gas giant nobody can live on is taken by building a skimmer over it (once surveyed).
+        var claimsGiant = kind == Works.Skimmer && b.Owner == null && !Planets.Settleable(b);
+        if (claimsGiant && !b.Surveyed[(int)side]) return $"{b.Name} needs a survey first: a ship holding orbit there for a day surveys it";
+        if (b.Owner != side && !claimsGiant) return "Only on a body you hold";
         if (data.Bay is { Length: > 0 } bay) return $"Now a bay on the station line: fit a {GameData.Module(bay)?.Name.ToLowerInvariant() ?? bay} to a station over {b.Name}";
         if (HasStation(w, side, bodyId, kind)) return $"{b.Name} already has a {data.Name.ToLowerInvariant()}";
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
@@ -556,7 +560,8 @@ public static class Economy
         Works.Update(sim);
         foreach (var side in Sides.InPlay(w))
         {
-            var earned = IncomePerDay(w, side) / 24;
+            // Upkeep for far worlds comes off what they make before the budget splits it (never below nothing).
+            var earned = Math.Max(0, IncomePerDay(w, side) - Planets.UpkeepPerDay(w, side)) / 24;
             Budget.Earn(w, side, earned);
             Of(w, side).Totals.IndustryEarned += earned;
             using (SectionTimer.Time("yards")) Work(sim, side);
@@ -776,7 +781,9 @@ public static class Economy
         {
             var need = ClaimHoursFor(b);
             // Shipyards can't be claimed, only destroyed; a peopled planet held by a side must surrender or be taken by troops.
-            if (b.Shipyard || b.Owner != null && b.PopK > 0) { b.ClaimSide = null; b.ClaimHours = 0; continue; }
+            // An empty world nobody holds is not claimed by holding orbit: it is owned only when settlers land
+            // (a gas giant: when a skimmer is built over it).
+            if (b.Shipyard || b.Owner != null && b.PopK > 0 || b.Owner == null && b.PopK <= 0) { b.ClaimSide = null; b.ClaimHours = 0; continue; }
             var sides = w.Fleets.Where(f => Starbases.Besieging(f, b)).Select(f => f.Side).Distinct().ToList();
             // A moon under an enemy planet's guns can't be held while the planet still shoots.
             if (sides.Count != 1 || b.Owner == sides[0] || Starbases.CoveredBy(w, b, sides[0]) != null)
@@ -1061,6 +1068,13 @@ public sealed record BuildStationCommand(Side Side, int BodyId, string Kind) : G
             return;
         }
         var data = Economy.StationKind(Kind)!;
+        if (world.FindBody(BodyId) is { Owner: null } giant)
+        {
+            // A skimmer over an unheld gas giant makes it yours (Economy.CanBuildStation allows only that case).
+            giant.Owner = Side;
+            Economy.Of(world, Side).Totals.PlanetsClaimed++;
+            sim.Log.Info("economy", $"{Side} takes {giant.Name} with a skimmer", new { side = Side.ToString(), BodyId });
+        }
         Budget.Pay(world, Side, Pot.Stations, data.Cost, $"station:{BodyId}:{Kind}", BodyId, log: sim.Log);
         Economy.Of(world, Side).Totals.IndustrySpent += data.Cost;
         world.Stations.Add(new Station { Id = world.NextId++, Side = Side, Kind = Kind, BodyId = BodyId, ReadyHour = world.Hour + data.Days * 24, Armour = data.Armour });

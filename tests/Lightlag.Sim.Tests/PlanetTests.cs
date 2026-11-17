@@ -7,11 +7,12 @@ namespace Lightlag.Sim.Tests;
 
 public class PlanetTests
 {
-    private static Simulation NewGame(ulong seed = 8, GameOptions? options = null)
+    private static Simulation NewGame(ulong seed = 8, GameOptions? options = null, bool surveyed = true)
     {
         var sim = Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: (options ?? new GameOptions()) with { Budget = false }); // one pool: these tests predate the Industry budget (see BudgetTests)
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
+        if (surveyed) sim.World.SurveyAll(); // settling needs a survey first: most of these tests are about what comes after
         return sim;
     }
 
@@ -145,7 +146,9 @@ public class PlanetTests
         kesh.PopK = 1;
         kesh.OwnShare = 1;
         kesh.FoodStock = 5; // an asteroid has no farms: it lives on food shipped in
-        Put(sim, BodyNamed(sim, "verdant"), "farm"); // so home has food to spare as it grows
+        var verdant = BodyNamed(sim, "verdant");
+        Put(sim, verdant, "farm"); // so home has food to spare as it grows
+        verdant.PopK = Planets.Cap(verdant) * 0.9; // Auto top-up waits while settlers are dear (home not crowded)
         sim.Issue(new SetAutoTopUpCommand(Side.Player, kesh.Id, true));
         sim.StepMany(6);
         Assert.Contains(sim.World.Orders, o => o.SettleBodyId == kesh.Id && o.Auto);
@@ -363,12 +366,13 @@ public class PlanetTests
         Assert.Null(Planets.CanBuild(sim.World, Side.Player, verdant.Id, Planets.Mine));
         Assert.NotNull(Planets.CanBuild(sim.World, Side.Player, vela.Id, Planets.Mine));
         Assert.NotNull(Planets.CanBuild(sim.World, Side.Player, BodyNamed(sim, "rust").Id, Planets.Mine));
-        var income = Economy.IncomePerDay(sim.World, Side.Player);
+        // Verdant's own Industry (the moon's top-up waits while settlers are dear, so the side's total moves for other reasons).
+        var income = Planets.IndustryPerDay(sim.World, verdant);
         var mines = Planets.Count(verdant, Planets.Mine);
         sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Mine));
         Days(sim, Planets.BuildingKind(Planets.Mine)!.Days + 0.1);
         Assert.Equal(mines + 1, Planets.Count(verdant, Planets.Mine));
-        Assert.True(Economy.IncomePerDay(sim.World, Side.Player) > income + 1); // less than its full 3 once the home's staff and power are stretched
+        Assert.True(Planets.IndustryPerDay(sim.World, verdant) > income + 1); // less than its full 3 once the home's staff and power are stretched
     }
 
     [Fact]
@@ -404,13 +408,17 @@ public class PlanetTests
     [Fact]
     public void A_game_with_people_and_buildings_replays_exactly()
     {
-        var sim = NewGame(31);
+        var sim = NewGame(31, surveyed: false); // a replay can't carry a survey made by hand: fly there and survey it
         var verdant = BodyNamed(sim, "verdant");
         var warships = Home(sim);
         var kesh = BodyNamed(sim, "kesh");
+        Assert.NotNull(Planets.CanSettle(sim.World, Side.Player, kesh.Id)); // not surveyed yet
+        sim.Issue(new PlanFlightCommand(warships.Id, new FlightRequest(kesh.Id, kesh.Position, 1, ArrivalStyle.Brake, HoldStyle.Orbit, 0)));
+        for (var day = 0; day < 200 && !kesh.Surveyed[(int)Side.Player]; day++) Days(sim, 1);
+        Assert.True(kesh.Surveyed[(int)Side.Player]);
         sim.Issue(new SettleCommand(Side.Player, kesh.Id));
         sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Farm));
-        Days(sim, GameData.ShipClass("colony-ship").Cost / GameData.Economy.BuildIndustryPerDay + 0.2);
+        Days(sim, Planets.SettlerPrice(sim.World, Side.Player) / GameData.Economy.BuildIndustryPerDay + 0.2);
         // The new settler ship forms a fleet of its own rather than joining the warships.
         var colony = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != warships.Id && !sim.World.ShipsOf(f).All(Colonies.IsHauler));
         Assert.All(sim.World.ShipsOf(colony), s => Assert.True(Planets.IsColonyShip(s)));
@@ -430,7 +438,7 @@ public class PlanetTests
         sim.StrictRules = true;
         var kesh = BodyNamed(sim, "kesh");
         sim.Issue(new SettleCommand(Side.Player, kesh.Id));
-        Days(sim, GameData.ShipClass("colony-ship").Cost / GameData.Economy.BuildIndustryPerDay + 0.2);
+        Days(sim, Planets.SettlerPrice(sim.World, Side.Player) / GameData.Economy.BuildIndustryPerDay + 0.2);
         var settler = sim.World.Ships.First(s => s.Side == Side.Player && Planets.IsColonyShip(s));
         // Command passed to it (the destroyers were lost, say).
         Economy.Of(sim.World, Side.Player).FlagshipId = settler.Id;
