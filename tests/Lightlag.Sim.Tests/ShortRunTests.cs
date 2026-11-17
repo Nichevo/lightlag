@@ -118,7 +118,8 @@ public class ShortRunTests
             sim.Issue(new FixedRunCommand(Side.Player, home.Id, moon.Id, good, 10, Auto: true, Why: "test"));
         sim.ApplyPending();
         Steps(sim, moon, 30 * 24, "iron", "copper");
-        var runs = w.FixedRuns.Where(r => r.Side == Side.Player && r.ToBodyId == moon.Id).Select(r => r.Id).ToList();
+        // (The moon has no farm, so a food run may be set up for it too: only the two drained goods count here.)
+        var runs = w.FixedRuns.Where(r => r.Side == Side.Player && r.ToBodyId == moon.Id && r.Good is "iron" or "copper").Select(r => r.Id).ToList();
         Assert.Equal(2, runs.Count);
         var delivered = SupplyChain.Book(w, Side.Player).Deliveries.Where(d => d.RunId != null).Select(d => d.RunId!.Value).Distinct().ToList();
         // Both goods reach the moon: on their runs, or (with the supply tender's bigger hold) by Auto transport

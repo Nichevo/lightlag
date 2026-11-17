@@ -164,7 +164,7 @@ public static class Colonies
     public static ColoniesData C => GameData.Economy.Colonies ?? new ColoniesData();
     private static PlanetsData D => Planets.D;
 
-    public const string Spares = "spares", Fuel = "fuel", Shipyard = "shipyard";
+    public const string Spares = "spares", Fuel = "fuel", Shipyard = "shipyard", Food = "food";
 
     public static readonly string[] Areas = { "food", "power", "defence", "shipyard", "industry", "research", "housing" };
 
@@ -824,7 +824,10 @@ public static class Colonies
 
     /// <summary>How much of a good the planet can hold: its storage days of what it uses, or of what it makes, at least 50.</summary>
     public static double StoreCap(Body b, string good, double? days = null) =>
-        Math.Max(50, (days ?? StoreDaysOf(b)) * Math.Max(UsePerDay(b, good), MadePerDay(b, good)));
+        Math.Max(50, (days ?? StoreDaysOf(b)) * (good == Food ? FoodStoreFactor : 1) * Math.Max(UsePerDay(b, good), MadePerDay(b, good)));
+
+    /// <summary>Food keeps: a world stores twice its usual days of it, so a farming world can hold a siege's worth and still have some to ship.</summary>
+    public const double FoodStoreFactor = 2;
 
     private static bool NeedsWater(World w, Body b) =>
         Planets.TypeOf(b).Farm <= 0 && !b.Home && b.Owner is Side side && !Tech.Has(w, side, "sealed-habitats") && Races.Get(b.PeopleRace).Eats
@@ -998,7 +1001,7 @@ public static class Colonies
     /// <summary>A good made here per day (at the current staffing, power and repair).</summary>
     public static double MadePerDay(Body b, string good)
     {
-        var total = 0.0;
+        var total = good == Food ? Planets.FoodMadePerDay(b) : 0.0;
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
@@ -1012,7 +1015,7 @@ public static class Colonies
     /// <summary>A good used here per day (inputs and upkeep).</summary>
     public static double UsePerDay(Body b, string good)
     {
-        var total = b.FuelUse.TryGetValue(good, out var drawn) ? drawn : 0;
+        var total = (b.FuelUse.TryGetValue(good, out var drawn) ? drawn : 0) + (good == Food ? Planets.FoodNeedPerDay(b) : 0);
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
@@ -1049,7 +1052,8 @@ public static class Colonies
         var target = Target(b, good);
         var rule = b.StockRules.Count > 0 && b.StockRules.TryGetValue(good, out var r) ? r : null;
         upTo = Math.Max(Math.Max(target * 1.5, 20), rule?.ImportBelow * 1.5 ?? 0);
-        if (target <= 0.5 && rule?.ImportBelow == null) return false;
+        // A handful is not worth a freighter, except food: even a small colony without farms starves without it.
+        if (target <= 0.5 && rule?.ImportBelow == null && !(good == Food && UsePerDay(b, Food) > MadePerDay(b, Food))) return false;
         return Held(b, good) < SupplyChain.AskLine(b, good) || Held(b, good) < Want(b, good) - 1e-6;
     }
 

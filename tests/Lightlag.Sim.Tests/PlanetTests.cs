@@ -144,6 +144,8 @@ public class PlanetTests
         kesh.Owner = Side.Player;
         kesh.PopK = 1;
         kesh.OwnShare = 1;
+        kesh.FoodStock = 5; // an asteroid has no farms: it lives on food shipped in
+        Put(sim, BodyNamed(sim, "verdant"), "farm"); // so home has food to spare as it grows
         sim.Issue(new SetAutoTopUpCommand(Side.Player, kesh.Id, true));
         sim.StepMany(6);
         Assert.Contains(sim.World.Orders, o => o.SettleBodyId == kesh.Id && o.Auto);

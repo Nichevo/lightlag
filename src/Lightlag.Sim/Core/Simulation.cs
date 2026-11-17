@@ -113,6 +113,12 @@ public sealed class Simulation
     {
         build ??= log.Build;
         Sides.Pad(save.World);
+        // Saves from before food was a good kept each world's food apart from its goods.
+        foreach (var b in save.World.Bodies.Where(b => b.SavedFoodStock != null))
+        {
+            b.FoodStock = b.SavedFoodStock!.Value;
+            b.SavedFoodStock = null;
+        }
         var sim = new Simulation(save.World, new SimRandom(save.World.Random), log, build, save.Replay);
         foreach (var c in save.PendingCommands) sim._pending.Enqueue(c);
         if (save.Build != build.ToString())

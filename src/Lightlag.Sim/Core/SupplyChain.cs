@@ -404,12 +404,15 @@ public static class SupplyChain
                 var held = Colonies.Held(to, good);
                 var line = AskLine(to, good);
                 var waiting = held < Colonies.Want(to, good) - 1e-6;
-                if (!(held < line - 1e-6 && (Colonies.Target(to, good) > 0.5 || Rule(to, good)?.ImportBelow != null)) && !waiting) continue;
+                var hungryWorld = good == Colonies.Food && Colonies.UsePerDay(to, good) > Colonies.MadePerDay(to, good) + 1e-9;
+                if (!(held < line - 1e-6 && (Colonies.Target(to, good) > 0.5 || hungryWorld || Rule(to, good)?.ImportBelow != null)) && !waiting) continue;
                 if (w.Shipments.Any(s => s.Side == side && s.ToBodyId == to.Id && s.Cargo.ContainsKey(good))) continue; // on its way
                 var name = Colonies.GoodName(good).ToLowerInvariant();
                 var use = Colonies.UsePerDay(to, good);
                 var made = Colonies.MadePerDay(to, good);
-                var title = use > made + 0.05
+                var title = good == Colonies.Food && use > made + 1e-9
+                    ? FoodTitle(to, held, use - made)
+                    : use > made + 0.05
                     ? FormattableString.Invariant($"{Colonies.GoodName(good)}: {to.Name} makes {made:0.#} a day but uses {use:0.#}")
                     : FormattableString.Invariant($"{Colonies.GoodName(good)}: {to.Name} holds {held:0} of the {line:0} it asks for");
                 var fixes = new List<ChainFix>();
@@ -461,6 +464,18 @@ public static class SupplyChain
             }
     }
 
+    /// <summary>Days a world's food lasts at its own farms' rate (null: it feeds itself).</summary>
+    public static double? FoodLeftDays(Body b)
+    {
+        var net = Colonies.UsePerDay(b, Colonies.Food) - Colonies.MadePerDay(b, Colonies.Food);
+        return net > 1e-9 ? Colonies.Held(b, Colonies.Food) / net : null;
+    }
+
+    /// <summary>"Food runs out at Kesh in 6 days" (whole days, so the line changes once a day at most).</summary>
+    private static string FoodTitle(Body to, double held, double net) =>
+        held / net < 0.5 ? $"Food has run out at {to.Name}: its people are hungry"
+        : FormattableString.Invariant($"Food runs out at {to.Name} in {Math.Max(1, Math.Floor(held / net)):0} days (it eats more than its own farms grow)");
+
     /// <summary>
     /// A building that will make this good, being built or queued on one of the side's planets (the soonest), as
     /// a line saying so: "Being sorted: a mine is being built at Verdant (2.5 days left)". Null: nothing under way.
@@ -505,7 +520,7 @@ public static class SupplyChain
     /// </summary>
     private static (ChainFix? Fix, string? Why) BuildMakerFix(World w, Side side, string good, Body want)
     {
-        var maker = Colonies.Kinds.Where(k => k.Makes != null && k.Makes.ContainsKey(good) && k.Buildable).OrderBy(k => k.Cost).ThenBy(k => k.Id, StringComparer.Ordinal).FirstOrDefault();
+        var maker = Colonies.Kinds.Where(k => (k.Makes != null && k.Makes.ContainsKey(good) || good == Colonies.Food && k.Food > 0 && k.Uses == null) && k.Buildable).OrderBy(k => k.Cost).ThenBy(k => k.Id, StringComparer.Ordinal).FirstOrDefault();
         var places = w.Bodies.Where(b => b.Owner == side && b.Board != null).OrderBy(b => b.Id == want.Id ? 0 : 1)
             .ThenByDescending(b => maker?.Uses?.Keys.Sum(g => Colonies.Held(b, g)) ?? 0).ThenBy(b => b.Id).ToList();
         if (maker != null)

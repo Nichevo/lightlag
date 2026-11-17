@@ -32,7 +32,7 @@ public sealed record BuildingData(string Id, string Name, string Effect, double 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
-    double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double BaseStaffK = 5, double UnsettledShare = 0.5,
+    double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double SettlerFoodDays = 25, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
     double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30, double LandAfterBlockadeDays = 20,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,
@@ -256,39 +256,18 @@ public static class Planets
     }
 
     /// <summary>
-    /// Food: your planets that are not blockaded share one pool (their stores are filled and drawn down
-    /// together); a blockaded planet lives off its own farms and store. Neutral planets feed themselves.
+    /// Food: each world eats from its own store, filled by its farms and by freighters (food is a good like
+    /// the others), up to its store's room. Worlds without farms must be fed by runs. Neutral planets feed themselves.
     /// </summary>
     private static void Food(World w)
     {
         foreach (var side in Sides.InPlay(w))
-        {
-            var mine = w.Bodies.Where(b => b.Owner == side).ToList();
-            var linked = mine.Where(b => !Economy.Blockaded(w, b)).ToList();
-            double made = 0, need = 0, stock = 0, room = 0;
-            foreach (var b in linked)
-            {
-                made += FoodMadePerDay(b);
-                need += FoodNeedPerDay(b);
-                stock += b.FoodStock;
-                room += FoodNeedPerDay(b) * D.FoodStockDays;
-            }
-            var after = stock + (made - need) / 24;
-            var hungry = after < 0 && need > 0;
-            after = Math.Clamp(after, 0, room);
-            foreach (var b in linked)
-            {
-                var share = room > 0 ? FoodNeedPerDay(b) * D.FoodStockDays / room : 0;
-                b.FoodStock = after * share;
-                SetHungry(b, hungry && b.PopK > 0);
-            }
-            foreach (var b in mine.Where(b => Economy.Blockaded(w, b)))
+            foreach (var b in w.Bodies.Where(b => b.Owner == side))
             {
                 var left = b.FoodStock + (FoodMadePerDay(b) - FoodNeedPerDay(b)) / 24;
                 SetHungry(b, left < 0 && b.PopK > 0);
-                b.FoodStock = Math.Clamp(left, 0, FoodNeedPerDay(b) * D.FoodStockDays);
+                b.FoodStock = Math.Clamp(left, 0, Math.Max(b.FoodStock, Colonies.StoreCap(b, Colonies.Food)));
             }
-        }
         foreach (var b in w.Bodies.Where(b => b.Owner == null)) SetHungry(b, false);
     }
 
@@ -1036,7 +1015,6 @@ public static class Planets
             to.OwnShare = to.PopK > 0 ? to.OwnShare : 1;
             to.ClaimSide = null;
             to.ClaimHours = 0;
-            to.FoodStock = 0;
             Economy.Of(w, f.Side).Totals.PlanetsClaimed++;
             sim.Log.Info("planets", $"{f.Side} settles {to.Name}", new { bodyId = to.Id, side = f.Side.ToString(), fleetId = f.Id });
         }
@@ -1051,6 +1029,8 @@ public static class Planets
         // Settlers are the holder's own people: they raise the share who are loyal.
         to.OwnShare = (to.OwnShare * to.PopK + landed) / Math.Max(1e-9, to.PopK + landed);
         to.PopK += landed;
+        // Settlers bring food for their first weeks, so a new world has time before its first food run.
+        to.FoodStock += landed * D.FoodPerKPerDay * Races.Get(to.PeopleRace).FoodNeed * to.EatTech * D.SettlerFoodDays;
         if (to.PopK > 0) to.Abandoned = false; // people live here again
     }
 

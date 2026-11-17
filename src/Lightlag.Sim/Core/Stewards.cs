@@ -714,6 +714,9 @@ public static class Stewards
                 var level = p.Kind switch
                 {
                     ProblemKind.Risk => p.Severity >= (int)RouteRisk.High ? NeedLevel.Urgent : NeedLevel.Soon,
+                    // A world running out of food: Urgent in its last 3 days (hungry people start to leave).
+                    ProblemKind.Short when p.Good == Colonies.Food && p.BodyId is int fb && _w.FindBody(fb) is Body fw
+                                           && SupplyChain.FoodLeftDays(fw) is double left && left < 3 => NeedLevel.Urgent,
                     ProblemKind.Short or ProblemKind.Soon => NeedLevel.Soon,
                     _ => NeedLevel.Advice,
                 };

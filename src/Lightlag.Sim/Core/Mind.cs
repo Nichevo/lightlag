@@ -513,6 +513,7 @@ public static class Mind
             }
             SupplyRuns();
             Routes();
+            FoodRuns();
             Settle();
             Siege();
             Spend();
@@ -771,11 +772,26 @@ public static class Mind
             foreach (var b in _w.Bodies.Where(b => b.Owner == _side && b.Id != _home.Id && b.Board != null).OrderBy(b => b.Id))
             {
                 if (_w.FixedRuns.Any(r => r.Side == _side && r.FromBodyId == b.Id)) continue;
-                var good = Colonies.Goods.Select(g => g.Id).Where(g => g != "spares" && Colonies.MadePerDay(b, g) > 0.2)
+                var good = Colonies.Goods.Select(g => g.Id).Where(g => g != "spares" && g != Colonies.Food && Colonies.MadePerDay(b, g) > 0.2)
                     .OrderByDescending(g => Colonies.MadePerDay(b, g)).FirstOrDefault();
                 if (good == null) continue;
                 Do(new FixedRunCommand(_side, b.Id, _home.Id, good, 20));
                 Note($"Sets a run carrying {good} from {b.Name} home");
+            }
+        }
+
+        /// <summary>
+        /// Worlds that eat more than they grow get a standing food run from a world with food to spare (as the
+        /// player's transport automation sets up), and a food run whose shortage has ended is stopped.
+        /// </summary>
+        private void FoodRuns()
+        {
+            foreach (var run in _w.FixedRuns.Where(r => r.Side == _side && r.Auto && r.Good == Colonies.Food).OrderBy(r => r.Id).ToList())
+                if (ShortRuns.RetireWhy(_w, run) != null) Do(new FixedRunCommand(_side, 0, 0, "", 0, RemoveRunId: run.Id));
+            foreach (var plan in ShortRuns.Wanted(_w, _side).Where(p => p.Good == Colonies.Food).Take(2))
+            {
+                Do(new FixedRunCommand(_side, plan.From.Id, plan.To.Id, plan.Good, plan.EveryDays, Auto: true, Why: plan.Why));
+                Note($"Sets a food run from {plan.From.Name} to {plan.To.Name}");
             }
         }
 
