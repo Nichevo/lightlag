@@ -70,7 +70,7 @@ public partial class Main : Node
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
         var args = OS.GetCmdlineUserArgs();
-        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=") || a.StartsWith("--fix-shots=")));
+        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=") || a.StartsWith("--fix-shots=")) && !args.Contains("--tray-probe"));
         PlayerInfo.Load(Paths.Root);
         PauseSettings.Load(Paths.Root);
         RivalAdvisor.Load(Paths.Root);
@@ -84,6 +84,11 @@ public partial class Main : Node
         {
             // Only the top bar and Needs you pictures (quicker than the whole set while working on them).
             _ = TakeBarShots(barShots["--bar-shots=".Length..].Trim('"'));
+            return;
+        }
+        if (OS.GetCmdlineUserArgs().Contains("--tray-probe"))
+        {
+            _ = TrayProbe();
             return;
         }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--budget-shots=")) is string budgetShots)
@@ -659,6 +664,42 @@ public partial class Main : Node
         await shoot("battle-view-folded");
         game.ToggleBattleFold();
         game.CloseBattle();
+    }
+
+    /// <summary>
+    /// --tray-probe: plays a new game at speed with the Needs you tray open and checks its height every frame.
+    /// A one-frame jump (taller for a single frame, then back) is the rebuild flicker; prints TRAY PROBE PASSED or FAILED.
+    /// </summary>
+    private async Task TrayProbe()
+    {
+        var failures = new List<string>();
+        try
+        {
+            RandomStartsChoice = false;
+            StartNewGame(9);
+            var game = (GameScreen)_screen!;
+            var me = Lightlag.Sim.Core.Side.Player;
+            Sim!.Issue(new SetAutoLevelCommand(me, AutoArea.Building, AutoLevel.Auto));
+            Sim.ApplyPending();
+            Sim.StepMany(3 * GameTime.TicksPerDay);
+            if (game.Paused) game.TogglePause();
+            game.SetSpeed(GameScreen.Speeds.Length - 1);
+            game.Hud.TrayOpen = true;
+            var heights = new List<float>();
+            for (var i = 0; i < 900; i++)
+            {
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                heights.Add(game.Hud.TrayHeight);
+            }
+            for (var i = 1; i + 1 < heights.Count; i++)
+                if (heights[i] > heights[i - 1] + 20 && heights[i] > heights[i + 1] + 20)
+                    failures.Add($"frame {i}: {heights[i - 1]:0} -> {heights[i]:0} -> {heights[i + 1]:0}");
+            GD.Print($"Tray probe: {heights.Count} frames, heights {heights.Min():0}-{heights.Max():0}, {failures.Count} one-frame jumps");
+        }
+        catch (Exception e) { failures.Add(e.ToString()); }
+        foreach (var f in failures.Take(10)) GD.Print("  " + f);
+        GD.Print(failures.Count == 0 ? "TRAY PROBE PASSED" : "TRAY PROBE FAILED");
+        GetTree().Quit(failures.Count == 0 ? 0 : 1);
     }
 
     private async Task TakeBarShots(string dir)

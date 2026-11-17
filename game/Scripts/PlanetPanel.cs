@@ -17,7 +17,7 @@ public partial class PlanetPanel : PanelContainer
     private OptionButton _autoBuild = null!;
     private HBoxContainer _autoRow = null!;
     private string _autoShape = "";
-    private MenuButton _settle = null!, _satellite = null!;
+    private MenuButton _settle = null!, _satellite = null!, _survey = null!;
     private CheckButton _topUp = null!;
     private int _bodyId;
 
@@ -80,6 +80,12 @@ public partial class PlanetPanel : PanelContainer
         _settle.GetPopup().IdPressed += id => Main.Instance.RunGuarded("settle", () =>
             _screen.IssueNow(new SettleCommand(Side.Player, _bodyId, id == Ui.MenuNone ? null : (int)id), "settle"));
         _people.AddChild(_settle);
+        _survey = new MenuButton { Text = "Survey ▾", Flat = false, FocusMode = FocusModeEnum.None,
+            TooltipText = "Send a fleet to hold orbit here until it has surveyed the world (a day). Your scout surveys on its own" };
+        _survey.AddThemeFontSizeOverride("font_size", 14);
+        _survey.AboutToPopup += FillSurveyMenu;
+        _survey.GetPopup().IdPressed += id => Main.Instance.RunGuarded("survey", () => SendToSurvey((int)id));
+        _people.AddChild(_survey);
         _topUp = new CheckButton { Text = "Auto top-up", FocusMode = FocusModeEnum.None,
             TooltipText = "Settlers are ordered for this planet by themselves, one ship at a time, until it is nearly full" };
         _topUp.AddThemeFontSizeOverride("font_size", 14);
@@ -101,12 +107,41 @@ public partial class PlanetPanel : PanelContainer
             popup.SetItemDisabled(popup.ItemCount - 1, true);
             popup.AddItem($"Trip risk: {src.Risk} ({src.RiskWhy})", Ui.MenuNone - 2);
             popup.SetItemDisabled(popup.ItemCount - 1, true);
+            popup.AddItem($"Price: {Planets.SettlerPriceWhy(w, Side.Player)}", Ui.MenuNone - 3);
+            popup.SetItemDisabled(popup.ItemCount - 1, true);
+            if (w.FindBody(_bodyId) is Body to && Planets.UpkeepIf(w, Side.Player, to) is var up && up > 0.005)
+            {
+                popup.AddItem($"Upkeep once settled: {up:0.##} Industry a day (far from your hubs)", Ui.MenuNone - 4);
+                popup.SetItemDisabled(popup.ItemCount - 1, true);
+            }
             popup.AddSeparator();
         }
         var src2 = Planets.SettleSource(w, Side.Player, _bodyId);
         popup.AddItem("Send settlers (no escort)" + (src2 != null ? $" · risk {src2.Risk}" : ""), Ui.MenuNone);
         foreach (var f in w.Fleets.Where(f => f.Side == Side.Player && f.PeopleRun == null && Combat.Armed(w, f)).OrderBy(f => f.Id))
             popup.AddItem($"Send settlers, escorted by {f.Name} ({f.ShipIds.Count} ships)" + (src2 != null ? $" · risk {src2.EscortedRisk}" : ""), f.Id);
+    }
+
+    /// <summary>Fleets that could go and survey: any of yours not on the Scout role (the scout picks its own stops) or carrying settlers.</summary>
+    private void FillSurveyMenu()
+    {
+        var popup = _survey.GetPopup();
+        popup.Clear();
+        var w = Main.Instance.Sim!.World;
+        foreach (var f in w.Fleets.Where(f => f.Side == Side.Player && f.ShipIds.Count > 0 && f.Role != FleetRole.Scout && f.PeopleRun == null).OrderBy(f => f.Id))
+            popup.AddItem($"{f.Name} ({f.ShipIds.Count} ships)", f.Id);
+        if (popup.ItemCount == 0)
+        {
+            popup.AddItem("No free fleet: your scout surveys on its own", Ui.MenuNone);
+            popup.SetItemDisabled(0, true);
+        }
+    }
+
+    private void SendToSurvey(int fleetId)
+    {
+        var w = Main.Instance.Sim!.World;
+        if (fleetId == Ui.MenuNone || w.FindBody(_bodyId) is not Body b) return;
+        _screen.IssueNow(new PlanFlightCommand(fleetId, new FlightRequest(b.Id, b.Position, 0.6, ArrivalStyle.Brake, HoldStyle.Orbit, w.Tick)), "survey");
     }
 
     /// <summary>Menu ids: kind index times 3 plus the spot.</summary>
@@ -160,11 +195,13 @@ public partial class PlanetPanel : PanelContainer
             _ => b.PopK > 0 ? "Independent: hold orbit to win it over" : "Nobody's",
         });
         var cap = Planets.Cap(b);
-        if (cap <= 0) lines.Add("Nobody can live here (a giant): it can be held, but not settled");
+        if (cap <= 0) lines.Add(owner == null && b.Industry > 0
+            ? "Nobody can live here (a giant): build a helium-3 skimmer over it to take it (needs a survey first)"
+            : "Nobody can live here (a giant): it can be held, but not settled");
         else if (b.PopK <= 0 && b.Abandoned && owner != null)
             lines.Add("ABANDONED: its hungry people left. It makes nothing until settlers land" + (mine ? " (settle it from here)" : ""));
         else if (b.PopK <= 0)
-            lines.Add($"Empty: room for {cap:0}k people. " + (mine ? $"Makes half its industry ({b.Industry * Planets.D.UnsettledShare:0.#}/day) until settlers arrive" : "Settle it from here (a settler ship is built at your shipyard)"));
+            lines.Add($"Empty: room for {cap:0}k people. " + (mine ? "It makes nothing until settlers land" : "Settle it from here (a settler ship is built at your shipyard)"));
         else
         {
             var growth = b.Hungry ? (b.LeavingK > 0 ? "shrinking: HUNGRY, people leaving" : "shrinking: HUNGRY") : b.PopK >= cap * 0.99 ? "full" : "growing";
@@ -181,7 +218,7 @@ public partial class PlanetPanel : PanelContainer
             var need = Planets.FoodNeedPerDay(b);
             var cut = Economy.Blockaded(w, b);
             lines.Add($"Food: grows {made:0.##}, eats {need:0.##} a day · store {(need > 0 ? b.FoodStock / need : 0):0} days"
-                      + (cut ? " · BLOCKADED: living off its own farms and store" : " · shared with your other planets"));
+                      + (cut ? " · BLOCKADED: no food ships get in" : made < need ? " · FED BY FREIGHTERS (it grows less than it eats)" : ""));
             if (mine && Planets.LeavingNote(w, b) is string leaving) lines.Add(leaving);
             if (mine && b.NewcomersK > 0.05) lines.Add($"Newcomers: {b.NewcomersK:0.#}k hungry people from other worlds settling in");
             lines.Add($"Industry {Planets.IndustryPerDay(w, b):0.#} a day · staffed {Planets.Staffing(b):P0} (needs {Planets.StaffNeeded(b):0.#}k)"
@@ -190,7 +227,14 @@ public partial class PlanetPanel : PanelContainer
         else if (owner != null && cap <= 0 && b.Industry > 0)
             lines.Add($"Industry {Planets.IndustryPerDay(w, b):0.#} a day");
         else if (owner == null && b.Industry > 0)
-            lines.Add($"Worth {b.Industry:0} Industry a day once settled (half that while it is only held)");
+            lines.Add($"Worth {b.Industry:0} Industry a day once settled");
+        if (mine && Planets.UpkeepOf(w, b) is var upkeep && upkeep > 0.005 && Planets.NearestHub(w, Side.Player, b) is var (hub, hubAu))
+            lines.Add($"Upkeep {upkeep:0.##} Industry a day: {hubAu:0.##} AU from {hub.Name}, your nearest hub (free within {Planets.D.UpkeepFreeAu:0.#} AU of home, a shipyard or a starbase)");
+        // Surveys: a side must survey an empty world before it can settle it (or skim it); a survey never claims it.
+        if (owner == null && b.Industry > 0 && b.Kind != BodyKind.Star)
+            lines.Add(b.Surveyed[(int)Side.Player] ? "Surveyed by you"
+                : b.SurveyHours[(int)Side.Player] > 0 ? $"SURVEY under way: {Math.Max(0, Research.T.SurveyHours - b.SurveyHours[(int)Side.Player]):0} h left in orbit"
+                : $"NOT SURVEYED: a ship must hold orbit here {Research.T.SurveyHours:0} h before settlers can go (your scout does this by itself, or use Survey)");
         if (b.Buildings.Count > 0 || b.Building != null || (mine && b.PopK > 0))
         {
             var built = b.Buildings.GroupBy(x => x).Select(g => $"{Planets.BuildingKind(g.Key)?.Name ?? g.Key} ×{g.Count()}");
@@ -230,8 +274,8 @@ public partial class PlanetPanel : PanelContainer
         }
         else if (owner == null && b.Industry > 0 && b.PopK <= 0 && b.ClaimSide is Side claimer)
             lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days");
-        else if (owner != Side.Player && b.Industry > 0 && b.PopK <= 0 && !b.Shipyard)
-            lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it" + (cap > 0 && owner == null ? ", or land settlers to take it at once" : ""));
+        else if (owner is Side.Rival or Side.Third && b.Industry > 0 && b.PopK <= 0 && !b.Shipyard)
+            lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to take it" + (cap > 0 ? ", or land settlers to take it at once" : ""));
         if (b.Shipyard && owner is Side.Rival or Side.Third && Economy.BombardStatus(w, b, Side.Player) is string attack) lines.Add("Shipyard: " + attack);
         if (w.Loop && Planets.SettlerStatus(w, Side.Player, b.Id) is string settlers) lines.Add("SETTLERS: " + settlers);
         if (w.Loop && mine && b.Board != null) lines.Add(Lift.Describe(w, b));
@@ -273,10 +317,11 @@ public partial class PlanetPanel : PanelContainer
             _settle.Disabled = why != null;
             _settle.Text = Planets.SettleSource(w, Side.Player, b.Id) is { } from ? $"Settle from {from.From.Name} ▾" : "Settle ▾";
             _settle.TooltipText = (why != null ? why + ". " : "")
-                + $"The shipyard builds a settler ship ({cls.Cost:0} Industry, {cls.Cost / GameData.Economy.BuildIndustryPerDay:0.#} days). It takes up to {cls.Cargo:0}k people from "
+                + $"The shipyard builds a settler ship: {Planets.SettlerPriceWhy(w, Side.Player)}. It takes up to {cls.Cargo:0}k people (fewer to a small world) from "
                 + $"{Economy.ShipyardOf(w, Side.Player)?.Name ?? "the shipyard planet"}, flies here and lands for good. On the way it can be blockaded or shot down: "
                 + "pick a fleet to escort it, and that fleet comes to fetch it, flies out with it and stays in orbit here";
             _topUp.Visible = mine;
+            _survey.Visible = owner == null && !b.Surveyed[(int)Side.Player];
             _topUp.SetPressedNoSignal(b.AutoTopUp);
         }
     }

@@ -89,7 +89,7 @@ public partial class EmpirePanel : PanelContainer
     /// <summary>The Supply view is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
     private void RebuildSupply(Simulation sim)
     {
-        foreach (var c in _box.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_box);
         _live.Clear();
         _box.CustomMinimumSize = new Vector2(SupplyTab.Width, 0);
         Header("Supply", "The supply chain: where goods come from and go, routes and their risk, problems with fixes, stock targets and siege mode", "G");
@@ -100,7 +100,7 @@ public partial class EmpirePanel : PanelContainer
     private void Rebuild(World w)
     {
         _box.CustomMinimumSize = new Vector2(Width, 0);
-        foreach (var c in _box.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_box);
         _live.Clear();
         switch (_tab)
         {

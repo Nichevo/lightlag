@@ -27,6 +27,7 @@ public class ColonyTests
         b.Owner = Side.Player;
         b.PopK = popK;
         b.OwnShare = 1;
+        b.FoodStock = 20; // food for a long while, so food runs to it don't get mixed into these tests
         return b;
     }
 

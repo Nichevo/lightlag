@@ -251,8 +251,15 @@ public sealed class Body
     /// <summary>Share of the people here who are the holder's own (settlers raise it; a taken planet starts at 0).</summary>
     public double OwnShare { get; set; } = 1;
 
-    /// <summary>Food stored here, in days of what the people eat. A blockaded planet lives off it.</summary>
-    public double FoodStock { get; set; }
+    /// <summary>
+    /// Food stored here (the "food" good). Each world eats from its own store; farmless worlds are fed by freighters.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double FoodStock { get => Stock.TryGetValue(Colonies.Food, out var v) ? v : 0; set => Stock[Colonies.Food] = value; }
+
+    /// <summary>Saves from before food was a good kept it here; moved into Stock when such a save loads (Simulation.FromSave).</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("foodStock")]
+    public double? SavedFoodStock { get; set; }
 
     /// <summary>The race of the people here: their holder's, kept in step each hour (see Planets.SyncRaces). Hive people eat more and grow faster.</summary>
     public string PeopleRace { get; set; } = Races.Human;

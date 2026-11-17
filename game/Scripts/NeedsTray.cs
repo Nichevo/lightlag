@@ -197,7 +197,7 @@ public partial class NeedsTray : PanelContainer
             _live.Clear();
             _rows.Clear();
             _styledSelected = "\u0001";
-            foreach (var c in _root.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_root);
             Build(w, state, today);
         }
         if (_scroll == null) return; // not built yet (a mouse button was held)
@@ -475,7 +475,7 @@ public partial class AutomationMenu : PanelContainer
         var shape = EmpireTabs.AutomationShape(w) + "|" + string.Join(",", state.MutedKinds) + "|" + string.Join(",", state.AutoScores.Select(kv => $"{kv.Key}{kv.Value.Good}{kv.Value.Bad}"));
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
-        foreach (var c in _root.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_root);
         var head = new HBoxContainer();
         head.AddChild(Ui.Label("Automation", 17, Ui.Player));
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });

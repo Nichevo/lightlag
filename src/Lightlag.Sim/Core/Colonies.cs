@@ -164,7 +164,7 @@ public static class Colonies
     public static ColoniesData C => GameData.Economy.Colonies ?? new ColoniesData();
     private static PlanetsData D => Planets.D;
 
-    public const string Spares = "spares", Fuel = "fuel", Shipyard = "shipyard";
+    public const string Spares = "spares", Fuel = "fuel", Shipyard = "shipyard", Food = "food";
 
     public static readonly string[] Areas = { "food", "power", "defence", "shipyard", "industry", "research", "housing" };
 
@@ -824,7 +824,10 @@ public static class Colonies
 
     /// <summary>How much of a good the planet can hold: its storage days of what it uses, or of what it makes, at least 50.</summary>
     public static double StoreCap(Body b, string good, double? days = null) =>
-        Math.Max(50, (days ?? StoreDaysOf(b)) * Math.Max(UsePerDay(b, good), MadePerDay(b, good)));
+        Math.Max(50, (days ?? StoreDaysOf(b)) * (good == Food ? FoodStoreFactor : 1) * Math.Max(UsePerDay(b, good), MadePerDay(b, good)));
+
+    /// <summary>Food keeps: a world stores twice its usual days of it, so a farming world can hold a siege's worth and still have some to ship.</summary>
+    public const double FoodStoreFactor = 2;
 
     private static bool NeedsWater(World w, Body b) =>
         Planets.TypeOf(b).Farm <= 0 && !b.Home && b.Owner is Side side && !Tech.Has(w, side, "sealed-habitats") && Races.Get(b.PeopleRace).Eats
@@ -998,7 +1001,7 @@ public static class Colonies
     /// <summary>A good made here per day (at the current staffing, power and repair).</summary>
     public static double MadePerDay(Body b, string good)
     {
-        var total = 0.0;
+        var total = good == Food ? Planets.FoodMadePerDay(b) : 0.0;
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
@@ -1012,7 +1015,7 @@ public static class Colonies
     /// <summary>A good used here per day (inputs and upkeep).</summary>
     public static double UsePerDay(Body b, string good)
     {
-        var total = b.FuelUse.TryGetValue(good, out var drawn) ? drawn : 0;
+        var total = (b.FuelUse.TryGetValue(good, out var drawn) ? drawn : 0) + (good == Food ? Planets.FoodNeedPerDay(b) : 0);
         foreach (var p in Built(b))
         {
             if (Planets.BuildingKind(p.Kind) is not BuildingData data) continue;
@@ -1049,7 +1052,8 @@ public static class Colonies
         var target = Target(b, good);
         var rule = b.StockRules.Count > 0 && b.StockRules.TryGetValue(good, out var r) ? r : null;
         upTo = Math.Max(Math.Max(target * 1.5, 20), rule?.ImportBelow * 1.5 ?? 0);
-        if (target <= 0.5 && rule?.ImportBelow == null) return false;
+        // A handful is not worth a freighter, except food: even a small colony without farms starves without it.
+        if (target <= 0.5 && rule?.ImportBelow == null && !(good == Food && UsePerDay(b, Food) > MadePerDay(b, Food))) return false;
         return Held(b, good) < SupplyChain.AskLine(b, good) || Held(b, good) < Want(b, good) - 1e-6;
     }
 
@@ -1336,8 +1340,10 @@ public static class Colonies
     private static void FixedRuns(Simulation sim, Side side)
     {
         var w = sim.World;
-        // Most overdue first, so one freighter serves the runs one after another until more are built.
-        foreach (var run in w.FixedRuns.Where(r => r.Side == side && w.Hour >= r.NextHour).OrderBy(r => r.NextHour).ThenBy(r => r.Id).ToList())
+        // Food to a world about to run dry first (it goes hungry at once); then most overdue first, so one freighter
+        // serves the runs one after another until more are built.
+        foreach (var run in w.FixedRuns.Where(r => r.Side == side && w.Hour >= r.NextHour)
+                     .OrderBy(r => ShortRuns.FoodUrgent(w, r) ? 0 : 1).ThenBy(r => r.NextHour).ThenBy(r => r.Id).ToList())
         {
             if (w.FindBody(run.FromBodyId) is not Body from || w.FindBody(run.ToBodyId) is not Body to || from.Owner != side || to.Owner != side)
             {
@@ -1345,6 +1351,9 @@ public static class Colonies
                 continue;
             }
             if (w.Shipments.Any(s => s.RunId == run.Id)) continue;
+            // An Auto food run waits while the world still has a good store, so the freighter isn't sent a long way
+            // with a few days' food while another world runs dry.
+            if (run.Auto && run.Good == Food && !ShortRuns.FoodLow(w, run)) continue;
             var fleet = FreeHaulers(w, side).OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).FirstOrDefault();
             if (fleet == null)
             {

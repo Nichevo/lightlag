@@ -288,7 +288,7 @@ public partial class BattleScreen : Control
         var key = string.Join(",", fleets.Select(f => $"{f.Id}:{f.Name}")) + $"|{lit}";
         if (key == _tabsKey || Ui.MouseHeld) return;
         _tabsKey = key;
-        foreach (var c in _tabs.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_tabs);
         _tabs.Visible = fleets.Count > 1;
         if (fleets.Count < 2) return;
         _tabs.AddChild(Ui.Label("for", 12, Ui.Dim));
@@ -440,7 +440,7 @@ public partial class BattleScreen : Control
         var key = $"{open}|" + string.Join("\n", rows.Select(x => $"{x.Color}{x.Text}"));
         if (key == _legendKey || Ui.MouseHeld) return;
         _legendKey = key;
-        foreach (var c in _legend.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_legend);
         foreach (var (color, text, onScreen, dashed) in rows)
         {
             var row = new HBoxContainer();

@@ -12,6 +12,7 @@ public class SettleSourceTests
         var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory(), options: new GameOptions { Events = EventRate.Off });
         sim.World.Minds.Clear();
         var w = sim.World;
+        w.SurveyAll();
         var yard = Economy.ShipyardOf(w, Side.Player)!;
         var to = w.Bodies.Where(b => b.Owner == null && b.PopK <= 0 && Planets.Settleable(b) && Planets.CanSettle(w, Side.Player, b.Id) == null)
             .OrderBy(b => b.Id).First();
@@ -32,6 +33,7 @@ public class SettleSourceTests
         var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory(), options: new GameOptions { Events = EventRate.Off });
         sim.World.Minds.Clear();
         var w = sim.World;
+        w.SurveyAll();
         var to = w.Bodies.Where(b => b.Owner == null && b.PopK <= 0 && Planets.Settleable(b) && Planets.CanSettle(w, Side.Player, b.Id) == null)
             .OrderBy(b => b.Id).First();
         var before = Planets.SettleSource(w, Side.Player, to.Id)!;

@@ -7,12 +7,12 @@ public static class Starts
 {
     /// <summary>
     /// The start without the supply tenders (the one in each war fleet and the home transport) and the starting
-    /// freighter, for tests written about fleet mechanics with the plain three-warship fleets.
+    /// freighter and scout, for tests written about fleet mechanics with the plain three-warship fleets.
     /// </summary>
     public static Simulation Classic(Simulation sim)
     {
         var w = sim.World;
-        foreach (var s in w.Ships.Where(s => s.ClassId is "supply-tender" or "freighter").ToList())
+        foreach (var s in w.Ships.Where(s => s.ClassId is "supply-tender" or "freighter" or "scout").ToList())
         {
             w.FleetOf(s)?.ShipIds.Remove(s.Id);
             w.Ships.Remove(s);

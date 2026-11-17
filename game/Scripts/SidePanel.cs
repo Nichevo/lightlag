@@ -117,7 +117,7 @@ public partial class SidePanel : PanelContainer
         var shape = string.Join("|", rows.Select(r => $"{r.Group}{r.Id}{r.Title}{r.Badge}{r.Line}")) + "#" + selected;
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
-        foreach (var c in _rows.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_rows);
         string? group = null;
         foreach (var r in rows)
         {

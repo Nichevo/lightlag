@@ -51,7 +51,7 @@ public partial class OurShipsColumn : VBoxContainer
         {
             _key = key;
             _live.Clear();
-            foreach (var c in _list.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_list);
             var compact = ships.Count > CompactOver;
             if (compact) _list.AddChild(Ui.Label("Bars: Hull · Weapons · Engines · Defence · Crew · Heat (hover a ship for more)", 10, Ui.Dim));
             foreach (var f in fleets)
@@ -339,7 +339,7 @@ public partial class EnemyColumn : VBoxContainer
         {
             _key = key;
             _live.Clear();
-            foreach (var c in _list.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_list);
             foreach (var s in sightings) Fill(w, s);
             if (sightings.Count == 0) _list.AddChild(Ui.Label("No enemy fleet in sight or on record here", 12, Ui.Dim));
         }

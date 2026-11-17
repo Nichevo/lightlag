@@ -246,7 +246,7 @@ public partial class NeedCards : PanelContainer
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
-            foreach (var c in _root.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_root);
             Build(w);
         }
         if (_current != null && IsInstanceValid(_bites)) _bites.Text = NeedsUi.Meta(w, _current);

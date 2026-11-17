@@ -37,7 +37,7 @@ public partial class ContactsPanel : PanelContainer
         {
             _key = key;
             _live.Clear();
-            foreach (var c in _rows.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_rows);
             _rows.AddChild(Ui.Label("Coming contacts", 13, Ui.Dim));
             foreach (var p in list)
             {

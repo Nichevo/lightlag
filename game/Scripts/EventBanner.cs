@@ -42,7 +42,7 @@ public partial class EventBanner : PanelContainer
         {
             _shape = shape;
             _times.Clear();
-            foreach (var c in _row.GetChildren()) c.QueueFree();
+            Ui.ClearChildren(_row);
             foreach (var e in list)
             {
                 var item = new HBoxContainer();

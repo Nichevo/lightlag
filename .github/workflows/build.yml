@@ -92,6 +92,11 @@ jobs:
           godot/godot --headless --path game -- --smoke-test --data-dir="$PWD/smoke-data" | tee smoke.log
           grep -q "SMOKE TEST PASSED" smoke.log
 
+      - name: Needs you tray probe (no one-frame size jumps)
+        run: |
+          godot/godot --headless --path game -- --tray-probe --data-dir="$PWD/probe-data" | tee probe.log
+          grep -q "TRAY PROBE PASSED" probe.log
+
       - name: Screenshots of the map (virtual screen)
         continue-on-error: true
         run: |

@@ -55,6 +55,12 @@ public sealed class RuleBook
         .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
             .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
+        // A flight with nothing to fly ends when its hour comes (one once stayed "flying" for ever, so the freighter was never free).
+        .Add("empty-flights-end", w => w.Fleets.Where(f => f.Flight is { Legs.Count: 0 } fl && w.Hour > fl.ArriveHour + 1)
+            .Select(f => $"{f.Name} has a flight with no legs that should have ended at hour {f.Flight!.ArriveHour:0.#}").ToArray())
+        // Food is kept per world (each eats from its own store): never below zero, and never a number that isn't one.
+        .Add("food-per-world-sane", w => w.Bodies.Where(b => !(b.FoodStock >= 0) || double.IsInfinity(b.FoodStock))
+            .Select(b => $"{b.Name} holds {b.FoodStock} food").ToArray())
         .Add("needs-respect-snoozes", w => w.Sides.SelectMany(state => state.Needs
                 .Where(n => state.MutedKinds.Contains(NeedKinds.KindOf(n.Key)) || state.SnoozedText.TryGetValue(n.Key, out var t) && t == n.Text)
                 .Select(n => $"{n.Key} shows though it was snoozed or its kind muted")).ToArray())

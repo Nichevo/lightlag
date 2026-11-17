@@ -8,6 +8,20 @@ namespace Lightlag.Game;
 public static class Ui
 {
     /// <summary>
+    /// Removes a node's children from the tree at once and frees them at the end of the frame. QueueFree alone
+    /// leaves them in place until then, so a panel rebuilt in the same frame is measured with both the old and
+    /// the new children and jumps in size for one frame (the Needs you tray flicker).
+    /// </summary>
+    public static void ClearChildren(Node node)
+    {
+        foreach (var c in node.GetChildren())
+        {
+            node.RemoveChild(c);
+            c.QueueFree();
+        }
+    }
+
+    /// <summary>
     /// Menu id for a "none" choice (no escort, Auto, end the run). Not -1: PopupMenu.AddItem treats -1 as "use the
     /// item's index", so a -1 item came back as id 0 and was read as the first fleet, plan or fuel.
     /// </summary>

@@ -37,7 +37,7 @@ public partial class FittingPanel : PanelContainer
                     + "|" + (int)(Economy.Of(w, Side.Player).Industry / 10);
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
-        foreach (var c in _box.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_box);
 
         var head = new HBoxContainer();
         head.AddChild(Ui.Label($"{f.Name}: ships and fittings", 18, Ui.Player));

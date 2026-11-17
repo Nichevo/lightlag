@@ -56,7 +56,7 @@ public partial class IntelScreen : PanelContainer
         var shape = $"{_tab}|{about}|{(_tab == Tab.Contact ? $"{Contact.Score(w, Side.Player, about):0}|{w.Offers.Count(o => o.Known[0])}|{w.Offers.Count(o => o.Landed)}|{_gift}{_idea}{_amount}{_ask}{_askBody}{_broadcast}|{GameTime.DayOf(w.Tick)}" : "")}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
-        foreach (var c in _box.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_box);
         var head = new HBoxContainer();
         var title = Ui.Label("Intelligence", 22, Ui.Player);
         title.SizeFlagsHorizontal = SizeFlags.ExpandFill;

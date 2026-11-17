@@ -103,7 +103,7 @@ public partial class ResearchScreen : PanelContainer
 
     private void Rebuild(World w)
     {
-        foreach (var c in _root.GetChildren()) c.QueueFree();
+        Ui.ClearChildren(_root);
         _live.Clear();
 
         var top = new HBoxContainer();

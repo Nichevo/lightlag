@@ -53,7 +53,7 @@ public partial class TitleBackdrop : Node2D
     {
         _failed = true;
         Main.Instance.Log.Warn("ui", "Title backdrop stopped", new { error = ex.Message });
-        foreach (var c in GetChildren()) c.QueueFree();
+        Ui.ClearChildren(this);
     }
 
     /// <summary>Drift: a slow circle round the inner system, the zoom breathing in and out.</summary>
