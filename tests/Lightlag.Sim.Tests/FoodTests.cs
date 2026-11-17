@@ -85,6 +85,37 @@ public class FoodTests
     }
 
     [Fact]
+    public void A_flight_with_nothing_to_fly_ends_so_a_freighter_at_home_is_free_again()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var home = Economy.HomeOf(w, Side.Player)!;
+        var freighter = Colonies.FreeHaulers(w, Side.Player).First();
+        // Planned while already where it would stop: no legs (this once left the freighter "flying" for ever).
+        freighter.Flight = new Flight { TargetBodyId = home.Id, Target = home.Position, Arrival = ArrivalStyle.Brake, HoldAfter = HoldStyle.Orbit, DepartHour = w.Hour, ArriveHour = w.Hour };
+        Assert.DoesNotContain(Colonies.FreeHaulers(w, Side.Player), f => f.Id == freighter.Id);
+        sim.Step();
+        Assert.Null(freighter.Flight);
+        Assert.Contains(Colonies.FreeHaulers(w, Side.Player), f => f.Id == freighter.Id);
+    }
+
+    [Fact]
+    public void A_food_run_waits_while_the_world_has_a_good_store_and_goes_first_when_it_runs_low()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var (home, moon) = HomeAndMoon(w);
+        sim.Issue(new FixedRunCommand(Side.Player, home.Id, moon.Id, Colonies.Food, 10, Auto: true, Why: "test"));
+        sim.ApplyPending();
+        var run = w.FixedRuns.Single(r => r.Good == Colonies.Food && r.ToBodyId == moon.Id);
+        moon.FoodStock = Planets.FoodNeedPerDay(moon) * 50;
+        Assert.False(ShortRuns.FoodLow(w, run));
+        Assert.StartsWith("waits:", ShortRuns.Status(w, run));
+        moon.FoodStock = Planets.FoodNeedPerDay(moon) * 3;
+        Assert.True(ShortRuns.FoodUrgent(w, run));
+    }
+
+    [Fact]
     public void An_old_save_keeps_each_worlds_food()
     {
         var sim = NewGame();

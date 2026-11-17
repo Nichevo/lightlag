@@ -1340,8 +1340,10 @@ public static class Colonies
     private static void FixedRuns(Simulation sim, Side side)
     {
         var w = sim.World;
-        // Most overdue first, so one freighter serves the runs one after another until more are built.
-        foreach (var run in w.FixedRuns.Where(r => r.Side == side && w.Hour >= r.NextHour).OrderBy(r => r.NextHour).ThenBy(r => r.Id).ToList())
+        // Food to a world about to run dry first (it goes hungry at once); then most overdue first, so one freighter
+        // serves the runs one after another until more are built.
+        foreach (var run in w.FixedRuns.Where(r => r.Side == side && w.Hour >= r.NextHour)
+                     .OrderBy(r => ShortRuns.FoodUrgent(w, r) ? 0 : 1).ThenBy(r => r.NextHour).ThenBy(r => r.Id).ToList())
         {
             if (w.FindBody(run.FromBodyId) is not Body from || w.FindBody(run.ToBodyId) is not Body to || from.Owner != side || to.Owner != side)
             {
@@ -1349,6 +1351,9 @@ public static class Colonies
                 continue;
             }
             if (w.Shipments.Any(s => s.RunId == run.Id)) continue;
+            // An Auto food run waits while the world still has a good store, so the freighter isn't sent a long way
+            // with a few days' food while another world runs dry.
+            if (run.Auto && run.Good == Food && !ShortRuns.FoodLow(w, run)) continue;
             var fleet = FreeHaulers(w, side).OrderBy(f => Vec2.Distance(f.Position, from.Position)).ThenBy(f => f.Id).FirstOrDefault();
             if (fleet == null)
             {

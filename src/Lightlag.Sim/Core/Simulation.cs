@@ -401,6 +401,14 @@ public sealed class Simulation
         var dt = t1 - t0;
         foreach (var f in World.Fleets)
         {
+            // A flight planned with nothing to fly (the fleet was already where it would stop) ends once its hour
+            // comes; left alone it never did, and the fleet showed "flying" for ever (a freighter so stuck at home
+            // was never free for transport, and the colonies it fed starved).
+            if (f.Flight is { Legs.Count: 0 } still && t1 >= still.ArriveHour)
+            {
+                Arrive(f, still, t1);
+                continue;
+            }
             if (f.Flight is Flight flight && FlightPlanner.FlightState(flight, t1) is { } state)
             {
                 if (!flight.Started)

@@ -17,6 +17,25 @@ public static class ShortRuns
 
     public const double MinEveryDays = 7, MaxEveryDays = 30;
 
+    /// <summary>Days of eating a food run fills a world's store to (as its store allows).</summary>
+    public const double FoodRunDays = 60;
+
+    /// <summary>Days of food left at a run's world (infinite for a run of anything else, or a world that feeds itself).</summary>
+    public static double FoodDaysAt(World w, FixedRun run)
+    {
+        if (run.Good != Colonies.Food || w.FindBody(run.ToBodyId) is not Body to) return double.PositiveInfinity;
+        var net = NetUse(to, Colonies.Food);
+        return net <= 1e-9 ? double.PositiveInfinity : Colonies.Held(to, Colonies.Food) / net;
+    }
+
+    /// <summary>A food run's world is low enough for a load to be worth the trip (under half a run's fill).</summary>
+    public static bool FoodLow(World w, FixedRun run) => FoodDaysAt(w, run) < FoodRunDays / 2;
+
+    /// <summary>A food run's world runs dry within FoodUrgentDays: its run goes before any other.</summary>
+    public static bool FoodUrgent(World w, FixedRun run) => FoodDaysAt(w, run) < FoodUrgentDays;
+
+    public const double FoodUrgentDays = 10;
+
     /// <summary>Days an Auto run stopped by hand stays stopped before automation may set it up again.</summary>
     public const double StoppedDays = 60;
 
@@ -61,7 +80,10 @@ public static class ShortRuns
     public static double FillLine(Body to, string good, double everyDays)
     {
         Colonies.Asks(to, good, out var upTo);
-        return Math.Max(upTo, Math.Max(0, NetUse(to, good)) * everyDays * 2);
+        var line = Math.Max(upTo, Math.Max(0, NetUse(to, good)) * everyDays * 2);
+        // Food runs fill the store well (a world that runs dry goes hungry at once): FoodRunDays of eating, as room allows.
+        if (good == Colonies.Food) line = Math.Max(line, Math.Min(Colonies.StoreCap(to, good), NetUse(to, good) * FoodRunDays));
+        return line;
     }
 
     /// <summary>How much an Auto run's load may bring: up to the fill line, less what is already on the way.</summary>
@@ -124,6 +146,8 @@ public static class ShortRuns
         }
         if (w.Hour >= run.NextHour)
         {
+            if (run.Auto && run.Good == Colonies.Food && !FoodLow(w, run))
+                return $"waits: {w.FindBody(run.ToBodyId)?.Name} still has {FoodDaysAt(w, run):0} days of food (it loads below {FoodRunDays / 2:0})";
             if (Colonies.FreeHaulers(w, run.Side).Any()) return "due now";
             var haulers = w.Fleets.Where(f => f.Side == run.Side).Sum(f => w.ShipsOf(f).Count(SupplyLines.IsFreighter));
             var waiting = w.FixedRuns.Count(r => r.Side == run.Side && w.Hour >= r.NextHour && !w.Shipments.Any(x => x.RunId == r.Id));

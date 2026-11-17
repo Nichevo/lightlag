@@ -32,7 +32,7 @@ public sealed record BuildingData(string Id, string Name, string Effect, double 
 public sealed record PlanetsData(
     Dictionary<string, PlanetTypeData>? Types = null, double MoonCapShare = 0.3, double HomeCap = 200, double HomeStartK = 100,
     List<string>? HomeBuildings = null, double OutpostStartK = 3, List<string>? OutpostBuildings = null, double SpreadStartK = 6, double GrowthPerDay = 0.02, double StarvePerDay = 0.03,
-    double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double SettlerFoodDays = 25, double[]? SettlerCrowding = null, double UpkeepPerAu = 0.1, double UpkeepFreeAu = 0.5, double BaseStaffK = 5, double UnsettledShare = 0.5,
+    double FoodPerKPerDay = 0.01, double FarmFoodPerDay = 1, double FoodStockDays = 20, double SettlerFoodDays = 60, double[]? SettlerCrowding = null, double UpkeepPerAu = 0.1, double UpkeepFreeAu = 0.5, double BaseStaffK = 5, double UnsettledShare = 0.5,
     double LeaveAfterHungryDays = 20, double LeaveStartHungryDays = 5, double LeaveSharePerDay = 0.06, double NewcomersFadeDays = 30, double CrewKPerCost = 0.0025, double KeepAtSourceK = 5, double HappinessStart = 60,
     double HappinessPerDay = 2, double BlockadedHappinessPerDay = 1, HappinessData? Happiness = null, double SurrenderBelow = 25, double SurrenderBelowTipped = 50, double MinBlockadeDays = 30, double LandAfterBlockadeDays = 20,
     double HungryDaysToSurrender = 5, double DecayAfterDays = 30, double DecayEveryDays = 10, double GarrisonPerK = 0.02,

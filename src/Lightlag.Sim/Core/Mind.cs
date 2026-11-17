@@ -489,6 +489,7 @@ public static class Mind
             CleanJobs();
             foreach (var f in Mine().ToList()) CheckFleet(f);
             MergeAtHome();
+            SplitHaulers();
             var threatened = DefendHome(out var covered);
             if (threatened && covered)
             {
@@ -731,8 +732,22 @@ public static class Mind
         private IEnumerable<Fleet> Mine() => _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && !SupplyOnly(f));
 
         /// <summary>A fleet of only tankers, freighters and colony ships: it runs supplies or people and is left out of the fighting.</summary>
-        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && (_w.ShipsOf(f).All(s => SupplyLines.IsSupplyShip(s) || Planets.IsColonyShip(s))
+        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && (_w.ShipsOf(f).All(s => SupplyLines.IsSupplyShip(s) || SupplyLines.IsFreighter(s) || Planets.IsColonyShip(s))
                                                                     || f.Role == FleetRole.Scout); // the scout works on its own (Scouting)
+
+        /// <summary>
+        /// Freighters built into the home fleet split off at once, on their own, for Auto transport (food to the
+        /// colonies above all): left in, they were taken along on jobs (one as a probe) and colonies starved.
+        /// </summary>
+        private void SplitHaulers()
+        {
+            foreach (var f in Mine().Where(f => AtHome(f) && !Busy(f)).ToList())
+            {
+                var freighters = _w.ShipsOf(f).Where(SupplyLines.IsFreighter).ToList();
+                if (freighters.Count > 0 && freighters.Count < f.ShipIds.Count && SplitOff(f, freighters) is Fleet haul)
+                    Note($"{haul.Name} splits off to carry goods between planets");
+            }
+        }
 
         /// <summary>
         /// Tankers launched into the home fleet split off and run supplies (Auto) to the largest fleet out on a
@@ -1620,15 +1635,23 @@ public static class Mind
         /// What to build next: one tanker once there are a few warships and none to top them up, otherwise
         /// frigates and destroyers in the personality's mix, now and then a cruiser or an escort once researched.
         /// </summary>
+        /// <summary>Its colonies that grow less food than they eat (they live on food shipped in).</summary>
+        private int FedColonies() =>
+            _w.Bodies.Count(b => b.Owner == _side && b.PopK > 0 && !b.Home && Planets.FoodMadePerDay(b) < Planets.FoodNeedPerDay(b));
+
         private string PickHull(List<WorkOrder> orders)
         {
             var mine = _w.Ships.Where(s => s.Side == _side).ToList();
             var tankers = mine.Count(s => s.ClassId == "tanker") + orders.Count(o => o.Kind == OrderKind.Ship && o.Key == "tanker");
             var warships = mine.Count(s => !SupplyLines.IsSupplyShip(s) && Fitting.Spec(s).Railguns + Fitting.Spec(s).Missiles > 0);
-            if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
             var freighters = mine.Count(SupplyLines.IsFreighter) + orders.Count(o => o.Kind == OrderKind.Ship && o.Key is "freighter" or "bulk-freighter" or "sail-freighter");
             var colonies = _w.Bodies.Count(b => b.Owner == _side && b.Board != null && !b.Home);
             var hauler = SupplyLines.HaulerClass(_w, _side) is var h && h == "bulk-freighter" ? "freighter" : h;
+            // Colonies that grow less food than they eat live on food shipped in: a freighter for them comes first
+            // (balance runs showed colonies starving once the only freighter was lost).
+            var fed = FedColonies();
+            if (fed > 0 && freighters < 1 + fed / 3 && Economy.CanQueue(_w, _side, OrderKind.Ship, hauler) == null) return hauler;
+            if (!Easy && tankers == 0 && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, "tanker") == null) return "tanker";
             if (!Easy && colonies >= 2 && freighters < 1 + colonies / 2 + _p.ExtraFreighters && warships >= 4 && Economy.CanQueue(_w, _side, OrderKind.Ship, hauler) == null) return hauler;
             if (!Easy && _rng.Chance(0.25 * _m.Lean.BigShips) && Economy.CanQueue(_w, _side, OrderKind.Ship, "cruiser") == null) return "cruiser";
             if (!Easy && _rng.Chance(0.15 * _m.Lean.Escorts) && Economy.CanQueue(_w, _side, OrderKind.Ship, "escort") == null) return "escort";
@@ -1639,6 +1662,16 @@ public static class Mind
         private void Spend()
         {
             var orders = _w.Orders.Where(o => o.Side == _side).ToList();
+            // Colonies living on shipped food and not one freighter left: one goes to the front of the queue.
+            var hauler = SupplyLines.HaulerClass(_w, _side) is var h && h == "bulk-freighter" ? "freighter" : h;
+            if (FedColonies() > 0 && !_w.Ships.Any(s => s.Side == _side && SupplyLines.IsFreighter(s))
+                && !orders.Any(o => o.Kind == OrderKind.Ship && o.Key is "freighter" or "bulk-freighter" or "sail-freighter")
+                && Economy.CanQueue(_w, _side, OrderKind.Ship, hauler) == null)
+            {
+                Do(new QueueOrderCommand(_side, OrderKind.Ship, hauler, Front: true));
+                Note($"Puts a {GameData.ShipClass(hauler).Name.ToLowerInvariant()} first in the queue: its colonies need food shipped in");
+                orders = _w.Orders.Where(o => o.Side == _side).ToList();
+            }
             if (orders.Count(o => o.Kind == OrderKind.Ship) < 2)
             {
                 var cls = PickHull(orders);
@@ -1677,6 +1710,15 @@ public static class Mind
                 _p.Research.ToHashSet(), _m.Lean.Field, needs: needs);
             var ranked = ResearchValue.Rank(_w, _side, outlook);
             if (ranked.Count == 0) return;
+            // Colonies fed by freighters and no freighter to build: the freighter hull (and the tanker hull before it)
+            // comes first, or the colonies starve once the start freighter is lost.
+            if (FedColonies() > 0 && Economy.CanQueue(_w, _side, OrderKind.Ship, "freighter") != null)
+                foreach (var hull in new[] { "freighter-hull", "tanker-hull" })
+                    if (Economy.CanQueue(_w, _side, OrderKind.Research, hull) == null)
+                    {
+                        Do(new QueueOrderCommand(_side, OrderKind.Research, hull));
+                        return;
+                    }
             var pick = Easy ? ranked[_rng.Range(0, ranked.Count)].Id
                 : Choices.Band(ranked.Take(8).ToList(), _rng, Math.Max(_m.Spread, ResearchSpread));
             // Research costs no Industry (only scientist time), so it never holds up the shipyard.
@@ -1853,7 +1895,10 @@ public static class Mind
                          ?? thin.OrderBy(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault();
                 var dear = Economy.ShipyardOf(_w, _side) is Body yard && Planets.CrowdingFactor(yard) > Planets.TopUpMaxFactor;
                 var most = Easy || (dear && P.Expansion < 0.5) ? 1 : 1 + (int)Math.Round(P.Expansion * 2);
-                if (to != null && bound < most && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
+                // A new colony lives on food shipped in until it has farms: no settlers without a freighter to feed it.
+                var canFeed = _w.Ships.Any(s => s.Side == _side && SupplyLines.IsFreighter(s))
+                              || orders.Any(o => o.Key is "freighter" or "bulk-freighter" or "sail-freighter");
+                if (to != null && canFeed && bound < most && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
                 {
                     Do(new SettleCommand(_side, to.Id));
                     Note($"Sends settlers to {to.Name} ({Planets.SettlerPrice(_w, _side):0} Industry)");
@@ -2123,7 +2168,9 @@ public static class Mind
 
         private Fleet? SplitOff(Fleet from, int count, bool preferFast)
         {
-            var ships = _w.ShipsOf(from).OrderByDescending(s => preferFast ? s.MaxSpeed : 0).ThenBy(s => s.Id).Take(count).ToList();
+            // Warships go first: a freighter or tender just built into the home fleet is not sent off to fight or scout.
+            var ships = _w.ShipsOf(from).OrderBy(s => SupplyLines.IsSupplyShip(s) || SupplyLines.IsFreighter(s) || Planets.IsColonyShip(s) ? 1 : 0)
+                .ThenByDescending(s => preferFast ? s.MaxSpeed : 0).ThenBy(s => s.Id).Take(count).ToList();
             return ships.Count == count ? SplitOff(from, ships) : null;
         }
 
