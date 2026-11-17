@@ -6,7 +6,7 @@ namespace Lightlag.Sim.Core;
 /// ships in trouble; Support answers every call, fleets in trouble included. Supply is the only role a
 /// fleet of supply ships can have: when free it takes supplies to fleets of its side that run short.
 /// </summary>
-public enum FleetRole { None, Defence, AntiPiracy, Support, Supply, ForwardGuard }
+public enum FleetRole { None, Defence, AntiPiracy, Support, Supply, ForwardGuard, Scout }
 
 /// <summary>How far a role fleet goes to answer a call.</summary>
 public enum RoleRange { Near, Region, Anywhere }
@@ -113,6 +113,7 @@ public static class HelpCalls
         FleetRole.Support => "Support",
         FleetRole.Supply => "Supply",
         FleetRole.ForwardGuard => "Forward guard",
+        FleetRole.Scout => "Scout",
         _ => "No role",
     };
 
@@ -123,6 +124,7 @@ public static class HelpCalls
         FleetRole.Support => "Answers every call: planets, raids and fleets in trouble",
         FleetRole.Supply => "Takes fuel, ammunition and food to fleets in range that run short, then goes home to load",
         FleetRole.ForwardGuard => "Waits at a post central to the planets you pick and answers any of them that sees an enemy close, however far",
+        FleetRole.Scout => "Surveys the worlds you haven't, then looks in on enemy worlds where your intel is oldest. Cautious: keeps to high orbit, stays away from guns and armed fleets, and runs home at the first armed contact",
         _ => "Answers no calls; only does what it is told",
     };
 
@@ -134,7 +136,9 @@ public static class HelpCalls
 
     /// <summary>The roles this fleet can have: None or Supply for a fleet of supply ships, the fighting roles for the rest.</summary>
     public static IEnumerable<FleetRole> RolesFor(World w, Fleet f) =>
-        SupplyOnly(w, f) ? new[] { FleetRole.None, FleetRole.Supply } : new[] { FleetRole.None, FleetRole.Defence, FleetRole.AntiPiracy, FleetRole.Support, FleetRole.ForwardGuard };
+        SupplyOnly(w, f) ? new[] { FleetRole.None, FleetRole.Supply }
+        : Scouting.ScoutOnly(w, f) ? new[] { FleetRole.None, FleetRole.Scout }
+        : new[] { FleetRole.None, FleetRole.Defence, FleetRole.AntiPiracy, FleetRole.Support, FleetRole.ForwardGuard, FleetRole.Scout };
 
     /// <summary>The role a fleet keeps when its ships change (a split or a merge): Supply for supply ships, never for warships.</summary>
     public static FleetRole FitRole(World w, Fleet f, FleetRole wanted) =>

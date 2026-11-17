@@ -125,7 +125,7 @@ public class PlanetTests
         sim.Issue(new SettleCommand(Side.Player, kesh.Id));
         sim.ApplyPending();
         var seen = new List<string>();
-        for (var hour = 0; hour < 120 * 24 && kesh.Owner == null; hour++)
+        while (sim.World.Hour < 120 * 24 && kesh.Owner == null)
         {
             if (Planets.SettlerStatus(sim.World, Side.Player, kesh.Id) is string status && !seen.Contains(status.Split(':')[0])) seen.Add(status.Split(':')[0]);
             sim.Step();
@@ -420,7 +420,7 @@ public class PlanetTests
         sim.Issue(new BuildOnPlanetCommand(Side.Player, verdant.Id, Planets.Farm));
         Days(sim, Planets.SettlerPrice(sim.World, Side.Player) / GameData.Economy.BuildIndustryPerDay + 0.2);
         // The new settler ship forms a fleet of its own rather than joining the warships.
-        var colony = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != warships.Id && !sim.World.ShipsOf(f).All(Colonies.IsHauler));
+        var colony = sim.World.Fleets.Single(f => f.Side == Side.Player && f.Id != warships.Id && !sim.World.ShipsOf(f).All(Colonies.IsHauler) && !Scouting.ScoutOnly(sim.World, f));
         Assert.All(sim.World.ShipsOf(colony), s => Assert.True(Planets.IsColonyShip(s)));
         sim.Issue(new SetAutoTopUpCommand(Side.Player, verdant.Id, false));
         Days(sim, 75);

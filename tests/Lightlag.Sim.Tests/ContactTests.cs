@@ -20,8 +20,9 @@ public class ContactTests
 
     private static void Days(Simulation sim, int days, Action? each = null)
     {
-        for (var d = 0; d < days; d++)
-            for (var h = 0; h < 24; h++) { each?.Invoke(); sim.Step(); }
+        // By game hours, not steps: battle time (a scout passing close by) takes shorter steps.
+        var end = sim.World.Hour + days * 24;
+        while (sim.World.Hour < end - 1e-9) { each?.Invoke(); sim.Step(); }
     }
 
     [Fact]

@@ -514,6 +514,7 @@ public static class Mind
             SupplyRuns();
             Routes();
             FoodRuns();
+            Scouts();
             Settle();
             Siege();
             Spend();
@@ -730,7 +731,8 @@ public static class Mind
         private IEnumerable<Fleet> Mine() => _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && !SupplyOnly(f));
 
         /// <summary>A fleet of only tankers, freighters and colony ships: it runs supplies or people and is left out of the fighting.</summary>
-        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && _w.ShipsOf(f).All(s => SupplyLines.IsSupplyShip(s) || Planets.IsColonyShip(s));
+        private bool SupplyOnly(Fleet f) => f.ShipIds.Count > 0 && (_w.ShipsOf(f).All(s => SupplyLines.IsSupplyShip(s) || Planets.IsColonyShip(s))
+                                                                    || f.Role == FleetRole.Scout); // the scout works on its own (Scouting)
 
         /// <summary>
         /// Tankers launched into the home fleet split off and run supplies (Auto) to the largest fleet out on a
@@ -778,6 +780,13 @@ public static class Mind
                 Do(new FixedRunCommand(_side, b.Id, _home.Id, good, 20));
                 Note($"Sets a run carrying {good} from {b.Name} home");
             }
+        }
+
+        /// <summary>Its scouts work as the player's do on the Scout role: surveys first, then careful looks at the enemy.</summary>
+        private void Scouts()
+        {
+            foreach (var f in _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && f.Role == FleetRole.Scout).OrderBy(f => f.Id).ToList())
+                Scouting.Work(_sim, f);
         }
 
         /// <summary>

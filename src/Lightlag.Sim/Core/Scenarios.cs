@@ -168,6 +168,8 @@ public static class Scenarios
             fleet.Position = near.Position + new Vec2(DetMath.Cos(fleet.OrbitAngle), DetMath.Sin(fleet.OrbitAngle)) * fleet.OrbitRadius;
             // A fleet of supply ships (the home transport) starts on the Supply role (computer-run sides ignore roles).
             if (HelpCalls.SupplyOnly(w, fleet)) { fleet.Role = FleetRole.Supply; FleetNames.Refresh(w, fleet); }
+            // The start scout works on its own from day one: surveys first, then a careful look at the rival.
+            if (Scouting.ScoutOnly(w, fleet)) { fleet.Role = FleetRole.Scout; fleet.Stance = Stance.Avoid; fleet.OrbitHeight = OrbitHeight.High; FleetNames.Refresh(w, fleet); }
             Fleets.Arrange(w, fleet);
         }
         return w;

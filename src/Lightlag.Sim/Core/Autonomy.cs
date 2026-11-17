@@ -45,6 +45,7 @@ public static class Autonomy
         foreach (var f in w.Fleets.ToList())
         {
             if (f.ShipIds.Count == 0 || Minded(w, f.Side) || w.FindFleet(f.Id) == null) continue;
+            if (f.Role == FleetRole.Scout) { Scouting.Work(sim, f); continue; } // a scout makes its own way
             if (Choose(sim, f)) continue;
             Work(sim, f);
         }

@@ -110,7 +110,7 @@ public class EconomyTests
         Assert.Equal(fleet.Id, order.JoinFleetId);
         // The fleet is at the shipyard, so the new ship simply joins it there.
         Days(sim, GameData.ShipClass("gun-frigate").Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
-        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player && !sim.World.ShipsOf(f).All(Colonies.IsHauler)); // and the home transport
+        Assert.Single(sim.World.Fleets, f => f.Side == Side.Player && !sim.World.ShipsOf(f).All(Colonies.IsHauler) && !Scouting.ScoutOnly(sim.World, f)); // and the home transport and scout
         var replay = ReplayRunner.Run(ReplayFile.FromJson(sim.Replay.ToJson()), GameLog.Memory());
         Assert.True(replay.Exact, replay.Message);
     }

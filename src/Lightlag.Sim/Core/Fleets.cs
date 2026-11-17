@@ -336,6 +336,9 @@ public sealed class Fleet
 
     /// <summary>Its role: which calls for help it answers by itself when free (see HelpCalls), and the rules for that.</summary>
     public FleetRole Role { get; set; }
+
+    /// <summary>Scout role: when it last looked at each enemy world (body id to hour), so it goes where its intel is oldest.</summary>
+    public Dictionary<int, double> ScoutLooked { get; set; } = new();
     public RoleRules RoleRules { get; set; } = new();
 
     /// <summary>The player named it, so it keeps its name when its role or ships change (see FleetNames).</summary>
