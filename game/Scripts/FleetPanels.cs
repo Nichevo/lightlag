@@ -1237,6 +1237,8 @@ public partial class FleetPanel : PanelContainer
     {
         string? Name(int? id) => id is int b ? w.FindBody(b)?.Name : null;
         if (f.Retreating && f.Flight != null) return $"Retreating home, arrives {GameTime.Format(f.Flight.ArriveHour)}";
+        // A scout on its role says where it is going and why (survey, a look at an enemy world, lying low).
+        if (f.Role == FleetRole.Scout && !f.Maneuvering && f.Chase == null) return Scouting.Status(w, f);
         if (f.Maneuvering)
             return Combat.NearestEnemyFleet(w, f, GameData.Combat.ContactRangeMm) is Fleet e
                 ? $"Closing on {e.Name}, {Vec2.Distance(e.Position, f.Position) * 1000:#,0} km away"

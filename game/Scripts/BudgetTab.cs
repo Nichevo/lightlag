@@ -97,6 +97,8 @@ public sealed class BudgetTab
         grid.AddThemeConstantOverride("h_separation", 18);
         _box.AddChild(grid);
         Stat(grid, "Industry a day", w2 => $"{Economy.IncomePerDay(w2, Side.Player):0.#}");
+        Stat(grid, "Upkeep a day (far worlds)", w2 => $"{Planets.UpkeepPerDay(w2, Side.Player):0.##}");
+        Stat(grid, "Settler ship", w2 => $"{Planets.SettlerPrice(w2, Side.Player):0} Industry");
         Stat(grid, "In hand", w2 => $"{Economy.Of(w2, Side.Player).Industry:0}");
         Stat(grid, "Spent last 30 days", w2 => $"{Budget.Of(w2, Side.Player).Pots.Sum(p => p.Days.Sum() + p.SpentToday):0}");
         Stat(grid, "Waiting on Industry", w2 =>

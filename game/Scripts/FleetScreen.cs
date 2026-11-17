@@ -168,6 +168,7 @@ public partial class FleetScreen : PanelContainer
         if (f.AnsweringCallId is int cid && w.HelpCalls.Find(c => c.Id == cid) is HelpCall call)
             return $"{HelpCalls.RoleName(f.Role)}: answering, {HelpCalls.Where(w, call)}";
         if (f.Role == FleetRole.None) return "No role";
+        if (f.Role == FleetRole.Scout) return Scouting.Status(w, f);
         return HelpCalls.Free(w, f) ? $"{HelpCalls.RoleName(f.Role)}: ready" : $"{HelpCalls.RoleName(f.Role)}: busy";
     }
 

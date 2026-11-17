@@ -164,12 +164,19 @@ public static class Planets
     /// Industry a day a held world costs to run: upkeepPerAu for each AU beyond upkeepFreeAu from the nearest hub
     /// (home, shipyard or starbase). Hubs themselves cost nothing.
     /// </summary>
-    public static double UpkeepOf(World w, Body b)
+    public static double UpkeepOf(World w, Body b) => b.Owner is Side side ? UpkeepIf(w, side, b) : 0;
+
+    /// <summary>The upkeep a day the body would cost this side if it held it (for weighing a settle order).</summary>
+    public static double UpkeepIf(World w, Side side, Body b)
     {
-        if (b.Owner is not Side side || b.Kind == BodyKind.Star) return 0;
+        if (b.Kind == BodyKind.Star) return 0;
         if (NearestHub(w, side, b) is not var (_, au)) return 0;
         return Math.Max(0, au - D.UpkeepFreeAu) * D.UpkeepPerAu;
     }
+
+    /// <summary>A world too small for a full settler ship's load (the ship lands with fewer people, at the same price).</summary>
+    public static bool Small(World w, Side side, Body b) =>
+        Cap(b) < GameData.ShipClass(SettlerClass).Cargo * (Tech.Has(w, side, "cryo-sleep") ? GameData.Research("cryo-sleep").Factor : 1);
 
     /// <summary>A side's upkeep for all its worlds, Industry a day (taken off income before the budget splits it).</summary>
     public static double UpkeepPerDay(World w, Side side) => w.Bodies.Where(b => b.Owner == side).Sum(b => UpkeepOf(w, b));

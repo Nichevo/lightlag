@@ -1561,6 +1561,8 @@ public static class Mind
         {
             danger = EnemyNear(b.Position, 0.1 * _au, 10 * 24);
             if (b.Owner == _side || b.Shipyard || b.ClaimSide == _side) return 0;
+            // Empty worlds are not taken by holding orbit: they are settled (Settle) or, for gas giants, skimmed.
+            if (b.Owner == null) return 0;
             if (Contact.Spared(_w, _m, b)) return 0;
             if (_m.Jobs.Any(j => j.BodyId == b.Id)) return 0;
             if (b.Owner == _enemy) danger = Math.Max(danger, A.EnemyShipValue);
@@ -1814,16 +1816,29 @@ public static class Mind
             }
         }
 
-        /// <summary>Empty worlds worth settling, safe from known enemies and not already being settled.</summary>
+        /// <summary>
+        /// Empty worlds worth settling: surveyed by this side, safe from known enemies and not already being settled.
+        /// Small worlds (the settler lands with fewer people) only for a side keen on expanding.
+        /// </summary>
         private List<Body> SettleTargets() => _w.Bodies
-            .Where(b => b.Owner == null && b.PopK <= 0 && Planets.Settleable(b) && b.Industry > 0
+            .Where(b => b.Owner == null && b.PopK <= 0 && Planets.Settleable(b) && b.Industry > 0 && b.Surveyed[(int)_side]
                         && !Planets.SettlersBound(_w, _side, b.Id)
+                        && (P.Expansion >= 0.5 || !Planets.Small(_w, _side, b))
                         && EnemyNear(b.Position, 0.1 * _au, 10 * 24) <= 0)
             .ToList();
 
         /// <summary>
-        /// Settling: one or two settle orders at a time while there are empty worlds to settle, nearest
-        /// and richest first, or a thin colony of its own to top up.
+        /// What settling a world is worth: its Industry over what it costs, the settler ship (dear while home isn't
+        /// crowded) and a month of upkeep for its distance from the nearest hub. The same costs the player pays.
+        /// </summary>
+        private double SettleScore(Body b) =>
+            b.Industry / (Planets.SettlerPrice(_w, _side) + 30 * Planets.UpkeepIf(_w, _side, b))
+            / (1 + Vec2.Distance(b.Position, _home!.Position) / _au);
+
+        /// <summary>
+        /// Settling: one or two settle orders at a time while there are surveyed empty worlds to settle, the best
+        /// value first, or a thin colony of its own to top up. While settlers are dear (home not crowded) a side
+        /// that isn't keen on expanding sends one at a time.
         /// </summary>
         private void Settle()
         {
@@ -1834,12 +1849,14 @@ public static class Mind
                 var thin = _w.Bodies.Where(b => b.Owner == _side && !b.Home && Planets.Settleable(b) && b.PopK < Planets.Cap(b) * 0.5
                                                 && !Planets.SettlersBound(_w, _side, b.Id)).ToList();
                 var bound = orders.Count(o => o.SettleBodyId != null) + _w.Fleets.Count(f => f.Side == _side && f.PeopleRun != null);
-                var to = targets.OrderBy(b => Vec2.Distance(b.Position, _home.Position) / (1 + b.Industry)).ThenBy(b => b.Id).FirstOrDefault()
+                var to = targets.OrderByDescending(SettleScore).ThenBy(b => b.Id).FirstOrDefault()
                          ?? thin.OrderBy(b => Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id).FirstOrDefault();
-                if (to != null && bound < (Easy ? 1 : 1 + (int)Math.Round(P.Expansion * 2)) && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
+                var dear = Economy.ShipyardOf(_w, _side) is Body yard && Planets.CrowdingFactor(yard) > Planets.TopUpMaxFactor;
+                var most = Easy || (dear && P.Expansion < 0.5) ? 1 : 1 + (int)Math.Round(P.Expansion * 2);
+                if (to != null && bound < most && orders.Count < 2 && Planets.CanSettle(_w, _side, to.Id) == null)
                 {
                     Do(new SettleCommand(_side, to.Id));
-                    Note($"Sends settlers to {to.Name}");
+                    Note($"Sends settlers to {to.Name} ({Planets.SettlerPrice(_w, _side):0} Industry)");
                 }
             }
             Troops(orders);
@@ -1962,12 +1979,15 @@ public static class Mind
             var shipWaiting = orders.FirstOrDefault(o => o.Kind == OrderKind.Ship && !o.Paid) is WorkOrder next ? Economy.CostOf(next) : 0;
             var spare = Budget.On(_w) ? Budget.Free(_w, _side, Pot.Stations) : Economy.Of(_w, _side).Industry - shipWaiting;
             if (Line(spare)) return;
-            // Helium-3: a skimmer over a gas giant it holds, once its engines or reactors want helium-3.
+            // Helium-3: a skimmer over a gas giant it holds, or one it has surveyed that no one holds (the skimmer
+            // takes it), once its engines or reactors want helium-3.
             var skimmer = Economy.StationKind(Works.Skimmer);
             if (skimmer != null && spare >= skimmer.Cost * 1.5 && (skimmer.Needs == null || Tech.Has(_w, _side, skimmer.Needs))
                 && (Planner.FuelsWanted(_w, _side).Contains("helium-3") || Tech.Has(_w, _side, "helium-3-reactors"))
                 && !_w.Stations.Any(st => st.Side == _side && st.Kind == Works.Skimmer)
-                && _w.Bodies.Where(b => b.Owner == _side && skimmer.OnTypes?.Contains(b.Type) == true).OrderBy(b => b.Id).FirstOrDefault() is Body giant)
+                && _w.Bodies.Where(b => skimmer.OnTypes?.Contains(b.Type) == true && Economy.CanBuildStation(_w, _side, b.Id, Works.Skimmer) == null)
+                    .OrderBy(b => b.Owner == _side ? 0 : 1).ThenBy(b => _home == null ? 0 : Vec2.Distance(b.Position, _home.Position)).ThenBy(b => b.Id)
+                    .FirstOrDefault() is Body giant)
             {
                 Do(new BuildStationCommand(_side, giant.Id, Works.Skimmer));
                 Note($"Builds a helium-3 skimmer at {giant.Name}");

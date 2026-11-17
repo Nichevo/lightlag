@@ -728,6 +728,9 @@ public partial class Hud : CanvasLayer
             else if (w.Loop && b.Kind != BodyKind.Star) lines.Add("No industry: it can't be claimed and doesn't count towards winning");
             if (b.ClaimSide is Side claimer)
                 lines.Add($"{(claimer == Side.Player ? "You are" : "The rival is")} claiming it: {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days");
+            else if (w.Loop && b.Industry > 0 && b.Owner == null)
+                lines.Add(b.Surveyed[(int)Side.Player] ? "Surveyed: send settlers to take it (or a skimmer, for a gas giant)"
+                    : $"Not surveyed: hold orbit here {Research.T.SurveyHours:0} h to survey it before settling (your scout does this by itself)");
             else if (w.Loop && b.Industry > 0 && b.Owner != Side.Player && !b.Shipyard)
                 lines.Add($"Hold orbit here {Economy.ClaimHoursFor(b) / 24:0} days with no enemy in orbit to claim it");
             else if (b.Shipyard && b.Owner is Side.Rival or Side.Third && Economy.BombardStatus(w, b, Side.Player) is string attack)

@@ -138,7 +138,7 @@ public sealed class HoldingsTab
             $"{b.Name}: {(b.ClaimSide == Side.Player ? "you are" : "the rival is")} claiming it, {b.ClaimHours / 24:0.#} of {Economy.ClaimHoursFor(b) / 24:0} days").ToList();
         var e = GameData.Economy;
         return lines.Count > 0 ? string.Join("\n", lines)
-            : $"Hold orbit at a planet or moon, with no enemy in orbit, to claim it: {e.ClaimDays:0} days for an empty one, {(e.ClaimHeldDays > 0 ? e.ClaimHeldDays : e.ClaimDays):0} for one the rival holds.";
+            : $"Empty worlds are taken by settling them (survey first) or, for gas giants, a skimmer. An enemy world is taken by holding orbit {(e.ClaimHeldDays > 0 ? e.ClaimHeldDays : e.ClaimDays):0} days with no enemy in orbit, a blockade or troops.";
     }
 
     private void Heading(string text) => _box.AddChild(Ui.Label(text, 15, Ui.Player));

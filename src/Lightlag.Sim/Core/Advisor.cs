@@ -77,7 +77,7 @@ public static class Advisor
         sb.AppendLine($"Our worlds ({mine.Count}): {string.Join(", ", mine.Select(b => $"{b.Name} ({b.PopK:0.#}k people)"))}.");
         sb.AppendLine($"Our fleets ({fleets.Count}, {fleets.Sum(f => f.ShipIds.Count)} ships): "
                       + string.Join(", ", fleets.Take(8).Select(f => $"{f.Name} {f.ShipIds.Count} ships" + (m?.JobOf(f.Id) is FleetJob j ? $" ({j.Kind})" : ""))) + ".");
-        sb.AppendLine($"Worlds the enemy holds ({theirs.Count}): {string.Join(", ", theirs.Select(b => b.Name))}. Empty worlds left to claim: {empty}.");
+        sb.AppendLine($"Worlds the enemy holds ({theirs.Count}): {string.Join(", ", theirs.Select(b => b.Name))}. Empty worlds left to settle: {empty}.");
         sb.AppendLine(seen.Count == 0 ? "We have seen no enemy fleets lately."
             : $"Enemy fleets we have seen: {string.Join(", ", seen.Take(8).Select(s => $"{s.Ships} ships, last seen {Math.Max(0, w.Hour - s.Hour) / 24:0.#} days ago"))}.");
         if (m != null)

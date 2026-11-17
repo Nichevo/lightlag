@@ -59,6 +59,24 @@ public class MindTests
     }
 
     [Fact]
+    public void The_rival_surveys_then_settles_and_never_sends_warships_to_claim_an_empty_world()
+    {
+        var sim = NewGame(7, GameOptions.VsRival(Difficulty.Normal));
+        var w = sim.World;
+        var start = w.Bodies.Where(b => b.Owner == Side.Rival).Select(b => b.Id).ToHashSet();
+        var settled = false;
+        for (var d = 0; d < 150 && !settled; d++)
+        {
+            Days(sim, 1);
+            Assert.DoesNotContain(w.Minds[0].Jobs, j => j.Kind == JobKind.Claim && j.BodyId is int id && w.FindBody(id)?.Owner == null);
+            settled = w.Bodies.Any(b => b.Owner == Side.Rival && !start.Contains(b.Id) && b.PopK > 0);
+        }
+        Assert.True(settled, "the rival settled a world");
+        Assert.All(w.Bodies.Where(b => b.Owner == Side.Rival && !start.Contains(b.Id) && Planets.Settleable(b)),
+            b => Assert.True(b.Surveyed[(int)Side.Rival], $"{b.Name} settled without a survey"));
+    }
+
+    [Fact]
     public void Easy_thinks_less_often_than_normal()
     {
         Assert.True(Mind.ThinkHours(Difficulty.Easy) > Mind.ThinkHours(Difficulty.Normal));
