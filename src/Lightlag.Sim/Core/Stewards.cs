@@ -483,6 +483,11 @@ public static class Stewards
                     area: AutoArea.Refits);
             BattleRules.Steward(_sim, _side, Offer);
             Crews.Steward(_sim, _side, Offer);
+            if (Endings.Need(_w, _side) is NeedItem terms && Need(terms.Level, terms.Key, terms.Text, act: terms.Act, label: terms.ActLabel) is NeedItem added)
+            {
+                added.Alt = terms.Alt;
+                added.AltLabel = terms.AltLabel;
+            }
             Events.Needs(_w, _side, (key, text, bodyId, fleetId, act, label) => Need(NeedLevel.Urgent, key, text, bodyId, fleetId, act, label, AutoArea.Events));
             LostContacts();
             AfterBattle.Needs(_w, _side, (level, key, text, bodyId, fleetId, act, label) => Need(level, key, text, bodyId, fleetId, act, label, AutoArea.AfterBattle));

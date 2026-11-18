@@ -117,6 +117,9 @@ public sealed class World
     /// <summary>Game-start switches for the optional systems (see GameRules).</summary>
     public GameRules Rules { get; set; } = new();
 
+    /// <summary>Terms on the table and how long control has stood still (see Endings).</summary>
+    public EndingsState Endings { get; set; } = new();
+
     /// <summary>Planets have been given their first people (old saves get them on load).</summary>
     public bool PeopleStarted { get; set; }
 
@@ -191,6 +194,12 @@ public sealed class GameRules
     /// (see Orbits). Moons are always slowed by Orbits.MoonSlowdown. Old saves keep the periods they were made with.
     /// </summary>
     public double PlanetOrbitSlowdown { get; set; } = 1;
+
+    /// <summary>
+    /// Early endings (see Endings): the losing rival offers terms past tipShare, the losing side loses heart, and a
+    /// stalled war gets more events. Off: none of that. Switchable mid-game in Options.
+    /// </summary>
+    public bool EarlyEndings { get; set; } = true;
 }
 
 public enum EventRate { Off, Rare, Normal, Lively }

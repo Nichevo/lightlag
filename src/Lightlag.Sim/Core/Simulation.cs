@@ -79,6 +79,7 @@ public sealed class Simulation
             world.Rules.Ironman = options?.Ironman ?? false;
             world.Rules.ContactOffers = options?.ContactOffers ?? true;
             world.Rules.Budget = options?.Budget ?? true;
+            world.Rules.EarlyEndings = options?.EarlyEndings ?? true;
             Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
         }
@@ -196,6 +197,7 @@ public sealed class Simulation
         using (SectionTimer.Time("fleets")) ShareSupplies();
         using (SectionTimer.Time("chases")) Chases.Update(this);
         using (SectionTimer.Time("economy")) Economy.Update(this);
+        using (SectionTimer.Time("economy")) Endings.Update(this);
         using (SectionTimer.Time("mind")) Mind.Update(this);
         using (SectionTimer.Time("stewards")) Stewards.Update(this);
         using (SectionTimer.Time("autonomy")) Autonomy.Update(this);

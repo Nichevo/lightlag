@@ -22,6 +22,7 @@ namespace Lightlag.Game;
 ///   Ctrl+right click   add a waypoint to the route    Drag a waypoint move it (the route replans live)
 ///   Right click enemy  plan an attack on it           R               combat report
 ///   Space              pause / resume                 ` 1 2 3 4, + -  speed ½x 1x 2x 4x 8x
+///   Q                  run until something needs you (fastest safe speed, then a "while you were away" line)
 ///   E                  empire: build, research, claims B               sight shadows / sensor coverage / off
 ///   F5 / F9            quick save / quick load        F8              report a problem
 ///   Z                  zoom right in on the selection (also the Zoom in button)
@@ -133,10 +134,13 @@ public partial class GameScreen : Node2D
             case PauseResponse.Pause:
                 _main.Toast(text + ". Paused.", onClick: onClick);
                 _paused = true;
+                _lastStop = text;
                 break;
             case PauseResponse.Slow:
                 _main.Toast(text + (_speed > NormalSpeed ? ". Slowed to 1x." : ""), onClick: onClick);
                 _speed = Math.Min(_speed, NormalSpeed);
+                // Run until needed: a slow-down is a stop too.
+                if (RunUntil != null) { StopRun(text); _paused = false; }
                 break;
             case PauseResponse.Notice:
                 _main.Toast(text, onClick: onClick);
@@ -379,6 +383,72 @@ public partial class GameScreen : Node2D
         _paused = _pausedBeforeMenu;
     }
 
+    // ---- Endings (see Endings) --------------------------------------------------------------------
+
+    /// <summary>Give up the game (from the game menu): it ends now and the end panel shows.</summary>
+    public void Concede()
+    {
+        Sim.Issue(new ConcedeCommand(Side.Player));
+        _main.RunGuarded("conceding", Sim.ApplyPending);
+        CloseMenu();
+        WatchEnd();
+    }
+
+    /// <summary>Accept the rival's terms (win now) or play on.</summary>
+    public void AnswerTerms(bool accept)
+    {
+        Sim.Issue(new AnswerTermsCommand(Side.Player, accept));
+        _main.RunGuarded("answering terms", Sim.ApplyPending);
+        if (!accept) _main.Toast($"Playing on. If you still lead, the offer comes again in {Endings.D.OfferAgainDays:0} days");
+        WatchEnd();
+    }
+
+    public void SetEarlyEndings(bool on)
+    {
+        Sim.Issue(new SetEarlyEndingsCommand(on));
+        _main.RunGuarded("early endings", Sim.ApplyPending);
+        _main.Toast(on ? "Early endings on: terms past 80 %, losing heart, more events in a stalled war" : "Early endings off: games end only by the control or shipyard rules");
+    }
+
+    /// <summary>The game just ended (also while paused, e.g. after conceding or accepting terms): show the end panel.</summary>
+    private void WatchEnd()
+    {
+        if (Sim.World.Winner == null || _endSeen) return;
+        _endSeen = true;
+        ShowEnd = true;
+        _paused = true;
+        RunUntil = null;
+    }
+
+    private double _termsSeenHour = -1;
+    private bool _stalledSeen, _heartSeen;
+
+    /// <summary>Terms offered stop the game; losing heart and a stalled war each get a News line when they start.</summary>
+    private void WatchEndings()
+    {
+        var w = Sim.World;
+        if (!w.Loop || w.Winner != null) return;
+        var e = w.Endings;
+        if (e.TermsTo == Side.Player && e.TermsHour != _termsSeenHour)
+        {
+            _termsSeenHour = e.TermsHour;
+            StopRun("terms offered");
+            _paused = true;
+            _main.Toast($"The rival asks for terms: you hold {e.TermsShare:P0} of the system. Paused.");
+        }
+        if (e.Stalled != _stalledSeen)
+        {
+            _stalledSeen = e.Stalled;
+            _main.AddNews(e.Stalled ? $"The war has stalled: control hasn't moved for {Endings.D.StalemateAfterDays:0} days, so events come more often" : "Control is moving again: events back to their usual pace", null);
+        }
+        var heart = Endings.WillBroken(w, Side.Player) || Endings.Leader(w) == Side.Player && w.Rules.EarlyEndings;
+        if (heart != _heartSeen)
+        {
+            _heartSeen = heart;
+            if (heart) _main.AddNews(Endings.Status(w, Side.Player) ?? "", null);
+        }
+    }
+
     public void SaveManual()
     {
         var path = SaveSlots.WriteManual(_main.Paths, Sim);
@@ -431,6 +501,7 @@ public partial class GameScreen : Node2D
         _camera.ScreenSize = GetViewportRect().Size;
         MyBattle = InBattle && OwnThreat() != null;
         SelectSplitShip();
+        WatchEnd(); // also while paused: conceding, or accepting terms from the tray
         if (!_paused)
         {
             // _accum counts simulation steps owed. A step is an hour normally, or 10 game seconds in battle
@@ -477,6 +548,9 @@ public partial class GameScreen : Node2D
             WatchChasers();
             WatchEconomy();
             if (Sim.World.Loop) RivalAdvisor.Tick(Sim, _main);
+            WatchEndings();
+            WatchEnd();
+            WatchRun();
             WarTab.WatchCalls(Sim.World, _warCallsSeen, text => Alert(PauseEvent.CommandCall, text, () => { CloseMenuScreens(); FleetsTab = "war"; if (!ShowFleets) ToggleFleets(); }));
             EmpireTabs.WatchEvents(Sim.World, _eventsSeen, (text, stop) => Alert(stop ? PauseEvent.EventCall : PauseEvent.EventAutoPicked, text,
                 () => { ShowEmpire = true; EmpireTabWanted = EmpirePanel.Tab.Needs; }));
@@ -575,14 +649,89 @@ public partial class GameScreen : Node2D
 
     public void SetSpeed(int index)
     {
+        if (RunUntil != null) StopRun("you picked a speed", quiet: true);
         _speed = Math.Clamp(index, 0, Speeds.Length - 1);
         _paused = false;
     }
 
     public void TogglePause()
     {
+        if (RunUntil != null)
+        {
+            StopRun("you paused");
+            SnapToNow();
+            return;
+        }
         _paused = !_paused;
         if (_paused) SnapToNow();
+    }
+
+    // ---- Run until needed (Q) --------------------------------------------------------------------
+
+    /// <summary>A run in progress: where it started, so the "while you were away" line can say what changed.</summary>
+    public sealed record RunState(double StartHour, HashSet<string> Needs, int Planets, int Warships, double Share, int Speed, int News);
+
+    /// <summary>Running until needed: the fastest safe speed until a new item lands in Needs you or the game pauses.</summary>
+    public RunState? RunUntil { get; private set; }
+
+    /// <summary>What last stopped the game (an auto-pause's text), for the run's summary line.</summary>
+    private string? _lastStop;
+
+    /// <summary>The fastest speed, except in battle time (10-second steps), where 1x keeps the screen responsive.</summary>
+    private int RunSpeed => Sim.InBattleTime ? NormalSpeed : Speeds.Length - 1;
+
+    private static bool Wants(NeedItem n) => n.Level <= NeedLevel.Soon;
+
+    public void ToggleRunUntil()
+    {
+        if (RunUntil != null) { StopRun("you stopped it"); SnapToNow(); return; }
+        var w = Sim.World;
+        if (w.Winner != null || IsSandbox) return;
+        var me = Economy.Of(w, Side.Player);
+        RunUntil = new RunState(w.Hour, me.Needs.Where(Wants).Select(n => n.Key).ToHashSet(),
+            w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0), w.Ships.Count(s => s.Side == Side.Player && Lightlag.Sim.Core.Planner.Warship(s)),
+            w.Loop ? Planets.Control(w, Side.Player).Share : 0, _speed, _main.NewsCount);
+        _lastStop = null;
+        _speed = RunSpeed;
+        _paused = false;
+        _main.Toast("Running until something needs you (Q or Space to stop)", addNews: false);
+    }
+
+    /// <summary>Each frame while running: keep to the safe speed, and stop at a pause or a new Needs you item.</summary>
+    private void WatchRun()
+    {
+        if (RunUntil is not RunState run) return;
+        var w = Sim.World;
+        if (w.Winner != null) { StopRun("the game is over"); return; }
+        if (_paused) { StopRun(_lastStop ?? "the game paused"); return; }
+        var fresh = Economy.Of(w, Side.Player).Needs.Where(n => Wants(n) && !run.Needs.Contains(n.Key)).OrderBy(n => n.Level).FirstOrDefault();
+        if (fresh != null) { StopRun(fresh.Text); return; }
+        _speed = RunSpeed;
+    }
+
+    /// <summary>Ends a run: pause (unless <paramref name="quiet"/>), and say what happened while you were away.</summary>
+    private void StopRun(string why, bool quiet = false)
+    {
+        if (RunUntil is not RunState run) return;
+        RunUntil = null;
+        _speed = run.Speed;
+        if (quiet) return;
+        _paused = true;
+        var w = Sim.World;
+        var hours = w.Hour - run.StartHour;
+        var parts = new List<string> { hours >= 48 ? $"{hours / 24:0.#} days" : $"{hours:0} hours" };
+        var planets = w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0);
+        if (planets != run.Planets) parts.Add($"planets {run.Planets} → {planets}");
+        var ships = w.Ships.Count(s => s.Side == Side.Player && Lightlag.Sim.Core.Planner.Warship(s));
+        if (ships != run.Warships) parts.Add($"warships {run.Warships} → {ships}");
+        if (w.Loop)
+        {
+            var share = Planets.Control(w, Side.Player).Share;
+            if (Math.Abs(share - run.Share) >= 0.005) parts.Add($"control {run.Share:P0} → {share:P0}");
+        }
+        var news = _main.NewsCount - run.News;
+        if (news > 0) parts.Add($"{news} news line{(news == 1 ? "" : "s")}");
+        _main.Toast($"While you were away ({string.Join(", ", parts)}). Stopped: {why}");
     }
 
     /// <summary>Draw the simulation exactly as it is now: no blending back towards the step before.</summary>
@@ -1807,6 +1956,7 @@ public partial class GameScreen : Node2D
         switch (key.Keycode)
         {
             case Key.Space: TogglePause(); break;
+            case Key.Q: ToggleRunUntil(); break;
             case Key.Quoteleft: SetSpeed(NormalSpeed - 1); break;
             case >= Key.Key0 and <= Key.Key9 when key.CtrlPressed && BattleView:
                 var fleets = BattleOurFleets();

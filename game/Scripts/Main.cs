@@ -140,6 +140,9 @@ public partial class Main : Node
     public bool ContactOffersChoice { get; set; } = true;
     public bool BudgetChoice { get; set; } = true;
 
+    /// <summary>Early endings for the next new game (on by default; also switchable in the game menu).</summary>
+    public bool EarlyEndingsChoice { get; set; } = true;
+
     /// <summary>How many times slower than true time planets go round in the next new game (moons are always 5x).</summary>
     public double PlanetOrbitsChoice { get; set; } = Orbits.DefaultPlanetSlowdown;
 
@@ -161,7 +164,7 @@ public partial class Main : Node
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
-                PlanetOrbitSlowdown = PlanetOrbitsChoice,
+                PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());
@@ -322,11 +325,15 @@ public partial class Main : Node
     {
         if (Sim == null) return;
         News.Add(new NewsItem(Sim.World.Hour, text, onClick, keep));
+        NewsCount++;
         while (News.Count(n => !n.Keep) > 30) News.RemoveAt(News.FindIndex(n => !n.Keep));
     }
 
     /// <summary>The latest messages of this game (the News menu), newest last.</summary>
     public List<NewsItem> News { get; } = new();
+
+    /// <summary>News lines added so far (never trimmed), so "while you were away" can count them.</summary>
+    public int NewsCount { get; private set; }
 
     public void Quit(int exitCode = 0)
     {

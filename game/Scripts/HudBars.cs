@@ -18,6 +18,7 @@ public partial class Hud
 
     private PanelContainer _timeBox = null!;
     private Label _nextPause = null!;
+    private Button _run = null!;
     private HBoxContainer _row1Center = null!, _row1Right = null!;
     private ColorRect _row1Back = null!;
     private PanelContainer _menuBar = null!;
@@ -64,6 +65,9 @@ public partial class Hud
             _speedButtons.Add(b);
             speeds.AddChild(b);
         }
+        _run = SmallButton("▶▶ Run", () => _screen.ToggleRunUntil(),
+            "Run until needed (Q): the fastest safe speed until something new lands in Needs you or the game pauses; then a line on what happened while you were away");
+        speeds.AddChild(_run);
         time.AddChild(speeds);
         _nextPause = Ui.Label("", 12, Ui.Dim);
         _nextPause.TooltipText = "The next thing set to stop the game (P toggles pausing on contact; ☰ Game › Pause settings for the rest)";
@@ -201,7 +205,10 @@ public partial class Hud
         // The time box: what will stop the game next.
         _pause.Text = _screen.Paused ? "▶" : "❚❚";
         _pause.TooltipText = _screen.Paused ? "Paused: Space or click to run" : "Pause (Space)";
-        _nextPause.Text = NextPauseText(w);
+        _run.Modulate = _screen.RunUntil != null ? Ui.Player : new Color(1, 1, 1, 0.75f);
+        _run.Text = _screen.RunUntil != null ? "▶▶ Running" : "▶▶ Run";
+        _run.Visible = !_screen.IsSandbox;
+        _nextPause.Text = _screen.RunUntil != null ? "running until something needs you (Q stops)" : NextPauseText(w);
         _nextPause.Visible = _nextPause.Text.Length > 0;
 
         // Row one: centre and right.
