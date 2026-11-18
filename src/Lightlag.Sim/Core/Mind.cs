@@ -1683,6 +1683,7 @@ public static class Mind
             if (orders.Count(o => o.Kind == OrderKind.Research) < Math.Max(1, teams.Count(t => Research.Ready(_w, t))))
                 PickResearch();
             if (!Easy) Stations(orders);
+            if (!Easy) SecondYard();
             if (!Easy) RefitAtHome(orders);
             // Munitions plants: eager rivals tool up for the latest at once, the rest when the enemy pulls ahead.
             if (!Easy) Munitions.Steward(_sim, _side, (area, key, text, act, label, bodyId, fleetId, advice) =>
@@ -1693,6 +1694,35 @@ public static class Mind
             }, Munitions.Eager(_p));
             if (!Easy) Teams(orders);
             Build(orders);
+        }
+
+        /// <summary>
+        /// A second Shipyard, mid-game: at its colony nearest the enemy with the people for it (a dry dock there
+        /// first, then the upgrade). Expanders and Turtles start sooner; Raiders keep to the one yard and dry docks.
+        /// </summary>
+        private void SecondYard()
+        {
+            if (_home == null || _m.Personality == Personality.Raider) return;
+            var y = GameData.Economy.Shipyard;
+            if (_w.Day < (_m.Personality is Personality.Expander or Personality.Turtle ? 90 : 150)) return;
+            if (!Tech.Has(_w, _side, "colony-shipyards")) return;
+            if (_w.Bodies.Count(b => b.Owner == _side && b.Shipyard) >= 2 || _w.Bodies.Any(b => b.Owner == _side && b.YardUpgradeHoursLeft != null)) return;
+            var toward = _enemyYard?.Position ?? Vec2.Zero;
+            if (_w.Bodies.Where(b => b.Owner == _side && !b.Shipyard && b.Board != null && b.PopK >= y.UpgradeMinPopK && !Economy.Blockaded(_w, b))
+                    .OrderBy(b => Vec2.Distance(b.Position, toward)).ThenBy(b => b.Id).FirstOrDefault() is not Body site) return;
+            if (!Colonies.Built(site).Any(p => p.Kind == Colonies.DryDock))
+            {
+                if (site.Pieces.Any(p => p.Kind == Colonies.DryDock) || Planets.BuildingKind(Colonies.DryDock) is not BuildingData dock) return; // one is going up
+                if (Budget.Free(_w, _side, Pot.Buildings) < dock.Cost) { Budget.Want(_w, _side, Pot.Buildings, dock.Cost); return; }
+                if (Planets.CanBuild(_w, _side, site.Id, Colonies.DryDock) != null) return;
+                Do(new BuildOnPlanetCommand(_side, site.Id, Colonies.DryDock));
+                Note($"Builds a dry dock at {site.Name}, to make it a second shipyard");
+                return;
+            }
+            if (Budget.Free(_w, _side, Pot.Buildings) < y.UpgradeCost) { Budget.Want(_w, _side, Pot.Buildings, y.UpgradeCost); return; }
+            if (Yards.CanUpgrade(_w, _side, site.Id) != null) return;
+            Do(new UpgradeYardCommand(_side, site.Id));
+            Note($"Upgrades the dry dock at {site.Name} to a second shipyard");
         }
 
         /// <summary>Spread for research picks: a little wider than for other choices, so sides drift apart.</summary>

@@ -241,7 +241,7 @@ public class EconomyTests
         Days(sim, 3);
         Assert.False(rust.Shipyard);
         Assert.Equal(Side.Player, sim.World.Winner);
-        Assert.Contains("rival shipyard", sim.World.WinReason);
+        Assert.Contains("last shipyard", sim.World.WinReason);
         var income = Player(sim).Industry;
         Days(sim, 2);
         Assert.Equal(income, Player(sim).Industry); // the game is over: nothing more happens to the score

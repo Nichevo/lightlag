@@ -212,6 +212,13 @@ public sealed class RuleBook
         .Add("shipyards-sane", w => w.Bodies.Where(b => b.Shipyard && (b.Owner == null || !(b.ShipyardArmour > 0)
                 || b.ShipyardArmour > GameData.Economy.Shipyard.Armour + 1e-6))
             .Select(b => $"{b.Name} shipyard has armour {b.ShipyardArmour} and owner {b.Owner}"))
+        .Add("berths-sane", w => w.Orders.Where(o => o.Kind == OrderKind.Ship && o.Paid && o.Berth != null)
+                .GroupBy(o => (o.Side, o.YardBodyId, o.Berth)).Where(g => g.Count() > 1)
+                .Select(g => $"{g.Count()} hulls on one berth: {g.Key.Side} at body {g.Key.YardBodyId} {g.Key.Berth} (orders {string.Join(",", g.Select(o => o.Id))})")
+            .Concat(w.Starbases.Where(st => Yards.YardBays(st.Fit) > GameData.Economy.Shipyard.MaxSlipways)
+                .Select(st => $"station {st.Id} at body {st.BodyId} has {Yards.YardBays(st.Fit)} yard bays"))
+            .Concat(w.Bodies.Where(b => b.YardUpgradeHoursLeft is double h && (!(h >= 0) || h > GameData.Economy.Shipyard.UpgradeDays * 24 + 1e-6 || b.Shipyard))
+                .Select(b => $"{b.Name} shipyard upgrade has {b.YardUpgradeHoursLeft} hours left (shipyard {b.Shipyard})")))
         .Add("flagships-sane", w => w.Sides.Where(s => s.FlagshipId is int id && w.FindShip(id) is not { } ship
                 || s.FlagshipId is int id2 && w.FindShip(id2)?.Side != s.Side)
             .Select(s => $"{s.Side} flagship {s.FlagshipId} is not one of its ships"))

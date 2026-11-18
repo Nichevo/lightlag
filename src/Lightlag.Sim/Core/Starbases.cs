@@ -264,6 +264,10 @@ public static class Starbases
         if (Researched(w, side, toClass) is string missing) return missing;
         var fit = FitFor(w, side, toClass, designId);
         if (to == from && fit.SequenceEqual(st.Fit)) return "It is already fitted that way";
+        // A hull on a yard bay the new fit drops would be lost with it.
+        var onBays = w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.Paid && o.YardBodyId == st.BodyId && o.Berth is { Length: > 5 } k && k != Yards.Ground)
+            .Select(o => o.Berth![5] - '0' + 1).DefaultIfEmpty(0).Max();
+        if (onBays > Yards.YardBays(fit)) return "A hull is on a yard bay this fit drops: wait until it is launched";
         var cost = to > from ? UpgradeCost(st, toClass) : RefitCost(st, fit);
         if (Budget.Problem(w, side, Pot.Stations, cost, $"upgrade:{st.Id}:{toClass}") is string tooLow) return tooLow;
         return null;
@@ -306,14 +310,13 @@ public static class Starbases
     public static bool Fits(World w, Side side, Body b, string classId) =>
         classId == Planets.SettlerClass || !GameData.ShipClasses.TryGetValue(classId, out var cls) || cls.LengthM <= YardLength(w, side, b) + 1e-9;
 
-    /// <summary>Where a new ship of this class is built: the shipyard if it fits, else the nearest yard that takes it (null: none).</summary>
+    /// <summary>A yard that can build this class: the home yard if a berth there takes it, else the nearest (null: none).</summary>
     public static Body? YardFor(World w, Side side, string classId)
     {
         var main = Economy.ShipyardOf(w, side);
-        if (main != null && Fits(w, side, main, classId)) return main;
         var from = main?.Position ?? Light.Seat(w, side);
-        return w.Bodies.Where(b => Builds(w, b, side) && Fits(w, side, b, classId))
-            .OrderBy(b => Vec2.Distance(b.Position, from)).ThenBy(b => b.Id).FirstOrDefault();
+        return Yards.All(w, side).Where(b => Yards.Fits(b, classId))
+            .OrderBy(b => b.Body == main ? 0 : 1).ThenBy(b => Vec2.Distance(b.Body.Position, from)).ThenBy(b => b.Body.Id).Select(b => b.Body).FirstOrDefault();
     }
 
     /// <summary>The yard size a hull needs.</summary>
@@ -667,9 +670,8 @@ public static class Starbases
         var w = sim.World;
         var loser = st.Side;
         var b = w.FindBody(st.BodyId)!;
-        // The hull on the slipway (the first started order there) is taken with it.
-        var slip = w.Orders.FirstOrDefault(o => o.Side == loser && o.Kind == OrderKind.Ship && o.Paid && Economy.YardFor(w, o) == b
-                                                && GameData.ShipClasses.TryGetValue(o.Key, out var c) && c.LengthM > YardSize("yard").MaxLengthM);
+        // The hulls on its yard bays are taken with it.
+        var slips = w.Orders.Where(o => o.Side == loser && o.Kind == OrderKind.Ship && o.Paid && o.YardBodyId == b.Id && o.Berth != Yards.Ground).ToList();
         st.Side = captor.Side;
         st.HeldBody = b.Owner == captor.Side;
         st.ForeignAmmo = true;
@@ -680,7 +682,7 @@ public static class Starbases
         st.SpecCache = null;
         Economy.Of(w, captor.Side).Totals.FortsWrecked++;
         sim.Log.Info("stations", $"{captor.Name} takes {b.Name}'s station", new { side = captor.Side.ToString(), from = loser.ToString(), st.Id, st.ClassId, bodyId = b.Id });
-        if (slip != null)
+        foreach (var slip in slips)
         {
             w.Orders.Remove(slip);
             var share = Math.Clamp(1 - slip.HoursLeft / Math.Max(1, slip.TotalHours), 0.1, 1);

@@ -63,7 +63,7 @@
       "name": "Turtle",
       "budget": [20, 20, 30, 10, 5, 15], "frigateShare": 0.4, "ratio": 1.15, "claimWeight": 0.8, "huntWeight": 0.6, "guardShare": 0.35,
       "probeEarly": 1.2, "takeHeldWeight": 0.6, "claimGroups": 2, "flagshipBoldness": 0.1,
-      "research": ["heavy-armour", "cruiser-hull", "point-defence-2", "tanker-hull", "freighter-hull", "deflector-grid", "command-uplink", "missile-brain-2", "automation", "long-sensors", "satellites", "tight-beam", "fast-railguns", "efficient-drives", "quiet-drives", "damage-control", "armour-mk3", "rare-element-assays", "electronics-fabs", "point-defence-3", "counter-missiles", "fast-shipyard", "orbital-docks", "hardened-bunkers", "planet-shields", "shields-mk3", "railgun-mk3", "strike-craft", "heavy-warheads", "defensive-mines", "fleet-data-links", "iff-codes", "shield-harmonics", "tracking-radars", "civic-planning"]
+      "research": ["heavy-armour", "cruiser-hull", "point-defence-2", "tanker-hull", "freighter-hull", "deflector-grid", "command-uplink", "missile-brain-2", "automation", "long-sensors", "satellites", "tight-beam", "fast-railguns", "efficient-drives", "quiet-drives", "damage-control", "armour-mk3", "rare-element-assays", "electronics-fabs", "point-defence-3", "counter-missiles", "fast-shipyard", "orbital-docks", "colony-shipyards", "hardened-bunkers", "planet-shields", "shields-mk3", "railgun-mk3", "strike-craft", "heavy-warheads", "defensive-mines", "fleet-data-links", "iff-codes", "shield-harmonics", "tracking-radars", "civic-planning"]
     },
     "trader": {
       "profile": {"aggression": 0.35, "expansion": 0.6, "defence": 0.5, "risk": 0.4, "raiding": 0.2, "research": 0.55}, "pullBack": "cautious", "fireAt": "engines", "missiles": "mid",
@@ -71,7 +71,7 @@
       "name": "Trader",
       "budget": [15, 30, 10, 10, 30, 5], "frigateShare": 0.5, "ratio": 1.15, "claimWeight": 1.2, "huntWeight": 0.7, "guardShare": 0.3,
       "probeEarly": 1.2, "takeHeldWeight": 0.8, "claimGroups": 2, "flagshipBoldness": 0.2,
-      "research": ["tanker-hull", "freighter-hull", "automation", "electronics-fabs", "efficient-drives", "rare-element-assays", "solar-sails", "precision-workshops", "deep-boring", "efficient-upkeep", "fast-shipyard", "bulk-freighter-hull", "escort-hull", "point-defence-2", "satellites", "heavy-armour", "long-sensors", "underway-replenishment", "orbital-docks", "deflector-grid", "missile-brain-2", "fast-railguns", "recycling", "mass-driver", "deuterium-extraction", "fusion-power", "damage-control", "railgun-mk3", "strike-craft", "skyhook", "laser-sails", "automation-2", "mineral-surveys", "yard-tooling", "grid-balancing"]
+      "research": ["tanker-hull", "freighter-hull", "automation", "electronics-fabs", "efficient-drives", "rare-element-assays", "solar-sails", "precision-workshops", "deep-boring", "efficient-upkeep", "fast-shipyard", "bulk-freighter-hull", "escort-hull", "point-defence-2", "satellites", "heavy-armour", "long-sensors", "underway-replenishment", "orbital-docks", "colony-shipyards", "deflector-grid", "missile-brain-2", "fast-railguns", "recycling", "mass-driver", "deuterium-extraction", "fusion-power", "damage-control", "railgun-mk3", "strike-craft", "skyhook", "laser-sails", "automation-2", "mineral-surveys", "yard-tooling", "grid-balancing"]
     },
     "hunter": {
       "profile": {"aggression": 0.9, "expansion": 0.3, "defence": 0.4, "risk": 0.9, "raiding": 0.3, "research": 0.5}, "pullBack": "fightOn", "fireAt": "flagship", "missiles": "close",

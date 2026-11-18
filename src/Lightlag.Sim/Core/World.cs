@@ -238,6 +238,9 @@ public sealed class Body
     public double ShipyardArmour { get; set; }
     public double? LastBombardedHour { get; set; }
 
+    /// <summary>Hours left of its dry dock's upgrade to a Shipyard (null: none under way; see Yards).</summary>
+    public double? YardUpgradeHoursLeft { get; set; }
+
     /// <summary>The side holding orbit here to claim it, and for how long so far.</summary>
     public Side? ClaimSide { get; set; }
     public double ClaimHours { get; set; }

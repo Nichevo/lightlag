@@ -797,12 +797,10 @@ public static class Planets
         b.Priority = null;
         b.Preset = "balanced";
         b.AutoTopUp = false;
-        if (b.Shipyard && before is Side loser)
-        {
-            b.Shipyard = false;
-            b.ShipyardArmour = 0;
-            w.Orders.RemoveAll(o => o.Side == loser && o.Kind == OrderKind.Ship);
-        }
+        // A taken Shipyard is left a dry dock; the old owner's hulls here are lost (see Yards), its queued ships go elsewhere.
+        if (b.Shipyard && before is Side loser) Yards.LoseShipyard(sim, b, loser, "planet taken");
+        b.YardUpgradeHoursLeft = null;
+        foreach (var o in w.Orders.Where(o => o.Side == before && o.Kind == OrderKind.Ship && !o.Paid && o.YardBodyId == b.Id)) { o.YardPinned = false; o.YardBodyId = null; }
         Economy.Of(w, side).Totals.PlanetsClaimed++;
         if (before is Side lost) Economy.Of(w, lost).Totals.PlanetsLost++;
         sim.Log.Info("planets", $"{side} takes {b.Name}: {how}", new { bodyId = b.Id, side = side.ToString(), from = before?.ToString(), people = Math.Round(b.PopK, 1) });

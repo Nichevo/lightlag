@@ -1495,12 +1495,25 @@ public partial class GameScreen : Node2D
         if (Economy.CanQueue(Sim.World, Side.Player, kind, key) is string problem) { _main.Toast(problem); return; }
         // New ships go to the fleet picked for the last one, while it still exists.
         var join = kind == OrderKind.Ship && BuildForFleetId is int j && Sim.World.FindFleet(j)?.Side == Side.Player ? BuildForFleetId : null;
-        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key, join));
+        var at = kind == OrderKind.Ship && BuildAtBodyId is int y && Sim.World.FindBody(y)?.Owner == Side.Player ? BuildAtBodyId : null;
+        Sim.Issue(new QueueOrderCommand(Side.Player, kind, key, join, YardBodyId: at));
         _main.RunGuarded("queueing an order", Sim.ApplyPending);
     }
 
     /// <summary>The fleet last picked for a ship being built (new orders start with it).</summary>
     public int? BuildForFleetId { get; set; }
+
+    /// <summary>The yard new ship orders are pinned to (null: Auto picks the berth; see Yards).</summary>
+    public int? BuildAtBodyId { get; set; }
+
+    /// <summary>Queue a ship pinned to this planet's yard (the planet screen's Build here).</summary>
+    public void QueueAt(string key, int bodyId)
+    {
+        if (Economy.CanQueue(Sim.World, Side.Player, OrderKind.Ship, key) is string problem) { _main.Toast(problem); return; }
+        var join = BuildForFleetId is int j && Sim.World.FindFleet(j)?.Side == Side.Player ? BuildForFleetId : null;
+        Sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, key, join, YardBodyId: bodyId));
+        _main.RunGuarded("queueing a ship", Sim.ApplyPending);
+    }
 
     /// <summary>Choose the fleet a ship being built will join (null: the fleet at the shipyard).</summary>
     public void SetOrderFleet(int orderId, int? fleetId)
