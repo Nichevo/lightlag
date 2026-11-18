@@ -225,6 +225,28 @@ public static class BattleRules
         ?? Economy.HomeOf(w, side);
 
     /// <summary>Pull back: whole fleet or damaged ships, to home (cruising), the nearest friendly planet, or the regroup point.</summary>
+    /// <summary>
+    /// The player's own order overrides a pull-back in progress (a chase, Hold on, or a looser rule by hand): the fleet stops
+    /// pulling back and the rule counts losses again from now. Crippled ships still limp home. False if nothing was called off.
+    /// </summary>
+    public static bool CallOff(Simulation sim, Fleet f, string why)
+    {
+        var w = sim.World;
+        if (!f.Retreating || f.ShipIds.Count == 0 || w.ShipsOf(f).All(s => s.Crippled)) return false;
+        f.Retreating = false;
+        f.PullReason = null;
+        if (f.FightPower > 0)
+        {
+            f.FightPower = Strength(w, f);
+            f.FightShips = f.ShipIds.Count;
+            f.FightLost = 0;
+            f.FightPulledPower = 0;
+        }
+        sim.Log.Info("combat", "Pull-back called off", new { fleetId = f.Id, why });
+        Combat.StandingNote(sim, f, $"{f.Name} stops pulling back: {why}");
+        return true;
+    }
+
     public static void PullBack(Simulation sim, Fleet f, string why, bool toYard = false, bool alone = false, bool byHand = false)
     {
         var w = sim.World;
@@ -408,6 +430,11 @@ public sealed record SetPullRuleCommand(int FleetId, PullPreset? Preset, PullRul
         f.RetreatWhenDamaged = true;
         if (byHand) f.RuleByHand = true;
         sim.Log.Info("fleet", $"{f.Name} pull-back rule: {PullRule.Name(rule.Preset)}", new { FleetId, preset = rule.Preset.ToString(), byHand, Source });
+        // A looser rule set by hand while pulling back for lost strength, ships or ammo: if the new rule would not have
+        // pulled back, the fleet fights on.
+        if (byHand && f.Retreating && f.PullReason is string reason && !reason.StartsWith("ordered", StringComparison.Ordinal)
+            && BattleRules.Trigger(world, f, rule) == null)
+            BattleRules.CallOff(sim, f, $"pull-back rule now {PullRule.Name(rule.Preset)}");
     }
 }
 
@@ -418,6 +445,7 @@ public sealed record HoldOnCommand(int FleetId, bool On) : GameCommand, IFleetCo
     {
         if (GetFleet(world, sim, FleetId, "Hold on order") is not Fleet f) return;
         f.HoldOn = On;
+        if (On) BattleRules.CallOff(sim, f, "ordered to hold on");
         sim.Log.Info("fleet", On ? $"{f.Name} holds on" : $"{f.Name} follows its pull-back rule again", new { FleetId, On, Source });
     }
 }

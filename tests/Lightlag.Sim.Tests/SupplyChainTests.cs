@@ -213,6 +213,16 @@ public class SupplyChainTests
     }
 
     [Fact]
+    public void One_good_filter_shows_only_that_good()
+    {
+        ChainFlow Flow(string good) => new(ChainNodeKind.Planet, 1, ChainNodeKind.Planet, 2, good, 1, 1, false, RouteRisk.Low, good);
+        Assert.True(SupplyChain.Shows("only:iron", Flow("iron")));
+        Assert.False(SupplyChain.Shows("only:iron", Flow("alloys")));
+        Assert.True(SupplyChain.Shows("good:iron", Flow("alloys"))); // with its chain
+        Assert.Equal("Iron only", SupplyChain.FilterName("only:iron"));
+    }
+
+    [Fact]
     public void Supply_commands_round_trip_and_work_while_paused()
     {
         var cmds = new GameCommand[]

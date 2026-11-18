@@ -314,7 +314,8 @@ public static class SupplyChain
     public static string FilterName(string f) => f switch
     {
         "all" => "All goods", "alloys" => "Alloys chain", "fuel-ammo" => "Fuel and ammo to fleets", "risk" => "At risk only", "short" => "Short only",
-        _ => f.StartsWith("good:", StringComparison.Ordinal) ? $"{Colonies.GoodName(f[5..])} chain" : f,
+        _ => f.StartsWith("good:", StringComparison.Ordinal) ? $"{Colonies.GoodName(f[5..])} chain"
+            : f.StartsWith("only:", StringComparison.Ordinal) ? $"{Colonies.GoodName(f[5..])} only" : f,
     };
 
     public static bool Shows(string filter, ChainFlow flow) => filter switch
@@ -324,6 +325,7 @@ public static class SupplyChain
         "fuel-ammo" => flow.ToKind == ChainNodeKind.Fleet || flow.Good is "fuel" or "ammunition",
         "risk" => flow.Risk != RouteRisk.Low,
         "short" => flow.Short,
+        _ when filter.StartsWith("only:", StringComparison.Ordinal) => flow.Good == filter[5..],
         _ => !filter.StartsWith("good:", StringComparison.Ordinal) || ChainOf(filter[5..]).Contains(flow.Good),
     };
 
