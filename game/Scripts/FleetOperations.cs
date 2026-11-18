@@ -43,6 +43,7 @@ public partial class FleetScreen
 
     private void TakeWanted()
     {
+        TakeOrganiseWanted();
         if (_wanted is not var (pane, strike, target, place)) return;
         _wanted = null;
         _opsPane = pane;

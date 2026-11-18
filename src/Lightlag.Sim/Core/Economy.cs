@@ -683,6 +683,8 @@ public static class Economy
             yard.PopK -= troops;
         }
         var target = joinFleetId is int j && w.FindFleet(j) is Fleet t && t.Side == side ? t : null;
+        // Built for a locked fleet: that order names it, so the new ship is one of its own.
+        if (target is { Locked: true } && !target.Roster.Contains(ship.Id)) target.Roster.Add(ship.Id);
         Fleet? waiting;
         if (target != null)
             waiting = InOrbitAt(target, yard) && target.Flight == null && !target.Retreating ? target : null;
@@ -690,8 +692,12 @@ public static class Economy
         {
             // Colony ships keep to themselves (they have their own errands); warships don't wait on them.
             var colony = Planets.IsColonyShip(ship);
+            // The player's new ships only join the "New ships at <yard>" fleet waiting there, never a fleet with a job
+            // (a role, a lock, a mission): they were turning up in fleets nobody gave them to. AI sides keep the old way.
+            var pool = Mind.Of(w, side) == null;
             waiting = order?.SettleBodyId != null ? null : w.Fleets.FirstOrDefault(f => f.Side == side && f.Flight == null && f.JoinFleetId == null && !f.Retreating
-                                                   && f.PeopleRun == null && InOrbitAt(f, yard) && w.ShipsOf(f).All(Planets.IsColonyShip) == colony);
+                                                   && f.PeopleRun == null && InOrbitAt(f, yard) && w.ShipsOf(f).All(Planets.IsColonyShip) == colony
+                                                   && (!pool || f.YardPoolBodyId == yard.Id && !f.Locked && f.Role == FleetRole.None));
         }
         if (waiting != null)
         {
@@ -709,7 +715,9 @@ public static class Economy
             waiting.OrbitAngle = angle;
             waiting.Position = yard.Position + new Vec2(DetMath.Cos(angle), DetMath.Sin(angle)) * waiting.OrbitRadius;
             // A new supply ship on its own starts on the Supply role, unless it is built to join a fleet.
-            if (target == null && HelpCalls.SupplyOnly(w, waiting)) { waiting.Role = FleetRole.Supply; FleetNames.Refresh(w, waiting); }
+            if (target == null && HelpCalls.SupplyOnly(w, waiting)) waiting.Role = FleetRole.Supply;
+            else if (target == null && order?.SettleBodyId == null && Mind.Of(w, side) == null) waiting.YardPoolBodyId = yard.Id;
+            FleetNames.Refresh(w, waiting);
         }
         foreach (var s in w.ShipsOf(waiting)) s.Position = waiting.Position + s.FormationOffset;
         sim.Log.Info("economy", $"{ship.Name} is launched at {yard.Name} and joins {waiting.Name}",

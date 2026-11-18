@@ -41,6 +41,7 @@ public static class Autonomy
         var w = sim.World;
         HelpCalls.Update(sim);
         Operations.Update(sim);
+        Transfers.Update(sim);
         FleetNames.RefreshAll(w);
         foreach (var f in w.Fleets.ToList())
         {

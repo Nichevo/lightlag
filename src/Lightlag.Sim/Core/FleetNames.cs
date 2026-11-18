@@ -1,11 +1,13 @@
 namespace Lightlag.Sim.Core;
 
 /// <summary>
-/// The player's fleets are named for what they are: their role ("Defence fleet", "Pirate patrol",
-/// "Support fleet", "Supply fleet") or, with no role, their ships ("Battle fleet", "Settler fleet",
-/// "Invasion fleet", "Troop fleet", "Supply fleet", "Scout fleet"). The first of a kind has no number;
-/// the next ones get the lowest free number ("Defence fleet 2"). A fleet keeps its name while its kind
-/// stays the same, and is renamed when the kind changes, unless the player gave it a name.
+/// The player's fleets are named for what they are. With a role, for the role and the place it looks after:
+/// "Verdant defence", "Rust run patrol", "Verdant response", "Verdant supply", "Rust guard" (the place is where it
+/// last settled in orbit at one of its side's planets, its zone, or the planet it guards; without one, "Defence fleet",
+/// "Patrol fleet", ...). With no role, for its ships ("Battle fleet", "Settler fleet", "Invasion fleet", "Troop fleet",
+/// "Supply fleet", "Scout fleet"), or for what it is doing: "To Verdant defence" (ships on their way to join a fleet),
+/// "New ships at Verdant" (launched ships waiting at the yard). The first of a kind has no number; the next ones get
+/// the lowest free number. A fleet is renamed when its kind changes, unless the player gave it a name.
 /// Rival fleets keep "Rival fleet N".
 /// </summary>
 public static class FleetNames
@@ -15,17 +17,30 @@ public static class FleetNames
     /// <summary>What a fleet is called for its role or, with no role, its ships.</summary>
     public static string Kind(World w, Fleet f)
     {
+        var kind = KindLong(w, f);
+        return kind.Length <= MaxLength ? kind : kind[..MaxLength].TrimEnd();
+    }
+
+    private static string KindLong(World w, Fleet f)
+    {
+        var place = Place(w, f);
         switch (f.Role)
         {
-            case FleetRole.Defence: return "Defence fleet";
-            case FleetRole.AntiPiracy: return "Pirate patrol";
-            case FleetRole.Support: return "Support fleet";
-            case FleetRole.Supply: return "Supply fleet";
-            case FleetRole.ForwardGuard: return "Guard fleet";
+            case FleetRole.Defence: return place != null ? $"{place} defence" : "Defence fleet";
+            case FleetRole.AntiPiracy:
+                return f.ZoneId is int z && w.Zones.Find(x => x.Id == z) is Zone zone ? $"{zone.Name} patrol" : place != null ? $"{place} patrol" : "Patrol fleet";
+            case FleetRole.Support: return place != null ? $"{place} response" : "Response fleet";
+            case FleetRole.Supply: return place != null ? $"{place} supply" : "Supply fleet";
+            case FleetRole.ForwardGuard:
+                return f.GuardBodyIds.Count == 1 && w.FindBody(f.GuardBodyIds[0]) is Body g ? $"{g.Name} guard"
+                    : f.GuardBodyIds.Count == 2 && w.FindBody(f.GuardBodyIds[0]) is Body a && w.FindBody(f.GuardBodyIds[1]) is Body b ? $"{a.Name}-{b.Name} guard"
+                    : "Guard fleet";
             case FleetRole.Scout: return "Scout";
         }
+        if (f.TransferTo is int t && f.JoinFleetId == t && w.FindFleet(t) is Fleet to) return $"To {to.Name}";
         var specs = w.ShipsOf(f).Select(Fitting.Spec).ToList();
         if (specs.Count == 0) return "Fleet";
+        if (f.YardPoolBodyId is int y && w.FindBody(y) is Body yard) return $"New ships at {yard.Name}";
         var armed = specs.Any(c => c.Railguns > 0 || c.Missiles > 0);
         if (specs.Any(c => c.CargoKind == "troops")) return armed ? "Invasion fleet" : "Troop fleet";
         if (specs.Any(c => c.CargoKind == "people")) return "Settler fleet";
@@ -33,6 +48,25 @@ public static class FleetNames
         if (specs.All(c => c.Cargo > 0 && c.CargoKind is "fuel" or "food" or "mixed")) return "Supply fleet";
         if (specs.Any(c => c.Cargo > 0)) return "Cargo fleet";
         return "Scout fleet";
+    }
+
+    /// <summary>The place a role fleet is named for: the planet of its side it last settled in orbit at (null: none yet).</summary>
+    public static string? Place(World w, Fleet f) => f.PlaceBodyId is int id && w.FindBody(id) is Body b ? b.Name : null;
+
+    /// <summary>
+    /// Keeps a fleet's naming facts current: the place it settles at (only while it sits in orbit at one of its side's
+    /// planets with nothing else on, so a fleet out answering a call keeps its name), a finished transfer, a yard pool
+    /// that has been given something to do.
+    /// </summary>
+    public static void Settle(World w, Fleet f)
+    {
+        if (f.TransferTo is int t && f.JoinFleetId != t) f.TransferTo = null;
+        if (f.YardPoolBodyId is int y && (f.Role != FleetRole.None || f.Flight != null || f.Mission != Mission.None || f.ZoneId != null
+                                          || w.FindBody(y) is not Body yard || !Economy.InOrbitAt(f, yard)))
+            f.YardPoolBodyId = null;
+        if (f.Flight == null && f.Hold == HoldStyle.Orbit && f.OrbitBodyId is int o && w.FindBody(o) is Body b && b.Owner == f.Side
+            && f.AnsweringCallId == null && f.SupplyRunFor == null && !f.Resupplying && f.Refit == null && !f.Retreating)
+            f.PlaceBodyId = o;
     }
 
     /// <summary>The kind a name was made from: "Defence fleet 2" gives "Defence fleet".</summary>
@@ -45,9 +79,11 @@ public static class FleetNames
     /// <summary>Renames the fleet if its kind changed (player fleets the player has not named only).</summary>
     public static void Refresh(World w, Fleet f)
     {
-        if (f.Side != Side.Player || f.NamedByPlayer || f.ShipIds.Count == 0) return;
+        if (f.Side != Side.Player || f.ShipIds.Count == 0) return;
+        Settle(w, f);
+        if (f.NamedByPlayer) return;
         var kind = Kind(w, f);
-        if (KindOf(f.Name) == kind && f.Name.Length > 0) return;
+        if ((f.Name == kind || KindOf(f.Name) == kind) && f.Name.Length > 0) return;
         f.Name = Next(w, f, kind);
     }
 

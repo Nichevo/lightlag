@@ -109,10 +109,10 @@ public static class HelpCalls
     public static string RoleName(FleetRole r) => r switch
     {
         FleetRole.Defence => "Planet defence",
-        FleetRole.AntiPiracy => "Anti-piracy",
-        FleetRole.Support => "Support",
+        FleetRole.AntiPiracy => "Patrol",
+        FleetRole.Support => "Response",
         FleetRole.Supply => "Supply",
-        FleetRole.ForwardGuard => "Forward guard",
+        FleetRole.ForwardGuard => "Guard",
         FleetRole.Scout => "Scout",
         _ => "No role",
     };
@@ -122,7 +122,7 @@ public static class HelpCalls
         FleetRole.Defence => "Answers planets that see an enemy fleet close",
         FleetRole.AntiPiracy => "Answers raids on cargo runs and cargo ships in trouble",
         FleetRole.Support => "Answers every call: planets, raids and fleets in trouble",
-        FleetRole.Supply => "Takes fuel, ammunition and food to fleets in range that run short, then goes home to load",
+        FleetRole.Supply => "Takes fuel, ammunition and food to fleets in range that run short (the fleets you list first), then goes home to load",
         FleetRole.ForwardGuard => "Waits at a post central to the planets you pick and answers any of them that sees an enemy close, however far",
         FleetRole.Scout => "Surveys the worlds you haven't, then looks in on enemy worlds where your intel is oldest. Cautious: keeps to high orbit, stays away from guns and armed fleets, and runs home at the first armed contact",
         _ => "Answers no calls; only does what it is told",
@@ -332,13 +332,20 @@ public static class HelpCalls
             var want = w.Fleets.Where(t => t.Side == side && t.Id != f.Id && !SupplyOnly(w, t) && t.ShipIds.Count > 0
                                             && !w.Fleets.Any(x => x.SupplyRunFor == t.Id) && SupplyLines.Short(w, t)
                                             && Vec2.Distance(t.Position, f.Position) <= range)
-                .OrderBy(t => Vec2.Distance(t.Position, f.Position)).ThenBy(t => t.Id).FirstOrDefault();
+                .OrderBy(t => Priority(f, t)).ThenBy(t => Vec2.Distance(t.Position, f.Position)).ThenBy(t => t.Id).FirstOrDefault();
             if (want == null) continue;
             f.SupplyRunFor = want.Id;
             f.SupplyRunByRole = true;
             f.SupplyRunProblem = null;
             Autonomy.Report(sim, f, $"{f.Name} (Supply) takes supplies to {want.Name}", NoteKind.Supply);
         }
+    }
+
+    /// <summary>Where a fleet comes in a supply fleet's list: its place on the "serve first" list, or after all of them.</summary>
+    public static int Priority(Fleet supplier, Fleet t)
+    {
+        var i = supplier.SupplyFirst.IndexOf(t.Id);
+        return i < 0 ? int.MaxValue : i;
     }
 
     /// <summary>Raise or refresh calls from what the side sees now, and end calls whose reasons have passed.</summary>
@@ -706,20 +713,6 @@ public sealed record MoveShipsCommand(int FleetId, List<int> ShipIds, int ToFlee
         }
         var moving = ShipIds.Where(id => from.ShipIds.Contains(id)).Distinct().ToList();
         if (moving.Count == 0) return;
-        if (moving.Count == from.ShipIds.Count)
-        {
-            Fleets.Absorb(world, to, from);
-            sim.Log.Info("fleet", "All ships moved: fleets merged", new { FleetId, ToFleetId, Source });
-            return;
-        }
-        foreach (var id in moving)
-        {
-            from.ShipIds.Remove(id);
-            to.ShipIds.Add(id);
-            if (world.FindShip(id) is Ship s) s.FleetId = to.Id;
-        }
-        Fleets.Arrange(world, from);
-        Fleets.Arrange(world, to);
-        sim.Log.Info("fleet", "Ships moved between fleets", new { FleetId, ToFleetId, ships = moving, Source });
+        Transfers.MoveNow(world, sim, from, to, moving, Source);
     }
 }

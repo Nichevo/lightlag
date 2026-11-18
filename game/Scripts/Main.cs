@@ -998,6 +998,30 @@ public partial class Main : Node
             FleetScreen.ShowOps("strike", Sim.World.Fleets.Where(f => f.Side == me && f.ShipIds.Count > 0 && Coverage.Fighting(Sim.World, f)).Select(f => f.Id).ToList(),
                 Sim.World.Bodies.First(b => b.Key == "rust").Id);
             await Shoot("58-operations-strike");
+
+            // The Organise tab: two warships split off and placed at Vela (screenshot only), one ship planned to fly
+            // there and a second picked, showing how long each fleet would take. Then the fleets list with a lock.
+            var warships = Sim.World.ShipsOf(own).Where(s => !SupplyLines.IsSupplyShip(s)).Select(s => s.Id).ToList();
+            if (warships.Count >= 3)
+            {
+                Sim.Issue(new SplitFleetCommand(own.Id, warships.Take(1).ToList()));
+                Sim.ApplyPending();
+                var away = Sim.World.Fleets.Last(f => f.Side == me);
+                away.Flight = null;
+                away.Chase = null;
+                away.Velocity = Vec2.Zero;
+                away.Position = vela.Position + new Vec2(Fleets.OrbitRadiusFor(vela), 0);
+                Fleets.EnterOrbit(away, vela);
+                foreach (var s in Sim.World.ShipsOf(away)) s.Position = away.Position + s.FormationOffset;
+                minds.FleetsTab = "organise";
+                FleetScreen.ShowOrganise((own.Id, warships[2]), new() { (own.Id, warships[1], away.Id, false) });
+                await Shoot("59-organise");
+                Sim.Issue(new SetFleetLockCommand(me, own.Id, true));
+                Sim.ApplyPending();
+                minds.FleetsTab = "fleets";
+                minds.FleetScreenId = own.Id;
+                await Shoot("59b-fleet-lock-supply");
+            }
             minds.FleetsTab = "fleets";
             minds.ShowFleets = false;
 

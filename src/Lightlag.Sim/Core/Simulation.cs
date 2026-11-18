@@ -493,6 +493,16 @@ public sealed class Simulation
                     Log.Info("fleet", $"{f.Name} sets off again to join {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
                 continue;
             }
+            if (Transfers.LockProblem(World, into, f) is string locked)
+            {
+                // A fleet locked since the join was ordered keeps its ships: this one stays beside it.
+                f.JoinFleetId = null;
+                f.TransferTo = null;
+                f.Refused = $"join {into.Name}: {locked}";
+                f.RefusedHour = World.Hour;
+                Log.Warn("fleet", "Join refused: locked fleet", new { fleetId = f.Id, intoFleetId = into.Id });
+                continue;
+            }
             Fleets.Absorb(World, into, f);
             Log.Info("fleet", $"{f.Name} joins {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
         }

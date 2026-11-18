@@ -344,6 +344,29 @@ public sealed class Fleet
     /// <summary>The player named it, so it keeps its name when its role or ships change (see FleetNames).</summary>
     public bool NamedByPlayer { get; set; }
 
+    /// <summary>
+    /// Locked: the fleet keeps the ships it had when it was locked (Roster). Nothing joins it and none of its ships
+    /// are gathered into another fleet unless the player moves them on the fleets screen; its own ships that left for
+    /// a while (a tender restocking, support held back from a fight) still come back. See Transfers.LockProblem.
+    /// </summary>
+    public bool Locked { get; set; }
+    public List<int> Roster { get; set; } = new();
+
+    /// <summary>Ships of this fleet waiting to fly to another fleet once it is close enough (Transfers).</summary>
+    public List<PendingTransfer> Transfers { get; set; } = new();
+
+    /// <summary>A detachment flying to join another fleet on a transfer order (named "To ..." while it flies).</summary>
+    public int? TransferTo { get; set; }
+
+    /// <summary>New ships waiting at a yard (named "New ships at ..."): later launches there join it.</summary>
+    public int? YardPoolBodyId { get; set; }
+
+    /// <summary>The planet its name is taken from ("Verdant defence"): where it last settled in orbit (FleetNames.Place).</summary>
+    public int? PlaceBodyId { get; set; }
+
+    /// <summary>Supply role: fleets it serves first, in this order; then any other fleet in range, nearest first.</summary>
+    public List<int> SupplyFirst { get; set; } = new();
+
     /// <summary>A fleet roaming its zone (ZoneHold.Roam) picks its next spot at this hour.</summary>
     public double NextRoamHour { get; set; }
 

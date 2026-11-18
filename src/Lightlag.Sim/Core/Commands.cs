@@ -128,6 +128,10 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(PickEventCommand), "pickEvent")]
 [JsonDerivedType(typeof(RenameShipCommand), "renameShip")]
 [JsonDerivedType(typeof(RenameFleetCommand), "renameFleet")]
+[JsonDerivedType(typeof(TransferShipsCommand), "transferShips")]
+[JsonDerivedType(typeof(CancelTransferCommand), "cancelTransfer")]
+[JsonDerivedType(typeof(SetFleetLockCommand), "setFleetLock")]
+[JsonDerivedType(typeof(SetSupplyFirstCommand), "setSupplyFirst")]
 [JsonDerivedType(typeof(SetFleetRoleCommand), "setFleetRole")]
 [JsonDerivedType(typeof(SetGuardPlanetsCommand), "setGuardPlanets")]
 [JsonDerivedType(typeof(MoveShipsCommand), "moveShips")]
@@ -389,6 +393,11 @@ public sealed record MergeFleetsCommand(int FleetId, int OtherFleetId) : GameCom
             Refuse(world, sim, fleet, $"merge {other.Name}: {problem}", new { FleetId, OtherFleetId, Source });
             return;
         }
+        if (Transfers.LockProblem(world, fleet, other) is string locked)
+        {
+            Refuse(world, sim, fleet, $"merge {other.Name}: {locked}", new { FleetId, OtherFleetId, Source });
+            return;
+        }
         Fleets.Absorb(world, fleet, other);
         sim.Log.Info("fleet", $"{other.Name} merges into {fleet.Name}", new { FleetId, OtherFleetId, Source });
     }
@@ -468,6 +477,11 @@ public sealed record GatherFleetsCommand(int FleetId, List<int> OtherFleetIds, d
         foreach (var otherId in OtherFleetIds.Distinct())
         {
             if (world.FindFleet(otherId) is not Fleet other || other.Id == into.Id || other.Side != into.Side) continue;
+            if (Transfers.LockProblem(world, into, other) is string locked)
+            {
+                Refuse(world, sim, other, $"gather into {into.Name}: {locked}", new { FleetId, otherFleetId = otherId, Source });
+                continue;
+            }
             if (Fleets.CanJoin(other, into))
             {
                 Fleets.Absorb(world, into, other);

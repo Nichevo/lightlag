@@ -19,9 +19,14 @@ public partial class FleetScreen : PanelContainer
     private string _shape = "";
     private readonly List<Action<World>> _live = new();
     private readonly HashSet<int> _ticked = new();
-    private string _sort = "name";
+    private string _sort = "role";
 
-    private static readonly string[] Sorts = { "name", "role", "ships", "condition", "distance" };
+    private static readonly string[] Sorts = { "role", "name", "ships", "condition", "distance" };
+
+    // The Ships box's "Move ticked ships to" choice, its wait option, and the "Bring in ships" fleet.
+    private int? _moveTo;
+    private bool _moveWait;
+    private int? _bringFrom;
 
     public FleetScreen() : this(null!) { }
     public FleetScreen(GameScreen screen) => _screen = screen;
@@ -51,7 +56,7 @@ public partial class FleetScreen : PanelContainer
         _screen.FleetScreenId = picked?.Id;
         _ticked.RemoveWhere(s => picked == null || !picked.ShipIds.Contains(s));
         var shape = $"{_sort}|{view}|{picked?.Id}|{string.Join(",", _ticked)}|"
-                    + string.Join(";", fleets.Select(f => $"{f.Id}:{string.Join(",", f.ShipIds)}:{f.Role}:{f.RoleRules.Range}:{f.RoleRules.Odds}:{f.RoleRules.ReturnAfter}:{f.RoleRules.MinHealth}"))
+                    + string.Join(";", fleets.Select(f => $"{f.Id}:{string.Join(",", f.ShipIds)}:{f.Role}:{f.RoleRules.Range}:{f.RoleRules.Odds}:{f.RoleRules.ReturnAfter}:{f.RoleRules.MinHealth}:{f.Locked}:{f.Transfers.Count}:{f.TransferTo}:{string.Join(",", f.SupplyFirst)}"))
                     + "|" + string.Join(",", w.HelpCalls.Where(c => c.Side == Side.Player).Select(c => $"{c.Id}{(c.Open ? "o" : "")}"))
                     + "|" + (picked != null ? string.Join(",", Here(w, picked).Select(f => f.Id)) : "")
                     + "|" + _screen.QuietWhenHandled
@@ -59,7 +64,9 @@ public partial class FleetScreen : PanelContainer
                     + "|" + string.Join(",", w.Light.InTransit.Concat(w.Light.Held).Where(t => t.Command is SetFleetRoleCommand).Select(t => t.Command.GetHashCode()))
                     + "|" + string.Join(";", w.Zones.Where(z => z.Side == Side.Player).Select(z => $"{z.Id}:{z.Name}:{z.RadiusMm:0}:{z.AnchorBodyId}:{z.FromBodyId}:{z.Hold}:{z.Prey}:{z.Kind}"))
                     + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player && f.ZoneId != null).Select(f => $"{f.Id}>{f.ZoneId}"))
-                    + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : _screen.FleetsTab == "war" ? WarTab.Shape(w) + EmpireTabs.AutomationShape(w) : "");
+                    + "|" + _screen.FleetsTab + (_screen.FleetsTab == "operations" ? OpsShape(w) : _screen.FleetsTab == "war" ? WarTab.Shape(w) + EmpireTabs.AutomationShape(w)
+                       : _screen.FleetsTab == "organise" ? OrganiseShape(w) : "")
+                    + "|" + _moveTo + "|" + _moveWait + "|" + _bringFrom;
         if (shape != _shape && !Ui.MouseHeld)
         {
             _shape = shape;
@@ -196,6 +203,7 @@ public partial class FleetScreen : PanelContainer
         foreach (var (key, label, tip) in new[]
                  {
                      ("fleets", "Fleets list", "Every fleet with its role, orders, supplies and ships"),
+                     ("organise", "Organise", "Every fleet side by side: move ships between fleets, near or far, and see who supplies whom"),
                      ("operations", "Operations", "The map: who covers what, strikes and patrol loops"),
                      ("war", "War", "Boarding, ground fighting, clearing up after battles, survivors adrift, and the pull-back rule Auto gives fleets"),
                  })
@@ -205,7 +213,8 @@ public partial class FleetScreen : PanelContainer
             tab.ButtonPressed = _screen.FleetsTab == key;
             top.AddChild(tab);
         }
-        var note = Ui.Label(_screen.FleetsTab == "operations"
+        var note = Ui.Label(_screen.FleetsTab == "organise" ? "Move ships between fleets, near or far, and see which supply fleets look after each fleet"
+            : _screen.FleetsTab == "operations"
             ? "What is covered and what is not, strikes with several fleets, and patrol loops"
             : _screen.FleetsTab == "war" ? "Boardings, ground fights and clearing up after battles, with their calls; works while paused"
             : "Pick a fleet to see its ships, role and supplies. Roles let free fleets answer calls for help by themselves", 13, Ui.Dim);
@@ -230,6 +239,11 @@ public partial class FleetScreen : PanelContainer
             BuildWar(w);
             return;
         }
+        if (_screen.FleetsTab == "organise")
+        {
+            BuildOrganise(w, fleets);
+            return;
+        }
 
         var body = Row(14);
         body.SizeFlagsVertical = SizeFlags.ExpandFill;
@@ -245,7 +259,16 @@ public partial class FleetScreen : PanelContainer
         var listScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         var list = Column(6);
         list.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        foreach (var f in fleets) list.AddChild(FleetRow(w, f, f.Id == picked?.Id));
+        FleetRole? group = null;
+        foreach (var f in fleets)
+        {
+            if (_sort == "role" && f.Role != group)
+            {
+                group = f.Role;
+                list.AddChild(Ui.Label($"{HelpCalls.RoleName(f.Role).ToUpperInvariant()} · {fleets.Count(g => g.Role == f.Role)}", 11, Ui.Dim));
+            }
+            list.AddChild(FleetRow(w, f, f.Id == picked?.Id));
+        }
         if (fleets.Count == 0) list.AddChild(Ui.Label("You have no fleets", 14, Ui.Dim));
         listScroll.AddChild(list);
         left.AddChild(listScroll);
@@ -364,10 +387,17 @@ public partial class FleetScreen : PanelContainer
     {
         var col = Column(2);
         var id = f.Id;
-        col.AddChild(Ui.Label($"{f.Name}  ·  {f.ShipIds.Count} ship{(f.ShipIds.Count == 1 ? "" : "s")}", 15, picked ? Ui.Player : Ui.Text));
-        col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? RoleState(w2, g) : "", 13, new Color("9fd6ff")));
+        var top = Row(6);
+        var title = Ui.Label($"{f.Name}  ·  {f.ShipIds.Count} ship{(f.ShipIds.Count == 1 ? "" : "s")}", 15, picked ? Ui.Player : Ui.Text);
+        title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        top.AddChild(title);
+        if (f.Locked) top.AddChild(Ui.Label("Locked", 12, Warn));
+        col.AddChild(top);
+        col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? RoleState(w2, g) : "", 13, RoleColor(f.Role)));
         col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? FleetPanel.Doing(w2, g) : "", 12, Ui.Dim));
         col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? Condition(w2, g) : "", 12, Ui.Dim));
+        if (!HelpCalls.SupplyOnly(w, f))
+            col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? SupplyLine(w2, g) : "", 12, new Color("c7a0ff")));
         var box = Box(col, 8);
         if (picked && box.GetThemeStylebox("panel") is StyleBoxFlat st)
         {
@@ -390,14 +420,28 @@ public partial class FleetScreen : PanelContainer
         return box;
     }
 
+    /// <summary>One line for the fleets list: who supplies it and the verdict.</summary>
+    private static string SupplyLine(World w, Fleet f)
+    {
+        var p = SupplyCover.Of(w, f);
+        var who = p.Sources.Where(x => x.Counts).Select(x => x.Kind == "tender" ? "own tender" : x.Name).Distinct().ToList();
+        return $"Supply: {SupplyCover.Word(p.Verdict)}" + (who.Count > 0 ? $" · {string.Join(", ", who)}" : "");
+    }
+
     private Control Header(World w, Fleet f)
     {
         var id = f.Id;
         var col = Column(4);
         var row = Row(12);
         row.AddChild(Ui.Label(f.Name, 22, Ui.Player));
-        row.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{g.ShipIds.Count} ships · strength {Stats.Power(w2, g):0} · {Condition(w2, g)}" : "", 14, Ui.Dim));
         row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        var lockButton = Ui.SmallButton(f.Locked ? "Locked" : "Lock", () => _screen.IssueNow(new SetFleetLockCommand(Side.Player, id, !f.Locked), "lock fleet"),
+            f.Locked ? "Locked: it keeps these ships. New ships, Gather and other fleets' joins can't add to it or take from it; you can still move ships on this screen. Click to unlock"
+                     : "Lock the fleet so it keeps exactly these ships: new ships, Gather and other fleets' joins can't change it");
+        lockButton.ToggleMode = true;
+        lockButton.SetPressedNoSignal(f.Locked);
+        if (f.Locked) lockButton.Modulate = Warn;
+        row.AddChild(lockButton);
         row.AddChild(Ui.SmallButton("◀ Back", () => Step(w, -1), "Your previous fleet in the list ([)"));
         row.AddChild(Ui.SmallButton("Next ▶", () => Step(w, 1), "Your next fleet in the list (])"));
         row.AddChild(Ui.SmallButton("Show on map", () => { _screen.ShowFleets = false; _screen.PickFleet(id); }, "Close this screen and select the fleet on the map"));
@@ -406,6 +450,33 @@ public partial class FleetScreen : PanelContainer
         if (Sim(w)) row.AddChild(Ui.SmallButton("Send for refit", () => _screen.IssueNow(new SendForRefitCommand(Side.Player, id), "refit"),
             "Fly to the shipyard for repairs and the current design"));
         col.AddChild(row);
+        col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? $"{g.ShipIds.Count} ships · strength {Stats.Power(w2, g):0} · {Condition(w2, g)}" : "", 14, Ui.Dim));
+        if (f.Locked)
+        {
+            var lockNote = Ui.Label($"Locked: keeps these {f.ShipIds.Count} ships. New ships, gathers and other fleets' joins can't change it. You can still move ships in or out on this screen.", 12, Warn);
+            lockNote.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            lockNote.CustomMinimumSize = new Vector2(200, 0);
+            col.AddChild(lockNote);
+        }
+        {
+            var naming = Row(6);
+            var nameEdit = new LineEdit { Text = f.Name, MaxLength = FleetNames.MaxLength, CustomMinimumSize = new Vector2(220, 26),
+                TooltipText = "Type a name and press Enter. Your name sticks when its role or ships change; empty goes back to the automatic name" };
+            nameEdit.TextSubmitted += t => Main.Instance.RunGuarded("fleet name", () =>
+            {
+                if (FleetNames.Problem(_screen.World, f, t) is string no) { Main.Instance.Toast(no); return; }
+                _screen.IssueNow(new RenameFleetCommand(Side.Player, id, t), "rename fleet");
+                nameEdit.ReleaseFocus();
+            });
+            naming.AddChild(Ui.Label("Name", 12, Ui.Dim));
+            naming.AddChild(nameEdit);
+            if (f.NamedByPlayer)
+                naming.AddChild(Ui.SmallButton("Auto name", () => _screen.IssueNow(new RenameFleetCommand(Side.Player, id, ""), "rename fleet"),
+                    $"Go back to the automatic name ({FleetNames.Kind(w, f)})"));
+            else
+                naming.AddChild(Ui.Label("Automatic: named for its role and the planet it looks after", 12, Ui.Dim));
+            col.AddChild(naming);
+        }
         col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g ? FleetPanel.Doing(w2, g) + (g.Mission != Mission.None ? $" · mission: {FleetPanel.MissionText(w2, g)}" : "") : "", 14, wrap: true));
         return Box(col);
     }
@@ -469,6 +540,7 @@ public partial class FleetScreen : PanelContainer
             if (role == FleetRole.Supply)
             {
                 col.AddChild(grid);
+                col.AddChild(ServeFirst(w, f));
                 col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g && g.SupplyRunFor is int t && w2.FindFleet(t) is Fleet served
                     ? $"Supplying {served.Name}." : "Waiting at a held planet, loaded, for a fleet in range to run below half its fuel, ammunition or food.", 13, new Color("9fd6ff"), wrap: true));
                 return Box(col);
@@ -498,6 +570,41 @@ public partial class FleetScreen : PanelContainer
                 : "Busy with an order or job: it answers calls once that is done (a patrol or hold counts as free).";
         }, 13, new Color("9fd6ff"), wrap: true));
         return Box(col);
+    }
+
+    /// <summary>Supply role: the fleets it serves first, in order, with ▲ ▼ ✕ and a picker to add one; then any other in range.</summary>
+    private Control ServeFirst(World w, Fleet f)
+    {
+        var id = f.Id;
+        var col = Column(4);
+        col.AddChild(Ui.Label("Serve first, in this order (then any other fleet in range, nearest first):", 13, Ui.Dim));
+        var first = f.SupplyFirst.Where(x => w.FindFleet(x) is Fleet o && o.ShipIds.Count > 0).ToList();
+        void Set(List<int> ids) => _screen.IssueNow(new SetSupplyFirstCommand(id, ids), "supply priorities");
+        for (var i = 0; i < first.Count; i++)
+        {
+            var at = i;
+            var o = w.FindFleet(first[i])!;
+            var row = Row(6);
+            var range = HelpCalls.RangeAu(f.RoleRules.Range) * Physics.MmPerAu;
+            var gap = Vec2.Distance(o.Position, f.Position);
+            var label = Ui.Label($"{i + 1}. {o.Name}  ·  {gap / Physics.MmPerAu:0.0} AU" + (gap > range ? " (out of range)" : ""), 13, gap > range ? Ui.Danger : Ui.Text);
+            label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            row.AddChild(label);
+            row.AddChild(Ui.SmallButton("▲", () => { if (at == 0) return; var l = first.ToList(); (l[at - 1], l[at]) = (l[at], l[at - 1]); Set(l); }, "Serve it earlier"));
+            row.AddChild(Ui.SmallButton("▼", () => { if (at == first.Count - 1) return; var l = first.ToList(); (l[at + 1], l[at]) = (l[at], l[at + 1]); Set(l); }, "Serve it later"));
+            row.AddChild(Ui.SmallButton("✕", () => { var l = first.ToList(); l.RemoveAt(at); Set(l); }, "Take it off the list (it is still served when in range)"));
+            col.AddChild(row);
+        }
+        var others = w.Fleets.Where(o => o.Side == Side.Player && o.Id != id && o.ShipIds.Count > 0 && !HelpCalls.SupplyOnly(w, o) && !first.Contains(o.Id))
+            .OrderBy(o => o.Name, StringComparer.Ordinal).ToList();
+        if (others.Count > 0)
+        {
+            var items = new List<(int, string)> { (-1, "Add a fleet to serve first…") };
+            items.AddRange(others.Select(o => (o.Id, o.Name)));
+            col.AddChild(Pick(items, -1, fid => { if (fid >= 0) Set(first.Append(fid).ToList()); }, "Put a fleet on this supply fleet's list: when several run short, listed ones come first"));
+        }
+        if (first.Count == 0) col.AddChild(Ui.Label("No list: it serves the nearest fleet in range that runs short.", 12, Ui.Dim));
+        return col;
     }
 
     private void SetRole(int id, FleetRole role, RoleRules? rules) =>
@@ -567,11 +674,25 @@ public partial class FleetScreen : PanelContainer
             if (gunners.Count > 0) parts.Add($"railgun ammo {gunners.Average(s => s.Ammo / SupplyLines.MaxAmmo(s)):P0}");
             if (racks.Count > 0) parts.Add($"missiles {racks.Sum(s => s.Missiles)}/{racks.Sum(s => Tech.Racks(w2, s))}");
             if (eaters.Count > 0) parts.Add(eaters.Any(SupplyLines.Hungry) ? "food: HUNGRY" : $"food {eaters.Min(s => SupplyLines.FoodDaysLeft(w2, s)):0} days");
-            var runners = w2.Fleets.Where(o => o.Side == g.Side && o.SupplyRunFor == g.Id).Select(o => o.Name).ToList();
-            var line2 = runners.Count > 0 ? $"Kept topped up by {string.Join(", ", runners)}" : "No supply run to it";
-            if (g.Resupplying) line2 += " · on its way to refill";
-            return $"{string.Join(" · ", parts)}\n{line2}\nFuel: {(g.Fuel == "" ? "Auto" : Fuels.Data(g.Fuel).Name)}";
+            return string.Join(" · ", parts) + (g.Resupplying ? " · on its way to refill" : "") + $"\nFuel: {(g.Fuel == "" ? "Auto" : Fuels.Data(g.Fuel).Name)}";
         }, 13));
+        if (!HelpCalls.SupplyOnly(w, f))
+        {
+            col.AddChild(Live(w2 => w2.FindFleet(id) is Fleet g && SupplyCover.Of(w2, g) is var p
+                ? $"{SupplyCover.Word(p.Verdict)}: {p.Why}" : "", 13, null, wrap: true));
+            col.AddChild(Live(w2 =>
+            {
+                if (w2.FindFleet(id) is not Fleet g) return "";
+                var p = SupplyCover.Of(w2, g);
+                var lines = new List<string>();
+                string Of(string kind) => string.Join("\n", p.Sources.Where(x => x.Kind == kind).Select(x => $"   {x.Name}: {x.State}"));
+                lines.Add("Own tender:" + (Of("tender") is { Length: > 0 } t ? "\n" + t : " none"));
+                lines.Add("Supply run to it:" + (Of("run") is { Length: > 0 } r ? "\n" + r : " none"));
+                lines.Add("Supply fleets (role):" + (Of("role") is { Length: > 0 } s ? "\n" + s : " none"));
+                lines.Add($"Nearest refill: {p.Refill ?? "none in reach"}");
+                return string.Join("\n", lines);
+            }, 12, new Color("c7a0ff"), wrap: true));
+        }
         // Send one of the fleets with tankers or freighters on a run to this one, or stop a run.
         var suppliers = w.Fleets.Where(o => o.Side == Side.Player && o.Id != f.Id && w.ShipsOf(o).Any(SupplyLines.IsSupplyShip)).OrderBy(o => o.Id).ToList();
         var row = Row(8);
@@ -677,24 +798,9 @@ public partial class FleetScreen : PanelContainer
         }
         col.AddChild(grid);
 
-        // Moving ticked ships: to a fleet at the same place, or off on their own.
+        // Moving ticked ships: to any fleet of yours, near or far, or off on their own.
+        col.AddChild(MoveTicked(w, f));
         var moveRow = Row(8);
-        var here = Here(w, f);
-        if (here.Count > 0)
-        {
-            var target = here[0].Id;
-            moveRow.AddChild(Ui.Label("Move ticked ships to", 13, Ui.Dim));
-            moveRow.AddChild(Pick(here.Select(o => (o.Id, $"{o.Name} ({o.ShipIds.Count} ships)")).ToList(), target, t => target = t,
-                "Fleets of yours at the same place (both stopped, close together)"));
-            moveRow.AddChild(Ui.SmallButton("Move", () =>
-            {
-                if (_ticked.Count == 0) { Main.Instance.Toast("Tick the ships to move first"); return; }
-                _screen.IssueNow(new MoveShipsCommand(id, _ticked.ToList(), target), "moving ships");
-                _ticked.Clear();
-            }, "Move the ticked ships into that fleet (all of them: the fleets merge)"));
-        }
-        else
-            moveRow.AddChild(Ui.Label("No other fleet of yours is here to swap ships with (fleets must be stopped together)", 12, Ui.Dim));
         moveRow.AddChild(Ui.SmallButton("Split ticked into a new fleet", () =>
         {
             if (_ticked.Count == 0) { Main.Instance.Toast("Tick the ships to split off first"); return; }
@@ -702,7 +808,94 @@ public partial class FleetScreen : PanelContainer
             _ticked.Clear();
         }, "The ticked ships become a new fleet here, with the same orders and role"));
         col.AddChild(moveRow);
+        col.AddChild(BringIn(w, f));
         return Box(col);
+    }
+
+    /// <summary>
+    /// "Move ticked ships to": every other fleet with how long the trip is and the fuel it takes (at once when it is
+    /// here; locked ones say so), the button that says what happens, and Wait until closer for long trips.
+    /// </summary>
+    private Control MoveTicked(World w, Fleet f)
+    {
+        var id = f.Id;
+        var col = Column(4);
+        var others = w.Fleets.Where(o => o.Side == Side.Player && o.Id != id && o.ShipIds.Count > 0).OrderBy(o => o.Name, StringComparer.Ordinal).ToList();
+        if (others.Count == 0) return col;
+        var ticked = _ticked.Where(f.ShipIds.Contains).ToList();
+        var probe = ticked.Count > 0 ? ticked : f.ShipIds.Take(1).ToList();
+        var ests = others.ToDictionary(o => o.Id, o => Transfers.Estimate(w, f, probe, o));
+        if (_moveTo is not int to || !others.Any(o => o.Id == to)) _moveTo = to = others.OrderBy(o => ests[o.Id].Together ? 0 : 1).ThenBy(o => ests[o.Id].Hours).First().Id;
+        string Item(Fleet o)
+        {
+            var e = ests[o.Id];
+            if (o.Locked) return $"{o.Name} (locked)";
+            if (e.Problem != null) return $"{o.Name} (can't: {e.Problem})";
+            return e.Together ? $"{o.Name} · here, at once" : $"{o.Name} · {Transfers.Dur(e.Hours)} · {e.FuelShare:P0} fuel";
+        }
+        var row = Row(8);
+        row.AddChild(Ui.Label("Move ticked ships to", 13, Ui.Dim));
+        row.AddChild(Pick(others.Select(o => (o.Id, Item(o))).ToList(), to, t => _moveTo = t, "Any fleet of yours: here they move at once; far away they fly over and join it"));
+        var dest = others.First(o => o.Id == to);
+        var est = ests[to];
+        var n = ticked.Count;
+        var verb = est.Together ? "Move" : "Send";
+        row.AddChild(Ui.SmallButton(n == 0 ? $"{verb} to {dest.Name}" : $"{verb} {n} ship{(n == 1 ? "" : "s")} to {dest.Name}", () =>
+        {
+            if (_ticked.Count == 0) { Main.Instance.Toast("Tick the ships to move first"); return; }
+            _screen.IssueNow(new TransferShipsCommand(id, _ticked.ToList(), to, est.Long && _moveWait), "moving ships");
+            _ticked.Clear();
+        }, est.Together ? "Move the ticked ships into that fleet now (all of them: the fleets merge)"
+            : "The ticked ships split off and fly to that fleet at 70 % speed, then join it (they follow it if it moves)"));
+        col.AddChild(row);
+        if (dest.Locked)
+            col.AddChild(Ui.Label($"{dest.Name} is locked: ships you move here are added to the ships it keeps.", 12, Warn));
+        if (est.Long)
+        {
+            var wait = new CheckBox { Text = $"Wait until closer: stay with {f.Name} until {dest.Name} is within a day", ButtonPressed = _moveWait, FocusMode = FocusModeEnum.None };
+            wait.AddThemeFontSizeOverride("font_size", 12);
+            wait.Toggled += on => _moveWait = on;
+            col.AddChild(wait);
+            if (!_moveWait)
+                col.AddChild(Ui.Label($"Long trip: {Transfers.Dur(est.Hours)} alone with no escort.", 12, Warn));
+        }
+        if (n > 0 && !est.Together && est.Problem == null)
+        {
+            var keeps = f.ShipIds.Count - n;
+            col.AddChild(Ui.Label($"{f.Name} keeps {keeps} ship{(keeps == 1 ? "" : "s")}" + (keeps == 0 ? " (the whole fleet goes)" : ""), 12, Ui.Dim));
+        }
+        return col;
+    }
+
+    /// <summary>"Bring in ships": pick a fleet, then its ships come here (each a transfer from that fleet).</summary>
+    private Control BringIn(World w, Fleet f)
+    {
+        var id = f.Id;
+        var col = Column(4);
+        var others = w.Fleets.Where(o => o.Side == Side.Player && o.Id != id && o.ShipIds.Count > 0 && !o.Locked).OrderBy(o => o.Name, StringComparer.Ordinal).ToList();
+        if (others.Count == 0) return col;
+        var items = new List<(int, string)> { (-1, "Bring in ships from…") };
+        items.AddRange(others.Select(o => (o.Id, $"{o.Name} ({o.ShipIds.Count})")));
+        var row = Row(8);
+        row.AddChild(Pick(items, _bringFrom ?? -1, t => _bringFrom = t < 0 ? null : t, "Pull ships from another fleet into this one: they fly here and join"));
+        col.AddChild(row);
+        if (_bringFrom is int from && w.FindFleet(from) is Fleet src && src.ShipIds.Count > 0)
+        {
+            var flow = new HFlowContainer();
+            flow.AddThemeConstantOverride("h_separation", 6);
+            foreach (var s in w.ShipsOf(src).ToList())
+            {
+                var shipId = s.Id;
+                var e = Transfers.Estimate(w, src, new[] { shipId }, f);
+                var label = $"{s.Name} ({Fitting.Spec(s).Name}) · " + (e.Problem != null ? "can't" : e.Together ? "at once" : Transfers.Dur(e.Hours));
+                var b = Ui.SmallButton(label, () => _screen.IssueNow(new TransferShipsCommand(from, new List<int> { shipId }, id), "bringing ships"),
+                    e.Problem ?? $"Order {s.Name} to leave {src.Name} and join {f.Name}");
+                b.Disabled = e.Problem != null;
+                flow.AddChild(b);
+            }
+            col.AddChild(flow);
+        }
+        return col;
     }
 
     // ---- Calls for help ------------------------------------------------------------------------

@@ -294,6 +294,16 @@ public static class Chases
                 sim.Log.Info("supply", $"{f.Name} comes alongside {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
                 return;
             }
+            if (Transfers.LockProblem(w, into, f) is string locked)
+            {
+                f.Velocity = into.Velocity;
+                f.JoinFleetId = null;
+                f.TransferTo = null;
+                f.Refused = $"join {into.Name}: {locked}";
+                f.RefusedHour = w.Hour;
+                sim.Log.Warn("fleet", "Join refused: locked fleet", new { fleetId = f.Id, intoFleetId = into.Id });
+                return;
+            }
             sim.Log.Info("fleet", $"{f.Name} catches up and joins {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
             Fleets.Absorb(w, into, f);
             return;
