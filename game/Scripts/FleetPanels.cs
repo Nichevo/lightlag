@@ -485,7 +485,7 @@ public partial class FleetPanel : PanelContainer
         _rename.ReleaseFocus();
     }
 
-    private const int MoreRename = 30;
+    private const int MoreRename = 30, MoreLock = 31;
     private const int MoreRoute = 1, MoreMerge = 2, MoreEngagement = 3, MoreFittings = 4, MoreSinks = 5, MoreDrone = 6, MorePull = 7,
         MoreSections = 8, MoreMines = 9, MoreSalvo = 20, MoreDrop = 10, MoreJoin = 1000;
 
@@ -503,7 +503,12 @@ public partial class FleetPanel : PanelContainer
             if (tip.Length > 0) popup.SetItemTooltip(popup.ItemCount - 1, tip);
         }
         if (f.Side == Side.Player)
+        {
             Add("Rename fleet", MoreRename, true, f.NamedByPlayer ? "You named it; Auto in the rename row names it for its role again" : "It is named for its role or ships; give it your own name");
+            Add(f.Locked ? "Unlock fleet (it is locked)" : "Lock fleet", MoreLock, true, f.Locked
+                ? "Locked: it keeps its ships; new ships, Gather and joins can't change it. Unlock to allow that again"
+                : "Keep exactly these ships: new ships, Gather and other fleets' joins can't add to it or take from it");
+        }
         Add("Change route (C)", MoreRoute, _screen.CanEditRoute, "Open the route in the planner; you can also drag waypoints on the map");
         var candidate = _screen.MergeCandidate();
         Add(candidate != null ? $"Merge {candidate.Name} into this fleet (M)" : "Merge (M): no fleet close by and stopped", MoreMerge, candidate != null);
@@ -512,8 +517,10 @@ public partial class FleetPanel : PanelContainer
         foreach (var o in others)
         {
             var moving = o.Velocity.Length > 1e-9 ? $", moving at {Format.Speed(o.Velocity.Length)}" : "";
-            Add($"Join {o.Name} ({o.ShipIds.Count} ships), {Format.Distance(Vec2.Distance(o.Position, f.Position))} away{moving}", MoreJoin + o.Id, true,
-                "Fly to it and merge: to where it will stop, or on intercept tracks if it is drifting on");
+            var locked = Transfers.LockProblem(w, o, f);
+            Add($"Join {o.Name} ({o.ShipIds.Count} ships), {Format.Distance(Vec2.Distance(o.Position, f.Position))} away{moving}" + (locked != null ? " (locked)" : ""),
+                MoreJoin + o.Id, locked == null,
+                locked != null ? $"Can't: {locked}. Unlock it, or move single ships on the fleets screen (K)" : "Fly to it and merge: to where it will stop, or on intercept tracks if it is drifting on");
         }
         popup.AddSeparator();
         Add("Battle view (U)", MoreEngagement, Lightlag.Sim.Core.Engagement.EnemyFor(w, f) != null, "Weapon reach, closest pass, missiles and ways to play it");
@@ -549,6 +556,7 @@ public partial class FleetPanel : PanelContainer
                 _rename.GrabFocus();
                 _rename.SelectAll();
                 break;
+            case MoreLock: _screen.IssueNow(new SetFleetLockCommand(Side.Player, f.Id, !f.Locked), "lock fleet"); break;
             case MoreRoute: _screen.EditRoute(); break;
             case MoreMerge: _screen.OrderMerge(); break;
             case MoreEngagement: _screen.OpenBattle(f.Id); break;
@@ -1221,6 +1229,7 @@ public partial class FleetPanel : PanelContainer
         var list = new List<string>();
         if (f.Refused != null && w.Hour - f.RefusedHour < 24) list.Add($"Can't: {f.Refused}");
         list.AddRange(Operations.Status(w, f));
+        list.AddRange(Transfers.Status(w, f));
         if (Sails.Status(w, f) is string sails) list.Add(sails);
         if (f.SupplyRunFor == null && SupplyLines.RunStatus(w, f) is string supply) list.Add(supply);
         if (f.SupplyRunFor is int servedId && w.FindFleet(servedId) is Fleet served && SupplyLines.RunStatus(w, served) is string run)

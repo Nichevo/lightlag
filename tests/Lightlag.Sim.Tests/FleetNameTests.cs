@@ -67,7 +67,7 @@ public class FleetNameTests
         Assert.Equal("Defence fleet", FleetNames.KindOf(f.Name));
         sim.Issue(new SetFleetRoleCommand(f.Id, FleetRole.AntiPiracy));
         sim.ApplyPending();
-        Assert.Equal("Pirate patrol", FleetNames.KindOf(f.Name));
+        Assert.Equal("Patrol fleet", FleetNames.KindOf(f.Name));
 
         sim.Issue(new RenameFleetCommand(Side.Player, f.Id, "Home Guard"));
         sim.ApplyPending();
@@ -82,7 +82,7 @@ public class FleetNameTests
         sim.Issue(new RenameFleetCommand(Side.Player, f.Id, ""));
         sim.ApplyPending();
         Assert.False(f.NamedByPlayer);
-        Assert.Equal("Support fleet", FleetNames.KindOf(f.Name));
+        Assert.Equal("Response fleet", FleetNames.KindOf(f.Name));
     }
 
     [Fact]

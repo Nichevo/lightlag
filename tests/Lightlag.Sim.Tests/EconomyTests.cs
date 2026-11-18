@@ -59,19 +59,23 @@ public class EconomyTests
     }
 
     [Fact]
-    public void The_shipyard_builds_a_ship_that_joins_the_fleet_at_home()
+    public void The_shipyard_builds_a_ship_that_waits_at_home_with_the_new_ships()
     {
         var sim = NewGame();
         var home = FleetOf(sim, Side.Player);
         var ships = home.ShipIds.Count;
+        var yard = BodyNamed(sim, "verdant");
         sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
         sim.Step();
         var frigate = GameData.ShipClass("gun-frigate");
         Assert.Equal(GameData.Economy.StartIndustry - frigate.Cost + (Economy.IncomePerDay(sim.World, Side.Player) - SupplyLines.UpkeepPerDay(sim.World, Side.Player)) / 24, Player(sim).Industry, 6);
         Days(sim, frigate.Cost / GameData.Economy.BuildIndustryPerDay + 0.1);
-        Assert.Equal(ships + 1, home.ShipIds.Count);
+        // It no longer joins the fleet sitting at the yard: it waits in "New ships at Verdant" (later launches join it).
+        Assert.Equal(ships, home.ShipIds.Count);
         Assert.Empty(sim.World.Orders);
-        Assert.Contains(sim.World.ShipsOf(home), s => s.HullNumber == 3 && s.Code == "FF1A-03");
+        var pool = sim.World.Fleets.Single(f => f.Side == Side.Player && f.YardPoolBodyId == yard.Id);
+        Assert.Equal($"New ships at {yard.Name}", pool.Name);
+        Assert.Contains(sim.World.ShipsOf(pool), s => s.HullNumber == 3 && s.Code == "FF1A-03");
     }
 
     [Fact]
