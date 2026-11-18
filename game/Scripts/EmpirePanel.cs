@@ -376,3 +376,51 @@ public partial class EndPanel : PanelContainer
                      + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{(Sides.Three(w) ? Races.Of(w, m.Side).Name : "The rival")} was a {m.Personality} on {m.Difficulty}."));
     }
 }
+
+/// <summary>
+/// Early endings: the losing rival asks for terms. Accept and win now, or play on (the offer comes again later if you
+/// still lead). Shown while the offer stands; the same choice is in the Needs you tray.
+/// </summary>
+public partial class TermsCard : PanelContainer
+{
+    private readonly GameScreen _screen;
+    private Label _text = null!;
+
+    public TermsCard() : this(null!) { }
+    public TermsCard(GameScreen screen) => _screen = screen;
+
+    public override void _Ready()
+    {
+        Ui.StylePanel(this, 20);
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(440, 0) };
+        box.AddThemeConstantOverride("separation", 10);
+        AddChild(box);
+        var title = Ui.Label("Terms offered", 24, Ui.Player);
+        title.HorizontalAlignment = HorizontalAlignment.Center;
+        box.AddChild(title);
+        _text = Ui.Label("", 16);
+        _text.HorizontalAlignment = HorizontalAlignment.Center;
+        _text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _text.CustomMinimumSize = new Vector2(440, 0);
+        box.AddChild(_text);
+        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        row.AddThemeConstantOverride("separation", 12);
+        var accept = Ui.SmallButton("Accept: win now", () => _screen.AnswerTerms(true), "Take the surrender: you win the game now");
+        accept.CustomMinimumSize = new Vector2(170, 40);
+        row.AddChild(accept);
+        var play = Ui.SmallButton("Play on", () => _screen.AnswerTerms(false),
+            $"Turn the offer down and keep playing. If you still lead, it comes again in {Endings.D.OfferAgainDays:0} days");
+        play.CustomMinimumSize = new Vector2(170, 40);
+        row.AddChild(play);
+        box.AddChild(row);
+        box.AddChild(Ui.Label("Early endings can be switched off in the game menu (Esc).", 13, Ui.Dim));
+    }
+
+    public void Refresh(World w)
+    {
+        var who = Sides.Standing(w).Where(s => s != Side.Player).Select(s => Sides.Them(w, s)).ToList();
+        var them = who.Count == 0 ? "the rival" : string.Join(" and ", who);
+        _text.Text = $"You hold {w.Endings.TermsShare:P0} of the system, and {them} {(who.Count > 1 ? "ask" : "asks")} for terms.\n"
+                     + "Accept and win now, or play on for a fuller victory.";
+    }
+}

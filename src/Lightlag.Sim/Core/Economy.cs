@@ -23,7 +23,8 @@ public sealed record ResearchData(string Id, string Name, string Effect, double 
 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
-    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null, BudgetData? Budget = null);
+    TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null, BudgetData? Budget = null,
+    EndingsData? Endings = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 /// LiftCut: the share of the lift to orbit still paid at its body (skyhook, space elevator; see Lift). Ground: only over

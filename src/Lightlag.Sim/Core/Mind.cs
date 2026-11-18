@@ -21,7 +21,7 @@ public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = n
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
     bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null,
     bool? Ironman = null, string? ThirdRace = null, bool? ContactOffers = null, bool? Budget = null,
-    double? PlanetOrbitSlowdown = null)
+    double? PlanetOrbitSlowdown = null, bool? EarlyEndings = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 

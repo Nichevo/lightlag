@@ -178,7 +178,8 @@ public static class Events
             foreach (var side in Sides.InPlay(w))
             {
                 var state = Economy.Of(w, side);
-                var days = E.PerSideDays[(int)rate];
+                // A stalled war (early endings) gets events more often.
+                var days = E.PerSideDays[(int)rate] * Endings.EventFactor(w);
                 if (state.NextEventHour <= 0)
                     state.NextEventHour = (E.FirstDay + sim.Rng.Range(0, days * 0.5)) * 24;
                 else if (w.Hour >= state.NextEventHour)

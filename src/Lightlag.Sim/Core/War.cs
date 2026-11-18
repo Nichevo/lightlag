@@ -327,7 +327,8 @@ public static class Crews
     public static double At(double[] table, Rank r) => table.Length > (int)r ? table[(int)r] : 1;
 
     /// <summary>Railgun hit chance for the crew (1 for AI ships and outside full games).</summary>
-    public static double AimFactor(World w, Ship s) => w.Loop && Crewed(s) ? At(C.Aim, RankOf(s)) * (1 - C.StrainAimCut * s.Strain) : 1;
+    public static double AimFactor(World w, Ship s) =>
+        w.Loop && Crewed(s) ? At(C.Aim, RankOf(s)) * (1 - C.StrainAimCut * s.Strain) * Endings.AimFactor(w, s.Side) : 1;
     public static double MendFactor(World w, Ship s) => w.Loop && Crewed(s) ? At(C.Mend, RankOf(s)) * (1 - C.StrainMendCut * s.Strain) : 1;
 
     /// <summary>How much of a dodge a strained crew still manages: the dodge factor moved back towards 1 (no dodge).</summary>

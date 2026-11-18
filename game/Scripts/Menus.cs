@@ -36,6 +36,30 @@ public partial class GameMenu : Control
         col.AddChild(Ui.Button("How to play", () => Show(_help)));
         col.AddChild(Ui.Button("Pause settings", () => Show(_pause)));
         col.AddChild(Ui.Button("Display options", () => Show(_display)));
+        if (Main.Instance.Sim?.World is { Loop: true, Winner: null } world)
+        {
+            Button? endings = null;
+            string EndingsText() => $"Early endings: {(Main.Instance.Sim?.World.Rules.EarlyEndings == true ? "On" : "Off")}";
+            endings = Ui.Button(EndingsText(), () =>
+            {
+                _screen.SetEarlyEndings(Main.Instance.Sim?.World.Rules.EarlyEndings != true);
+                endings!.Text = EndingsText();
+            }, 18);
+            endings.TooltipText = "On: past 80 % control the losing rival offers terms (accept and win now, or play on), the losing side's planets give up sooner "
+                                  + "and its crews aim a little worse, and a war where control hasn't moved for 60 days gets more events. Off: none of this happens";
+            col.AddChild(endings);
+            // Concede: always there, with a second click to be sure.
+            var sure = new HBoxContainer { Visible = false, Alignment = BoxContainer.AlignmentMode.Center };
+            sure.AddThemeConstantOverride("separation", 8);
+            var yes = Ui.SmallButton("Yes, concede", () => _screen.Concede(), "The game ends now and the rival wins");
+            yes.Modulate = Ui.Rival;
+            sure.AddChild(yes);
+            sure.AddChild(Ui.SmallButton("No, play on", () => sure.Visible = false, "Back to the game menu"));
+            var concede = Ui.Button("Concede the game…", () => sure.Visible = !sure.Visible, 18);
+            concede.TooltipText = Sides.Three(world) ? "Give up: the game ends and the strongest rival wins" : "Give up: the game ends and the rival wins";
+            col.AddChild(concede);
+            col.AddChild(sure);
+        }
         col.AddChild(Ui.Button("Quit to title screen", () => _screen.QuitToTitle()));
         col.AddChild(Graphics.Picker(this));
         col.AddChild(Display.Picker());
@@ -208,7 +232,10 @@ public partial class HowToPlay : CenterContainer
 
     public const string Text =
         "THE GOAL\n" +
-        "Control the system. Your control share (top bar) is the average of your share of people, Industry, planets and fleet power. At 80 % you have tipped the game: hold it for 30 days, or reach 95 %, to win. Destroying the rival's shipyard by bombarding it from orbit also wins.\n\n" +
+        "Control the system. Your control share (top bar) is the average of your share of people, Industry, planets and fleet power. At 80 % you have tipped the game: hold it for 30 days, or reach 95 %, to win. Destroying the rival's shipyard by bombarding it from orbit also wins. "
+        + "With Early endings on (the default; switch it in the game menu), a rival that has lost the lead for a few days asks for terms: accept and win now, or play on. "
+        + "The side behind a leader loses heart (its planets give up sooner, its crews aim a little worse), and a war where control hasn't moved for 60 days gets more events. "
+        + "You can concede from the game menu at any time. Q runs the game at the fastest safe speed until something needs you.\n\n" +
         "PLANETS AND PEOPLE\n" +
         "• Only the two homes start with people. Click a planet for its screen: people, happiness, food, buildings, Settle and Auto top-up. Settle builds a one-trip settler ship at your shipyard that flies the people over and lands (landing makes an empty world yours); it can be blockaded or shot down, so you can pick a fleet to escort it.\n" +
         "• People eat food from farms, shared between your planets. A blockade (armed ships holding orbit) cuts a planet off: it lives off its own farms and store, makes no Industry, and grows unhappy.\n" +

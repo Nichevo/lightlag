@@ -43,6 +43,7 @@ public partial class Hud : CanvasLayer
     private GroundScreen _ground = null!;
     private FittingPanel _fitting = null!;
     private EndPanel _end = null!;
+    private TermsCard _terms = null!;
     private BattleScreen _battleScreen = null!;
     private ContactsPanel _contacts = null!;
     private GameMenu _menu = null!;
@@ -209,6 +210,11 @@ public partial class Hud : CanvasLayer
         _end.GrowHorizontal = Control.GrowDirection.Both;
         _end.GrowVertical = Control.GrowDirection.Both;
         AddChild(_end);
+        _terms = new TermsCard(_screen) { Visible = false };
+        _terms.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
+        _terms.GrowHorizontal = Control.GrowDirection.Both;
+        _terms.GrowVertical = Control.GrowDirection.Both;
+        AddChild(_terms);
         _menu.ZIndex = 50;
         AddChild(_menu); // last and on top, so it covers everything
         _ = main;
@@ -312,6 +318,8 @@ public partial class Hud : CanvasLayer
         if (_mindPanel.Visible) _mind.Text = MindText(w, rivalMind!);
         _end.Visible = w.Winner != null && _screen.ShowEnd;
         if (_end.Visible) _end.Refresh(w);
+        _terms.Visible = w.Winner == null && w.Endings.TermsTo == Side.Player && !_screen.MenuOpen;
+        if (_terms.Visible) _terms.Refresh(w);
         BenchProbe.Lap("mind+end");
 
         var fleet = _screen.SelectedFleet;

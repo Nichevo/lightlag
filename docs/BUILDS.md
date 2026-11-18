@@ -134,3 +134,11 @@ personality, the starting shares, the shares at the end, the share of Industry a
 pot, how much overflowed from full pots and how much Reserve went to urgent defence. A personality whose
 spend does not look like its shares is not playing to type. `--no-budget` plays a batch with one Industry
 pool, first come first served, to compare.
+
+## Early endings in batches
+
+Early endings are on in batches too (see `Endings.cs`): when a computer-run side has held 80 % control for
+`endings.offerAfterDays` (3) days, the side behind it offers terms and the leader takes them, so the game
+ends there with a reason like "took the rival's surrender at 84 % of the system". The sides behind a
+leader lose heart (planets give up sooner, crews aim a little worse) and a stalled war gets more events.
+`--no-early-endings` plays a batch with none of this, to compare game lengths with the old rules.

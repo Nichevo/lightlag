@@ -150,6 +150,9 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(ProtectShipCommand), "protectShip")]
 [JsonDerivedType(typeof(SplitOffCommand), "splitOff")]
 [JsonDerivedType(typeof(SetRejoinWhenCommand), "setRejoinWhen")]
+[JsonDerivedType(typeof(AnswerTermsCommand), "answerTerms")]
+[JsonDerivedType(typeof(ConcedeCommand), "concede")]
+[JsonDerivedType(typeof(SetEarlyEndingsCommand), "setEarlyEndings")]
 [JsonDerivedType(typeof(DebugCrashCommand), "debugCrash")]
 [JsonDerivedType(typeof(DebugBreakRuleCommand), "debugBreakRule")]
 public abstract record GameCommand

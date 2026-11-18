@@ -741,7 +741,7 @@ public static class Planets
          + Core.Ground.MilitiaOf(b)) * Core.Ground.BlockadeFactor(b) * b.LandingFactor;
 
     /// <summary>The line below which a blockaded planet gives up to this side.</summary>
-    public static double SurrenderLine(World w, Side to) => Tipped(w, to) ? D.SurrenderBelowTipped : D.SurrenderBelow;
+    public static double SurrenderLine(World w, Side to) => (Tipped(w, to) ? D.SurrenderBelowTipped : D.SurrenderBelow) + Endings.SurrenderExtra(w, to);
 
     /// <summary>A blockaded, unhappy planet (or, with happiness off, a starving one) gives itself up to the blockader, unless it holds a grudge against it.</summary>
     private static void Surrenders(Simulation sim)
@@ -751,7 +751,8 @@ public static class Planets
         {
             if (Blockader(w, b) is not Side by || b.Grudge == by) continue;
             // Never before MinBlockadeDays, however unhappy: time for its holder to send a fleet to break the blockade.
-            if (b.BlockadeHours < D.MinBlockadeDays * 24) continue;
+            // With early endings, a side that has lost heart gives up sooner (see Endings).
+            if (b.BlockadeHours < D.MinBlockadeDays * Endings.BlockadeWaitFactor(w, b.Owner!.Value) * 24) continue;
             var gives = w.Rules.Happiness ? b.Happiness < SurrenderLine(w, by) : b.HungryHours >= D.HungryDaysToSurrender * 24;
             if (!gives) continue;
             var t = Economy.Of(w, by).Totals;

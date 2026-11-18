@@ -62,6 +62,8 @@ public static class Batch
         _noHazards = opts.Has("no-hazards");
         // --no-budget: one Industry pool, first come first served (to compare with the budget).
         _noBudget = opts.Has("no-budget");
+        // --no-early-endings: no terms, no losing heart, no extra events in a stalled war (games end as before).
+        _noEndings = opts.Has("no-early-endings");
         // --orbits 1|3|5: how many times slower than true time planets go round (default 5; moons are always 5).
         _orbits = opts.Get("orbits") is string orb ? double.Parse(orb, System.Globalization.CultureInfo.InvariantCulture) : null;
         _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
@@ -147,7 +149,7 @@ public static class Batch
     private static (string? Player, string? Rival) _races;
 
     private static GameOptions? OptionsForRules(string pilot) =>
-        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && _events == null && _orbits == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
+        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && !_noEndings && _events == null && _orbits == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
                 ChoiceSpread = HeadlessSpread,
@@ -155,11 +157,12 @@ public static class Batch
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
                 Hazards = _noHazards ? false : null, Events = _events, Budget = _noBudget ? false : null,
-                PlanetOrbitSlowdown = _orbits,
+                PlanetOrbitSlowdown = _orbits, EarlyEndings = _noEndings ? false : null,
             };
 
     private static bool _noHazards;
     private static bool _noBudget;
+    private static bool _noEndings;
     private static double? _orbits;
     private static EventRate? _events;
 

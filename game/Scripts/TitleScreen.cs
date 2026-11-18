@@ -162,6 +162,8 @@ public partial class TitleScreen : Control
             "Each day's Industry is split into six pots (ships, buildings, stations, refits, transport, reserve) that save up and pay only for their own things; set shares and goals in the Budget menu (E). Off: one pool, spent by whatever asks first");
         Box("Contact offers", main.ContactOffersChoice, v => main.ContactOffersChoice = v,
             "With a second rival: once you know a race's tongue (Words), send it gifts and ask it to go after the other rival or leave a planet alone. Rivals do the same. Off: no offers; the language track still raises intel");
+        Box("Early endings", main.EarlyEndingsChoice, v => main.EarlyEndingsChoice = v,
+            "Past 80 % control the losing rival offers terms (accept and win now, or play on), the losing side's planets give up sooner and its crews aim a little worse, and a war where control hasn't moved for 60 days gets more events. Off: none of this; the game ends only at 95 %, after 30 days at 80 %, or with a shipyard. Switch it any time in the game menu (Esc). Conceding is always there");
         Box("Ironman", main.IronmanChoice, v => main.IronmanChoice = v,
             "One save for the whole game, written over as you play and when you quit. No loading back, no quick load: every choice sticks");
         return row;
