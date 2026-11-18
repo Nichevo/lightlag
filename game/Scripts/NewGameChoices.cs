@@ -20,11 +20,15 @@ public static class NewGameChoices
         _file = System.IO.Path.Combine(dataDir, "newgame.cfg");
         var cfg = new ConfigFile();
         if (cfg.Load(_file) != Error.Ok) return;
-        T Get<T>(string key, T fallback)
+        // Plain getters (Godot's generic Variant calls only take Variant-compatible type arguments).
+        string Get(string key, string fallback) => cfg.GetValue("newgame", key, fallback).VariantType == Variant.Type.String
+            ? (string)cfg.GetValue("newgame", key, fallback) : fallback;
+        bool GetBool(string key, bool fallback) => cfg.GetValue("newgame", key, fallback).VariantType == Variant.Type.Bool
+            ? (bool)cfg.GetValue("newgame", key, fallback) : fallback;
+        double GetNumber(string key, double fallback)
         {
-            var v = cfg.GetValue("newgame", key, Variant.From(fallback));
-            try { return v.As<T>(); }
-            catch (Exception) { return fallback; }
+            var v = cfg.GetValue("newgame", key, fallback);
+            return v.VariantType switch { Variant.Type.Float => (double)v, Variant.Type.Int => (long)v, _ => fallback };
         }
         bool Has(string id) => Races.Choices().Any(c => c.Id == id);
 
@@ -36,23 +40,23 @@ public static class NewGameChoices
         if (third == Races.None || Has(third)) main.ThirdRaceChoice = third;
         if (Enum.TryParse<Difficulty>(Get("difficulty", main.DifficultyChoice.ToString()), out var d)) main.DifficultyChoice = d;
 
-        var lightOn = Get("light_on", main.LightChoice.On);
-        var lightSpeed = Get("light_speed", main.LightChoice.SpeedFactor);
+        var lightOn = GetBool("light_on", main.LightChoice.On);
+        var lightSpeed = GetNumber("light_speed", main.LightChoice.SpeedFactor);
         main.LightChoice = new LightSetup(lightOn, lightSpeed < 0.5 ? 0.1 : 1.0);
-        main.DecapitationChoice = Get("decapitation", main.DecapitationChoice);
-        main.RandomStartsChoice = Get("random_homes", main.RandomStartsChoice);
-        main.SpreadPeopleChoice = Get("people_everywhere", main.SpreadPeopleChoice);
-        main.HazardsChoice = Get("hazards", main.HazardsChoice);
+        main.DecapitationChoice = GetBool("decapitation", main.DecapitationChoice);
+        main.RandomStartsChoice = GetBool("random_homes", main.RandomStartsChoice);
+        main.SpreadPeopleChoice = GetBool("people_everywhere", main.SpreadPeopleChoice);
+        main.HazardsChoice = GetBool("hazards", main.HazardsChoice);
         if (Enum.TryParse<EventRate>(Get("events", main.EventsChoice.ToString()), out var e)) main.EventsChoice = e;
-        var orbits = Get("planet_orbits", main.PlanetOrbitsChoice);
+        var orbits = GetNumber("planet_orbits", main.PlanetOrbitsChoice);
         if (Orbits.PlanetChoices.Contains(orbits)) main.PlanetOrbitsChoice = orbits;
-        main.SupplyLinesChoice = Get("supply_lines", main.SupplyLinesChoice);
-        main.FuelTypesChoice = Get("fuel_types", main.FuelTypesChoice);
-        main.HappinessChoice = Get("happiness", main.HappinessChoice);
-        main.BudgetChoice = Get("industry_budget", main.BudgetChoice);
-        main.ContactOffersChoice = Get("contact_offers", main.ContactOffersChoice);
-        main.EarlyEndingsChoice = Get("early_endings", main.EarlyEndingsChoice);
-        main.IronmanChoice = Get("ironman", main.IronmanChoice);
+        main.SupplyLinesChoice = GetBool("supply_lines", main.SupplyLinesChoice);
+        main.FuelTypesChoice = GetBool("fuel_types", main.FuelTypesChoice);
+        main.HappinessChoice = GetBool("happiness", main.HappinessChoice);
+        main.BudgetChoice = GetBool("industry_budget", main.BudgetChoice);
+        main.ContactOffersChoice = GetBool("contact_offers", main.ContactOffersChoice);
+        main.EarlyEndingsChoice = GetBool("early_endings", main.EarlyEndingsChoice);
+        main.IronmanChoice = GetBool("ironman", main.IronmanChoice);
     }
 
     /// <summary>Write the current choices. Does nothing until Load has named the file (a normal launch).</summary>
