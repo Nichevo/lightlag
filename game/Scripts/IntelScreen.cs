@@ -342,7 +342,7 @@ public partial class IntelScreen : PanelContainer
 
         Section("Send an offer");
         if (!Contact.OffersOn(w))
-            Line(Sides.Three(w) ? "Contact offers are off in this game (title screen, Systems)" : "Offers come with three races (title screen: Second rival). The language track still raises your intel.", Ui.Dim, 13);
+            Line(Sides.Three(w) ? "Contact offers are off in this game (New game screen, Against)" : "Offers come with three races (New game screen: Second rival). The language track still raises your intel.", Ui.Dim, 13);
         else OfferForm(w, about, stage);
 
         Section("Offers you know of");

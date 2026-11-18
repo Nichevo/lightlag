@@ -50,7 +50,7 @@ public static class PlayerInfo
     /// <summary>The Needs you layers, which the presets leave as they are (they are about trouble, not the view).</summary>
     public const MapLayer PinLayers = MapLayer.NeedPins | MapLayer.AdvicePins | MapLayer.AutoPins;
 
-    // ---- Top bar and Needs you tray (Display options) ----
+    // ---- Top bar and Needs you tray (Settings › Interface) ----
 
     public static MenuBarMode MenuBar { get; private set; } = MenuBarMode.Always;
     public static bool MenuIcons { get; private set; } = true;
