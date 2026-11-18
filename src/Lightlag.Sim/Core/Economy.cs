@@ -4,8 +4,15 @@ namespace Lightlag.Sim.Core;
 
 // ---- Data (Data/economy.json) -----------------------------------------------------------
 
+/// <summary>
+/// The shipyard. Armour and bombardment as before; the rest is for more than one yard (see Yards): losing the home
+/// yard stops every yard for homeLossStopDays; a dry dock at a colony of upgradeMinPopK or more becomes a Shipyard
+/// for upgradeCost Industry (Buildings pot) and upgradeMaterials in upgradeDays; a station carries at most maxSlipways
+/// yard bays.
+/// </summary>
 public sealed record ShipyardData(double Armour, double RepairPerDay, double RailDamagePerHour, double RailSuppliesPerHour,
-    double MissileDamage, double MissileEveryHours);
+    double MissileDamage, double MissileEveryHours, double HomeLossStopDays = 10, double UpgradeCost = 180, double UpgradeDays = 15,
+    double UpgradeMinPopK = 10, Dictionary<string, double>? UpgradeMaterials = null, int MaxSlipways = 2);
 
 /// <summary>
 /// One research idea. What Factor does depends on the idea (see Tech). Field is the team skill it uses
@@ -74,6 +81,10 @@ public sealed class SideState
     /// <summary>Research teams (see Research). The first is made when the game starts.</summary>
     public List<ResearchTeam> Teams { get; set; } = new();
     public int TeamsFounded { get; set; }
+
+    /// <summary>The yard planet that is the side's seat (see Yards.Home; null: the first one), and until when every yard is stopped after the home yard fell.</summary>
+    public int? HomeYardBodyId { get; set; }
+    public double YardsStoppedUntilHour { get; set; } = -1e9;
 
     /// <summary>Ideas a spark brought into view early (see Sparks), and the news of each spark.</summary>
     public List<string> Sparked { get; set; } = new();
@@ -203,8 +214,14 @@ public sealed class WorkOrder
     /// <summary>Ship orders: waiting because an enemy fleet in orbit blockades the shipyard.</summary>
     public bool Blockaded { get; set; }
 
-    /// <summary>Ship orders: the dry dock planet building it (null: the shipyard).</summary>
+    /// <summary>
+    /// Ship orders: the planet whose yard builds it (null: not placed yet, the home yard). Auto (YardPinned false)
+    /// moves it to the best free berth until it starts; a yard picked by hand is pinned. Berth: which of the planet's
+    /// berths it is on once started ("ground", or "orbit0"/"orbit1" for a station's yard bays; see Yards).
+    /// </summary>
     public int? YardBodyId { get; set; }
+    public bool YardPinned { get; set; }
+    public string? Berth { get; set; }
 
     /// <summary>Why it can't start yet (Industry or materials short), for the queue; null once started or nothing stops it.</summary>
     public string? Waiting { get; set; }
@@ -407,7 +424,8 @@ public static class Economy
     public static SideState Of(World w, Side side) => w.Sides[(int)side];
 
     /// <summary>The side's shipyard planet, if it still has one.</summary>
-    public static Body? ShipyardOf(World w, Side side) => w.Bodies.Find(b => b.Shipyard && b.Owner == side);
+    /// <summary>The side's home yard (its seat; see Yards.Home), if it still has a yard planet.</summary>
+    public static Body? ShipyardOf(World w, Side side) => Yards.Home(w, side);
 
     /// <summary>Where a side's fleets go to refill and repair: the shipyard, or else any planet it holds.</summary>
     public static Body? HomeOf(World w, Side side) => ShipyardOf(w, side) ?? w.Bodies.Find(b => b.Owner == side);
@@ -558,6 +576,7 @@ public static class Economy
         Research.EnsureTeams(w);
         using (SectionTimer.Time("planets")) Planets.Update(sim);
         if (w.Winner != null) return;
+        Yards.Update(sim);
         Works.Update(sim);
         foreach (var side in Sides.InPlay(w))
         {
@@ -580,38 +599,73 @@ public static class Economy
         CheckWin(sim);
     }
 
-    /// <summary>Each yard (the shipyard, and dry docks once Colony shipyards is researched) works on the first ship order for it.</summary>
+    /// <summary>
+    /// Every berth (see Yards) works on one hull. Started hulls go on (a hull whose yard is gone is lost); then the
+    /// queue, in budget order, fills the free berths: each order takes the best berth that fits it (Yards.Choices).
+    /// An order that can't start yet (its pot or materials) keeps its place and lets the next one go ahead.
+    /// </summary>
     private static void Work(Simulation sim, Side side)
     {
         var w = sim.World;
-        // Orders for a yard that is gone (or can no longer take the hull) go to the shipyard, or another yard that takes it.
-        var main = ShipyardOf(w, side);
-        foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && !o.Paid && o.YardBodyId is int id
-                                              && !(w.FindBody(id) is Body b && Starbases.Builds(w, b, side) && Starbases.Fits(w, side, b, o.Key))))
-            o.YardBodyId = Starbases.YardFor(w, side, o.Key) is Body to && to != main ? to.Id : null;
-        foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.Paid && o.YardBodyId is int id && !(w.FindBody(id) is Body b && Starbases.Builds(w, b, side))))
-            o.YardBodyId = null;
-        if (main != null)
+        if (!w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Ship)) return;
+        var berths = Yards.All(w, side);
+        foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.Paid).ToList())
         {
-            // The shipyard works on the first order that fits it; ones too long for any yard wait (and say why).
-            foreach (var o in w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && !o.Paid && !Starbases.Fits(w, side, main, o.Key)))
-                o.Waiting = GameData.ShipClasses.TryGetValue(o.Key, out var cls) ? Starbases.NeedsYard(cls) : "No yard takes it";
-            Work(sim, side, main, Budget.NextOrder(w, side, w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == null && (o.Paid || Starbases.Fits(w, side, main, o.Key))), main));
+            if (o.Berth == null || o.YardBodyId == null) Yards.Settle(w, side, o);
+            if (Yards.LostWhy(w, side, o) is not string why) continue;
+            w.Orders.Remove(o);
+            sim.Log.Info("yards", "Hull lost with its yard", new { side = side.ToString(), o.Id, o.Key, bodyId = o.YardBodyId, why });
         }
-        foreach (var yard in w.Bodies.Where(b => Starbases.Builds(w, b, side)).ToList())
-            Work(sim, side, yard, Budget.NextOrder(w, side, w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Ship && o.YardBodyId == yard.Id), yard));
+        var stopped = Yards.Stopped(w, side);
+        var busy = new HashSet<(int, string)>();
+        var queue = Budget.ShipQueue(w, side);
+        foreach (var o in queue.Where(o => o.Paid))
+        {
+            busy.Add((o.YardBodyId!.Value, o.Berth!));
+            if (stopped != null) { o.Waiting = stopped; continue; }
+            if (berths.Find(b => b.Body.Id == o.YardBodyId && b.Key == o.Berth) is not Berth berth) { o.Waiting = "its berth is out while the station is refitted"; continue; }
+            Work(sim, side, berth, o);
+        }
+        var free = berths.Where(b => !busy.Contains((b.Body.Id, b.Key))).ToList();
+        var paused = Budget.On(w) ? Budget.Of(w, side).Paused : null;
+        foreach (var o in queue.Where(o => !o.Paid && w.Orders.Contains(o)))
+        {
+            if (paused != null && paused.Contains("order:" + o.Id)) continue;
+            if (stopped != null) { o.Waiting = stopped; continue; }
+            var choices = Yards.Choices(w, side, o, free);
+            if (choices.Count == 0)
+            {
+                var anywhere = Yards.Choices(w, side, o, berths);
+                if (anywhere.Count == 0)
+                    o.Waiting = o.YardPinned && w.FindBody(o.YardBodyId ?? -1) is Body pin ? $"no berth at {pin.Name} takes it now"
+                        : GameData.ShipClasses.TryGetValue(o.Key, out var cls) ? Starbases.NeedsYard(cls) : "No yard takes it";
+                else if (!o.YardPinned) o.YardBodyId = anywhere[0].Body.Id;
+                continue;
+            }
+            var open = choices.Where(b => !Blockaded(w, b.Body)).ToList();
+            if (open.Count == 0)
+            {
+                if (!o.YardPinned) o.YardBodyId = choices[0].Body.Id;
+                o.Blockaded = true;
+                continue;
+            }
+            var pick = open[0];
+            if (!o.YardPinned) o.YardBodyId = pick.Body.Id;
+            if (Work(sim, side, pick, o)) free.Remove(pick);
+        }
     }
 
-    private static void Work(Simulation sim, Side side, Body yard, WorkOrder? order)
+    /// <summary>One hour of a berth's work on an order: starts it (paying) if it can, then builds. True when the order is on the berth.</summary>
+    private static bool Work(Simulation sim, Side side, Berth berth, WorkOrder order)
     {
         var w = sim.World;
-        if (order == null) return;
+        var yard = berth.Body;
         // An enemy fleet in orbit over the shipyard blockades it: nothing is launched, the build waits.
         if (Blockaded(w, yard))
         {
             if (order.Paid && !order.Blockaded) sim.Log.Info("economy", $"{side} shipyard is blockaded: building paused", new { side = side.ToString(), order.Id });
             order.Blockaded = true;
-            return;
+            return order.Paid;
         }
         order.Blockaded = false;
         var state = Of(w, side);
@@ -621,7 +675,7 @@ public static class Economy
         {
             if (order.Waiting == null) sim.Log.Info("economy", "Brood yard starving: growth paused", new { side = side.ToString(), order.Id, order.Key });
             order.Waiting = starving;
-            return;
+            return true;
         }
         if (!order.Paid)
         {
@@ -638,7 +692,7 @@ public static class Economy
                 if (shortOf != null) state.Totals.MaterialStallHours += GameTime.HoursPerTick;
                 if (state.Totals.MaterialStallHours >= 24 * 10) Sparks.Fire(sim, side, "yard-waiting");
                 order.Waiting = wait;
-                return;
+                return false;
             }
             order.Waiting = null;
             Budget.Pay(w, side, pot, cost, "order:" + order.Id, yard.Id, urgent, sim.Log);
@@ -650,14 +704,17 @@ public static class Economy
                 Ledger.Out(w, side, "food", biomass, "ships grown");
             }
             order.Paid = true;
+            order.YardBodyId = yard.Id;
+            order.Berth = berth.Key;
             order.HoursLeft = order.TotalHours;
             sim.Log.Info("economy", $"{side} starts {NameOf(order)}", new { side = side.ToString(), order.Id, order.Key, cost, materials = mats });
         }
         order.Waiting = null;
-        order.HoursLeft -= GameTime.HoursPerTick * Colonies.ShipyardRate(w, yard);
-        if (order.HoursLeft > 1e-9) return;
+        order.HoursLeft -= GameTime.HoursPerTick * berth.Rate;
+        if (order.HoursLeft > 1e-9) return true;
         w.Orders.Remove(order);
         Launch(sim, side, order.Key, order.JoinFleetId, order, yard);
+        return true;
     }
 
     /// <summary>
@@ -913,9 +970,7 @@ public static class Economy
                 Of(w, attackers[0].Side).Totals.ShipyardDamage += damage;
                 if (b.ShipyardArmour <= 0)
                 {
-                    b.ShipyardArmour = 0;
-                    b.Shipyard = false;
-                    w.Orders.RemoveAll(o => o.Side == owner && o.Kind == OrderKind.Ship);
+                    Yards.LoseShipyard(sim, b, owner, "destroyed from orbit");
                     sim.Log.Info("economy", $"{b.Name} shipyard is destroyed", new { bodyId = b.Id, side = owner.ToString() });
                 }
             }
@@ -935,10 +990,10 @@ public static class Economy
             if (!Sides.Three(w))
             {
                 var other = side == Side.Player ? Side.Rival : Side.Player;
-                Win(sim, other, other == Side.Player ? "destroyed the rival shipyard" : "destroyed your shipyard");
+                Win(sim, other, other == Side.Player ? "destroyed the rival's last shipyard" : "destroyed your last shipyard");
                 return;
             }
-            Lose(sim, side, side == Side.Player ? "your shipyard was destroyed" : $"{Races.Of(w, side).Name} lost its shipyard");
+            Lose(sim, side, side == Side.Player ? "your last shipyard was destroyed" : $"{Races.Of(w, side).Name} lost its last shipyard");
             if (w.Winner != null) return;
         }
         // Control: a side with tipShare of control has tipped the game (planets it blockades give up sooner);
@@ -1035,7 +1090,8 @@ public static class Economy
 
 /// <summary>Add a ship to the shipyard queue, or an upgrade to the research queue.</summary>
 /// <remarks>Front puts a ship ahead of the ship orders not yet started (troops for a siege that won't wait).</remarks>
-public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null, int? DesignId = null, bool Front = false) : GameCommand
+/// <remarks>YardBodyId pins a ship to that planet's yard (it waits for a berth there); null leaves it to Auto (see Yards).</remarks>
+public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, int? JoinFleetId = null, int? TeamId = null, int? DesignId = null, bool Front = false, int? YardBodyId = null) : GameCommand
 {
     /// <summary>Home orders take effect at once (no light lag), so they work while paused.</summary>
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
@@ -1051,8 +1107,12 @@ public sealed record QueueOrderCommand(Side Side, OrderKind Kind, string Key, in
         var order = new WorkOrder { Id = world.NextId++, Side = Side, Kind = Kind, Key = Key, TotalHours = Economy.HoursFor(world, Side, Kind, Key) };
         if (Kind == OrderKind.Ship && JoinFleetId is int j && world.FindFleet(j)?.Side == Side) order.JoinFleetId = j;
         if (Kind == OrderKind.Ship) Economy.PriceShip(world, order, DesignId);
-        // A hull too long for the shipyard goes to the nearest yard that takes it (a station's slipway).
-        if (Kind == OrderKind.Ship && Starbases.YardFor(world, Side, Key) is Body yard && yard != Economy.ShipyardOf(world, Side)) order.YardBodyId = yard.Id;
+        // A yard picked for it: pinned there, if a berth there takes the hull (else Auto places it).
+        if (Kind == OrderKind.Ship && YardBodyId is int y && world.FindBody(y) is Body pin && Yards.At(world, Side, pin).Any(b => Yards.Fits(b, Key)))
+        {
+            order.YardBodyId = y;
+            order.YardPinned = true;
+        }
         if (Kind == OrderKind.Research) order.TeamId = TeamId ?? Research.BestTeamFor(world, Side, Key)?.Id;
         order.HoursLeft = order.TotalHours;
         var at = Front && Kind == OrderKind.Ship ? world.Orders.FindIndex(o => o.Side == Side && o.Kind == OrderKind.Ship && !o.Paid) : -1;

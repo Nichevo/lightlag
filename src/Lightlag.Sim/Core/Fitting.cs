@@ -107,6 +107,8 @@ public static class Fitting
         if (fit.Count != cls.SlotList.Count) return "The fit doesn't match the hull's slots";
         for (var i = 0; i < fit.Count; i++)
             if (CanUse(w, side, cls, i, fit[i]) is string p) return p;
+        if (cls.Station && Yards.YardBays(fit) > GameData.Economy.Shipyard.MaxSlipways)
+            return $"At most {GameData.Economy.Shipyard.MaxSlipways} yard bays (slipways and dock bays) on a station";
         if (PowerUsed(cls, fit) > cls.Power + 1e-9) return $"Over the power budget ({PowerUsed(cls, fit):0} of {cls.Power:0})";
         if (HeatUsed(cls, fit) > cls.HeatBudget + 1e-9) return $"Over the heat budget ({HeatUsed(cls, fit):0} of {cls.HeatBudget:0})";
         return null;

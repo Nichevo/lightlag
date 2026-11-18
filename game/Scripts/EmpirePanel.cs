@@ -83,7 +83,9 @@ public partial class EmpirePanel : PanelContainer
         string.Join(",", w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship).Select(o => $"{o.Id}{(o.Paid ? "p" : "")}{o.JoinFleetId}"))
         + "|" + string.Join(",", Budget.ShipQueue(w, Side.Player).Select(o => o.Id))
         + "|" + Economy.Of(w, Side.Player).Researched.Count
-        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner + "|" + _screen.BuildForFleetId
+        + "|" + (Economy.ShipyardOf(w, Side.Player) != null) + "|" + w.Winner + "|" + _screen.BuildForFleetId + "|" + _screen.BuildAtBodyId
+        + "|" + string.Join(",", YardViews.Planets(w).Select(b => b.Id + ":" + Yards.At(w, Side.Player, b).Count()))
+        + "|" + string.Join(",", w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Ship && !o.Paid).Select(o => $"{o.Id}{(o.YardPinned ? "@" + o.YardBodyId : "")}"))
         + "|" + string.Join(",", w.Fleets.Where(f => f.Side == Side.Player).Select(f => $"{f.Id}:{f.Name}"));
 
     /// <summary>The Supply view is wide: the chain view and routes on the left, problems and stock targets on the right.</summary>
@@ -141,11 +143,10 @@ public partial class EmpirePanel : PanelContainer
 
     private void Shipyard(World w)
     {
-        Header("Shipyard", "Build ships, put the queue in order and pick the fleet each one joins", "V");
-        Live(13, Ui.Dim, w2 => Economy.ShipyardOf(w2, Side.Player) is Body yard
-            ? $"At {yard.Name} · armour {yard.ShipyardArmour / GameData.Economy.Shipyard.Armour * 100:0} %"
-              + (yard.LastBombardedHour is double h && w2.Hour - h <= 24 ? " · UNDER ATTACK" : "")
-            : "Destroyed");
+        var yards = YardViews.Planets(w);
+        Header(yards.Count > 1 ? $"Shipyards · {yards.Count}" : "Shipyard", "Build ships, put the queue in order, and pick the yard each one is built at and the fleet it joins", "V");
+        if (yards.Count == 0) Live(13, Ui.Dim, _ => "Destroyed");
+        YardList(w, yards);
         if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null)
         {
             // Two compact columns, so the list stays inside the panel's width.
@@ -173,7 +174,11 @@ public partial class EmpirePanel : PanelContainer
                 grid.AddChild(b);
             }
         }
-        if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null) DefaultJoinRow(w);
+        if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null)
+        {
+            DefaultJoinRow(w);
+            if (yards.Count > 1) DefaultYardRow(w);
+        }
         var ships = Budget.ShipQueue(w, Side.Player);
         if (ships.Count > 0) Live(12, Ui.Dim, w2 => QueueLine(w2));
         if (ships.Count == 0) Live(13, Ui.Dim, _ => "Nothing being built");
@@ -182,6 +187,7 @@ public partial class EmpirePanel : PanelContainer
         {
             OrderRow(ships[i], i == 0, shipQueue.IndexOf(ships[i]), shipQueue.Count);
             if (ships[i].SettleBodyId == null) JoinRow(w, ships[i]);
+            if (ships[i].SettleBodyId == null && !ships[i].Paid && yards.Count > 1) YardRow(w, ships[i]);
         }
         if (Races.Of(w, Side.Player).Grown) Live(12, Ui.Dim, BiomassLine);
         var links = Row();
@@ -195,6 +201,61 @@ public partial class EmpirePanel : PanelContainer
         var ships = Budget.ShipQueue(w, Side.Player);
         var hours = ships.Sum(o => o.Paid ? o.HoursLeft : o.TotalHours > 0 ? o.TotalHours : Economy.CostOf(o) / GameData.Economy.BuildIndustryPerDay * 24);
         return $"Queue: {ships.Count} ship{(ships.Count == 1 ? "" : "s")}, about {Format.Hours(hours)} of yard time";
+    }
+
+    /// <summary>
+    /// The yards: one line per planet with a berth (★ the home yard), its berths and what each is building. The
+    /// name opens the planet screen, where the yard is run; with several, a stop after the home yard fell shows here.
+    /// </summary>
+    private void YardList(World w, List<Body> yards)
+    {
+        if (yards.Count == 0) return;
+        Live(12, Ui.Warn, w2 => Yards.Stopped(w2, Side.Player) is string why ? "ALL YARDS STOPPED: " + why : "");
+        foreach (var b in yards)
+        {
+            var row = Row();
+            var id = b.Id;
+            var name = Ui.SmallButton((Yards.Home(w, Side.Player) == b ? "★ " : "") + b.Name, () => { _screen.ShowEmpire = false; _screen.OpenPlanet(id); },
+                $"Open {b.Name}'s planet screen: its berths, what they need, its station and the upgrade to a Shipyard" + (Yards.Home(w, Side.Player) == b ? ". ★ the home yard: your seat" : ""));
+            name.CustomMinimumSize = new Vector2(110, 26);
+            name.AddThemeFontSizeOverride("font_size", 13);
+            name.ClipText = true;
+            row.AddChild(name);
+            var line = Ui.Label("", 12, Ui.Dim);
+            line.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            line.CustomMinimumSize = new Vector2(Width - 120, 0);
+            row.AddChild(line);
+            _live.Add((line, w2 => w2.FindBody(id) is Body x ? YardViews.PlanetLine(w2, x) : ""));
+        }
+    }
+
+    /// <summary>"New ships built at": Auto, or a yard every new order is pinned to (each row can still be changed).</summary>
+    private void DefaultYardRow(World w)
+    {
+        var row = Row();
+        var label = Ui.Label("New ships built at", 13, Ui.Text);
+        label.CustomMinimumSize = new Vector2(120, 0);
+        row.AddChild(label);
+        var current = _screen.BuildAtBodyId is int y && w.FindBody(y)?.Owner == Side.Player ? _screen.BuildAtBodyId : null;
+        var pick = YardViews.YardPicker(w, null, current, current != null, id => _screen.BuildAtBodyId = id,
+            "Auto: the free berth nearest the fleet it joins");
+        pick.CustomMinimumSize = new Vector2(330, 26);
+        row.AddChild(pick);
+    }
+
+    /// <summary>Where a queued ship will be built: Auto (and the yard it has picked) or a yard chosen by hand.</summary>
+    private void YardRow(World w, WorkOrder order)
+    {
+        var row = Row();
+        var label = Ui.Label("    at", 12, Ui.Dim);
+        label.CustomMinimumSize = new Vector2(60, 0);
+        row.AddChild(label);
+        var auto = !order.YardPinned && order.YardBodyId is int at && w.FindBody(at) is Body chosen ? $"Auto: {chosen.Name}" : "Auto";
+        var orderId = order.Id;
+        var pick = YardViews.YardPicker(w, order.Key, order.YardBodyId, order.YardPinned,
+            id => _screen.IssueNow(new SetOrderYardCommand(Side.Player, orderId, id), "choosing a yard"), auto);
+        pick.CustomMinimumSize = new Vector2(270, 26);
+        row.AddChild(pick);
     }
 
     /// <summary>"New ships join": the fleet each new order starts with (each row can still be changed).</summary>
@@ -286,8 +347,9 @@ public partial class EmpirePanel : PanelContainer
         var name = Economy.NameOf(o) + (o.EscortFleetId is int e && w.FindFleet(e) is Fleet escort ? $" (escort {escort.Name})" : o.Auto ? " (Auto top-up)" : "");
         if (o.Blockaded) return $"{name}: BLOCKADED, an enemy fleet in orbit stops the shipyard";
         if (o.Paid && o.Waiting != null) return $"{name}: PAUSED, {o.Waiting}";
-        if (o.Paid) return $"{name}: {Format.Hours(o.HoursLeft)} left ({(1 - o.HoursLeft / o.TotalHours) * 100:0} %)";
-        if (!first) return $"{name}: queued";
+        var where = o.YardBodyId is int y && w.FindBody(y) is Body yb && YardViews.Planets(w).Count > 1 ? $" at {yb.Name}{(o.Paid ? $" ({Yards.BerthName(o.Berth).ToLowerInvariant()})" : "")}" : "";
+        if (o.Paid) return $"{name}{where}: {Format.Hours(o.HoursLeft)} left ({(1 - o.HoursLeft / o.TotalHours) * 100:0} %)";
+        if (!first) return o.Waiting is string why && !why.Contains("Industry", StringComparison.Ordinal) ? $"{name}: queued, {why}" : $"{name}: queued";
         // Short of something other than Industry: materials, or biomass for a grown ship.
         if (o.Waiting != null && !o.Waiting.Contains("more Industry", StringComparison.Ordinal)) return $"{name}: WAITING, {o.Waiting}";
         var cost = Economy.CostOf(o);

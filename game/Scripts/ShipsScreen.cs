@@ -237,12 +237,27 @@ public partial class ShipsScreen : PanelContainer
         var b2 = Column(12);
         b2.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         a.AddChild(Editor(w, cls, fit));
+        if (cls.Station) a.AddChild(YardBayNote(fit));
         b2.AddChild(Numbers(w, cls, fit));
         b2.AddChild(CostBox(w, cls, fit));
         cols.AddChild(a);
         cols.AddChild(b2);
         right.AddChild(cols);
         right.AddChild(ModelsBox(w, cls));
+    }
+
+    /// <summary>For a station: its yard bays (each is a berth that builds one hull at a time; see Yards) against the limit.</summary>
+    private static Control YardBayNote(IReadOnlyList<string> fit)
+    {
+        var max = GameData.Economy.Shipyard.MaxSlipways;
+        var bays = fit.Select(GameData.Module).Where(m => m is { Slot: "B", YardM: > 0 }).Select(m => $"{m!.Name} ({m.YardM:0} m)").ToList();
+        var text = bays.Count == 0
+            ? $"Yard bays: none. Fit a dock bay or a slipway in a B slot and this station builds ships in orbit (up to {max}, one hull each)"
+            : $"Yard bays: {string.Join(", ", bays)} · {bays.Count} of {max}. Each is a berth: one hull at a time, shown on the planet screen and in the Shipyard drop-down (V). A hull on a bay is lost if the station is wrecked, and taken if it is boarded";
+        var l = Ui.Label(text, 12, bays.Count > max ? Ui.Danger : Ui.Dim);
+        l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        l.CustomMinimumSize = new Vector2(200, 0);
+        return l;
     }
 
     // ---- Classes and variants (left) -------------------------------------------------------------

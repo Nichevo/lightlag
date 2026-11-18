@@ -132,6 +132,7 @@ public class StarbaseTests
         Assert.Null(Economy.CanQueue(w, Side.Player, OrderKind.Ship, "cruiser"));
         new QueueOrderCommand(Side.Player, OrderKind.Ship, "cruiser").Apply(w, sim);
         var order = w.Orders.Single(o => o.Key == "cruiser");
+        sim.Step(); // Auto places it on the first free berth that takes it
         Assert.Equal(vela, Economy.YardFor(w, order));
     }
 

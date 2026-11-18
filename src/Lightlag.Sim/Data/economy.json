@@ -13,7 +13,13 @@
     "railDamagePerHour": 1,
     "railSuppliesPerHour": 0.05,
     "missileDamage": 50,
-    "missileEveryHours": 6
+    "missileEveryHours": 6,
+    "homeLossStopDays": 10,
+    "upgradeCost": 180,
+    "upgradeDays": 15,
+    "upgradeMinPopK": 10,
+    "upgradeMaterials": { "alloys": 40, "electronics": 10 },
+    "maxSlipways": 2
   },
   "research": [
     {"id": "efficient-drives", "name": "Efficient drives", "effect": "Burns use 15 % less fuel", "cost": 80, "days": 12, "factor": 0.85, "field": "drives", "tier": 1, "unlocks": "engines", "picture": "engine", "aims": ["supply", "fuel", "range"]},

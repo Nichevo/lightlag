@@ -480,7 +480,7 @@ public partial class ColonyScreen : PanelContainer
         $"planet|{b.Id}|{string.Join(",", b.Pieces.Select(p => $"{p.Id}:{p.Built}"))}|{string.Join(",", Colonies.QueueOrder(w, b).Select(p => p.Id))}|{b.Preset}|{string.Join(",", Colonies.Priority(b))}|{b.SiegeDays}"
         + $"|{Economy.Of(w, Side.Player).AutoTransport}|{string.Join(",", w.FixedRuns.Where(r => r.Side == Side.Player).Select(r => r.Id))}"
         + $"|{Economy.Of(w, Side.Player).Researched.Count}|{_area}|{_onlyHere}|{_buildSort}|{_placing}|{_selectedPiece}"
-        + $"|{_runTo}|{_runGood}|{_runEvery}|{_runEscort}|{GetViewportRect().Size}|{(int)(Economy.Of(w, Side.Player).Industry / 20)}|{StationPanel.Shape(w, b)}";
+        + $"|{_runTo}|{_runGood}|{_runEvery}|{_runEscort}|{GetViewportRect().Size}|{(int)(Economy.Of(w, Side.Player).Industry / 20)}|{StationPanel.Shape(w, b)}|{YardPanel.Shape(w, b)}";
 
     private void BuildPlanet(World w, Body b)
     {
@@ -563,6 +563,9 @@ public partial class ColonyScreen : PanelContainer
         right.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         rightScroll.AddChild(right);
         main.AddChild(rightScroll);
+        if (b.Owner == Side.Player)
+            right.AddChild(Box(YardPanel.Build(w, b, (text, size, color) => LiveWrap(text, size, color),
+                (command, what) => _screen.IssueNow(command, what), _screen), 10));
         right.AddChild(Box(StationPanel.Build(w, b, (text, size, color) => LiveWrap(text, size, color),
             (command, what) => _screen.IssueNow(command, what)), 10));
         right.AddChild(Storage(w, b));
