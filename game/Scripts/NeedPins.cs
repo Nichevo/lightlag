@@ -8,7 +8,7 @@ namespace Lightlag.Game;
 /// Needs you on the map: a pin on each planet or fleet that needs you (red urgent, amber soon, blue advice),
 /// lit with its tray row (hovering a row rings its pin; clicking a pin opens its row). Pins that would overlap
 /// fold into one with a count. With "What automation did" on, dashed grey pins mark where automation acted
-/// today. Map layers and Display options switch each kind on or off.
+/// today. Map layers and Settings › Interface switch each kind on or off.
 /// </summary>
 public partial class NeedPins : Control
 {

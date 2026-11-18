@@ -54,19 +54,21 @@ public static class PauseSettings
 /// <summary>The pause settings page of the game menu: a preset row, then one row per event with its response.</summary>
 public partial class PauseSettingsPage : CenterContainer
 {
-    private readonly Action _back;
+    private readonly Action? _back;
     private VBoxContainer _rows = null!;
     private Label _preset = null!;
 
-    public PauseSettingsPage() : this(() => { }) { }
-    public PauseSettingsPage(Action back) => _back = back;
+    public PauseSettingsPage() : this(null) { }
+
+    /// <summary>With no <paramref name="back"/> action the page sits inside Settings: no title, Back button or panel.</summary>
+    public PauseSettingsPage(Action? back) => _back = back;
 
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
         var col = new VBoxContainer { CustomMinimumSize = new Vector2(620, 0) };
         col.AddThemeConstantOverride("separation", 8);
-        col.AddChild(Ui.Label("Pause settings", 26, Ui.Player));
+        if (_back != null) col.AddChild(Ui.Label("Pause settings", 26, Ui.Player));
         var tip = Ui.Label("What the game does when each of these happens. The game's end always pauses. Contacts a role fleet has in hand, "
                            + "and the same fleets meeting again soon after, never pause (Fleets screen, K).", 13, Ui.Dim);
         tip.AutowrapMode = TextServer.AutowrapMode.WordSmart;
@@ -86,8 +88,12 @@ public partial class PauseSettingsPage : CenterContainer
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
         col.AddChild(_rows);
-        col.AddChild(Ui.Button("Back", _back, 16));
-        AddChild(Ui.Panel(col, 20));
+        if (_back != null)
+        {
+            col.AddChild(Ui.Button("Back", _back, 16));
+            AddChild(Ui.Panel(col, 20));
+        }
+        else AddChild(col);
         Refresh();
     }
 

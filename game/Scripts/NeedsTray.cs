@@ -231,7 +231,7 @@ public partial class NeedsTray : PanelContainer
         if (soon > 0) head.AddChild(Ui.Label($"{soon} soon", 14, NeedsUi.Amber));
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         head.AddChild(NeedsUi.Small("Work through them", () => _hud.OpenCards(),
-            "One item at a time on a card: what, where, when, what happens if you do nothing, and your choices (pauses while you work, in Display options)"));
+            "One item at a time on a card: what, where, when, what happens if you do nothing, and your choices (pauses while you work, in Settings › Interface)"));
         var pins = PlayerInfo.Has(MapLayer.NeedPins);
         head.AddChild(NeedsUi.Small(pins ? "◉ Pins on" : "○ Pins off", () => PlayerInfo.Toggle(MapLayer.NeedPins),
             "A pin on the map for each item with a place (also in Map layers)", pins ? Ui.Player : Ui.Dim));
@@ -378,8 +378,8 @@ public partial class NeedsTray : PanelContainer
         head.AddChild(NeedsUi.Small("Hide advice", () =>
         {
             PlayerInfo.SetAdvice(AdviceMode.Off);
-            Main.Instance.Toast("Advice hidden: only trouble reaches the tray now (Display options brings it back)");
-        }, "Only trouble reaches the tray; Display options brings advice back"));
+            Main.Instance.Toast("Advice hidden: only trouble reaches the tray now (Settings › Interface brings it back)");
+        }, "Only trouble reaches the tray; Settings › Interface brings advice back"));
         if (!_adviceOpen) return;
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 2);

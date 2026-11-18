@@ -9,7 +9,7 @@ namespace Lightlag.Game;
 /// the next auto-pause), Needs you and the control share in the centre, map tools on the right (System, zoom,
 /// Map layers, the list and ☰ for rarer view toggles). Row two is a solid menu bar of the eight screens, centred,
 /// each with its icon, key and Needs you badge; Battle view and the game menu sit at its right end.
-/// Display options: the menu bar always shown, hidden when idle, or off; icons on or off (off below ~1300 px).
+/// Settings › Interface: the menu bar always shown, hidden when idle, or off; icons on or off (off below ~1300 px).
 /// </summary>
 public partial class Hud
 {
@@ -315,7 +315,7 @@ public partial class Hud
         popup.AddSubmenuNodeItem("Recent news", _news, ViewNews);
         popup.AddItem($"Sight view: {_screen.Sight} (B cycles)", ViewSight);
         popup.AddItem("Every key (F1)", ViewKeys);
-        popup.AddItem("Display options…", ViewDetail);
+        popup.AddItem("Interface settings…", ViewDetail);
         popup.AddItem("Game menu (Esc)", ViewMenu);
     }
 
@@ -358,7 +358,7 @@ public partial class Hud
         popup.AddSeparator();
         popup.AddItem("Save game", GameSave);
         if (w?.Rules.Ironman != true) popup.AddItem("Load game…", GameLoad);
-        popup.AddItem("Display options…", GameDisplay);
+        popup.AddItem("Settings…", GameDisplay);
         popup.AddItem("Game menu (Esc)", GameMenuFull);
     }
 
@@ -371,7 +371,7 @@ public partial class Hud
             case GameSilence: _screen.ToggleRadioSilence(); break;
             case GameSave: _screen.SaveManual(); break;
             case GameLoad: _screen.OpenMenu("load"); break;
-            case GameDisplay: _screen.OpenMenu("display"); break;
+            case GameDisplay: _screen.OpenMenu("settings"); break;
             case GameMenuFull: _screen.OpenMenu(); break;
         }
     }

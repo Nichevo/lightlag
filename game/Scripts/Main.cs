@@ -111,15 +111,18 @@ public partial class Main : Node
             _ = TakeScreenshots(shots["--screenshots=".Length..].Trim('"'));
             return;
         }
+        // A normal launch: start from the last game's set-up (special runs above keep the built-in defaults).
+        NewGameChoices.Load(this, Paths.Root);
         ShowTitle();
     }
 
     // ---- Screens ---------------------------------------------------------------------------
 
-    public void ShowTitle()
+    /// <summary>The title screen, on its menu or straight on one of its pages ("newgame", "settings").</summary>
+    public void ShowTitle(string? page = null)
     {
         Sim = null;
-        SetScreen(new TitleScreen());
+        SetScreen(new TitleScreen { StartPage = page });
     }
 
     /// <summary>Light lag for new games, chosen on the title screen: real light speed, ten times slower, or off.</summary>
@@ -152,6 +155,16 @@ public partial class Main : Node
 
     /// <summary>A second rival (a three-race game), or none.</summary>
     public string ThirdRaceChoice { get; set; } = Races.None;
+
+    /// <summary>How strong the rivals of the next new game play (every rival alike).</summary>
+    public Difficulty DifficultyChoice { get; set; } = Difficulty.Normal;
+
+    /// <summary>Start a new game with the choices on the title screen, and keep them for next time.</summary>
+    public void StartChosenGame()
+    {
+        NewGameChoices.Save(this);
+        StartNewGame(difficulty: DifficultyChoice);
+    }
 
     public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
     {
@@ -519,7 +532,7 @@ public partial class Main : Node
         await shoot("65-full-screen-under-bar");
         game.TogglePlanets();
         game.OpenMenu("display");
-        await shoot("66-display-options");
+        await shoot("66-settings-interface");
         game.CloseMenu();
     }
 
@@ -1173,6 +1186,13 @@ public partial class Main : Node
         ShowTitle();
         for (var i = 0; i < 30; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         await shoot("45-title");
+        // Its two pages: the New game screen and Settings (Display and graphics).
+        ShowTitle("newgame");
+        for (var i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await shoot("45b-new-game");
+        ShowTitle("settings");
+        for (var i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await shoot("45c-settings");
     }
 
     /// <summary>
