@@ -133,6 +133,37 @@ public class DamageTests
         Assert.True(fleet.Retreating);
     }
 
+    /// <summary>Playtest: a fleet that pulled back and was then sent after the enemy dropped the chase without a word and never closed in.</summary>
+    [Fact]
+    public void The_players_own_orders_call_off_a_pull_back()
+    {
+        foreach (var how in new[] { "chase", "hold on", "looser rule" })
+        {
+            var sim = Sandbox(new SandboxSetup(3, 0, 1, 0, RivalStance: Stance.Hold, DistanceMm: 25));
+            var fleet = FleetOf(sim, Side.Player);
+            var rival = FleetOf(sim, Side.Rival);
+            sim.Issue(new SetPullRuleCommand(fleet.Id, PullPreset.Standard));
+            sim.Step();
+            foreach (var s in sim.World.ShipsOf(fleet)) s.Armour *= 0.45;
+            sim.Step();
+            Assert.True(fleet.Retreating, how);
+            GameCommand order = how switch
+            {
+                "chase" => new PlanFlightCommand(fleet.Id, new FlightRequest(null, rival.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Drift,
+                    sim.World.Tick, TargetFleetId: rival.Id, Chase: ChaseMode.GunRange)),
+                "hold on" => new HoldOnCommand(fleet.Id, true),
+                _ => new SetPullRuleCommand(fleet.Id, PullPreset.ToTheLast),
+            };
+            sim.Issue(order);
+            sim.ApplyPending();
+            Assert.False(fleet.Retreating, how);
+            if (how == "chase") Assert.NotNull(fleet.Chase);
+            sim.Step();
+            Assert.False(fleet.Retreating, how); // the rule counts again from the order, so it does not pull straight back
+            Assert.True(Combat.WouldEngage(sim.World, fleet, rival), how);
+        }
+    }
+
     [Fact]
     public void A_split_fleet_keeps_its_rule()
     {

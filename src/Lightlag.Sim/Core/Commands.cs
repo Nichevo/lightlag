@@ -200,6 +200,10 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
     public override void Apply(World world, Simulation sim)
     {
         if (GetFleet(world, sim, FleetId, "Flight order") is not Fleet fleet) return;
+        // The player sends a fleet that is pulling back after an enemy: that order wins over the pull-back.
+        if (Source == "player" && fleet.Retreating && Request.TargetFleetId is int foeId && world.FindFleet(foeId) is { } foeFleet
+            && foeFleet.Side != fleet.Side && Request.Chase is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.RailRange or ChaseMode.Overtake)
+            BattleRules.CallOff(sim, fleet, $"ordered after {foeFleet.Name}");
         // A chase against a fleet on its way to one of our planets: wait for it there (or go there first).
         if (Request.TargetFleetId is int quarry && Chases.MeetAt(world, fleet, quarry, Request.Chase, Request.SpeedFraction) is var (meet, meetFlight))
         {

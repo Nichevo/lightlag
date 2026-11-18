@@ -236,7 +236,7 @@ public partial class FleetRules : VBoxContainer
         _ => "",
     };
 
-    private static string PresetTip(PullPreset p) => p switch
+    internal static string PresetTip(PullPreset p) => p switch
     {
         PullPreset.Cautious => "Pull back after losing a quarter of its strength, a ship, or a hit on the flagship; ships under half hull pull out",
         PullPreset.Standard => "Pull back after losing a third of its strength or two ships, or when ammunition runs low",

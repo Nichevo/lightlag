@@ -837,11 +837,6 @@ public partial class ColonyScreen : PanelContainer
         var grid = new GridContainer { Columns = 5 };
         grid.AddThemeConstantOverride("h_separation", 16);
         foreach (var h in new[] { "Good", "Made /day", "Used /day", "Held", "Spare" }) grid.AddChild(Ui.Label(h, 12, Ui.Dim));
-        grid.AddChild(GoodName(b, "food", "Food"));
-        grid.AddChild(Live(_ => $"{Planets.FoodMadePerDay(b):0.##}", 13));
-        grid.AddChild(Live(_ => $"{Planets.FoodNeedPerDay(b):0.##}", 13));
-        grid.AddChild(Live(_ => $"{b.FoodStock:0}", 13));
-        grid.AddChild(Ui.Label("shared", 13, Ui.Dim));
         foreach (var g in Colonies.Goods)
         {
             var id = g.Id;

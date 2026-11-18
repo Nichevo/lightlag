@@ -98,12 +98,33 @@ public sealed class SupplyTab
     {
         Heading(box, "Supply", "Where every good comes from and where it goes");
         var row = Row(box);
-        foreach (var f in SupplyChain.Filters.Concat(_filter.StartsWith("good:", StringComparison.Ordinal) ? new[] { _filter } : Array.Empty<string>()))
+        foreach (var f in SupplyChain.Filters)
         {
             var filter = f;
             var b = Small(SupplyChain.FilterName(f), () => _filter = filter, "Show only these lines in the chain view");
             if (f == _filter) b.Modulate = Ui.Player;
             row.AddChild(b);
+        }
+        // One good: only its own lines, or (with its chain) also what it is made from and what is made from it.
+        var goods = Colonies.Goods.Select(g => g.Id).ToList();
+        var pick = new OptionButton { FocusMode = Control.FocusModeEnum.None, CustomMinimumSize = new Vector2(120, 24),
+            TooltipText = "Show only one good's lines in the chain view" };
+        pick.AddThemeFontSizeOverride("font_size", 12);
+        pick.AddItem("One good…");
+        foreach (var g in goods) pick.AddItem(GoodName(g));
+        var picked = _filter.Length > 5 && _filter[4] == ':' ? goods.IndexOf(_filter[5..]) : -1;
+        pick.Selected = picked + 1;
+        if (picked >= 0) pick.Modulate = Ui.Player;
+        pick.ItemSelected += i => _filter = i == 0 ? "all" : "only:" + goods[(int)i - 1];
+        row.AddChild(pick);
+        if (picked >= 0)
+        {
+            var good = goods[picked];
+            var withChain = _filter.StartsWith("good:", StringComparison.Ordinal);
+            var chain = Small("With its chain", () => _filter = (withChain ? "only:" : "good:") + good,
+                "Also show what this good is made from and what is made from it");
+            if (withChain) chain.Modulate = Ui.Player;
+            row.AddChild(chain);
         }
         _view = new SupplyChainView(_screen) { CustomMinimumSize = new Vector2(LeftWidth, 360) };
         box.AddChild(_view);

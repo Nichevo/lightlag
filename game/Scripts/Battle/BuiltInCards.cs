@@ -604,10 +604,21 @@ public sealed class OrdersCard : BattleCard
 
     public override void Build(CardBuilder b)
     {
-        b.Toggle("Hold on", "Ignore the pull-back rule and fight on (click again to let it apply)",
+        b.Toggle("Hold on", "Ignore the pull-back rule and fight on; stops a pull-back already under way (click again to let the rule apply)",
             (c, f) => c.Pending<HoldOnCommand>(f)?.On ?? f.HoldOn, (f, on) => new HoldOnCommand(f.Id, on), "hold on");
         b.SameRow();
         b.Actions(("Pull back now", "Break off and leave the fight now, by the fleet's pull-back rule", f => new PullBackNowCommand(f.Id), true));
+        // The pull-back rule itself, changed mid-fight. A looser rule by hand calls off a pull-back it would not have made.
+        b.Choice<PullPreset?>("Pull-back rule", new (string, string, PullPreset?)[]
+            {
+                ("Auto", "The default for the fleet's situation (Empire, Automation)", null),
+                (EmpireTabs.PresetName(PullPreset.Cautious), FleetRules.PresetTip(PullPreset.Cautious), PullPreset.Cautious),
+                (EmpireTabs.PresetName(PullPreset.Standard), FleetRules.PresetTip(PullPreset.Standard), PullPreset.Standard),
+                (EmpireTabs.PresetName(PullPreset.FightOn), FleetRules.PresetTip(PullPreset.FightOn), PullPreset.FightOn),
+                (EmpireTabs.PresetName(PullPreset.ToTheLast), FleetRules.PresetTip(PullPreset.ToTheLast), PullPreset.ToTheLast),
+            },
+            (c, f) => c.Pending<SetPullRuleCommand>(f) is { } p ? p.Preset : f.RuleByHand ? f.Rule.Preset : null,
+            (f, p) => new SetPullRuleCommand(f.Id, p), "pull-back rule");
         b.Line(c => string.Join("\n", c.Fleets.Select(f => (c.All ? f.Name + ": " : "") + FleetRules.RuleText(c.World, f))), Ui.Dim);
         b.Line(c => c.Info is EngagementInfo e ? BattleText.HoldingFire(c.World, c.Lead, e) ?? "" : "", Ui.Warn);
     }
