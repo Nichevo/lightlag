@@ -51,6 +51,8 @@ public partial class AfterGameScreen : PanelContainer
     public override void _Ready()
     {
         Ui.StylePanel(this, 16);
+        // Solid, so the map and its labels don't show through a page full of text.
+        if (GetThemeStylebox("panel") is StyleBoxFlat panel) panel.BgColor = new Color(0.03f, 0.045f, 0.075f);
         var root = new VBoxContainer();
         root.AddThemeConstantOverride("separation", 8);
         AddChild(root);
@@ -587,12 +589,12 @@ public partial class ReplayMap : Control
         var b = i + 1 < frames.Count ? frames[i + 1] : a;
         var t = b.Hour > a.Hour ? Math.Clamp((Hour - a.Hour) / (b.Hour - a.Hour), 0, 1) : 0;
 
-        // Fit the worlds that can be held, round the star.
+        // Fit where the game was played, round the star: worlds ever held and most of the fleets' travels.
         var star = w.Bodies.FirstOrDefault(x => x.Kind == BodyKind.Star);
         var centre = star?.Position ?? Vec2.Zero;
-        var reach = Economy.Claimable(w).Select(x => (FlightPlanner.PredictBody(w, x, Hour) - centre).Length).DefaultIfEmpty(Physics.MmPerAu).Max();
+        if (_fitFrames != frames.Count) { _fitFrames = frames.Count; _reach = Reach(w, centre); }
         _centre = centre;
-        _scale = Math.Min(Size.X, Size.Y) / (Math.Max(reach, 0.3 * Physics.MmPerAu) * 2.3) * _zoom;
+        _scale = Math.Min(Size.X, Size.Y) / (_reach * 2.2) * _zoom;
 
         // Orbits and the star.
         var sc = ToScreen(centre);
@@ -663,6 +665,24 @@ public partial class ReplayMap : Control
         // Legend.
         var y = Size.Y - 12;
         DrawString(font, new Vector2(10, y), "▲ warships  ● other ships  ○ believed position (dashed: out of sight)", HorizontalAlignment.Left, -1, 12, Ui.Dim);
+    }
+
+    private int _fitFrames = -1;
+    private double _reach = Physics.MmPerAu;
+
+    /// <summary>How far from the star the view reaches: the farthest world anyone held, or most fleet positions (outliers left out).</summary>
+    private static double Reach(World w, Vec2 centre)
+    {
+        double Out(Body b)
+        {
+            while (b.ParentId is int p && w.FindBody(p) is Body parent && parent.Kind != BodyKind.Star) b = parent;
+            return b.OrbitRadius;
+        }
+        var held = w.Chronicle.Frames.SelectMany(f => Chronicle.OwnersIn(f).Keys).Distinct()
+            .Select(id => w.FindBody(id)).Where(b => b != null).Select(b => Out(b!)).DefaultIfEmpty(0).Max();
+        var fleets = w.Chronicle.Frames.SelectMany(Chronicle.FleetsIn).Select(f => (f.Position - centre).Length).OrderBy(d => d).ToList();
+        var most = fleets.Count > 0 ? fleets[(int)(fleets.Count * 0.95)] : 0;
+        return Math.Max(0.3 * Physics.MmPerAu, Math.Max(held, most) * 1.1);
     }
 
     private static Vec2 Lerp(Vec2 a, Vec2 b, double t) => new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t);
