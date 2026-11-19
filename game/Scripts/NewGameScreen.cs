@@ -244,6 +244,8 @@ public partial class NewGameScreen : MarginContainer
         Group("THE SYSTEM");
         Row("Planet orbits", OrbitsPick(), "How fast planets go round the sun. True speed: planets move at a quarter to a half of a ship's speed, so the map rearranges mid-game and slingshots are strong. 5x slower (default): planets drift, so trips and plans hold steady; slingshots are weak. Moons always go round 5x slower than true");
         Row("Events", EventsPick(), "How often events come (flares, finds, reactor faults, rock strikes, defectors, comets): the same for the rival. Each has an Auto pick");
+        Tick("Contested prizes", M.PrizesChoice, v => M.PrizesChoice = v,
+            "Two or three prizes in the middle game that every side sees coming, between your territory and the rival's: a derelict cruiser to board and keep, a helium-3 comet to mine, an old relay that sees far. Hold one with warships, with no enemy warships there, to win it. Off: none");
         Tick("People everywhere", M.SpreadPeopleChoice, v => M.SpreadPeopleChoice = v,
             "Planets start with a few independent people instead of empty: hold orbit to win them over");
         Tick("Hazards", M.HazardsChoice, v => M.HazardsChoice = v,

@@ -152,6 +152,9 @@ public partial class Main : Node
     /// <summary>Early endings for the next new game (on by default; also switchable in the game menu).</summary>
     public bool EarlyEndingsChoice { get; set; } = true;
 
+    /// <summary>Contested prizes for the next new game (on by default).</summary>
+    public bool PrizesChoice { get; set; } = true;
+
     /// <summary>What the rivals of new games learn from past games (see Lessons): overnight runs and your games, overnight runs only, or nothing.</summary>
     public LearnMode LearnChoice { get; set; } = LearnMode.All;
 
@@ -220,7 +223,7 @@ public partial class Main : Node
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
-                PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice, Learned = LearnedForNewGame(),
+                PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice, Prizes = PrizesChoice, Learned = LearnedForNewGame(),
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());

@@ -264,6 +264,7 @@ public partial class MapView : Node2D
             if (PlayerInfo.Has(MapLayer.Possible)) DrawPossible();
             if (PlayerInfo.Has(MapLayer.TheySee)) DrawTheySee();
             if (RevealAll) DrawMindJobs();
+            DrawPrizes();
         }
         DrawWrecks();
         DrawLifeboats();
