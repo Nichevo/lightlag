@@ -61,7 +61,7 @@ public partial class ResearchScreen : PanelContainer
 
     public override void _Ready()
     {
-        var box = new StyleBoxFlat { BgColor = new Color(0.02f, 0.03f, 0.045f, 0.97f) };
+        var box = new StyleBoxFlat { BgColor = new Color(0.02f, 0.03f, 0.045f) }; // solid: the news strip and scale bar showed through
         box.SetContentMarginAll(20);
         AddThemeStyleboxOverride("panel", box);
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
