@@ -104,6 +104,7 @@ public sealed class Simulation
         Sensors.Update(sim);
         Light.Relay(sim);
         Stats.RecordDay(world);
+        Chronicle.Start(world);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
         log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, map = world.Map.Code, sandbox, options, races = world.Sides.Select(x => x.Race).ToArray() });
         foreach (var m in world.Minds)
@@ -219,6 +220,7 @@ public sealed class Simulation
         using (SectionTimer.Time("flagships")) Flagships.Update(this);
         using (SectionTimer.Time("planets")) Planets.Rehouse(this);
         if (World.Tick % GameTime.TicksPerDay == 0) using (SectionTimer.Time("stats")) Stats.RecordDay(World);
+        using (SectionTimer.Time("chronicle")) Chronicle.Hourly(World);
         // The hour's work above draws from the random stream too (hazards, events, spoils): keep the saved state current.
         World.Random = Rng.Save();
 

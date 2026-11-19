@@ -339,6 +339,10 @@ public partial class GameScreen : Node2D
     public void CloseEnd() => ShowEnd = false;
     public void OpenEnd() { _endSeen = true; ShowEnd = true; }
 
+    /// <summary>A page of the after-game screen to switch to on its next refresh (0 Story, 1 Replay, 2 Rival's mind, 3 Numbers), and the replay hour to show.</summary>
+    public int? EndPageWanted { get; set; }
+    public double? EndHourWanted { get; set; }
+
     private readonly Dictionary<int, Side?> _owners = new();
     private readonly HashSet<int> _knownShips = new();
     private int _researchSeen = -1;
@@ -2056,6 +2060,7 @@ public partial class GameScreen : Node2D
             case Key.L: ToggleSide(); break;
             case Key.M: OrderMerge(); break;
             case Key.U: ToggleBattle(); break;
+            case Key.Escape when ShowEnd && Sim.World.Winner != null: CloseEnd(); break;
             case Key.Escape when BattleView: CloseBattle(); break;
             case Key.Tab when Engagement != null: CycleEngagement(key.ShiftPressed ? -1 : 1); break;
             case Key.Tab: NextFleet(key.ShiftPressed ? -1 : 1); break;

@@ -112,6 +112,9 @@ public sealed class World
     /// <summary>Game statistics: each side at the end of each day (see Stats).</summary>
     public List<DayRecord> History { get; set; } = new();
 
+    /// <summary>The game's story for the after-game screen: replay frames, turning points, the rivals' minds by day (see Chronicle).</summary>
+    public ChronicleState Chronicle { get; set; } = new();
+
     /// <summary>Computer-run sides: their settings, plans and memory (see Mind).</summary>
     public List<MindState> Minds { get; set; } = new();
 

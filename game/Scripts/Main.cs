@@ -1209,6 +1209,21 @@ public partial class Main : Node
             await Shoot("40-battle-replay");
             battle.CloseReplay();
             await ShootVisuals(Shoot);
+
+            // The after-game screen: eighty days of a game, then concede; its story, the fog-off replay and the rival's mind.
+            StartNewGame(9);
+            var after = (GameScreen)_screen!;
+            Sim!.StepMany(80 * GameTime.TicksPerDay);
+            Sim.Issue(new ConcedeCommand(Lightlag.Sim.Core.Side.Player));
+            Sim.ApplyPending();
+            after.OpenEnd();
+            after.EndPageWanted = 0;
+            await Shoot("70-after-story");
+            after.EndPageWanted = 1;
+            after.EndHourWanted = 50 * 24;
+            await Shoot("71-after-replay");
+            after.EndPageWanted = 2;
+            await Shoot("72-after-mind");
         }
         catch (Exception ex)
         {
