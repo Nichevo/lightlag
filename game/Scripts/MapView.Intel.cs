@@ -40,7 +40,7 @@ public partial class MapView
         if (!w.Loop) return;
         var atBody = new Dictionary<int, int>();
         foreach (var rival in Sides.Enemies(w, Side.Player))
-        foreach (var i in Intentions.Heard(w, Side.Player, rival).Take(8))
+        foreach (var i in Intentions.Heard(w, Side.Player, rival).Where(i => i.Kind != PlanKind.Research).Take(8))
         {
             var sure = (float)Intentions.SureNow(w, i);
             var tint = new Color(Ui.SideColor(rival), 0.3f + 0.6f * sure);

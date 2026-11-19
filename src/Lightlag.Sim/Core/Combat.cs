@@ -67,6 +67,9 @@ public sealed class BattleSide
     public int Spoofed { get; set; }
     public int Hijacked { get; set; }
 
+    /// <summary>Known kit: the rival parts this side had studied and countered slightly in this battle.</summary>
+    public List<string> KnownKit { get; set; } = new();
+
     /// <summary>Pulse lance shots and hits, mine hits taken, squadrons sent at the enemy and lost.</summary>
     public int LanceShots { get; set; }
     public int LanceHits { get; set; }
@@ -839,7 +842,8 @@ public static class Combat
             var chance = longShot
                 ? rail.Accuracy * Heat.D.LongAccuracy * Math.Max(0, 1 - (d - railRange) / Math.Max(1e-9, Heat.D.LongRangeMm - railRange)) * (1 - evasion)
                 : rail.Accuracy * (1 - d / railRange) * (1 - evasion) / (1 + relSpeed / 1000);
-            chance *= FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship) * (w.Loop ? Races.Of(w, ship.Side).Precision : 1);
+            chance *= FireControl.AimFactor(fleet) * Crews.AimFactor(w, ship) * (w.Loop ? Races.Of(w, ship.Side).Precision : 1)
+                     * KnownKit.Railguns(w, battle, ship.Side, target.Side);
             if (mode == FireMode.Spread) chance *= spread!.Accuracy;
             chance *= (bridge?.AccuracyFactor ?? 1) * Flagships.SteadyAim(ship, t1) * (SupplyLines.Hungry(ship) ? SupplyLines.HungryAccuracy : 1);
             if (Dodging(w, targetFleet))
@@ -1007,6 +1011,7 @@ public static class Combat
         var shots = mounts * hoursInRange * 3600 / pd.ShotSeconds;
         var kill = pd.KillChance * (missile.Brain >= 2 ? pd.Brain2KillFactor : 1) * BrainBeyond2(missile)
                    * Tech.PointDefence(w, targetFleet.Side, missile.Brain)
+                   * KnownKit.PointDefence(w, battle, targetFleet.Side, missile)
                    * (FlagBridge(w, targetFleet)?.PointDefenceFactor ?? 1) * Flagships.PointDefenceFactor(w, targetFleet, target)
                    * (1 - Heat.D.HeldPdCut * Heat.FuelShare(missile) * Heat.FuelShare(missile)) // fuel to weave on the way in
                    * (Surprised(w, targetFleet) ? SurprisePdFactor : 1);

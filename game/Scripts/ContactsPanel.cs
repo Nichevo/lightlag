@@ -35,7 +35,7 @@ public partial class ContactsPanel : PanelContainer
             .OrderBy(p => p.ContactHours).ThenBy(p => p.Gap).Take(MaxRows).ToList();
         var inbound = _screen.InboundToPlanets.Take(MaxInbound).ToList();
         var w = Main.Instance.Sim!.World;
-        var plans = _screen.PlansHeard.Where(i => i.Kind is not (PlanKind.Scout or PlanKind.Hunt)).Take(MaxPlans).ToList();
+        var plans = _screen.PlansHeard.Where(i => i.Kind is not (PlanKind.Scout or PlanKind.Hunt or PlanKind.Research)).Take(MaxPlans).ToList();
         Visible = list.Count > 0 || inbound.Count > 0 || plans.Count > 0;
         if (!Visible) return;
         var key = string.Join(";", list.Select(p => $"{p.Mine}:{p.Enemy}")) + "|" + string.Join(";", inbound.Select(t => $"{t.FleetId}:{t.BodyId}"))

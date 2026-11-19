@@ -31,7 +31,7 @@ public sealed record SecrecyData(double HideRangeShare = 0.7, double BelowHull =
 
 /// <summary>Learning the rival's research. See ship-classes.json.</summary>
 public sealed record RivalTechData(double BattleTeach = 0.08, double WreckTeach = 0.2, double CaptureTeach = 0.6, double PlanetTeachPerDay = 0.01,
-    double StudiedAt = 0.3, double UnlockedCut = 0.2);
+    double StudiedAt = 0.3, double UnlockedCut = 0.2, double KnownKitBonus = 0.05, int KnownKitLevel = 2);
 
 public sealed record WeaponsData(LanceData? Lance = null, MineData? Mines = null, StrikeCraftData? StrikeCraft = null, CountersData? Counters = null,
     SecrecyData? Secrecy = null, RivalTechData? RivalTech = null)

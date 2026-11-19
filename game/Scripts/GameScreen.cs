@@ -928,6 +928,17 @@ public partial class GameScreen : Node2D
     private Action GoToFleet(int id) => () => { if (Sim.World.FindFleet(id) != null) { Select(id); _follow = id; } };
     private Action GoToBody(int id) => () => { if (Sim.World.FindBody(id) != null) { Select(id); Follow(id, true); } };
 
+    /// <summary>Show on map from a panel (the Intelligence screen): close it and centre on the planet, fleet sighting or point.</summary>
+    public void ShowBodyOnMap(int id) { ShowIntel = false; GoToBody(id)(); }
+    public void ShowSightingOnMap(int fleetId) { ShowIntel = false; GoToSighting(fleetId); }
+    public void ShowPointOnMap(Vec2 at)
+    {
+        ShowIntel = false;
+        _follow = null;
+        _camera.Center = at;
+        if (_camera.TargetScale < 0.002) _camera.FitRadius(20000);
+    }
+
     /// <summary>Centre on an enemy fleet: follow it while in sight, else go to where it is expected to be.</summary>
     public void GoToSighting(int fleetId)
     {
@@ -1513,8 +1524,9 @@ public partial class GameScreen : Node2D
             if (first) continue; // a loaded game: what was already heard is not news
             var who = Sides.Three(w) ? Races.Of(w, r).Name : "Rival";
             var again = i.Times > 1 ? " (heard again)" : "";
-            var quiet = i.Kind is PlanKind.Scout or PlanKind.Hunt ? PauseResponse.Ignore : (PauseResponse?)null;
-            Action open = i.BodyId is int b ? GoToBody(b) : () => { IntelScreen.Ask = IntelScreen.Tab.Plans; ShowIntel = true; };
+            var quiet = i.Kind is PlanKind.Scout or PlanKind.Hunt or PlanKind.Research ? PauseResponse.Ignore : (PauseResponse?)null;
+            Action open = i.Kind == PlanKind.Research ? () => { IntelScreen.Ask = IntelScreen.Tab.Technology; ShowIntel = true; }
+                : i.BodyId is int b ? GoToBody(b) : () => { IntelScreen.Ask = IntelScreen.Tab.Plans; ShowIntel = true; };
             Alert(PauseEvent.PlanHeard, $"{who} plan overheard{again}: {Intentions.Line(w, i)}", open, atMost: quiet);
         }
     }
