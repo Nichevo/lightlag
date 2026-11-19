@@ -211,11 +211,13 @@ public static class Events
         {
             var options = Kinds.Where(k => E.Weights.GetValueOrDefault(k) > 0 && CanHappen(w, side, k)).ToList();
             if (options.Count == 0) return null;
-            var roll = sim.Rng.NextDouble() * options.Sum(k => E.Weights[k]);
+            // A dim red star flares more often than the sun (see MapInfo.FlareFactor).
+            double Weight(string k) => E.Weights[k] * (k == "flare" ? w.Map.FlareFactor : 1);
+            var roll = sim.Rng.NextDouble() * options.Sum(Weight);
             kind = options[^1];
             foreach (var k in options)
             {
-                roll -= E.Weights[k];
+                roll -= Weight(k);
                 if (roll <= 0) { kind = k; break; }
             }
         }

@@ -96,6 +96,7 @@ public static class Reports
         {
             md.AppendLine($"- Scenario: {sim.World.Scenario}");
             md.AppendLine($"- Seed: {sim.World.Seed}");
+            md.AppendLine($"- Map: {sim.World.Map.Describe()}");
             md.AppendLine($"- Game time: {GameTime.Format(sim.World.Tick)} (tick {sim.World.Tick})");
             md.AppendLine($"- Rule failures this game: {sim.RuleViolations}");
             foreach (var m in sim.World.Minds)

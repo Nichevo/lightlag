@@ -123,12 +123,15 @@ public static class Hazards
     /// <summary>The star (the body nothing orbits), if any.</summary>
     public static Body? Star(World w) => w.Bodies.Find(b => b.Kind == BodyKind.Star);
 
+    /// <summary>How far out the sun's heat reaches (Mm): SunHotAu for a star like the sun, closer for a dimmer one.</summary>
+    public static double HotMm(World w) => w.Map.Au(D.SunHotAu) * Physics.MmPerAu;
+
     /// <summary>Extra heat an hour this close to the sun (0 outside SunHotAu, or with hazards off).</summary>
     public static double SunHeat(World w, Vec2 at)
     {
         if (!On(w) || !at.IsFinite || Star(w) is not Body star) return 0;
         var d = Math.Max(star.Radius, Vec2.Distance(at, star.Position));
-        var hot = D.SunHotAu * Physics.MmPerAu;
+        var hot = HotMm(w);
         if (d >= hot) return 0;
         var r = hot / d;
         return D.SunHeatPerHour * (r * r - 1);

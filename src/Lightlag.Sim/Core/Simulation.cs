@@ -65,7 +65,7 @@ public sealed class Simulation
         build ??= log.Build;
         var rng = new SimRandom(seed);
         var world = sandbox != null ? Scenarios.Sandbox(sandbox, seed, rng) : Scenarios.Create(scenario, seed, rng, options?.RandomStarts == true,
-            threeSides: options?.ThirdRace is string third && third != Races.None);
+            threeSides: options?.ThirdRace is string third && third != Races.None, map: options?.Map);
         Orbits.Slow(world, options?.PlanetOrbitSlowdown ?? Orbits.DefaultPlanetSlowdown);
         if (sandbox == null)
         {
@@ -98,13 +98,14 @@ public sealed class Simulation
         Light.ChooseFlagships(world);
         world.Random = rng.Save();
         if (sandbox != null) scenario = Scenarios.BattleSandbox;
+        else if (world.Map.Seeded) scenario = MapMaker.Name;
         var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox, Options = options };
         var sim = new Simulation(world, rng, log, build, replay);
         Sensors.Update(sim);
         Light.Relay(sim);
         Stats.RecordDay(world);
         sim.Replay.Checkpoints.Add(new Checkpoint(0, sim.StateHash()));
-        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, sandbox, options, races = world.Sides.Select(x => x.Race).ToArray() });
+        log.Info("game", $"New game: {scenario}, seed {seed}", new { scenario, seed, map = world.Map.Code, sandbox, options, races = world.Sides.Select(x => x.Race).ToArray() });
         foreach (var m in world.Minds)
             log.Info("ai", $"{m.Side} is run by the computer", new { side = m.Side.ToString(), difficulty = m.Difficulty.ToString(), personality = m.Personality.ToString(), m.BaseRatio, m.FirstProbeDay });
         return sim;

@@ -10,6 +10,9 @@ public sealed class World
     public ulong Seed { get; set; }
     public long Tick { get; set; }
 
+    /// <summary>Which map this game is on (Hesper, or a seeded one) and what its star is like. See MapMaker.</summary>
+    public MapInfo Map { get; set; } = new();
+
     /// <summary>
     /// Battle time: when fleets could meet, each hour is run in short steps (see GameTime.SubSteps).
     /// This is how far into the current hour the game is; 0 between hours.
@@ -154,6 +157,42 @@ public sealed class World
     }
     public IEnumerable<Ship> ShipsOf(Fleet f) => f.ShipIds.Select(FindShip).OfType<Ship>();
     public Fleet? FleetOf(Ship s) => FindFleet(s.FleetId);
+}
+
+/// <summary>
+/// The map a game is on. Old saves and the hand-made map: Hesper, a star like the sun. Seeded maps keep their
+/// setup (so "Play this map again" can rebuild them) and their star's brightness, which moves the hot zone and
+/// solar power, and how often it flares.
+/// </summary>
+public sealed class MapInfo
+{
+    public MapType Type { get; set; } = MapType.Hesper;
+    public MapSize Size { get; set; } = MapSize.Standard;
+    public ulong Seed { get; set; }
+
+    /// <summary>The setup as chosen (a Surprise map keeps Surprise here; Type is what it turned into).</summary>
+    public MapType Chosen { get; set; } = MapType.Hesper;
+    public bool SwapHomes { get; set; }
+
+    /// <summary>The star's brightness against the sun's (1). Distances that depend on heat scale with its square root.</summary>
+    public double StarLight { get; set; } = 1;
+
+    /// <summary>How much more often the star flares than the sun (red dwarfs: 2).</summary>
+    public double FlareFactor { get; set; } = 1;
+
+    /// <summary>The fair start check's home scores and how many builds it took (seeded maps only).</summary>
+    public List<double> HomeScores { get; set; } = new();
+    public int Tries { get; set; }
+
+    public bool Seeded => Type != MapType.Hesper;
+    public MapSetup Setup => new(Seeded ? Chosen : MapType.Hesper, Size, Seed, SwapHomes);
+    public string Code => Setup.Code;
+
+    /// <summary>A short line for menus and reports: "Sun-like, Standard (SUN-STD-4821-3907)" or "Hesper".</summary>
+    public string Describe() => Seeded ? $"{MapCodes.Name(Type)}, {Size} ({Code})" : "Hesper (the hand-made map)";
+
+    /// <summary>How far out from the star (AU) a sun-like distance of au lies for this star.</summary>
+    public double Au(double au) => au * Math.Sqrt(Math.Max(1e-6, StarLight));
 }
 
 /// <summary>Optional systems, chosen at the start of a game.</summary>
