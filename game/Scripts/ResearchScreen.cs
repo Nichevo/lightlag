@@ -119,6 +119,8 @@ public partial class ResearchScreen : PanelContainer
         top.AddChild(industry);
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowResearch = false, "Close the research screen (T or Esc)"));
         _root.AddChild(top);
+        // The budget line that pays for training and founding teams, also shown on the Budget screen.
+        _root.AddChild(new PotStrip(Pot.Buildings, 900));
 
         // Team strip: one compact card per slot; "Skills and queue" unfolds a team's full card.
         var teams = new HBoxContainer();
