@@ -7,12 +7,20 @@ namespace Lightlag.Sim.Core;
 /// "Patrol fleet", ...). With no role, for its ships ("Battle fleet", "Settler fleet", "Invasion fleet", "Troop fleet",
 /// "Supply fleet", "Scout fleet"), or for what it is doing: "To Verdant defence" (ships on their way to join a fleet),
 /// "New ships at Verdant" (launched ships waiting at the yard). The first of a kind has no number; the next ones get
-/// the lowest free number. A fleet is renamed when its kind changes, unless the player gave it a name.
-/// Rival fleets keep "Rival fleet N".
+/// the lowest free number. The fleet carrying the side's flagship is the "Flagship fleet", whatever its role or ships;
+/// when command passes to a ship in another fleet, the name moves with it. A fleet is renamed when its kind changes,
+/// unless the player gave it a name. Rival fleets keep "Rival fleet N".
 /// </summary>
 public static class FleetNames
 {
     public const int MaxLength = 32;
+
+    /// <summary>The name of the fleet that carries the side's flagship.</summary>
+    public const string FlagshipKind = "Flagship fleet";
+
+    /// <summary>Does this fleet carry its side's flagship?</summary>
+    public static bool CarriesFlagship(World w, Fleet f) =>
+        Economy.Of(w, f.Side).FlagshipId is int id && f.ShipIds.Contains(id);
 
     /// <summary>What a fleet is called for its role or, with no role, its ships.</summary>
     public static string Kind(World w, Fleet f)
@@ -23,6 +31,7 @@ public static class FleetNames
 
     private static string KindLong(World w, Fleet f)
     {
+        if (CarriesFlagship(w, f)) return FlagshipKind;
         var place = Place(w, f);
         switch (f.Role)
         {
@@ -83,6 +92,16 @@ public static class FleetNames
         Settle(w, f);
         if (f.NamedByPlayer) return;
         var kind = Kind(w, f);
+        if (kind == FlagshipKind)
+        {
+            // Only one fleet carries the flagship, so it takes the plain name from any fleet left holding it.
+            var name = Next(w, f, kind);
+            if (f.Name == name) return;
+            f.Name = name;
+            foreach (var o in w.Fleets.Where(o => o.Id != f.Id && o.Side == f.Side && !o.NamedByPlayer && KindOf(o.Name) == kind).OrderBy(o => o.Id).ToList())
+                Refresh(w, o);
+            return;
+        }
         if ((f.Name == kind || KindOf(f.Name) == kind) && f.Name.Length > 0) return;
         f.Name = Next(w, f, kind);
     }
@@ -96,7 +115,9 @@ public static class FleetNames
     /// <summary>The kind's name with the lowest number no other fleet of the side uses (no number for the first).</summary>
     private static string Next(World w, Fleet f, string kind)
     {
-        var used = w.Fleets.Where(o => o.Id != f.Id && o.Side == f.Side).Select(o => o.Name).ToHashSet(StringComparer.Ordinal);
+        // The flagship's fleet ignores automatic names it is about to take back from fleets that no longer carry it.
+        var used = w.Fleets.Where(o => o.Id != f.Id && o.Side == f.Side && !(kind == FlagshipKind && !o.NamedByPlayer && KindOf(o.Name) == kind))
+            .Select(o => o.Name).ToHashSet(StringComparer.Ordinal);
         if (!used.Contains(kind)) return kind;
         for (var n = 2; ; n++)
             if (!used.Contains($"{kind} {n}")) return $"{kind} {n}";

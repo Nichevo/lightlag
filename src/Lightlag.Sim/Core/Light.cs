@@ -150,6 +150,7 @@ public static class Light
             var pick = mine.FirstOrDefault(s => s.ClassId == "missile-destroyer") ?? mine.FirstOrDefault();
             Economy.Of(w, side).FlagshipId = pick?.Id;
         }
+        FleetNames.RefreshAll(w); // the fleet carrying the flagship is the "Flagship fleet"
     }
 
     /// <summary>Hours with no orders while command passes to a successor out of command range.</summary>
@@ -178,6 +179,7 @@ public static class Light
         next ??= mine.FirstOrDefault();
         var me = Economy.Of(w, side);
         me.FlagshipId = next?.Id;
+        FleetNames.RefreshAll(w); // the "Flagship fleet" name moves to the fleet carrying the new flagship
         var instant = next != null && Vec2.Distance(next.Position, lostAt) <= CommandRangeMm(w, side);
         if (!instant && w.Light.On) me.CommandGapUntil = w.Hour + SuccessionGapHours;
         sim.Log.Info("light", next != null ? $"{side} command passes to {next.Name}" : $"{side} command falls back to home",

@@ -224,6 +224,7 @@ public class FleetManagementTests
         var sim = NewGame();
         var w = sim.World;
         var home = Home(sim);
+        Economy.Of(w, Side.Player).FlagshipId = null; // the flagship's fleet is the "Flagship fleet" whatever its role
         var verdant = BodyNamed(sim, "verdant");
         PlaceInOrbit(sim, home, verdant);
         sim.Issue(new SetFleetRoleCommand(home.Id, FleetRole.Defence));
