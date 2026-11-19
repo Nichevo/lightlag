@@ -415,6 +415,7 @@ public partial class GameScreen : Node2D
     {
         if (Sim.World.Winner == null || _endSeen) return;
         _endSeen = true;
+        if (!IsSandbox) _main.RememberGame(Sim);
         ShowEnd = true;
         _paused = true;
         RunUntil = null;
@@ -1485,6 +1486,7 @@ public partial class GameScreen : Node2D
         if (w.Winner != null && !_endSeen)
         {
             _endSeen = true;
+            if (!IsSandbox) _main.RememberGame(Sim);
             ShowEnd = true;
             _paused = true;
         }
