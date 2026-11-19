@@ -17,7 +17,7 @@ public partial class ReportDialog : Control
     public override void _Ready()
     {
         ProcessMode = ProcessModeEnum.Always;
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(new ColorRect { Color = new Color(0, 0, 0, 0.5f), AnchorRight = 1, AnchorBottom = 1 });
 
         var col = new VBoxContainer { CustomMinimumSize = new Vector2(640, 0) };
@@ -73,7 +73,7 @@ public partial class CrashPanel : Control
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(new ColorRect { Color = new Color(0, 0, 0, 0.6f), AnchorRight = 1, AnchorBottom = 1 });
         var col = new VBoxContainer { CustomMinimumSize = new Vector2(640, 0) };
         col.AddThemeConstantOverride("separation", 12);
