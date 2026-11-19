@@ -130,7 +130,7 @@ public partial class TitleScreen : Control
     public override void _Ready()
     {
         var main = Main.Instance;
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(new TitleBackdrop { Name = "Backdrop" });
         Graphics.Changed += Rebuild;
 

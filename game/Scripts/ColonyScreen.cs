@@ -495,13 +495,22 @@ public partial class ColonyScreen : PanelContainer
         top.AddChild(Ui.SmallButton("Planets list", () => _screen.PlanetScreenId = null, "Back to the planets list (Esc)"));
         top.AddChild(Ui.SmallButton("Back to map", () => { _screen.PlanetScreenId = null; _screen.ShowPlanets = false; }, "Close the planet screen"));
         _root.AddChild(top);
-        _root.AddChild(Live(w2 => $"People {b.PopK:0.#}k of {Planets.Cap(b):0}k · happiness {b.Happiness:0} · power used {b.PowerUsed:0} of {b.PowerMade:0}"
+        // Under the title: the summary lines and the board with the build list on the left, and the yard, station and
+        // storage column on the right from the top, beside the summary (the space there used to stay empty).
+        var body = Row(14);
+        body.SizeFlagsVertical = SizeFlags.ExpandFill;
+        _root.AddChild(body);
+        var leftPart = Column(6);
+        leftPart.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        leftPart.SizeFlagsStretchRatio = 2.1f;
+        body.AddChild(leftPart);
+        leftPart.AddChild(LiveWrap(w2 => $"People {b.PopK:0.#}k of {Planets.Cap(b):0}k · happiness {b.Happiness:0} · power used {b.PowerUsed:0} of {b.PowerMade:0}"
                                   + (b.PowerWanted > b.PowerMade + 1e-6 ? $" (SHORT: wants {b.PowerWanted:0})" : "")
                                   + $" · makes {Makes(w2, b)} · your Industry {Economy.Of(w2, Side.Player).Industry:0}"
-                                  + (Economy.Blockaded(w2, b) ? " · BLOCKADED" : ""), 14));
+                                  + (Economy.Blockaded(w2, b) ? " · BLOCKADED" : ""), 14, Ui.Text));
         // At a glance: the ground left, power made against what is used, people against jobs, and stores.
-        _root.AddChild(LiveWrap(w2 => Colonies.BoardSummary(b), 13, Ui.Dim));
-        _root.AddChild(LiveWrap(w2 =>
+        leftPart.AddChild(LiveWrap(w2 => Colonies.BoardSummary(b), 13, Ui.Dim));
+        leftPart.AddChild(LiveWrap(w2 =>
         {
             var spare = b.PowerMade - b.PowerWanted;
             var jobs = Planets.StaffNeeded(b);
@@ -511,13 +520,13 @@ public partial class ColonyScreen : PanelContainer
                    + $" · {Colonies.Built(b).Count()} buildings, {b.Pieces.Count(p => !p.Built)} going up"
                    + $" · Industry {Planets.IndustryPerDay(w2, b):0.#} a day";
         }, 13, Ui.Dim));
-        _root.AddChild(LiveWrap(w2 => Grid.Summary(w2, b), 13, Ui.Dim));
-        _root.AddChild(LiveWrap(w2 => Colonies.PowerNote(w2, b) is string note ? "POWER: " + note : "", 13, Ui.Rival));
-        _root.AddChild(LiveWrap(w2 => Planets.LeavingNote(w2, b) is string note ? "PEOPLE: " + note : "", 13, Ui.Rival));
+        leftPart.AddChild(LiveWrap(w2 => Grid.Summary(w2, b), 13, Ui.Dim));
+        leftPart.AddChild(LiveWrap(w2 => Colonies.PowerNote(w2, b) is string note ? "POWER: " + note : "", 13, Ui.Rival));
+        leftPart.AddChild(LiveWrap(w2 => Planets.LeavingNote(w2, b) is string note ? "PEOPLE: " + note : "", 13, Ui.Rival));
 
         var main = Row(14);
         main.SizeFlagsVertical = SizeFlags.ExpandFill;
-        _root.AddChild(main);
+        leftPart.AddChild(main);
 
         // Left: the board, then what is selected or being placed.
         var left = Column(8);
@@ -562,7 +571,7 @@ public partial class ColonyScreen : PanelContainer
         var right = Column(10);
         right.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         rightScroll.AddChild(right);
-        main.AddChild(rightScroll);
+        body.AddChild(rightScroll);
         if (b.Owner == Side.Player)
             right.AddChild(Box(YardPanel.Build(w, b, (text, size, color) => LiveWrap(text, size, color),
                 (command, what) => _screen.IssueNow(command, what), _screen), 10));

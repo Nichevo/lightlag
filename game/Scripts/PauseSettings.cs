@@ -65,7 +65,7 @@ public partial class PauseSettingsPage : CenterContainer
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var col = new VBoxContainer { CustomMinimumSize = new Vector2(620, 0) };
         col.AddThemeConstantOverride("separation", 8);
         if (_back != null) col.AddChild(Ui.Label("Pause settings", 26, Ui.Player));

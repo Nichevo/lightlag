@@ -69,7 +69,7 @@ public partial class Backdrop : ColorRect
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         Graphics.Changed += Refresh;
         Refresh();
     }

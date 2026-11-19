@@ -16,7 +16,7 @@ public partial class SandboxScreen : Control
     {
         var main = Main.Instance;
         var last = main.LastSandbox;
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 10);

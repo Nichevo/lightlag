@@ -114,7 +114,7 @@ public partial class SavesList : CenterContainer
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var col = new VBoxContainer { CustomMinimumSize = new Vector2(560, 0) };
         col.AddThemeConstantOverride("separation", 8);
         col.AddChild(Ui.Label("Load game", 26, Ui.Player));
@@ -198,15 +198,34 @@ public partial class HowToPlay : CenterContainer
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 12);
         col.AddChild(Ui.Label("How to play", 26, Ui.Player));
         var body = Ui.Label(Text, 15);
         body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.CustomMinimumSize = new Vector2(720, 0);
-        col.AddChild(body);
+        // The text is longer than a screen: it scrolls, with the title and Back always in view.
+        _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _scroll.AddChild(body);
+        col.AddChild(_scroll);
         col.AddChild(Ui.Button("Back", _back, 16));
         AddChild(Ui.Panel(col, 24));
+        FitHeight();
+        GetViewport().SizeChanged += FitHeight;
+    }
+
+    private ScrollContainer? _scroll;
+
+    public override void _ExitTree()
+    {
+        if (GetViewport() is Viewport v) v.SizeChanged -= FitHeight;
+    }
+
+    /// <summary>The scroll area takes the screen's height less room for the title, Back and the panel's edges.</summary>
+    private void FitHeight()
+    {
+        if (_scroll == null || !IsInsideTree()) return;
+        _scroll.CustomMinimumSize = new Vector2(740, Math.Max(200, GetViewportRect().Size.Y - 200));
     }
 }

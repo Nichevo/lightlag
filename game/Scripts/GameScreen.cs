@@ -511,7 +511,7 @@ public partial class GameScreen : Node2D
         _hudMs = null;
         ProcessFrame(delta);
         BenchProbe.Add("SCREEN-PROCESS", _processClock.Elapsed.TotalMilliseconds);
-        if (_hudMs is double hud) FrameTimes.Note(delta, hud, _processClock.Elapsed.TotalMilliseconds);
+        if (_hudMs is double hud) FrameTimes.Note(delta, hud, _processClock.Elapsed.TotalMilliseconds, Camera.Scale);
     }
 
     private void ProcessFrame(double delta)

@@ -118,7 +118,7 @@ public static class Ui
     public static CenterContainer Centered(Control child)
     {
         var c = new CenterContainer();
-        c.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         c.AddChild(child);
         return c;
     }
