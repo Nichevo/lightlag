@@ -4,8 +4,8 @@ using Lightlag.Sim.Core;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The sky behind the map (Medium and High): three star layers with parallax, a galaxy band and two
-/// nebulae, all from the game's seed (see starfield.gdshader). Each layer drifts by a share of how far
+/// The sky behind the map (Medium and High): three star layers with parallax, a galaxy band and soft
+/// two-coloured nebula gas, all from the game's seed (see starfield.gdshader). Each layer drifts by a share of how far
 /// the view moves on screen, so panning, or following a moving fleet, shows depth. Low draws nothing,
 /// leaving the plain background.
 /// </summary>
@@ -52,17 +52,15 @@ public partial class Backdrop : ColorRect
         _material.SetShaderParameter("seed", (float)(R(2) * 97.0));
         _material.SetShaderParameter("band_dir", new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)));
         _material.SetShaderParameter("band_offset", (float)((R(3) - 0.5) * 500));
-        var palette = new[]
-        {
-            new Color(0.22f, 0.45f, 0.62f), new Color(0.55f, 0.24f, 0.46f), new Color(0.6f, 0.38f, 0.2f),
-            new Color(0.3f, 0.52f, 0.42f), new Color(0.4f, 0.3f, 0.65f),
-        };
-        var c1 = (int)(R(4) * palette.Length);
-        var c2 = (c1 + 1 + (int)(R(5) * (palette.Length - 1))) % palette.Length;
+        // Cool gas first (blue or teal), a warmer or violet second, so every sky reads as deep space.
+        var cool = new[] { new Color(0.16f, 0.46f, 0.7f), new Color(0.14f, 0.5f, 0.56f), new Color(0.24f, 0.36f, 0.72f) };
+        var warm = new[] { new Color(0.48f, 0.22f, 0.52f), new Color(0.6f, 0.26f, 0.42f), new Color(0.56f, 0.38f, 0.26f) };
+        var c1 = cool[(int)(R(4) * cool.Length) % cool.Length];
+        var c2 = warm[(int)(R(5) * warm.Length) % warm.Length];
         _material.SetShaderParameter("neb1", new Vector2((float)(R(6) * 1400 + 100), (float)(R(7) * 700 + 100)));
         _material.SetShaderParameter("neb2", new Vector2((float)(R(8) * 1400 + 100), (float)(R(9) * 700 + 100)));
-        _material.SetShaderParameter("neb1_color", palette[c1]);
-        _material.SetShaderParameter("neb2_color", palette[c2]);
+        _material.SetShaderParameter("neb1_color", c1);
+        _material.SetShaderParameter("neb2_color", c2);
         _material.SetShaderParameter("neb1_size", (float)(300 + R(10) * 250));
         _material.SetShaderParameter("neb2_size", (float)(260 + R(11) * 220));
         var tint = R(12);

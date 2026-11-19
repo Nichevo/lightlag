@@ -94,12 +94,25 @@ public partial class MapView : Node2D
 
     public double ScreenRadius(Body b) => Math.Max(MinRadius(b), b.Radius * Camera.Scale);
 
-    private static float MinRadius(Body b) => b.Kind switch
-    {
-        BodyKind.Star => 7f,
-        BodyKind.Moon => 2.5f,
-        _ => b.Type is "gas" or "ice-giant" ? 5f : 4f,
-    };
+    /// <summary>
+    /// The smallest a body is drawn, however far out the view is. On Medium and High planets and moons stay
+    /// big enough to read as small lit spheres (and to click); Low keeps the old dots.
+    /// </summary>
+    private static float MinRadius(Body b) => Graphics.Fancy
+        ? b.Kind switch
+        {
+            BodyKind.Star => 9f,
+            BodyKind.Moon => 4.5f,
+            BodyKind.Asteroid => 3f,
+            BodyKind.Station => 4f,
+            _ => b.Type is "gas" or "ice-giant" ? 7.5f : 6f,
+        }
+        : b.Kind switch
+        {
+            BodyKind.Star => 7f,
+            BodyKind.Moon => 2.5f,
+            _ => b.Type is "gas" or "ice-giant" ? 5f : 4f,
+        };
 
     /// <summary>A moon whose whole orbit is a few pixels across sits on its planet: hide it.</summary>
     public bool IsVisible(Body b) => b.Kind != BodyKind.Moon || b.OrbitRadius * Camera.Scale >= 7;
@@ -203,6 +216,7 @@ public partial class MapView : Node2D
         var fancy = Graphics.Fancy;
         BeginFx();
         if (!fancy) foreach (var belt in w.Belts.Where(b => b.Kind != BeltKind.Radiation)) DrawBelt(belt);
+        else DrawBeltDust();
         if (!Quiet && PlayerInfo.Has(MapLayer.Hazards)) DrawHazards();
         if (fancy && (Quiet || PlayerInfo.Has(MapLayer.Wells))) DrawWells();
         if (fancy && !Quiet) DrawRocks();
@@ -210,7 +224,7 @@ public partial class MapView : Node2D
         foreach (var b in w.Bodies)
         {
             if (b.ParentId is not int pid || !IsVisible(b) || !(Quiet || PlayerInfo.Has(MapLayer.Orbits))) continue;
-            if (fancy) DrawOrbitFading(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
+            if (fancy) DrawOrbitFading(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.2f : 0.3f, _drawn[b.Id], ScreenRadius(b) + 2);
             else DrawOrbit(_drawn[pid], b.OrbitRadius, b.Kind == BodyKind.Moon ? 0.16f : 0.22f, _drawn[b.Id], ScreenRadius(b) + 2);
         }
 
@@ -226,31 +240,10 @@ public partial class MapView : Node2D
             if (b.Kind == BodyKind.Star && !fancy) DrawStar(b, at, r); // planets and moons are PlanetSprite children; on Medium and High so is the star
         }
 
-        foreach (var b in w.Bodies)
+        if (!Quiet)
         {
-            if (Quiet || !IsVisible(b) || !ShowLabel(b)) continue;
-            if (!PlayerInfo.Has(MapLayer.Labels) && b.Id != SelectedId && b.Id != HoverId && b.ClaimSide == null) continue;
-            var at = Camera.ToScreen(_drawn[b.Id]);
-            if (!Camera.OnScreen(at, 100)) continue;
-            var r = (float)ScreenRadius(b);
-            // Held planets take their side's colour; a shipyard is marked; a claim shows as a filling ring.
-            var side = b.Owner is Side o ? Ui.SideColor(o) : (Color?)null;
-            var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
-            var name = b.Name + (b.Shipyard ? " · shipyard" : "");
-            if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
-            if (w.Loop && w.Fleets.FirstOrDefault(f => f.Side == Side.Player && f.PeopleRun is { OneTrip: true } run && run.ToBodyId == b.Id) is { Flight: { } settling })
-                name += $" · settlers land in {Format.Hours(Math.Max(0, settling.ArriveHour - w.Hour))}";
-            if (b.ClaimSide is Side claimer)
-            {
-                var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
-                var cc = Ui.SideColor(claimer);
-                DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
-                DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
-                name += $" · claiming {share * 100:0} %";
-            }
-            var gap = b.ClaimSide != null ? 14 : 5; // clear of the claim ring
-            DrawString(_font, at + new Vector2(r + gap, 5), name, HorizontalAlignment.Left, -1, b.Kind == BodyKind.Moon ? 12 : 14, color);
-            if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
+            if (fancy && PlayerInfo.Has(MapLayer.NameTags)) DrawBodyTags();
+            else DrawBodyLabels();
         }
 
         if (!Quiet)
@@ -472,6 +465,38 @@ public partial class MapView : Node2D
     }
 
     // ---- Pieces ---------------------------------------------------------------------------
+
+    /// <summary>Plain text names (Low graphics, or the Name tags layer off): a held planet in its side's colour, the shipyard and any claim noted.</summary>
+    private void DrawBodyLabels()
+    {
+        var w = Sim.World;
+        foreach (var b in w.Bodies)
+        {
+            if (!IsVisible(b) || !ShowLabel(b)) continue;
+            if (!PlayerInfo.Has(MapLayer.Labels) && b.Id != SelectedId && b.Id != HoverId && b.ClaimSide == null) continue;
+            var at = Camera.ToScreen(_drawn[b.Id]);
+            if (!Camera.OnScreen(at, 100)) continue;
+            var r = (float)ScreenRadius(b);
+            // Held planets take their side's colour; a shipyard is marked; a claim shows as a filling ring.
+            var side = b.Owner is Side o ? Ui.SideColor(o) : (Color?)null;
+            var color = b.Id == SelectedId ? Ui.Text : b.Id == HoverId ? new Color(Ui.Text, 0.85f) : side is Color sc ? new Color(sc, 0.85f) : Ui.Dim;
+            var name = b.Name + (b.Shipyard ? " · shipyard" : "");
+            if (b.Shipyard && b.LastBombardedHour is double hit && w.Hour - hit <= 24) name += " · under attack";
+            if (w.Loop && w.Fleets.FirstOrDefault(f => f.Side == Side.Player && f.PeopleRun is { OneTrip: true } run && run.ToBodyId == b.Id) is { Flight: { } settling })
+                name += $" · settlers land in {Format.Hours(Math.Max(0, settling.ArriveHour - w.Hour))}";
+            if (b.ClaimSide is Side claimer)
+            {
+                var share = (float)(b.ClaimHours / Economy.ClaimHoursFor(b));
+                var cc = Ui.SideColor(claimer);
+                DrawArc(at, r + 9, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * share, 40, cc, 2.5f, true);
+                DrawArc(at, r + 9, 0, Mathf.Tau, 40, new Color(cc, 0.2f), 1, true);
+                name += $" · claiming {share * 100:0} %";
+            }
+            var gap = b.ClaimSide != null ? 14 : 5; // clear of the claim ring
+            DrawString(_font, at + new Vector2(r + gap, 5), name, HorizontalAlignment.Left, -1, b.Kind == BodyKind.Moon ? 12 : 14, color);
+            if (b.Id == SelectedId) DrawArc(at, r + 5, 0, Mathf.Tau, 48, new Color(Ui.Text, 0.8f), 1.2f, true);
+        }
+    }
 
     private bool ShowLabel(Body b) => b.Kind switch
     {

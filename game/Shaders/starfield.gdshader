@@ -1,6 +1,7 @@
 // The sky behind the map: three layers of stars that drift at different rates as the view pans
-// (parallax), a faint galaxy band with dark dust lanes, and two soft nebula clouds. Everything is made
-// from the game's seed, so each game has its own sky. Drawn on one full-screen rectangle.
+// (parallax), a faint galaxy band, and soft two-coloured nebula gas across the sky broken by dark dust
+// lanes, calmer towards the screen edges where the panels sit. Everything is made from the game's seed,
+// so each game has its own sky. Drawn on one full-screen rectangle.
 shader_type canvas_item;
 
 uniform float seed = 0.0;
@@ -18,7 +19,7 @@ uniform float neb1_size = 420.0;
 uniform float neb2_size = 360.0;
 uniform float ui_scale = 1.0;              // the interface size: screen pixels per sky pixel
 uniform float brightness = 1.0;             // above 1 on High, so the brightest stars bloom a little
-uniform vec3 base = vec3(0.02, 0.03, 0.05); // the plain background colour underneath
+uniform vec3 base = vec3(0.012, 0.02, 0.04); // the plain background colour underneath
 
 float h21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21) + seed);
@@ -73,26 +74,38 @@ void fragment() {
 	// Galaxy band: brightest along a line, broken up by dust.
 	vec2 bp = px + pan_far * 0.6;
 	vec2 n = vec2(-band_dir.y, band_dir.x);
-	float across = dot(bp - 0.5 / SCREEN_PIXEL_SIZE / ui_scale, n) - band_offset;
+	vec2 mid = 0.5 / SCREEN_PIXEL_SIZE / ui_scale;
+	float across = dot(bp - mid, n) - band_offset;
 	float along = dot(bp, band_dir);
 	float band = exp(-across * across / (2.0 * 170.0 * 170.0));
 	float glow = fbm(vec2(along, across) * 0.004 + seed);
 	float dust = smoothstep(0.45, 0.75, fbm(vec2(along * 0.006, across * 0.02) + seed * 3.0 + 11.0));
-	col += band_tint * band * (0.035 + 0.05 * glow) * (1.0 - 0.75 * dust);
+	col += band_tint * band * (0.03 + 0.04 * glow) * (1.0 - 0.75 * dust);
 	// The band is thick with faint stars.
-	col += stars(bp, 8.0, 0.22 * band, 0.65, 0.28);
+	col += stars(bp, 8.0, 0.12 * band, 0.65, 0.26);
 
-	// Two nebula clouds, soft and wispy.
+	// Nebula gas: two colours of soft cloud drifting across the whole sky, strongest along a wide sweep
+	// round the band and near the two nebula centres, broken by dark lanes of dust.
+	vec2 gp = (px + pan_far) / 520.0;
+	float gas1 = pow(smoothstep(0.36, 0.68, fbm(gp + seed * 0.37 + vec2(2.0, 5.0))), 1.4);
+	float gas2 = pow(smoothstep(0.42, 0.72, fbm(gp * 1.7 + seed * 0.53 + vec2(9.0, 1.0))), 1.6);
+	float lanes = 1.0 - 0.75 * smoothstep(0.5, 0.66, fbm(gp * 2.6 + seed * 0.71 + vec2(4.0, 8.0)));
+	float sweep = exp(-across * across / (2.0 * 520.0 * 520.0));
 	vec2 q1 = (px + pan_far - neb1) / neb1_size;
-	float m1 = exp(-dot(q1, q1) * 1.6) * smoothstep(0.35, 0.85, fbm(q1 * 2.2 + seed * 5.0));
 	vec2 q2 = (px + pan_far - neb2) / neb2_size;
-	float m2 = exp(-dot(q2, q2) * 1.6) * smoothstep(0.35, 0.85, fbm(q2 * 2.4 + seed * 7.0 + 4.0));
-	col += neb1_color * m1 * 0.16 + neb2_color * m2 * 0.14;
+	float near1 = exp(-dot(q1, q1) * 0.5);
+	float near2 = exp(-dot(q2, q2) * 0.5);
+	col += (neb1_color * gas1 * (0.3 + 0.5 * sweep + 0.5 * near1) * 0.32
+	      + neb2_color * gas2 * (0.2 + 0.6 * sweep + 0.5 * near2) * 0.3) * lanes;
 
 	// Three star layers, far to near: more and fainter far away, fewer and brighter close by.
-	col += stars(px + pan_far, 26.0, 0.3, 0.7, 0.42);
-	col += stars(px + pan_mid, 54.0, 0.32, 0.9, 0.65);
+	col += stars(px + pan_far, 26.0, 0.18, 0.7, 0.4);
+	col += stars(px + pan_mid, 54.0, 0.26, 0.9, 0.62);
 	col += stars(px + pan_near, 130.0, 0.35, 1.15, 0.95) * brightness;
+
+	// Calmer towards the edges, behind the panels.
+	vec2 v = (px - mid) / (mid * vec2(1.4, 1.5));
+	col *= clamp(1.0 - 0.35 * dot(v, v) * 2.0, 0.55, 1.0);
 
 	COLOR = vec4(base + col, 1.0);
 }

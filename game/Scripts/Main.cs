@@ -70,7 +70,7 @@ public partial class Main : Node
         AddChild(_overlay);
         Graphics.Load(this, Paths.Root);
         var args = OS.GetCmdlineUserArgs();
-        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=") || a.StartsWith("--fix-shots=")) && !args.Contains("--tray-probe"));
+        Display.Load(this, Paths.Root, applyWindow: !args.Contains("--smoke-test") && !args.Any(a => a.StartsWith("--screenshots=") || a.StartsWith("--bar-shots=") || a.StartsWith("--budget-shots=") || a.StartsWith("--fix-shots=") || a.StartsWith("--map-shots=")) && !args.Contains("--tray-probe"));
         PlayerInfo.Load(Paths.Root);
         PauseSettings.Load(Paths.Root);
         RivalAdvisor.Load(Paths.Root);
@@ -80,6 +80,12 @@ public partial class Main : Node
             return;
         }
         if (OS.GetCmdlineUserArgs().Contains("--panel-bench")) { _ = RunBench(); return; }
+        if (OS.GetCmdlineUserArgs().Contains("--map-bench")) { _ = RunMapBench(); return; }
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--map-shots=")) is string mapShots)
+        {
+            _ = TakeShots(mapShots["--map-shots=".Length..].Trim('"'), ShootMapLook);
+            return;
+        }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--bar-shots=")) is string barShots)
         {
             // Only the top bar and Needs you pictures (quicker than the whole set while working on them).
@@ -484,6 +490,62 @@ public partial class Main : Node
             BenchProbe.On = false;
             var total = BenchProbe.Ms.Values.Sum() / frames;
             GD.Print($"BENCH {name}: hud {total:0.00} ms/frame, process {proc / frames:0.00} ms :: " + string.Join(", ", BenchProbe.Ms.OrderByDescending(kv => kv.Value).Take(5).Select(kv => $"{kv.Key} {kv.Value / frames:0.00}")));
+        }
+        Quit(0);
+    }
+
+    /// <summary>
+    /// The --map-bench developer check: times frames of the system map alone (no side panel) at the zooms
+    /// the map look changes most: the inner system, the whole system, a ringed giant and a home world close up.
+    /// </summary>
+    private (string Name, Action Setup)[] MapLookViews(GameScreen game)
+    {
+        int Key(string key) => Sim!.World.Bodies.First(b => b.Key == key).Id;
+        return new (string Name, Action Setup)[]
+        {
+            ("inner", () => { game.Camera.Center = Vec2.Zero; game.Camera.FitRadius(1.6 * Physics.MmPerAu); }),
+            ("whole", () => game.ShowWholeSystem()),
+            ("tamber", () => game.Follow(Key("tamber"), true)),
+            ("rust", () => game.Follow(Key("rust"), true)),
+            ("verdant-close", () => { game.Follow(Key("verdant"), false); game.Camera.SetScale(9); }),
+        };
+    }
+
+    /// <summary>The --map-shots=DIR developer check: the system map at the zooms the map look covers, side list open.</summary>
+    private async Task ShootMapLook(Func<string, Task> shoot)
+    {
+        StartNewGame(7);
+        var game = (GameScreen)_screen!;
+        Sim!.StepMany(4 * GameTime.TicksPerDay);
+        game.TogglePause();
+        foreach (var (name, setup) in MapLookViews(game))
+        {
+            setup();
+            game.Camera.SetScale(game.Camera.TargetScale, instant: true);
+            await shoot(name);
+        }
+    }
+
+    private async Task RunMapBench()
+    {
+        RandomStartsChoice = false;
+        StartNewGame(7);
+        var game = (GameScreen)_screen!;
+        Sim!.StepMany(30 * GameTime.TicksPerDay);
+        game.TogglePause();
+        game.ShowSide = false;
+        foreach (var (name, setup) in MapLookViews(game))
+        {
+            setup();
+            game.Camera.SetScale(game.Camera.TargetScale, instant: true);
+            for (var i = 0; i < 20; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            BenchProbe.Ms.Clear(); BenchProbe.On = true;
+            var frames = 90; double proc = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (var i = 0; i < frames; i++) { await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame); proc += Performance.GetMonitor(Performance.Monitor.TimeProcess) * 1000; }
+            BenchProbe.On = false;
+            var draw = BenchProbe.Ms.TryGetValue("MAP-DRAW", out var d) ? d / frames : 0;
+            GD.Print($"MAPBENCH {name}: wall {sw.Elapsed.TotalMilliseconds / frames:0.0} ms/frame, process {proc / frames:0.00} ms, map draw {draw:0.00} ms");
         }
         Quit(0);
     }

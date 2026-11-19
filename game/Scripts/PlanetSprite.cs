@@ -63,6 +63,18 @@ public partial class PlanetSprite : Node2D
         _ => 0,
     };
 
+    private Vector2 _ringRadii = new(-1, -1);
+
+    /// <summary>Fit the shader's ring to a ring of rocks round this planet (in planet radii).</summary>
+    public void SetRing(double inner, double outer)
+    {
+        var radii = new Vector2((float)Math.Clamp(inner, 1.1, 2.0), (float)Math.Clamp(outer, inner + 0.15, 2.15));
+        if (!_rings || radii == _ringRadii) return;
+        _ringRadii = radii;
+        _material.SetShaderParameter("ring_inner", radii.X);
+        _material.SetShaderParameter("ring_outer", radii.Y);
+    }
+
     /// <summary>Place it for this frame: where, how big on screen, where the star is, and its spin.</summary>
     public void Set(Vector2 at, float radiusPx, Vector2 towardStar, float spin, float cloudTime = 0)
     {
