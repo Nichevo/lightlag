@@ -69,6 +69,10 @@ public sealed class RuleBook
         .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
             .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
+        // Research that is different each game: no idea is both a lead and a hard problem, and no side works on a lost idea it hasn't found.
+        .Add("research-roll-sane", w => w.Sides.SelectMany(s => s.Roll.Leads.Intersect(s.Roll.Hard).Select(id => $"{s.Side}: {id} is both a lead and a hard problem")
+                .Concat(w.Orders.Where(o => o.Side == s.Side && o.Kind == OrderKind.Research && ResearchRolls.Hidden(w, s.Side, o.Key))
+                    .Select(o => $"{s.Side} has research order {o.Id} for lost idea {o.Key} it hasn't found"))).ToArray())
         // Overheard plans (Intentions): news is never heard before it was sent, timings run forwards, and a planted plan is aimed at the listener.
         .Add("heard-plans-sane", w => Sides.InPlay(w).SelectMany(s => Intel.Files(w, s).SelectMany(f => f.Intercepts.Where(i =>
                 i.HeardHour < i.SentHour || i.EtaLow > i.EtaHigh || i.Sure is < 0 or > 1 || i.Times < 1

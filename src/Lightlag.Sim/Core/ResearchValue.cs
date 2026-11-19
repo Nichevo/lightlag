@@ -191,6 +191,7 @@ public static class ResearchValue
             value += ChainShare * best;
             if (counters.Contains(id)) value *= 1.5;
             if (state.Sparked.Contains(id)) value *= 1.15;
+            if (ResearchRolls.Lead(w, side, id)) value *= ResearchRolls.D.LeadValue;
             if (Planner.HelpsMaterials(w, side, id)) value *= 3;
             // Time at the quickest team. Skill counts only a little (its cube root), or a side would keep to the fields
             // it already knows (skill grows with every idea finished) and never pick up another.

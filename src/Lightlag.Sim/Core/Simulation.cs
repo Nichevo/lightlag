@@ -80,8 +80,10 @@ public sealed class Simulation
             world.Rules.ContactOffers = options?.ContactOffers ?? true;
             world.Rules.Budget = options?.Budget ?? true;
             world.Rules.EarlyEndings = options?.EarlyEndings ?? true;
+            world.Rules.ResearchVariety = options?.ResearchVariety ?? true;
             Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
+            ResearchRolls.Setup(world, seed);
         }
         if (sandbox == null) Mind.Setup(world, options, seed);
         if (sandbox == null && options?.Light is LightSetup light)

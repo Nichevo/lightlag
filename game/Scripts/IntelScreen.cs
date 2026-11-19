@@ -609,7 +609,25 @@ public partial class IntelScreen : PanelContainer
         Kit(w, f, level, cols[0]);
         Ideas(w, cols[1]);
         WaysToLearn(w, f, cols[2]);
+        TheirLeads(w, f, level, cols[2]);
         TheirResearch(w, f, level, cols[2]);
+    }
+
+    /// <summary>Research different each game: the rival's leads and hard problems, known from intel level 3.</summary>
+    private void TheirLeads(World w, IntelFile f, int level, Control col)
+    {
+        var roll = ResearchRolls.Of(w, f.About);
+        if (roll.Leads.Count + roll.Hard.Count == 0) return;
+        var at = ResearchRolls.KnownAtLevel;
+        var card = Card(col, $"Their leads this game · level {at}", level >= at ? null : new Color("34486a"));
+        if (level < at)
+        {
+            Text(card, $"At level {at} ({Intel.LevelNames[at]}) you learn which ideas come easily to them this game, and which are hard.", Ui.Dim, 12);
+            return;
+        }
+        string Names(IEnumerable<string> ids) => string.Join(", ", ids.Select(id => GameData.Research(id).Name));
+        Text(card, $"★ Leads: {Names(roll.Leads)}", new Color("ffd27a"), 13, "Ideas that come easily to them this game: expect these early");
+        if (roll.Hard.Count > 0) Text(card, $"▲ Hard problems: {Names(roll.Hard)}", new Color("ff8a6b"), 13, "Ideas that are slow for them this game");
     }
 
     private void Kit(World w, IntelFile f, int level, Control col)

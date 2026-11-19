@@ -152,6 +152,9 @@ public partial class Main : Node
     /// <summary>Early endings for the next new game (on by default; also switchable in the game menu).</summary>
     public bool EarlyEndingsChoice { get; set; } = true;
 
+    /// <summary>Research different each game (leads, hard problems, lost ideas) for the next new game; on by default.</summary>
+    public bool ResearchVarietyChoice { get; set; } = true;
+
     /// <summary>What the rivals of new games learn from past games (see Lessons): overnight runs and your games, overnight runs only, or nothing.</summary>
     public LearnMode LearnChoice { get; set; } = LearnMode.All;
 
@@ -221,6 +224,7 @@ public partial class Main : Node
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
                 PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice, Learned = LearnedForNewGame(),
+                ResearchVariety = ResearchVarietyChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());

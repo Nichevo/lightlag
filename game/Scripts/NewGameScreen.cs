@@ -257,6 +257,8 @@ public partial class NewGameScreen : MarginContainer
             "Happiness moves with food, blockades and bombing, and blockaded planets give up when unhappy. Off: only starving planets give up");
         Tick("Industry budget", M.BudgetChoice, v => M.BudgetChoice = v,
             "Each day's Industry is split into six pots (ships, buildings, stations, refits, transport, reserve) that save up and pay only for their own things; set shares and goals in the Budget menu (E). Off: one pool, spent by whatever asks first");
+        Tick("Research different each game", M.ResearchVarietyChoice, v => M.ResearchVarietyChoice = v,
+            "Each side rolls 4-5 leads (30 % quicker, in view from the start) and 2-3 hard problems (50 % slower) from the map and chance, and about 10 minor ideas are lost until a spark, a survey find, a capture or a trade turns them up. The rival rolls its own; intel at level 3 shows its leads. Off: the same research web every game");
 
         Group("ENDING AND SAVING");
         Tick("Early endings", M.EarlyEndingsChoice, v => M.EarlyEndingsChoice = v,

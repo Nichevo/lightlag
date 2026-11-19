@@ -242,6 +242,12 @@ public sealed class GameRules
     /// stalled war gets more events. Off: none of that. Switchable mid-game in Options.
     /// </summary>
     public bool EarlyEndings { get; set; } = true;
+
+    /// <summary>
+    /// Research that is different each game (see ResearchRolls): each side rolls leads, hard problems and lost ideas
+    /// at the start. Off: every game has the same web. Chosen at game start only.
+    /// </summary>
+    public bool ResearchVariety { get; set; } = true;
 }
 
 public enum EventRate { Off, Rare, Normal, Lively }

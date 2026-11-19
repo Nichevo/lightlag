@@ -165,6 +165,40 @@
   ],
   "_teamsComment": "Research teams. A side starts with one team of startScientists and has slots team slots. Speed = skill in the idea's field x (scientists / baseScientists)^0.75. Each finished idea adds skillPerIdea to the team's skill in that field, up to maxSkill. Fields a team doesn't keep (1-2 chosen, or its best one) fade by fadePer30Days back towards 1. Founding a team costs foundCost and takes foundDays; it starts with foundScientists and foundSkill in its chosen field. Training adds trainScientists for trainCost after trainDays. Splitting moves half the scientists into an empty slot with 1 + splitShare x each skill above 1. Holding orbit at a body for surveyHours the first time surveys it: surveyCut off one random idea not yet researched. tierPace stretches each idea's listed days by its tier (tier 1 first): the listed days are the work at skill 1 before that stretch.",
   "teams": { "slots": 3, "startScientists": 20, "foundScientists": 12, "foundCost": 120, "foundDays": 20, "foundSkill": 2.0, "trainScientists": 4, "trainCost": 30, "trainDays": 10, "baseScientists": 20, "skillPerIdea": 0.125, "maxSkill": 2.5, "fadePer30Days": 0.125, "splitShare": 0.5, "minScientists": 6, "surveyHours": 24, "surveyCut": 0.25, "tierPace": [3, 4.5, 6, 8, 10] },
+  "_researchRollComment": "Research that is different each game (ResearchRolls.cs). Each side rolls leadCount leads (leadCut quicker, in view from day one) and hardCount hard problems (hardExtra slower) from its founding-trait seeds, the map (mapSeeds, up to maxMapLeads) and chance (tiers leadTiers / hardTiers), and hides lostCount ideas from lostPool until a spark, a survey find (surveyReveal chance), a capture or a trade turns them up. Lost-pool ideas must be ones nothing else needs. Trait seeds are keyed by founding-trait id; traits come with a later build.",
+  "researchRoll": {
+    "leadCount": [4, 5], "hardCount": [2, 3], "lostCount": 10, "leadCut": 0.3, "hardExtra": 0.5,
+    "leadTiers": [1, 3], "hardTiers": [2, 4], "maxMapLeads": 2, "surveyReveal": 0.4, "leadValue": 1.15,
+    "lostPool": [
+      "deep-magazines", "precision-strikes", "debris-shielding", "hardened-bunkers", "sink-lockers", "sun-watch", "rock-mapping",
+      "tight-beam", "deep-space-telescopes", "masked-emissions", "false-traffic", "stealth-drones", "iff-codes", "rare-element-assays",
+      "mineral-surveys", "breeder-reactors", "grid-balancing", "recycling", "compressed-rations", "nutrition-science", "frontier-medicine",
+      "civic-planning", "shore-leave", "compact-housing", "radiation-shielding", "low-g-medicine", "cryo-sleep", "underway-replenishment"
+    ],
+    "traitSeeds": {
+      "belters": { "leads": ["rock-mapping", "mineral-surveys"] },
+      "torch-born": { "leads": ["engine-mk2", "efficient-drives"] },
+      "patient": { "leads": ["stealth-coatings", "quiet-drives"] },
+      "listeners": { "leads": ["signals-analysis", "decode-signals"] },
+      "silent": { "leads": ["tight-beam", "command-uplink"] },
+      "archivists": { "leads": ["scientist-training"] },
+      "shipwrights": { "leads": ["fast-shipyard", "yard-tooling"] },
+      "salvagers": { "leads": ["recycling", "efficient-upkeep"] },
+      "gardeners": { "leads": ["hydroponics", "food-vats"] },
+      "hard-livers": { "leads": ["hardened-bunkers", "sealed-habitats"] },
+      "sun-dwellers": { "leads": ["solar-sails", "radiator-fins"] },
+      "free-captains": { "leads": ["crew-drills", "fleet-data-links"] }
+    },
+    "mapSeeds": [
+      { "when": "helium-3", "why": "helium-3 in the system", "leads": ["deuterium-extraction", "fusion-power", "helium-3-skimming"] },
+      { "when": "rocks", "why": "many rocks to mine", "leads": ["mineral-surveys", "deep-boring", "rock-mapping"] },
+      { "when": "volcanic", "why": "a volcanic world", "leads": ["geothermal-power"] },
+      { "when": "rare-earths", "why": "rare earths in the ground", "leads": ["rare-element-assays", "electronics-fabs"] },
+      { "when": "uranium", "why": "uranium in the ground", "leads": ["breeder-reactors"] },
+      { "when": "flares", "why": "a flaring star", "leads": ["sun-watch", "radiation-shielding"] },
+      { "when": "dim-star", "why": "a dim star", "hard": ["solar-sails"] }
+    ]
+  },
   "_planetsComment": "Planets and people (see Planets). Population is in thousands (k). cap is the most people a body of that type can hold (moons get moonCapShare of it; homes at least homeCap); farm is food per farm per day as a share of a terran farm; plots is how many buildings fit. Each 1k people eat foodPerKPerDay; a farm feeds farmFoodPerDay. Food is a good: each world eats from its own store (filled by its farms and by freighters; farmless worlds need food runs), and settlers land with settlerFoodDays of food (a freighter round trip to a far colony takes a month or two). A settler ship's price is its class cost times a factor from how full the planet they leave is: settlerCrowding lists (fill, factor) pairs with straight lines between (3x at half full or less, 1x at 85 %, 0.5x when full); Auto top-up waits while the factor is above 1.5. Upkeep: each held world costs upkeepPerAu Industry a day for every AU beyond upkeepFreeAu from the nearest hub (home, a shipyard world or a world with a working starbase), taken off income before the budget splits it. Only a side that has surveyed a world may settle it, and an empty world is never claimed by holding orbit (a gas giant nobody can live on is taken by building a skimmer over it). Growth is logistic at growthPerDay while fed. A settled body makes its industry when staffed (baseStaffK, plus each building's staffK); an empty body you hold makes nothing, except one nobody can live on (a gas giant held by its skimmer), which makes unsettledShare of it. Happiness moves happinessPerDay towards its target (blockadedHappinessPerDay while blockaded, so blockades take longer); a blockaded planet below surrenderBelow (surrenderBelowTipped once the blockader leads with tipShare of control) gives itself up (never before minBlockadeDays of blockade, so its holder has time to send a fleet); while the planet's guns or a defence station still fire on enemy ships in orbit, the orbit is contested, not blockaded (rail batteries reach high orbit at gunHighOrbitShare); help is coming (an armed fleet of the holder flying there, due within war.ground.helpComingDays) adds happiness.helpComing while it is blockaded or invaded; troops may land on a held world only after landAfterBlockadeDays of blockade by their side, unless it holds a grudge (bombing its people). Win: tipShare of control for winAfterDays, or winShare at once. Hungry people (not blockaded: no way out) start leaving after leaveStartHungryDays, leaveSharePerDay of them a day, for the nearest fed planets of their side with room; at leaveAfterHungryDays the rest go and the world is abandoned (it makes nothing until settlers land). Newcomers pull happiness down where they arrive, fading over newcomersFadeDays.",
   "planets": {
     "types": {
