@@ -12,8 +12,9 @@ public static class Scenarios
 
     public static IReadOnlyList<string> All { get; } = new[] { TestSystem };
 
-    public static World Create(string name, ulong seed, SimRandom rng, bool randomStarts = false, bool threeSides = false)
+    public static World Create(string name, ulong seed, SimRandom rng, bool randomStarts = false, bool threeSides = false, MapSetup? map = null)
     {
+        if (map is { Seeded: true } || name == MapMaker.Name) return CreateSeeded(map ?? new MapSetup(), seed, rng, threeSides);
         if (!All.Contains(name)) throw new ArgumentException($"Unknown scenario '{name}'. Known: {string.Join(", ", All)}");
         var data = GameData.LoadSystem(name + ".json");
         // The second rival's start ships only come in a three-race game.
@@ -21,6 +22,37 @@ public static class Scenarios
         if (randomStarts) data = RandomHomes(data, rng);
         var w = FromData(data, seed, rng);
 
+        Economy.Start(w);
+        return w;
+    }
+
+    /// <summary>
+    /// A seeded map (see MapMaker): the system and its fair homes come from the map's seed; which side gets which
+    /// home, and where everything is on its orbit on day 1, from the game's seed. The start ships are Hesper's.
+    /// </summary>
+    private static World CreateSeeded(MapSetup map, ulong seed, SimRandom rng, bool threeSides)
+    {
+        var sides = threeSides ? new[] { Side.Player, Side.Rival, Side.Third } : new[] { Side.Player, Side.Rival };
+        var made = MapMaker.Make(map, sides.Length);
+        var homes = made.Homes.ToList();
+        for (var i = homes.Count - 1; i > 0; i--)
+        {
+            var j = rng.Range(0, i + 1);
+            (homes[i], homes[j]) = (homes[j], homes[i]);
+        }
+        if (map.SwapHomes && homes.Count >= 2) (homes[0], homes[1]) = (homes[1], homes[0]);
+        var at = sides.Select((s, i) => (s, i)).ToDictionary(x => x.s, x => homes[Math.Min(x.i, homes.Count - 1)]);
+        var template = GameData.LoadSystem(TestSystem + ".json").Ships ?? new();
+        var ships = template.Where(s => at.ContainsKey(s.Side)).Select(s => s with { Near = at[s.Side] }).ToList();
+        var data = made.Data with { Ships = ships };
+        GameData.Validate(data, MapMaker.Name);
+
+        var w = FromData(data, seed, rng, spreadHomesMm: MapMaker.MinHomeDays(made.Type) * MapMaker.CruiseMmPerDay);
+        w.Map = new MapInfo
+        {
+            Type = made.Type, Chosen = map.Type, Size = map.Size, Seed = map.Seed, SwapHomes = map.SwapHomes,
+            StarLight = made.StarLight, FlareFactor = made.FlareFactor, HomeScores = made.Scores.Select(x => Math.Round(x, 1)).ToList(), Tries = made.Tries,
+        };
         Economy.Start(w);
         return w;
     }
@@ -100,7 +132,11 @@ public static class Scenarios
         return Math.Max(roche, SystemData.MoonClearance * planet.RadiusMm * scale);
     }
 
-    public static World FromData(SystemData data, ulong seed, SimRandom rng)
+    /// <summary>
+    /// Builds the world from map data. spreadHomesMm (seeded maps): homes that start closer than this are turned
+    /// half way round the star (their moons with them), so nobody starts on the rival's doorstep.
+    /// </summary>
+    public static World FromData(SystemData data, ulong seed, SimRandom rng, double spreadHomesMm = 0)
     {
         var w = new World { Scenario = data.Name, Seed = seed };
         if ((data.Ships ?? new()).Any(s => s.Side == Side.Third)) w.Sides = w.Sides.Append(new SideState { Side = Side.Third }).ToArray();
@@ -150,6 +186,7 @@ public static class Scenarios
         }
 
         Simulation.UpdateBodyPositions(w);
+        if (spreadHomesMm > 0) SpreadHomes(w, data, ids, spreadHomesMm);
 
         // Each side's ships start as one fleet per start body, in orbit, and that body is their home with a shipyard.
         // Ships given a fleet name (the home transport) make a fleet of their own there.
@@ -173,6 +210,25 @@ public static class Scenarios
             Fleets.Arrange(w, fleet);
         }
         return w;
+    }
+
+    private static void SpreadHomes(World w, SystemData data, Dictionary<string, Body> ids, double minMm)
+    {
+        var homes = (data.Ships ?? new()).Where(s => s.Fleet == null).Select(s => s.Near).Distinct().Select(k => ids[k]).ToList();
+        for (var round = 0; round < 6; round++)
+        {
+            var moved = false;
+            for (var i = 0; i < homes.Count; i++)
+                for (var j = i + 1; j < homes.Count; j++)
+                {
+                    if (Vec2.Distance(homes[i].Position, homes[j].Position) >= minMm) continue;
+                    var turned = homes[j].Angle + Math.PI * (round % 2 == 0 ? 1 : 0.5);
+                    homes[j].Angle = turned >= 2 * Math.PI ? turned - 2 * Math.PI : turned;
+                    Simulation.UpdateBodyPositions(w);
+                    moved = true;
+                }
+            if (!moved) return;
+        }
     }
 }
 

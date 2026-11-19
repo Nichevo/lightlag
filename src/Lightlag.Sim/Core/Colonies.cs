@@ -935,7 +935,8 @@ public static class Colonies
         var basePower = -data.Power * Output(w, b, p, data, powered: false);
         if (data.Solar)
         {
-            var au = Math.Max(0.2, Vec2.Distance(b.Position, Vec2.Zero) / Physics.MmPerAu);
+            // Sunlight as at this distance from a star like the sun (a dim star's light falls off sooner).
+            var au = Math.Max(0.2, Vec2.Distance(b.Position, Vec2.Zero) / w.Map.Au(1) / Physics.MmPerAu);
             return Grid.Shaded(w, b) ? 0 : basePower * Math.Clamp(1 / (au * au), 0.05, 2); // dark in a bigger body's shadow
         }
         if (data.Hot) return basePower; // geothermal: no fuel
@@ -1473,14 +1474,14 @@ public static class Colonies
         if (b.Board == null) return $"Nothing can be built on {b.Name}: only stations";
         if (data.Needs is string needs && !Tech.Has(w, side, needs)) return $"Research {GameData.Research(needs).Name} first";
         if (data.Food > 0 && !data.AnyAir && data.Terrain != "ocean" && Planets.TypeOf(b).Farm <= 0 && !b.Home) return "Nothing grows here without a dome";
-        if (data.Hot && !Hot(b)) return "Only on volcanic worlds and planets close to the sun";
+        if (data.Hot && !Hot(w, b)) return "Only on volcanic worlds and planets close to the sun";
         if (!queue && Budget.Problem(w, side, Pot.Buildings, data.Cost) is string tooLow) return tooLow;
         if (x is int px && y is int py) return FitProblem(b, data, px, py, turned);
         return BestSpot(b, data) == null ? $"No room for a {data.Name.ToLowerInvariant()} on {b.Name}" : null;
     }
 
-    /// <summary>Hot enough for a geothermal plant: a volcanic world, or within 0.6 AU of the sun.</summary>
-    public static bool Hot(Body b) => b.Type == "volcanic" || Vec2.Distance(b.Position, Vec2.Zero) < 0.6 * Physics.MmPerAu;
+    /// <summary>Hot enough for a geothermal plant: a volcanic world, or within 0.6 AU of a star like the sun (closer to a dimmer one).</summary>
+    public static bool Hot(World w, Body b) => b.Type == "volcanic" || Vec2.Distance(b.Position, Vec2.Zero) < w.Map.Au(0.6) * Physics.MmPerAu;
 
     /// <summary>The Industry and spare parts a refit costs, and other small numbers the screens show.</summary>
     public static IEnumerable<BuildingData> Kinds => (D.Buildings ?? new List<BuildingData>()).Where(k => k.Buildable);

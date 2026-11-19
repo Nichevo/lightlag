@@ -4,8 +4,9 @@ using Lightlag.Sim.Core;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The New game screen (title screen › Change race and rules): the race you lead, the rivals and how strong they
-/// play, and the rules in four groups with Relaxed / Standard / Full presets. Choices are kept for next time.
+/// The New game screen (title screen › Change race and rules): the race you lead, the map (see NewGameMap.cs), the
+/// rivals and how strong they play, and the rules in four groups with Relaxed / Standard / Full presets. Choices are
+/// kept for next time.
 /// </summary>
 public partial class NewGameScreen : MarginContainer
 {
@@ -55,7 +56,11 @@ public partial class NewGameScreen : MarginContainer
         cols.AddThemeConstantOverride("separation", 16);
         center.AddChild(cols);
 
-        cols.AddChild(Ui.Panel(YouColumn(), 16));
+        var left = new VBoxContainer();
+        left.AddThemeConstantOverride("separation", 12);
+        left.AddChild(Ui.Panel(YouColumn(), 16));
+        left.AddChild(Ui.Panel(MapColumn(), 16));
+        cols.AddChild(left);
         cols.AddChild(Ui.Panel(AgainstColumn(), 16));
         _rules = new VBoxContainer { CustomMinimumSize = new Vector2(400, 0) };
         _rules.AddThemeConstantOverride("separation", 6);
@@ -105,9 +110,9 @@ public partial class NewGameScreen : MarginContainer
             var card = new Button
             {
                 Text = name, ToggleMode = true, ButtonGroup = group, FocusMode = FocusModeEnum.None,
-                Icon = random ? null : Art.Texture("Races", id, 0.34f),
+                Icon = random ? null : Art.Texture("Races", id, 0.22f),
                 IconAlignment = HorizontalAlignment.Center, VerticalIconAlignment = VerticalAlignment.Top,
-                CustomMinimumSize = new Vector2(random ? 76 : 96, 170), ButtonPressed = M.PlayerRaceChoice == id,
+                CustomMinimumSize = new Vector2(random ? 76 : 96, 120), ButtonPressed = M.PlayerRaceChoice == id,
                 TooltipText = random ? "A race picked at random when the game starts" : Races.Get(id).Blurb,
             };
             card.AddThemeFontSizeOverride("font_size", 14);
@@ -239,7 +244,6 @@ public partial class NewGameScreen : MarginContainer
         Group("THE SYSTEM");
         Row("Planet orbits", OrbitsPick(), "How fast planets go round the sun. True speed: planets move at a quarter to a half of a ship's speed, so the map rearranges mid-game and slingshots are strong. 5x slower (default): planets drift, so trips and plans hold steady; slingshots are weak. Moons always go round 5x slower than true");
         Row("Events", EventsPick(), "How often events come (flares, finds, reactor faults, rock strikes, defectors, comets): the same for the rival. Each has an Auto pick");
-        Tick("Random homes", M.RandomStartsChoice, v => M.RandomStartsChoice = v, "You and the rival start on planets picked at random");
         Tick("People everywhere", M.SpreadPeopleChoice, v => M.SpreadPeopleChoice = v,
             "Planets start with a few independent people instead of empty: hold orbit to win them over");
         Tick("Hazards", M.HazardsChoice, v => M.HazardsChoice = v,
@@ -341,5 +345,6 @@ public partial class NewGameScreen : MarginContainer
         foreach (var (l, b) in _levelButtons) b.Modulate = l == M.DifficultyChoice ? Ui.Player : new Color(1, 1, 1, 0.6f);
         if (_contactRow != null) _contactRow.Visible = M.ThirdRaceChoice != Races.None;
         if (_summary != null) _summary.Text = NewGameChoices.Summary(M);
+        RefreshMap();
     }
 }

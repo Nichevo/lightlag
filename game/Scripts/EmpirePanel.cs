@@ -394,6 +394,7 @@ public partial class EndPanel : PanelContainer
     private readonly GameScreen _screen;
     private Label _title = null!;
     private Label _text = null!;
+    private Control _mapRow = null!;
 
     public EndPanel() : this(null!) { }
     public EndPanel(GameScreen screen) => _screen = screen;
@@ -421,10 +422,24 @@ public partial class EndPanel : PanelContainer
         title.CustomMinimumSize = new Vector2(150, 40);
         row.AddChild(title);
         box.AddChild(row);
+        // Seeded maps: the same map again, or the same start from the rival's side (see Main.PlayMapAgain).
+        var mapRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center, Visible = false };
+        mapRow.AddThemeConstantOverride("separation", 12);
+        var again = Ui.SmallButton("Play this map again", () => Main.Instance.PlayMapAgain(swapSides: false),
+            "The same map, rules and races, with a new start: a new start date and homes shuffled");
+        again.CustomMinimumSize = new Vector2(180, 40);
+        mapRow.AddChild(again);
+        var swap = Ui.SmallButton("Swap sides", () => Main.Instance.PlayMapAgain(swapSides: true),
+            "The same map and start, but you take the rival's home and the rival takes yours");
+        swap.CustomMinimumSize = new Vector2(150, 40);
+        mapRow.AddChild(swap);
+        box.AddChild(mapRow);
+        _mapRow = mapRow;
     }
 
     public void Refresh(World w)
     {
+        _mapRow.Visible = w.Map.Seeded;
         var won = w.Winner == Side.Player;
         _title.Text = won ? "Victory" : "Defeat";
         _title.AddThemeColorOverride("font_color", won ? Ui.Player : Ui.Rival);
@@ -437,7 +452,8 @@ public partial class EndPanel : PanelContainer
                      + Stats.Summary(w)
                      + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{(Sides.Three(w) ? Races.Of(w, m.Side).Name : "The rival")} was a {m.Personality} on {m.Difficulty}."
                          + (Lessons.Summary(m) is { Length: > 0 } learned ? " " + learned : "")))
-                     + (Main.Instance.LearnChoice != LearnMode.Off && w.Minds.Count > 0 ? "\n\nThis game is now in the rivals' memory: they will learn from it next time." : "");
+                     + (Main.Instance.LearnChoice != LearnMode.Off && w.Minds.Count > 0 ? "\n\nThis game is now in the rivals' memory: they will learn from it next time." : "")
+                     + $"\n\nMap: {w.Map.Describe()}";
     }
 }
 

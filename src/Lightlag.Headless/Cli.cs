@@ -11,7 +11,7 @@ public static class Cli
     public const string Usage = """
         Lightlag headless runner
 
-          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--lag 1|0.1] [--autonomy strict|sensible|free] [--random-starts] [--spread] [--no-happiness] [--no-supply-lines] [--single-fuel] [--no-hazards] [--no-budget] [--no-early-endings] [--orbits 1|3|5] [--events off|rare|normal|lively] [--player-race R] [--rival-race R] [--third-race R] [--data-dir DIR] [--lenient] [--learn] [--no-memory]
+          batch   [--games N] [--seed S] [--days D] [--minutes M] [--scenario NAME] [--pilot ai|easy|easy-v-normal|test-v-ai|test] [--lag 1|0.1] [--autonomy strict|sensible|free] [--random-starts] [--spread] [--no-happiness] [--no-supply-lines] [--single-fuel] [--no-hazards] [--no-budget] [--no-early-endings] [--orbits 1|3|5] [--events off|rare|normal|lively] [--player-race R] [--rival-race R] [--third-race R] [--data-dir DIR] [--lenient] [--learn] [--no-memory] [--map hesper|sun|red|any|CODE] [--map-size small|standard|large] [--swap]
                   Plays N games, computer against computer (--pilot ai, the default; easy; easy-v-normal; test-v-ai, a random test pilot against the rival; or test, the test pilot on both sides), and writes a summary to <data>/nightly/<time>_batch/.
                   Rule checks run every tick and a broken rule counts as a crash, unless --lenient.
                   The summary lists where the time goes (each part of the hour, slowest first) and the slowest single step.
@@ -20,6 +20,8 @@ public static class Cli
                   --player-race / --rival-race: human, hive, lattice or random (each game rolls its own). Default human; nightly: random.
                   Computer-vs-computer games are added to the rival's memory (<data>/rival-memory.json) unless --no-memory;
                   --learn starts every computer side from what that memory teaches (off by default).
+                  --map: play seeded maps (a new map from each game's seed) or one map code for every game; --swap plays each seed
+                  twice with the homes swapped and reports how often the same home won both.
                   --third-race: adds a second rival (a three-race game): human, hive, lattice or random. Default none.
           nightly Same as batch with overnight defaults (--games 200 --days 365 --minutes 360, races random).
 
@@ -33,6 +35,10 @@ public static class Cli
           ai-trace [--seed S] [--days D] [--every N] [--easy] [--economy] [--thoughts] [--player-race R] [--rival-race R]
                   Plays one computer-vs-computer game and prints each side's goal and fleet jobs every N days.
                   --economy also prints each held planet's buildings and materials, and what the yard waits for; --thoughts its recent thoughts.
+
+          maps    [--type sun|red|all] [--size small|standard|large|all] [--count N] [--seed S] [--three] [--show CODE]
+                  Builds N seeded maps per type and size (without playing them) and prints planets, moons, rocks, bodies
+                  worth claiming and how fair the homes came out. --show SUN-STD-4821-3907 lists one map body by body.
 
           logs    <file.jsonl | folder> [--level warn] [--area rule] [--text words] [--seed S] [--days A-B] [--max N]
                   Searches game logs. --level shows that level and worse.
@@ -58,6 +64,7 @@ public static class Cli
                 "replay" => RunReplay(opts),
                 "logs" => LogSearch.Run(opts),
                 "ai-trace" => AiTrace.Run(opts),
+                "maps" => MapsReport.Run(opts),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}"),
             };
         }

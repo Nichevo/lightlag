@@ -50,7 +50,7 @@ public partial class MapView
         }
         if (Hazards.Star(w) is Body star && _drawn.TryGetValue(star.Id, out var sunAt))
         {
-            var r = (float)(Hazards.D.SunHotAu * Physics.MmPerAu * Camera.Scale);
+            var r = (float)(Hazards.HotMm(w) * Camera.Scale);
             var at = Camera.ToScreen(sunAt);
             if (r > 8 && Camera.OnScreen(at, r + 10))
             {

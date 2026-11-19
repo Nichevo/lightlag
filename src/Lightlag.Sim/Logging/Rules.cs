@@ -48,6 +48,20 @@ public sealed class RuleBook
     }
 
     /// <summary>The rules every game uses.</summary>
+    private static IEnumerable<string> MapSane(World w)
+    {
+        if (!(w.Map.StarLight > 0)) yield return $"the star's light is {w.Map.StarLight}";
+        foreach (var m in w.Bodies.Where(b => b.Kind == BodyKind.Moon))
+            if (w.Bodies.FirstOrDefault(p => p.Id == m.ParentId) is Body p && m.OrbitRadius <= p.Radius + m.Radius)
+                yield return $"{m.Name} orbits inside {p.Name}";
+        double Reach(Body p) => w.Bodies.Where(m => m.ParentId == p.Id).Select(m => m.OrbitRadius + m.Radius).DefaultIfEmpty(p.Radius).Max();
+        var star = w.Bodies.FirstOrDefault(b => b.ParentId == null);
+        var planets = w.Bodies.Where(b => star != null && b.ParentId == star.Id && b.Kind != BodyKind.Asteroid).OrderBy(b => b.OrbitRadius).ToList();
+        for (var i = 1; i < planets.Count; i++)
+            if (planets[i].OrbitRadius - planets[i - 1].OrbitRadius <= Reach(planets[i]) + Reach(planets[i - 1]))
+                yield return $"{planets[i - 1].Name} and {planets[i].Name} orbit too close: their moons could cross";
+    }
+
     public static RuleBook Default() => new RuleBook()
         .Add("time-not-negative", w => w.Tick < 0 ? new[] { $"tick is {w.Tick}" } : Array.Empty<string>())
         // Planets and moons are where their orbits put them at this very hour, battle-time steps included (they once moved
@@ -55,6 +69,9 @@ public sealed class RuleBook
         .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
             .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
+        // Seeded maps (MapMaker) must always come out sane: a star of some brightness, moons clear of their planets,
+        // and planets far enough apart that their moon systems never cross.
+        .Add("map-sane", MapSane)
         // A flight with nothing to fly ends when its hour comes (one once stayed "flying" for ever, so the freighter was never free).
         .Add("empty-flights-end", w => w.Fleets.Where(f => f.Flight is { Legs.Count: 0 } fl && w.Hour > fl.ArriveHour + 1)
             .Select(f => $"{f.Name} has a flight with no legs that should have ended at hour {f.Flight!.ArriveHour:0.#}").ToArray())

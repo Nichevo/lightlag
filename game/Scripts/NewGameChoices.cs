@@ -58,6 +58,11 @@ public static class NewGameChoices
         main.EarlyEndingsChoice = GetBool("early_endings", main.EarlyEndingsChoice);
         main.IronmanChoice = GetBool("ironman", main.IronmanChoice);
         if (Enum.TryParse<LearnMode>(Get("rivals_learn", main.LearnChoice.ToString()), out var learn)) main.LearnChoice = learn;
+        var mapType = Enum.TryParse<MapType>(Get("map_type", main.MapChoice.Type.ToString()), out var mt) ? mt : main.MapChoice.Type;
+        var mapSize = Enum.TryParse<MapSize>(Get("map_size", main.MapChoice.Size.ToString()), out var ms) ? ms : main.MapChoice.Size;
+        var mapSeed = ulong.TryParse(Get("map_seed", ""), out var seed) && seed >= MapCodes.MinSeed && seed <= MapCodes.MaxSeed ? seed : main.MapChoice.Seed;
+        main.MapChoice = new MapSetup(mapType, mapSize, mapSeed);
+        main.NewMapSeedChoice = GetBool("new_map_seed", main.NewMapSeedChoice);
     }
 
     /// <summary>Write the current choices. Does nothing until Load has named the file (a normal launch).</summary>
@@ -86,6 +91,10 @@ public static class NewGameChoices
         Set("early_endings", main.EarlyEndingsChoice);
         Set("ironman", main.IronmanChoice);
         Set("rivals_learn", main.LearnChoice.ToString());
+        Set("map_type", main.MapChoice.Type.ToString());
+        Set("map_size", main.MapChoice.Size.ToString());
+        Set("map_seed", main.MapChoice.Seed.ToString());
+        Set("new_map_seed", main.NewMapSeedChoice);
         if (cfg.Save(_file) != Error.Ok) main.Log.Warn("ui", "Could not save the new game choices", new { file = _file });
     }
 
@@ -154,6 +163,7 @@ public static class NewGameChoices
                     + (main.PlanetOrbitsChoice <= 1 ? "planets at true speed" : $"planets {main.PlanetOrbitsChoice:0}x slower");
         if (!main.EarlyEndingsChoice) rules += " · no early endings";
         if (main.IronmanChoice) rules += " · Ironman";
+        who += main.MapChoice.Seeded ? $" · {MapCodes.Name(main.MapChoice.Type)}, {main.MapChoice.Size} map ({MapCodes.SeedText(main.MapChoice.Seed)})" : " · Hesper";
         if (main.LearnChoice != LearnMode.All) who += main.LearnChoice == LearnMode.Off ? " · rivals don't learn" : " · rivals learn from overnight runs only";
         return who + "\n" + rules;
     }

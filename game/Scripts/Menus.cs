@@ -62,6 +62,8 @@ public partial class GameMenu : Control
         col.AddChild(Ui.Label(Main.Instance.Sim?.World.Rules.Ironman == true
             ? "Ironman: the game keeps one save and writes over it as you play (and when you quit). No loading back."
             : "Quitting saves an autosave first. F5 quick save, F9 quick load.", 13, Ui.Dim));
+        if (Main.Instance.Sim?.World is { Loop: true } w)
+            col.AddChild(Ui.Label($"Map: {w.Map.Describe()}", 13, Ui.Dim));
         _main = Ui.Centered(Ui.Panel(col, 24));
         AddChild(_main);
 

@@ -11,7 +11,7 @@ public sealed record GameResult(
     int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
     string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null,
     double? WarshipsMid = null, double[]? WarshipCurve = null, double WorstStepMs = 0, long WorstStepTick = 0,
-    string? PlayerRace = null, string? RivalRace = null, string? ThirdRace = null, SideEnd? Third = null);
+    string? PlayerRace = null, string? RivalRace = null, string? ThirdRace = null, SideEnd? Third = null, string? Map = null, bool Swapped = false);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
@@ -80,6 +80,10 @@ public static class Batch
         foreach (var r in new[] { _races.Player, _races.Rival, _third })
             if (r != null && r != Races.Random && !Races.Known(r)) throw new ArgumentException($"Unknown race '{r}': use {string.Join(", ", Races.All.Select(x => x.Id))} or random");
         var firstSeed = opts.GetULong("seed") ?? (ulong)DateTime.UtcNow.Ticks % 1_000_000_000UL;
+        // --map hesper|sun|red|any or a map code; --map-size small|standard|large; --swap plays each seed twice, the
+        // second time with the player's and the rival's homes swapped (a fair map gives each home about half the wins).
+        _map = MapChoice(opts.Get("map"), opts.Get("map-size"));
+        _swap = opts.Has("swap");
 
         var started = DateTime.UtcNow;
         var runDir = Path.Combine(data.Nightly, DataPaths.StampedName(started, nightly ? "nightly" : "batch"));
@@ -104,13 +108,15 @@ public static class Batch
                 Console.WriteLine($"Time budget of {minutes} minutes used; stopping after {i} games.");
                 break;
             }
-            var seed = firstSeed + (ulong)i;
-            var r = PlayOne(i + 1, seed, scenario, days, strict, build, logPath, runPaths, pilot);
+            var seed = firstSeed + (ulong)(_swap ? i / 2 : i);
+            var map = MapFor(seed, swapped: _swap && i % 2 == 1);
+            var r = PlayOne(i + 1, seed, scenario, days, strict, build, logPath, runPaths, pilot, map);
             results.Add(r);
             Console.WriteLine($"  game {r.Index,4}  seed {r.Seed,-12} {r.Outcome,-9} {r.Seconds,7:0.00}s  rules {r.RuleFailures}  errors {r.Errors}"
                               + (r.Winner != null ? $"  {r.Winner} wins day {r.WinDay} ({r.WinReason})" : "  no winner")
                               + (r.PlayerMind != null ? $"  [{r.PlayerMind} v {r.RivalMind}]" : "")
                               + (r.PlayerRace != Races.Human || r.RivalRace != Races.Human || r.ThirdRace != null ? $"  ({r.PlayerRace} v {r.RivalRace}{(r.ThirdRace != null ? $" v {r.ThirdRace}" : "")})" : "")
+                              + (r.Map != null ? $"  map {r.Map}{(r.Swapped ? " swapped" : "")}" : "")
                               + (r.Error != null ? $"  {r.Error}" : ""));
         }
 
@@ -138,6 +144,35 @@ public static class Batch
     }
 
     private static LightSetup? _light;
+
+    /// <summary>The batch's map choice (null: Hesper), and whether each seed is played twice with homes swapped.</summary>
+    private static (MapSetup Setup, bool FixedSeed)? _map;
+    private static bool _swap;
+
+    private static (MapSetup, bool)? MapChoice(string? map, string? size)
+    {
+        var s = size?.ToLowerInvariant() switch
+        {
+            null or "standard" or "std" => MapSize.Standard, "small" => MapSize.Small, "large" => MapSize.Large,
+            _ => throw new ArgumentException("--map-size must be small, standard or large"),
+        };
+        switch (map?.ToLowerInvariant())
+        {
+            case null or "hesper": return null;
+            case "sun": return (new MapSetup(MapType.SunLike, s), false);
+            case "red": return (new MapSetup(MapType.RedDwarf, s), false);
+            case "any": return (new MapSetup(MapType.Surprise, s), false);
+        }
+        var code = MapCodes.Parse(map, new MapSetup(MapType.SunLike, s))
+                   ?? throw new ArgumentException($"--map must be hesper, sun, red, any or a map code like SUN-STD-4821-3907, not '{map}'");
+        return code.Seeded ? (code, true) : null;
+    }
+
+    /// <summary>This game's map: a new map seed from the game's seed, unless a map code fixed it.</summary>
+    private static MapSetup? MapFor(ulong seed, bool swapped) =>
+        _map is var (setup, fixedSeed)
+            ? setup with { Seed = fixedSeed ? setup.Seed : MapCodes.Fit(seed * 2654435761UL), SwapHomes = swapped }
+            : null;
 
     /// <summary>The overnight report as a page (summary.html), when the batch had computer-vs-computer games.</summary>
     private static string? _report;
@@ -197,7 +232,7 @@ public static class Batch
     };
 
     private static GameResult PlayOne(int index, ulong seed, string scenario, int days, bool strict,
-                                      BuildInfo build, string logPath, DataPaths runPaths, string pilotKind)
+                                      BuildInfo build, string logPath, DataPaths runPaths, string pilotKind, MapSetup? map = null)
     {
         using var log = new GameLog(build, logPath);
         var timer = Stopwatch.StartNew();
@@ -210,6 +245,7 @@ public static class Batch
         try
         {
             var options = OptionsFor(pilotKind);
+            if (map != null) options = (options ?? new GameOptions()) with { Map = map };
             if (_learn && options?.Ai != null)
                 options = options with { Learned = Lessons.Learn(RivalMemory.Load(_dataRoot), LearnMode.Overnight, GameData.BalanceStamp) };
             sim = Simulation.NewGame(scenario, seed, log, build, options: options);
@@ -250,7 +286,8 @@ public static class Batch
                 w.Winner?.ToString(), w.WinHour is double h ? (int)(h / 24) : null, w.WinReason,
                 MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve, Math.Round(worstMs, 1), worstTick,
                 Economy.Of(w, Side.Player).Race, Economy.Of(w, Side.Rival).Race,
-                Sides.Three(w) ? Economy.Of(w, Side.Third).Race : null, Sides.Three(w) ? SideEnd.Of(w, Side.Third) : null);
+                Sides.Three(w) ? Economy.Of(w, Side.Third).Race : null, Sides.Three(w) ? SideEnd.Of(w, Side.Third) : null,
+                w.Map.Seeded ? w.Map.Code : null, map?.SwapHomes == true);
         }
         catch (Exception ex)
         {
@@ -269,6 +306,30 @@ public static class Batch
 
     /// <summary>Where the batch's time went, all games together.</summary>
     public static readonly SectionTimer Timing = new(Stopwatch.GetTimestamp, Stopwatch.Frequency);
+
+    /// <summary>
+    /// Seeded maps: wins by map type, and with --swap how often the same home won both games of a seed (a fair map
+    /// should split them). Pairs where one home won both are listed with their map codes, to replay.
+    /// </summary>
+    private static void AppendMaps(StringBuilder md, List<GameResult> results)
+    {
+        var mapped = results.Where(r => r.Map != null).ToList();
+        if (mapped.Count == 0) return;
+        foreach (var kind in mapped.GroupBy(r => r.Map!.Split('-')[0] + "-" + r.Map!.Split('-')[1]))
+        {
+            var won = kind.Where(r => r.Winner != null).ToList();
+            md.AppendLine($"- Maps {kind.Key}: {kind.Count()} games, player won {won.Count(r => r.Winner == "Player")}, rival {won.Count(r => r.Winner == "Rival")}, "
+                          + $"no winner {kind.Count() - won.Count}");
+        }
+        var pairs = mapped.GroupBy(r => r.Seed).Where(g => g.Count() == 2 && g.Any(r => r.Swapped) && g.All(r => r.Winner != null)).ToList();
+        if (pairs.Count == 0) return;
+        // Home A is the player's home in the first game of the pair, the rival's in the swapped one.
+        bool HomeAWon(GameResult r) => (r.Winner == "Player") != r.Swapped;
+        var lopsided = pairs.Where(g => g.All(HomeAWon) || g.All(r => !HomeAWon(r))).ToList();
+        md.AppendLine($"- Swapped homes: {pairs.Count} seeds played both ways to a finish; the same home won both in {lopsided.Count} "
+                      + $"({lopsided.Count * 100 / pairs.Count} %; a fair set of maps is near 50 % by chance, well above it means homes favour one side)"
+                      + (lopsided.Count > 0 ? $". Same home both times: {string.Join(", ", lopsided.Take(10).Select(g => g.First().Map))}" : ""));
+    }
 
     public static string Summarise(BuildInfo build, string scenario, int days, bool strict, DateTime started,
                                    TimeSpan elapsed, int requested, List<GameResult> results, string runDir, string pilot = "ai")
@@ -310,6 +371,7 @@ public static class Batch
                 + $"planet-hours shedding {ended.Average(r => r.Player!.ShedHours):0} / {ended.Average(r => r.Rival!.ShedHours):0}");
         }
         md.AppendLine($"- Games: {results.Count} played of {requested} asked for, in {elapsed:hh\\:mm\\:ss}");
+        AppendMaps(md, results);
         if (results.Count > 0)
         {
             var slowest = results.MaxBy(r => r.Seconds)!;
