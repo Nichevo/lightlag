@@ -594,6 +594,44 @@ public sealed class SecretsCard : BattleCard
     }
 }
 
+/// <summary>
+/// Matchup: their kit as your intel has seen it against yours, part by part ("?" where not seen yet), and the slight
+/// edge you get against kit you have studied (intel level 2 or more). More of it fills in as your intel level rises.
+/// </summary>
+public sealed class MatchupCard : BattleCard
+{
+    public override string Id => "matchup";
+    public override string Title => "Matchup";
+    public override int Order => 65;
+    public override bool Shows(CardContext c) => c.World.Loop && Enemy(c) != null;
+
+    private static Side? Enemy(CardContext c) =>
+        c.Info is { } e && c.World.FindFleet(e.EnemyId) is Fleet f ? f.Side : Sides.Enemies(c.World, Side.Player).Cast<Side?>().FirstOrDefault();
+
+    private static string Row(KnownKit.MatchRow r) =>
+        $"{Intel.PartName(r.Part)}: theirs {r.Theirs}, yours {r.Yours}" + r.Edge switch { 1 => " (yours better)", -1 => " (theirs better)", 0 => "", _ => "" };
+
+    public override void Build(CardBuilder b)
+    {
+        b.Line(c => Enemy(c) is Side e ? string.Join("\n", KnownKit.Matchup(c.World, Side.Player, e).Take(3).Select(Row)) : "", Ui.Text, lines: 2);
+        b.Line(c => Enemy(c) is Side e ? string.Join("\n", KnownKit.Matchup(c.World, Side.Player, e).Skip(3).Select(Row)) : "", Ui.Dim, lines: 2);
+        b.Line(c => Enemy(c) is Side e ? string.Join("\n", KnownKit.Matchup(c.World, Side.Player, e).Where(r => r.Known != null).Select(r => r.Known!)) : "", new Color("ffd27a"), lines: 2);
+        b.Line(c => Enemy(c) is Side e && Intel.Level(Intel.Of(c.World, Side.Player, e)) < GameData.Weapons.R.KnownKitLevel
+            ? $"Intel level {GameData.Weapons.R.KnownKitLevel} (Studied) gives a slight edge against the kit you have seen" : "", Ui.Dim);
+    }
+
+    public override string Folded(CardContext c)
+    {
+        if (Enemy(c) is not Side e) return "";
+        var rows = KnownKit.Matchup(c.World, Side.Player, e);
+        var ahead = rows.Count(r => r.Edge == 1);
+        var behind = rows.Count(r => r.Edge == -1);
+        var unknown = rows.Count(r => r.Edge == null);
+        return $"Ahead in {ahead}, behind in {behind}" + (unknown > 0 ? $", {unknown} not seen" : "")
+               + (rows.Any(r => r.Known != null) ? "\nStudied kit: slight edge" : "");
+    }
+}
+
 /// <summary>Orders for the fight as a whole: hold on past the pull-back rule, or pull back now.</summary>
 public sealed class OrdersCard : BattleCard
 {

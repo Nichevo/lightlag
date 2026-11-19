@@ -1,7 +1,7 @@
 namespace Lightlag.Sim.Core;
 
 /// <summary>What a heard plan is about.</summary>
-public enum PlanKind { Attack, Claim, Relief, Raid, Hunt, Scout, Massing }
+public enum PlanKind { Attack, Claim, Relief, Raid, Hunt, Scout, Massing, Research }
 
 /// <summary>
 /// One of a rival's plans as overheard in its order traffic: late (the signal travels at light speed, then on to
@@ -17,6 +17,9 @@ public sealed class Intercept
     public string Key { get; set; } = "";
     public int FleetId { get; set; }
     public string FleetName { get; set; } = "";
+
+    /// <summary>For overheard research (intel level 4): the idea being researched.</summary>
+    public string Idea { get; set; } = "";
 
     /// <summary>Ships in the fleet, as heard (0: not caught).</summary>
     public int Ships { get; set; }
@@ -79,6 +82,10 @@ public static class Intentions
     public const double ArriveAu = 0.05;
     public const int MaxKept = 80;
     public const string FalseTraffic = "false-traffic";
+
+    /// <summary>Overheard research: only at intel level 4 (Read), heard from the rival's command, and teaching a little once it is done.</summary>
+    public const int ResearchLevel = 4;
+    public const double ResearchTeach = 0.1;
 
     /// <summary>The plans a side has in motion now (warship fleets only; supply and settler runs are not plans).</summary>
     public static List<LivePlan> PlansOf(World w, Side side)
@@ -188,8 +195,61 @@ public static class Intentions
                     Add(file, fake);
                     sim.Log.Info("intel", "False plan leaked", new { listener = listener.ToString(), about = source.ToString(), body = fake.BodyId, fake.HeardHour });
                 }
+                if (level >= ResearchLevel) HearResearch(sim, file, listener, level, chance, seatCover, window);
                 Settle(w, file, live);
+                SettleResearch(sim, file, listener);
             }
+        }
+    }
+
+    /// <summary>The ideas a side's research teams are working on now (the first in each team's queue).</summary>
+    public static List<WorkOrder> ResearchOf(World w, Side side) =>
+        w.Orders.Where(o => o.Side == side && o.Kind == OrderKind.Research && Research.Next(w, o)).OrderBy(o => o.Id).ToList();
+
+    /// <summary>At level 4 the rival's research orders can be overheard like its plans, but only near its command.</summary>
+    private static void HearResearch(Simulation sim, IntelFile file, Side listener, int level, double chance, (double Cover, Vec2 Ear) seat, ulong window)
+    {
+        var w = sim.World;
+        var source = file.About;
+        if (seat.Cover <= 0) return;
+        foreach (var order in ResearchOf(w, source))
+        {
+            var key = $"research:{order.Key}";
+            if (Tech.Has(w, listener, order.Key) || !GameData.ResearchById.TryGetValue(order.Key, out var idea)) continue;
+            var known = file.Intercepts.LastOrDefault(i => i.Key == key && i.Outcome == PlanOutcome.Pending);
+            if (known != null && (w.Hour - known.SentHour < RehearHours || known.HeardHour > w.Hour)) continue;
+            if (Roll(w, window, listener, key, 1) >= chance * seat.Cover * SeatShare) continue;
+            var days = Research.DaysUntilDone(w, order);
+            var heard = new Intercept
+            {
+                Kind = PlanKind.Research,
+                Key = key,
+                Idea = order.Key,
+                BodyName = idea.Name,
+                SentHour = w.Hour,
+                Sure = Math.Round(Math.Clamp((0.35 + 0.12 * level) * (0.5 + 0.5 * seat.Cover), 0.1, 0.9), 2),
+                HeardHour = w.Hour + Lag(w, listener, Light.Seat(w, source), seat.Ear) + DecodeHours(w, listener, level),
+            };
+            if (double.IsFinite(days)) (heard.EtaLow, heard.EtaHigh) = Spread(w, w.Hour + days * 24, level, Roll(w, window, listener, key, 6));
+            if (known != null) Sharpen(known, heard);
+            else Add(file, heard);
+            sim.Log.Info("intel", "Research overheard", new { listener = listener.ToString(), about = source.ToString(), idea = order.Key, heard.HeardHour });
+        }
+    }
+
+    /// <summary>Overheard research done (it teaches a little of that idea) or dropped.</summary>
+    private static void SettleResearch(Simulation sim, IntelFile file, Side listener)
+    {
+        var w = sim.World;
+        foreach (var i in file.Intercepts.Where(i => i.Kind == PlanKind.Research && i.Outcome == PlanOutcome.Pending))
+        {
+            if (Tech.Has(w, file.About, i.Idea))
+            {
+                (i.Outcome, i.OutcomeHour) = (PlanOutcome.CameTrue, w.Hour);
+                RivalTech.Teach(sim, listener, i.Idea, ResearchTeach, "research overheard", file.About);
+            }
+            else if (!w.Orders.Any(o => o.Side == file.About && o.Kind == OrderKind.Research && o.Key == i.Idea))
+                (i.Outcome, i.OutcomeHour) = (PlanOutcome.CalledOff, w.Hour);
         }
     }
 
@@ -290,7 +350,7 @@ public static class Intentions
     /// <summary>What became of each plan heard (for the after-game screen): it got there, it was dropped, or it was never real.</summary>
     private static void Settle(World w, IntelFile file, List<LivePlan> live)
     {
-        foreach (var i in file.Intercepts.Where(i => i.Outcome == PlanOutcome.Pending))
+        foreach (var i in file.Intercepts.Where(i => i.Outcome == PlanOutcome.Pending && i.Kind != PlanKind.Research))
         {
             if (i.False)
             {
@@ -346,7 +406,8 @@ public static class Intentions
 
     /// <summary>The single likeliest next move, if any is heard and still counts.</summary>
     public static Intercept? Likeliest(World w, Side side, Side? about = null) =>
-        Heard(w, side, about).Where(i => i.BodyId != null || i.Kind == PlanKind.Massing).FirstOrDefault() ?? Heard(w, side, about).FirstOrDefault();
+        Heard(w, side, about).Where(i => i.BodyId != null || i.Kind == PlanKind.Massing).FirstOrDefault()
+        ?? Heard(w, side, about).FirstOrDefault(i => i.Kind != PlanKind.Research);
 
     /// <summary>Plans heard against one of the side's planets, sure at least minSure, with timing caught and due within the hours.</summary>
     public static IEnumerable<Intercept> Against(World w, Side side, int bodyId, double withinHours, double minSure)
@@ -358,6 +419,25 @@ public static class Intentions
                 yield return i;
     }
 
+    /// <summary>The fleet the Guard button would send to a planet: one already there or on its way, else the nearest free warship fleet.</summary>
+    public sealed record GuardChoice(Fleet? Fleet, bool Already, string Text);
+
+    public static GuardChoice GuardPick(World w, Side side, int bodyId)
+    {
+        if (w.FindBody(bodyId) is not Body body) return new(null, false, "That planet is gone");
+        var armed = w.Fleets.Where(f => f.Side == side && f.ShipIds.Count > 0 && f.Position.IsFinite && Combat.Armed(w, f)
+                                        && f.Role != FleetRole.Scout && f.PeopleRun == null && !f.Retreating).OrderBy(f => f.Id).ToList();
+        if (armed.FirstOrDefault(f => Vec2.Distance(f.Position, body.Position) <= ArriveAu * Physics.MmPerAu && f.Flight == null) is Fleet there)
+            return new(there, true, $"{there.Name} is guarding {body.Name}");
+        if (armed.FirstOrDefault(f => f.Flight?.TargetBodyId == bodyId) is Fleet going)
+            return new(going, true, $"{going.Name} is on its way to {body.Name}, arriving in {Engagement.Duration(Math.Max(0, going.Flight!.ArriveHour - w.Hour))}");
+        var free = armed.Where(f => f.Flight == null && !f.Maneuvering && f.Chase == null && f.JoinFleetId == null)
+            .OrderBy(f => Vec2.Distance(f.Position, body.Position)).ThenBy(f => f.Id).FirstOrDefault();
+        return free != null
+            ? new(free, false, $"Send {free.Name} ({free.ShipIds.Count} ship{(free.ShipIds.Count == 1 ? "" : "s")}) to hold orbit at {body.Name}")
+            : new(null, false, "No free warships: every armed fleet is busy, retreating or on its way somewhere");
+    }
+
     public static string KindText(PlanKind k) => k switch
     {
         PlanKind.Attack => "Attack",
@@ -367,6 +447,7 @@ public static class Intentions
         PlanKind.Hunt => "Hunt",
         PlanKind.Scout => "Scouting",
         PlanKind.Massing => "Massing fleets",
+        PlanKind.Research => "Researching",
         _ => k.ToString(),
     };
 
@@ -374,6 +455,7 @@ public static class Intentions
     public static string What(Intercept i) => i.Kind switch
     {
         PlanKind.Massing => i.BodyName.Length > 0 ? $"Massing fleets at {i.BodyName}" : "Massing fleets",
+        PlanKind.Research => $"Researching {i.BodyName}",
         _ when i.BodyName.Length == 0 => $"{KindText(i.Kind)} (target not caught)",
         PlanKind.Claim => $"Claim {i.BodyName}",
         PlanKind.Scout => $"Scouting near {i.BodyName}",
@@ -392,7 +474,7 @@ public static class Intentions
         var b = Math.Max(0, high - w.Hour) / 24;
         string D(double d) => d < 1 ? $"{Math.Max(1, Math.Round(d * 24)):0} h" : $"{Math.Round(d):0} day{(Math.Round(d) == 1 ? "" : "s")}";
         var range = a < 0.25 ? $"any time now to {D(b)}" : Math.Round(a) == Math.Round(b) && a >= 1 ? $"about {D(a)}" : $"{D(a).Replace(" days", "").Replace(" day", "")} to {D(b)}";
-        return i.Kind == PlanKind.Massing ? $"strike could follow in {range}" : range;
+        return i.Kind == PlanKind.Massing ? $"strike could follow in {range}" : i.Kind == PlanKind.Research ? $"done in {range}" : range;
     }
 
     /// <summary>One line for lists: "Likely next move: Attack on Verdant, 3 to 6 days · 4 ships · 55% sure".</summary>

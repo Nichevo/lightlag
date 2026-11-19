@@ -1973,6 +1973,7 @@ public partial class ReportPanel : PanelContainer
         var held = Secrecy.HeldAllFight(s);
         if (held.Count > 0) lines.Add($"  Kept secret: {string.Join(", ", held.Select(id => GameData.Research(id).Name))}");
         if (s.ShieldSoaked > 0) lines.Add($"  Shields soaked: {s.ShieldSoaked:0} damage");
+        if (s.KnownKit.Count > 0) lines.Add($"  Knew their kit (studied in intel): {string.Join("; ", s.KnownKit)}");
         lines.Add($"  Damage done: {s.DamageDealt:0}");
         if (s.Knocked.Count > 0) lines.Add($"  Knocked out: {string.Join(", ", s.Knocked)}");
         lines.Add(s.ShipsLost.Count > 0 ? $"  Ships lost: {string.Join(", ", s.ShipsLost)}" : "  Ships lost: none");
