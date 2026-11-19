@@ -311,7 +311,23 @@ public partial class AfterGameScreen : PanelContainer
                         + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{Chronicle.Who(w, m.Side)} was a {m.Personality} on {m.Difficulty}."
                             + (Lessons.Summary(m) is { Length: > 0 } learned ? " " + learned : "")))
                         + (Main.Instance.LearnChoice != LearnMode.Off && w.Minds.Count > 0 ? "\n\nThis game is now in the rivals' memory: they will learn from it next time." : "")
+                        + RollsText(w)
                         + $"\n\nMap: {w.Map.Describe()}";
+    }
+
+    /// <summary>Research different each game: every side's leads and hard problems, and the lost ideas each turned up.</summary>
+    private static string RollsText(World w)
+    {
+        var text = "";
+        foreach (var side in Sides.InPlay(w))
+        {
+            var roll = ResearchRolls.Of(w, side);
+            if (roll.Leads.Count + roll.Hard.Count + roll.Lost.Count == 0) continue;
+            var found = roll.Lost.Count(id => ResearchRolls.FoundLost(w, side, id));
+            text += $"\n\n{(side == Side.Player ? "Your research" : $"{Chronicle.Who(w, side)}'s research")} this game: {ResearchRolls.Describe(w, side)}"
+                    + (roll.Lost.Count > 0 ? $" · Lost ideas found: {found} of {roll.Lost.Count}" : "");
+        }
+        return text;
     }
 
     /// <summary>One block per run of days with the same goal: the days, the goal and why, its guess of your strength, and what it thought each day.</summary>

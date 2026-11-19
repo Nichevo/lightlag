@@ -206,6 +206,9 @@ public static class Spoils
             text = $"{why}: {Sides.Them(w, them)} has {idea.Name}";
         }
         else text = $"{why}: nothing new on {Sides.Them(w, them)}'s research";
+        // Captures and prisoners can also turn up one of this game's lost ideas.
+        if (source is IntelSource.Capture or IntelSource.Prisoners && ResearchRolls.RevealOne(sim, side, why) is string found)
+            text += $"; and a lost idea turns up: {GameData.Research(found).Name}";
         Learn(sim, side, source, text, points, part ? Parts[sim.Rng.Range(0, Parts.Length)] : null, them);
         sim.Log.Info("intel", "Intel scrap", new { side = side.ToString(), why, text, scraps = state.Spoils.Scraps });
     }

@@ -69,6 +69,10 @@ public sealed class RuleBook
         .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
             .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
+        // Research that is different each game: no idea is both a lead and a hard problem, and no side works on a lost idea it hasn't found.
+        .Add("research-roll-sane", w => w.Sides.SelectMany(s => s.Roll.Leads.Intersect(s.Roll.Hard).Select(id => $"{s.Side}: {id} is both a lead and a hard problem")
+                .Concat(w.Orders.Where(o => o.Side == s.Side && o.Kind == OrderKind.Research && ResearchRolls.Hidden(w, s.Side, o.Key))
+                    .Select(o => $"{s.Side} has research order {o.Id} for lost idea {o.Key} it hasn't found"))).ToArray())
         // Contested prizes: work never negative or past what the prize needs, nobody works on one that is over or not open,
         // and only a boarded derelict, a held relay or a mined comet has a holder.
         .Add("prizes-sane", PrizesSane)

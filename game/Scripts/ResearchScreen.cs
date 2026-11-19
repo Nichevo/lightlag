@@ -306,6 +306,24 @@ public partial class ResearchScreen : PanelContainer
         if (locked > 0)
             v.AddChild(Wrap(Ui.Label($"{locked} more slot{(locked == 1 ? "" : "s")} {(locked == 1 ? "opens" : "open")} once the one before is filled", 11, Ui.Dim)));
         v.AddChild(Wrap(Ui.Label("Speed = skill × size. Fields a team doesn't keep fade over time.", 11, new Color("566275"))));
+        if (me.Roll.Leads.Count + me.Roll.Hard.Count + me.Roll.Lost.Count > 0)
+        {
+            // Research different each game: this game's leads, hard problems and how many lost ideas have turned up.
+            v.AddChild(Ui.Label("THIS GAME", 11, Ui.Dim));
+            string Names(IEnumerable<string> ids) => string.Join(", ", ids.Select(id => GameData.Research(id).Name));
+            if (me.Roll.Leads.Count > 0)
+                v.AddChild(Wrap(Ui.Label($"★ Leads ({ResearchRolls.D.LeadCut * 100:0} % quicker): {Names(me.Roll.Leads)}", 11, new Color("ffd27a"))));
+            if (me.Roll.Hard.Count > 0)
+                v.AddChild(Wrap(Ui.Label($"▲ Hard problems ({ResearchRolls.D.HardExtra * 100:0} % slower): {Names(me.Roll.Hard)}", 11, new Color("ff8a6b"))));
+            if (me.Roll.Lost.Count > 0)
+            {
+                var found = me.Roll.Lost.Count(id => ResearchRolls.FoundLost(w, Side.Player, id));
+                var lost = Wrap(Ui.Label($"✧ Lost ideas found: {found} of {me.Roll.Lost.Count}", 11, new Color("c9a6ff")));
+                lost.TooltipText = "Some minor ideas are hidden this game. Sparks, survey finds, captures and trades turn them up";
+                lost.MouseFilter = MouseFilterEnum.Pass;
+                v.AddChild(lost);
+            }
+        }
         return v;
     }
 
@@ -817,7 +835,7 @@ public partial class ResearchScreen : PanelContainer
         return b;
     }
 
-    /// <summary>The marks on a picture: field and tier at the top left; sparked, counter and theirs where they apply.</summary>
+    /// <summary>The marks on a picture: field and tier at the top left; lead, hard, found, sparked, counter and theirs where they apply.</summary>
     private static void Badges(World w, ResearchData r, TextureRect pic, float width)
     {
         var height = width * 12 / 35;
@@ -828,7 +846,15 @@ public partial class ResearchScreen : PanelContainer
         // Top right: what makes this idea special in this game (a spark, a survey find). Bottom: war (counter, theirs).
         var topRight = new List<(string Text, Color Color, string Tip)>();
         var me = Economy.Of(w, Side.Player);
-        if (me.Sparked.Contains(r.Id))
+        // This game's roll (research different each game): leads, hard problems and lost ideas found.
+        if (ResearchRolls.Lead(w, Side.Player, r.Id))
+            topRight.Add(("★ lead", new Color("ffd27a"), $"A lead this game ({me.Roll.Why.GetValueOrDefault(r.Id, "Chance")}): {ResearchRolls.D.LeadCut * 100:0} % quicker, in view from the start"));
+        if (ResearchRolls.Hard(w, Side.Player, r.Id))
+            topRight.Add(("▲ hard", new Color("ff8a6b"), $"A hard problem this game ({me.Roll.Why.GetValueOrDefault(r.Id, "Chance")}): {ResearchRolls.D.HardExtra * 100:0} % slower"));
+        var found = ResearchRolls.HowFound(w, Side.Player, r.Id);
+        if (found != null)
+            topRight.Add(("✧ found", new Color("c9a6ff"), $"A lost idea this game, hidden until it turned up ({found})"));
+        if (me.Sparked.Contains(r.Id) && found == null)
             topRight.Add(("✦ sparked", new Color("ffd27a"), me.SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "Something in the game brought this idea on"));
         if (me.Finds.Find(f => f.Idea == r.Id) is SurveyFind find)
             topRight.Add(("⌖ survey", new Color("6fe08a"), $"{w.FindBody(find.BodyId)?.Name} survey: −{Research.T.SurveyCut * 100:0} % time"));
@@ -1026,7 +1052,7 @@ public partial class ResearchScreen : PanelContainer
         var opens = GameData.Economy.Research.Where(o => Discovered(w, o) && (o.Needs?.Contains(r.Id) ?? false))
             .Select(o => o.Name + ((o.Needs!.Where(n => n != r.Id && !Tech.Has(w, Side.Player, n)).Select(n => GameData.Research(n).Name).ToList() is { Count: > 0 } also)
                 ? $" (also needs {string.Join(", ", also)})" : "")).ToList();
-        var hidden = GameData.Economy.Research.Count(o => !o.Later && !Discovered(w, o) && (o.Needs?.Contains(r.Id) ?? false));
+        var hidden = GameData.Economy.Research.Count(o => !o.Later && !Discovered(w, o) && !ResearchRolls.Hidden(w, Side.Player, o.Id) && (o.Needs?.Contains(r.Id) ?? false));
         if (opens.Count > 0 || hidden > 0)
             v.AddChild(Section("LEADS TO", string.Join(" · ", opens) + (hidden > 0 ? $"{(opens.Count > 0 ? " · " : "")}{hidden} idea{(hidden == 1 ? "" : "s")} not yet guessed at" : "")));
 
@@ -1135,7 +1161,7 @@ public partial class DiscoveryWeb : Control
     {
         _pick = pick;
         MouseFilter = MouseFilterEnum.Stop;
-        var all = GameData.Economy.Research.Where(r => !r.Later).ToList();
+        var all = GameData.Economy.Research.Where(r => !r.Later && !ResearchRolls.Hidden(w, Side.Player, r.Id)).ToList();
         var known = all.Where(r => ResearchScreen.Discovered(w, r)).Select(r => r.Id).ToHashSet();
         // One step beyond: ideas that something you know leads to, shown blurred and nameless.
         var beyond = all.Where(r => !known.Contains(r.Id) && (r.Needs ?? new()).Any(known.Contains)).Select(r => r.Id).ToHashSet();
@@ -1166,7 +1192,8 @@ public partial class DiscoveryWeb : Control
                 _ => Look.Next,
             };
             index[r.Id] = _nodes.Count;
-            _nodes.Add((r.Id, r.Name, Math.Max(0, Research.FieldIndex(r.Field)), look, lit.Contains(r.Id)));
+            var mark = look == Look.Blur ? "" : ResearchRolls.Lead(w, Side.Player, r.Id) ? " ★" : ResearchRolls.Hard(w, Side.Player, r.Id) ? " ▲" : "";
+            _nodes.Add((r.Id, r.Name + mark, Math.Max(0, Research.FieldIndex(r.Field)), look, lit.Contains(r.Id)));
         }
         foreach (var r in shown)
             foreach (var n in r.Needs ?? new())

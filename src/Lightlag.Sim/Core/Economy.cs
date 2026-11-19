@@ -31,7 +31,7 @@ public sealed record ResearchData(string Id, string Name, string Effect, double 
 public sealed record EconomyData(double StartIndustry, double BuildIndustryPerDay, double ClaimDays, double HoldToWinDays,
     ShipyardData Shipyard, List<ResearchData> Research, double ClaimHeldDays = 0, List<StationData>? Stations = null, double RelayDelayHours = 0.1,
     TeamsData? Teams = null, PlanetsData? Planets = null, ColoniesData? Colonies = null, WarData? War = null, BudgetData? Budget = null,
-    EndingsData? Endings = null);
+    EndingsData? Endings = null, ResearchRollData? ResearchRoll = null);
 
 /// <summary>A station that can be built in orbit of a body you hold (economy.json, "stations").</summary>
 /// LiftCut: the share of the lift to orbit still paid at its body (skyhook, space elevator; see Lift). Ground: only over
@@ -93,6 +93,12 @@ public sealed class SideState
     /// <summary>Ideas a survey find has sped up, and the finds themselves (for the discovery web).</summary>
     public List<string> Cuts { get; set; } = new();
     public List<SurveyFind> Finds { get; set; } = new();
+
+    /// <summary>This game's leads, hard problems and lost ideas (see ResearchRolls); empty when the option is off.</summary>
+    public ResearchRoll Roll { get; set; } = new();
+
+    /// <summary>Founding traits (a later build fills these; the research roll already reads their seeds).</summary>
+    public List<string> Traits { get; set; } = new();
 
     /// <summary>Variants of each class (see Designer): Auto ones and your own. The Standard (id 0) is not stored.</summary>
     public List<Design> Designs { get; set; } = new();
@@ -1079,6 +1085,7 @@ public static class Economy
         if (!GameData.ResearchById.TryGetValue(key, out var idea)) return $"Unknown research '{key}'";
         if (Of(w, side).Researched.Contains(key)) return "Already researched";
         if (idea.Later) return "Comes with a later build";
+        if (ResearchRolls.Hidden(w, side, key)) return "A lost idea: not found yet";
         if (!Research.Seen(w, side, key)) return "Not discovered yet: research one of the ideas it needs first";
         if (w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == key)) return "Already in the queue";
         if (Research.Missing(w, side, key) is string missing) return missing;

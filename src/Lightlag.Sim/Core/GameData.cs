@@ -305,6 +305,7 @@ public static class GameData
                 if (!ids.Contains(need) || need == r.Id) throw new InvalidDataException($"economy.json: research '{r.Id}' needs unknown '{need}'");
         if (e.Teams is { } t && !(t.Slots >= 1 && t.StartScientists > 0 && t.BaseScientists > 0 && t.MaxSkill >= 1 && t.SurveyCut is >= 0 and < 1))
             throw new InvalidDataException("economy.json: teams needs slots of at least 1, scientists above 0, maxSkill of at least 1 and surveyCut in [0, 1)");
+        if (ResearchRolls.Problem(e) is string rollProblem) throw new InvalidDataException($"economy.json: {rollProblem}");
         return e;
     }
 

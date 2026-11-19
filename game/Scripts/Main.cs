@@ -152,6 +152,8 @@ public partial class Main : Node
     /// <summary>Early endings for the next new game (on by default; also switchable in the game menu).</summary>
     public bool EarlyEndingsChoice { get; set; } = true;
 
+    /// <summary>Research different each game (leads, hard problems, lost ideas) for the next new game; on by default.</summary>
+    public bool ResearchVarietyChoice { get; set; } = true;
     /// <summary>Contested prizes for the next new game (on by default).</summary>
     public bool PrizesChoice { get; set; } = true;
 
@@ -224,6 +226,7 @@ public partial class Main : Node
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
                 PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice, Prizes = PrizesChoice, Learned = LearnedForNewGame(),
+                ResearchVariety = ResearchVarietyChoice,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());

@@ -247,6 +247,11 @@ public sealed class GameRules
     /// </summary>
     public bool EarlyEndings { get; set; } = true;
 
+    /// <summary>
+    /// Research that is different each game (see ResearchRolls): each side rolls leads, hard problems and lost ideas
+    /// at the start. Off: every game has the same web. Chosen at game start only.
+    /// </summary>
+    public bool ResearchVariety { get; set; } = true;
     /// <summary>Contested prizes: two or three shared mid-game prizes both sides see coming (see Prizes).</summary>
     public bool Prizes { get; set; } = true;
 }

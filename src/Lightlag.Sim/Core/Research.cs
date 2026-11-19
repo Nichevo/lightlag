@@ -125,7 +125,7 @@ public static class Research
     {
         var r = GameData.Research(id);
         return r.Days * Pace(r.Tier) * 24 * (Economy.Of(w, side).Cuts.Contains(id) ? 1 - T.SurveyCut : 1) * RivalTech.TimeFactor(w, side, id)
-               * Races.Of(w, side).ResearchFactor(r.Unlocks);
+               * ResearchRolls.TimeFactor(w, side, id) * Races.Of(w, side).ResearchFactor(r.Unlocks);
     }
 
     /// <summary>Days until this order is done, counting the orders ahead of it in its team's queue.</summary>
@@ -165,6 +165,8 @@ public static class Research
     {
         var state = Economy.Of(w, side);
         var needs = GameData.Research(id).Needs;
+        if (ResearchRolls.Hidden(w, side, id)) return false;
+        if (ResearchRolls.Lead(w, side, id)) return true;
         if (needs is not { Count: > 0 } || state.Researched.Contains(id) || state.Sparked.Contains(id)) return true;
         if (RivalTech.StageOf(w, side, id) >= RivalStage.Studied) return true;
         if (needs.Any(state.Researched.Contains)) return true;
@@ -176,13 +178,14 @@ public static class Research
     {
         var r = GameData.Research(id);
         var state = Economy.Of(w, side);
-        return !r.Later && !state.Researched.Contains(id) && ((r.Needs ?? new List<string>()).All(state.Researched.Contains) || RivalTech.Unlocked(w, side, id));
+        return !r.Later && !state.Researched.Contains(id) && !ResearchRolls.Hidden(w, side, id) && ((r.Needs ?? new List<string>()).All(state.Researched.Contains) || RivalTech.Unlocked(w, side, id));
     }
 
     /// <summary>Why this idea can't be researched yet (a missing idea it needs), or null.</summary>
     public static string? Missing(World w, Side side, string id)
     {
         var state = Economy.Of(w, side);
+        if (ResearchRolls.Hidden(w, side, id)) return "A lost idea: not found yet";
         if (RivalTech.Unlocked(w, side, id)) return null;
         foreach (var need in GameData.Research(id).Needs ?? new List<string>())
             if (!state.Researched.Contains(need) && !w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research && o.Key == need))
@@ -315,7 +318,11 @@ public static class Research
                 var state = Economy.Of(w, side);
                 if (Tech.Has(w, side, "rare-element-assays")) Colonies.ExtraDeposit(w, b);
                 Sparks.OnSurvey(sim, side, b);
-                var open = GameData.Economy.Research.Where(r => !r.Later && !state.Researched.Contains(r.Id) && !state.Cuts.Contains(r.Id)).ToList();
+                // A find may turn up a lost idea (when one is still hidden): it comes into view and is sped up like any find.
+                var lost = state.Roll.Lost.Count > 0 && sim.Rng.Chance(ResearchRolls.D.SurveyReveal)
+                    ? ResearchRolls.RevealOne(sim, side, $"surveying {b.Name}") : null;
+                var open = lost != null ? new List<ResearchData> { GameData.Research(lost) }
+                    : GameData.Economy.Research.Where(r => !r.Later && !state.Researched.Contains(r.Id) && !state.Cuts.Contains(r.Id) && !ResearchRolls.Hidden(w, side, r.Id)).ToList();
                 if (open.Count == 0)
                 {
                     sim.Log.Info("research", $"{side} surveys {b.Name}: nothing new", new { side = side.ToString(), bodyId = b.Id });

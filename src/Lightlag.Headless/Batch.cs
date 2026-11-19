@@ -65,6 +65,8 @@ public static class Batch
         _noBudget = opts.Has("no-budget");
         // --no-early-endings: no terms, no losing heart, no extra events in a stalled war (games end as before).
         _noEndings = opts.Has("no-early-endings");
+        // --no-research-variety: no leads, hard problems or lost ideas (the same research web every game).
+        _noVariety = opts.Has("no-research-variety");
         // --no-prizes: no contested prizes (to compare games with and without them).
         _noPrizes = opts.Has("no-prizes");
         // The rival's memory (see Lessons): computer-vs-computer games are written to <data>/rival-memory.json unless
@@ -203,6 +205,7 @@ public static class Batch
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
                 Hazards = _noHazards ? false : null, Events = _events, Budget = _noBudget ? false : null,
                 PlanetOrbitSlowdown = _orbits, EarlyEndings = _noEndings ? false : null, Prizes = _noPrizes ? false : null,
+                ResearchVariety = _noVariety ? false : null,
             };
 
     private static bool _noHazards;
@@ -210,6 +213,7 @@ public static class Batch
     private static string _dataRoot = "data";
     private static bool _noBudget;
     private static bool _noEndings;
+    private static bool _noVariety;
     private static bool _noPrizes;
     private static double? _orbits;
     private static EventRate? _events;

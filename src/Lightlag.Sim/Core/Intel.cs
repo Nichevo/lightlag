@@ -98,7 +98,7 @@ public static class Intel
         "Nothing beyond contact blips",
         "Fleet counts and where",
         "Classes, weapons seen in battle, rough strength",
-        "Fits, research fields, its habits (personality tells)",
+        "Fits, research fields and its leads, its habits (personality tells)",
         "Plans in motion: massing, strikes, its next research",
     };
 
