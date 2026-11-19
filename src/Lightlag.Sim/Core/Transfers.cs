@@ -9,7 +9,7 @@ public sealed class PendingTransfer
 }
 
 /// <summary>What moving some ships to another fleet would take: at once (together), or a trip of so many hours and fuel.</summary>
-public sealed record TransferEstimate(bool Together, double Hours, double FuelShare, string? Problem)
+public sealed record TransferEstimate(bool Together, double Hours, double FuelShare, string? Problem, double Speed = Economy.ReinforceSpeed)
 {
     /// <summary>A long trip the screen warns about (and offers to wait until the fleets are closer).</summary>
     public bool Long => !Together && Problem == null && Hours > Transfers.WaitWithinHours;
@@ -37,11 +37,18 @@ public static class Transfers
         if (ids.Count == 0) return new TransferEstimate(false, 0, 0, "no ships picked");
         var probe = Probe(from, ids);
         var speed = Speed(w, probe);
-        FlightPlan plan = Fleets.Meeting(w, to, speed) is FlightRequest req
+        FlightPlan PlanAt(double fraction) => Fleets.Meeting(w, to, fraction) is FlightRequest req
             ? FlightPlanner.Plan(w, probe, req)
-            : FlightPlanner.PlanChase(w, probe, to, ChaseMode.Join, speed, FleetPerformance.Of(w, probe));
-        if (!plan.Ok || plan.Flight == null) return new TransferEstimate(false, 0, 0, plan.Problem ?? "no route");
-        return new TransferEstimate(false, Math.Max(0, plan.Flight.ArriveHour - w.Hour), plan.FuelShare, null);
+            : FlightPlanner.PlanChase(w, probe, to, ChaseMode.Join, fraction, FleetPerformance.Of(w, probe));
+        var plan = PlanAt(speed);
+        // Too slow to catch a fleet on the move at the usual 70 %: full speed may still do it.
+        if ((!plan.Ok || plan.Flight == null) && speed < 1 && PlanAt(1.0) is { Ok: true, Flight: not null } fast)
+        {
+            plan = fast;
+            speed = 1.0;
+        }
+        if (!plan.Ok || plan.Flight == null) return new TransferEstimate(false, 0, 0, plan.Problem ?? "no route", speed);
+        return new TransferEstimate(false, Math.Max(0, plan.Flight.ArriveHour - w.Hour), plan.FuelShare, null, speed);
     }
 
     /// <summary>A stand-in fleet of just these ships, where the fleet is, for planning (never added to the world).</summary>
@@ -133,7 +140,10 @@ public static class Transfers
             going.Role = FleetRole.None; // a detachment on its way answers no calls
             going.Mission = Mission.None;
         }
-        if (Fleets.FlyToJoin(w, going, to, Speed(w, going)) is string problem)
+        // The usual 70 %, else full speed (to catch a fleet on the move).
+        var problem = Fleets.FlyToJoin(w, going, to, Speed(w, going));
+        if (problem != null && Speed(w, going) < 1 && Fleets.FlyToJoin(w, going, to, 1.0) == null) problem = null;
+        if (problem != null)
         {
             if (going != from) Fleets.Absorb(w, from, going);
             return problem;
@@ -206,7 +216,8 @@ public static class Transfers
                 : $"Waiting to join {to.Name}" + (f.Chase?.Problem is string p ? $" ({p})" : ""));
         foreach (var p in f.Transfers)
             if (w.FindFleet(p.ToFleetId) is Fleet dest)
-                list.Add($"{Names(w, p.ShipIds)} wait to join {dest.Name}: they go once it is within a day");
+                list.Add($"{Names(w, p.ShipIds)} wait to join {dest.Name}: "
+                         + (Estimate(w, f, p.ShipIds, dest) is { Problem: string why } ? $"they go once they can ({why})" : "they go once it is within a day"));
         foreach (var g in w.Fleets.Where(g => g.Side == f.Side && g.TransferTo == f.Id && g.JoinFleetId == f.Id).OrderBy(g => g.Id))
             list.Add($"{Names(w, g.ShipIds)} joining" + (g.Flight is Flight gf ? $" in {Dur(Math.Max(0, gf.ArriveHour - w.Hour))}" : ""));
         foreach (var g in w.Fleets.Where(g => g.Side == f.Side && g.Id != f.Id))

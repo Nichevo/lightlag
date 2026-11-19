@@ -76,6 +76,9 @@ public sealed class BudgetState
     public double Overflowed { get; set; }
     public double UrgentDrawn { get; set; }
 
+    /// <summary>Industry paid from Buildings to train scientists and found research teams, in all.</summary>
+    public double ResearchSpent { get; set; }
+
     /// <summary>What the computer wanted to buy from each pot today but could not (one-off purchases that are not queued items).</summary>
     public List<double> Wanted { get; set; } = new();
 

@@ -149,6 +149,9 @@ public partial class ShipCard : PanelContainer
             lines.Add($"{built} · {s.Battles} battle{(s.Battles == 1 ? "" : "s")}" + (s.Battles > 0 ? $", {s.EnemyLostInBattles} enemy ships lost in them" : ""));
         }
         if (fleet != null) lines.Add($"In {fleet.Name}" + (Light.Flagship(w, s.Side)?.Id == s.Id ? " · FLAGSHIP" : ""));
+        if (mine && w.Loop && fleet != null && BattleRules.Hurt(w, s))
+            lines.Add($"Repairs: {BattleRules.RepairWhere(w, fleet)}. Use 🔧 on its row in the fleet panel, or More ▸ Send help"
+                      + (Wounds.HasTender(w, fleet) ? ". A tender in the fleet is mending it here (up to 60 %)" : ""));
         _text.Text = string.Join("\n", lines);
         _design.Visible = mine && fleet != null;
         _renameRow.Visible = mine;

@@ -20,6 +20,14 @@ public partial class SiegePanel : PanelContainer
     private Button _low = null!, _high = null!, _far = null!, _land = null!, _board = null!;
     private MenuButton _bomb = null!;
     private int? _fleetId, _bodyId;
+    private Button _fold = null!;
+    private VBoxContainer _body = null!;
+
+    /// <summary>Planets whose attack panel the player folded (kept while the game runs).</summary>
+    public static readonly HashSet<int> Folded = new();
+
+    /// <summary>Is the panel folded to its title line?</summary>
+    public bool IsFolded => _bodyId is int b && Folded.Contains(b);
 
     public SiegePanel() : this(null!) { }
     public SiegePanel(GameScreen screen) => _screen = screen;
@@ -30,7 +38,15 @@ public partial class SiegePanel : PanelContainer
         var v = new VBoxContainer { CustomMinimumSize = new Vector2(560, 0) };
         v.AddThemeConstantOverride("separation", 4);
         _title = Ui.Label("", 14, Ui.Text);
-        v.AddChild(_title);
+        _title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        var head = new HBoxContainer();
+        head.AddChild(_title);
+        _fold = Ui.SmallButton("▴ Fold", () => { if (_bodyId is int b && !Folded.Remove(b)) Folded.Add(b); },
+            "Fold the panel to this line, to see the map and the cards (click again to open it)");
+        head.AddChild(_fold);
+        v.AddChild(head);
+        _body = new VBoxContainer();
+        _body.AddThemeConstantOverride("separation", 4);
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 10);
         _bands = new Bands { CustomMinimumSize = new Vector2(250, 150) };
@@ -78,6 +94,13 @@ public partial class SiegePanel : PanelContainer
         }, "");
         foreach (var c in new Control[] { _low, _high, _far, _bomb, _land, _board }) orders.AddChild(c);
         v.AddChild(orders);
+        // Everything under the title folds away.
+        foreach (var child in v.GetChildren().OfType<Control>().Where(c => c != head).ToList())
+        {
+            v.RemoveChild(child);
+            _body.AddChild(child);
+        }
+        v.AddChild(_body);
         _steps = Ui.Label("", 12, Ui.Dim);
         _steps.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         v.AddChild(_steps);
@@ -104,6 +127,10 @@ public partial class SiegePanel : PanelContainer
         _fleetId = mine?.Id;
         var attacking = b.Owner != Side.Player;
         _title.Text = attacking ? $"ATTACK ON {b.Name.ToUpperInvariant()}" : $"{b.Name.ToUpperInvariant()} UNDER ATTACK";
+        var folded = Folded.Contains(b.Id);
+        _body.Visible = !folded;
+        _fold.Text = folded ? "▾ Open" : "▴ Fold";
+        if (folded) _title.Text += $" · blockade day {b.BlockadeHours / 24:0.#}";
         _bands.World = w;
         _bands.Body = b;
         _bands.QueueRedraw();
@@ -189,7 +216,7 @@ public partial class SiegePanel : PanelContainer
         steps.Add("· Bomb farms to starve it (it gives up sooner), guns to silence them, mines to cut its output; bombing people leaves a grudge.");
         var land = Planets.CanLand(w, f, b);
         steps.Add(land == null ? "· Land troops now: Auto picks the plan." : $"· Land troops: {land}.");
-        steps.Add("· Lift the blockade: give the fleet any other order (fly off, or Fight it ▸ on a fleet above).");
+        steps.Add("· Lift the blockade: give the fleet any other order (fly off, or Chase it ▸ on a fleet above).");
         return string.Join("\n", steps);
     }
 
@@ -214,8 +241,8 @@ public partial class SiegePanel : PanelContainer
                 text.SetMeta("fleet", o.Id);
                 row.AddChild(text);
                 var id = o.Id;
-                row.AddChild(Ui.SmallButton("Fight it ▸", () => { if (Fleet() is Fleet f) _screen.OpenEngagement(f.Id, id); },
-                    "Open the battle view against this fleet: chase it, hold at missile range, burn past, dodge, long-range fire. Choosing to chase lifts the blockade."));
+                row.AddChild(Ui.SmallButton("Chase it ▸", () => Main.Instance.RunGuarded("chase from siege", () => ChaseIt(id)),
+                    "Leave orbit and close in on this fleet to fight it (this lifts the blockade). The other moves are on the Move card below."));
                 _threats.AddChild(row);
             }
         }
@@ -230,9 +257,30 @@ public partial class SiegePanel : PanelContainer
                 : missiles > 0 && d <= missiles ? $"in missile reach: your ships launch at it from orbit (guns at {rails * 1000:#,0} km)"
                 : missiles > 0 ? $"out of reach: missiles launch at {missiles * 1000:#,0} km, guns at {rails * 1000:#,0} km"
                 : $"out of reach: guns at {rails * 1000:#,0} km";
-            var held = Combat.LetsGo(mine, o) ? " HOLDING FIRE: it is pulling back, and Let fleeing go is on for your fleet (Fight it ▸ to chase)." : "";
+            var held = Combat.LetsGo(mine, o) ? " HOLDING FIRE: it is pulling back, and Let fleeing go is on for your fleet (Chase it ▸ to go after it)." : "";
             text.Text = $"{o.Name} ({o.ShipIds.Count} ships) {d * 1000:#,0} km away, {reach}.{held}";
         }
+    }
+
+    /// <summary>Chase it: the fleet in orbit takes the battle view's Close in move against that fleet, and the panel says what happened.</summary>
+    private void ChaseIt(int enemyId)
+    {
+        var sim = Main.Instance.Sim;
+        if (sim == null || Fleet() is not Fleet f) return;
+        var w = sim.World;
+        if (_screen.EngagementNow?.EnemyId != enemyId) _screen.OpenEngagement(f.Id, enemyId, quiet: true);
+        var info = Lightlag.Sim.Core.Engagement.Of(w, f, enemyId);
+        var close = info?.Options.FirstOrDefault(o => o.Key == "engage");
+        if (close?.Request is not FlightRequest req || close.Problem != null)
+        {
+            Main.Instance.Toast($"{f.Name} can't chase it: {close?.Problem ?? "no way to close in from here"}");
+            return;
+        }
+        _screen.IssueNow(new PlanFlightCommand(f.Id, req with { DepartTick = w.Tick }), "chase from orbit");
+        var blocked = w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0;
+        Main.Instance.Toast(blocked
+            ? $"{f.Name}: chase order waits for a clear signal (a planet is in the way). More ▸ Send orders by drone sends it now"
+            : $"{f.Name} leaves orbit to close in (the blockade lifts)");
     }
 
     /// <summary>The planet as the floor and the three shells above it, with each fleet in its shell.</summary>

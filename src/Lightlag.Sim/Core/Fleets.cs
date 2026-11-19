@@ -211,6 +211,16 @@ public sealed class Fleet
     /// <summary>Join this fleet once both are stopped together (after "fast ships go ahead" or "gather").</summary>
     public int? JoinFleetId { get; set; }
 
+    /// <summary>Flying out to help a damaged fleet (Send help): on joining it mends them as a tender, or tows a crippled ship home.</summary>
+    public bool Helper { get; set; }
+
+    /// <summary>When Auto last changed this fleet's pull-back rule (it waits a day before changing it again).</summary>
+    public double? AutoRuleHour { get; set; }
+
+    /// <summary>A Response fleet out on watch (see HelpCalls.Watch): where, and until when.</summary>
+    public Vec2? WatchPoint { get; set; }
+    public double? WatchUntilHour { get; set; }
+
     /// <summary>Chasing an enemy fleet: re-aimed whenever it is seen to change course.</summary>
     public ChaseOrder? Chase { get; set; }
 
@@ -667,8 +677,14 @@ public static class Fleets
     /// <summary>How wide a route turns round a body in its way.</summary>
     public static double ClearanceFor(Body b) => Math.Max(OrbitRadiusFor(b), b.Radius * 2);
 
+    /// <summary>
+    /// Fleets holding orbit go round at most once in this many hours. Real low orbits take hours, which looked like spinning
+    /// at 4x-8x once planets and moons were slowed; the orbit's height is unchanged (see OrbitRadiusFor).
+    /// </summary>
+    public const double FleetOrbitHours = 48;
+
     public static double OrbitPeriodHours(Body b, double radius) =>
-        Math.Max(MinOrbitHours, Physics.OrbitPeriodHours(radius, b.Gm));
+        Math.Max(FleetOrbitHours, Physics.OrbitPeriodHours(radius, b.Gm));
 
     /// <summary>
     /// The body a fleet at this point could orbit: the closest one whose neighbourhood it is in

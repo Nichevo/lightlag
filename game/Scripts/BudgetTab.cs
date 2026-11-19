@@ -236,10 +236,14 @@ public sealed class BudgetTab
                    + (bs.OverflowTo == Pot.Reserve ? " · full pots overflow here" : "");
         if (ps.GoalKey != null) return $"Saving for {ps.GoalName} · {Budget.GoalLine(w, Side.Player, pot)}";
         var items = Budget.Items(w, Side.Player).Where(i => i.Pot == pot).ToList();
-        if (items.Count == 0) return pot == Pot.Transport ? "Runs and lift pay as they go" : pot == Pot.Stations ? "Nothing queued: stations are bought from a planet's panel" : "Nothing waiting";
+        // Research teams are paid from Buildings at once (no queue), so say so here.
+        var research = pot == Pot.Buildings
+            ? $" · research teams: training {Research.TrainCost(w, Side.Player):0}, founding {Research.T.FoundCost:0}, paid at once from here ({bs.ResearchSpent:0} so far)"
+            : "";
+        if (items.Count == 0) return (pot == Pot.Transport ? "Runs and lift pay as they go" : pot == Pot.Stations ? "Nothing queued: stations are bought from a planet's panel" : "Nothing waiting") + research;
         var top = items.FirstOrDefault(i => !i.Paused) ?? items[0];
         var more = items.Count > 1 ? $" · {items.Count - 1} more" : "";
-        return $"{top.What} {top.Cost:0} · {Budget.When(w, Side.Player, top)}{more}";
+        return $"{top.What} {top.Cost:0} · {Budget.When(w, Side.Player, top)}{more}{research}";
     }
 
     /// <summary>What moving this pot's share by delta does to its first waiting item.</summary>

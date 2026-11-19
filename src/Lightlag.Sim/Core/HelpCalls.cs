@@ -524,12 +524,21 @@ public static class HelpCalls
         Choices.Note(w, f.Side, "role", $"answered a call ({c.Reasons})", f.Role.ToString(), $"ships {f.ShipIds.Count}");
     }
 
-    /// <summary>Go after the enemy (closing to gun range), else to the planet that called.</summary>
+    /// <summary>A Response fleet that can't catch the enemy within this many days goes out on watch instead.</summary>
+    public const double WatchChaseDays = 2;
+
+    /// <summary>How long it waits on watch after reaching the watch point (hours).</summary>
+    public const double WatchHours = 48;
+
+    /// <summary>Go after the enemy (closing to gun range), else to the planet that called. A Response fleet that can't
+    /// catch it soon goes out on watch: about a day's flight from its post towards the enemy, and waits there.</summary>
     private static bool Aim(Simulation sim, Fleet f, HelpCall c, Sighting s)
     {
         var w = sim.World;
         var at = s.Guess(w.Hour);
         Do(sim, new PlanFlightCommand(f.Id, new FlightRequest(null, at, 0.8, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick, TargetFleetId: s.FleetId, Chase: ChaseMode.GunRange)));
+        if (f.Role == FleetRole.Support && (f.Flight == null && f.Chase == null || f.Flight is Flight chase && chase.ArriveHour - w.Hour > WatchChaseDays * 24))
+            return Watch(sim, f, at);
         if (f.Flight != null || f.Chase != null) return true;
         if (w.FindBody(c.BodyId ?? -1) is Body b)
         {
@@ -538,6 +547,33 @@ public static class HelpCalls
         }
         return false;
     }
+
+    /// <summary>Out on watch: fly to a point between the post and the enemy, a day's flight at most, and wait there.</summary>
+    private static bool Watch(Simulation sim, Fleet f, Vec2 enemyAt)
+    {
+        var w = sim.World;
+        var from = w.FindBody(f.PostBodyId ?? -1)?.Position ?? f.Position;
+        var away = enemyAt - from;
+        var dayFlight = FleetPerformance.Of(w, f).MaxSpeed * 0.8 * 24;
+        var point = from + away.Normalized() * Math.Min(away.Length / 2, dayFlight);
+        if (f.WatchUntilHour == null || Vec2.Distance(point, f.WatchPoint ?? f.Position) > dayFlight / 4)
+        {
+            f.Chase = null;
+            f.Flight = null;
+            if (Vec2.Distance(point, f.Position) > 1000)
+                Do(sim, new PlanFlightCommand(f.Id, new FlightRequest(null, point, 0.8, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick)));
+            var arrive = f.Flight?.ArriveHour ?? w.Hour;
+            f.WatchPoint = point;
+            f.WatchUntilHour = arrive + WatchHours;
+            sim.Log.Info("calls", $"{f.Name} goes out on watch", new { fleetId = f.Id, until = f.WatchUntilHour });
+            Autonomy.Report(sim, f, $"{f.Name} can't catch them soon, so it goes out on watch towards them until {GameTime.Format(f.WatchUntilHour.Value)}", NoteKind.StandingOrder);
+        }
+        return true;
+    }
+
+    /// <summary>"On watch until Day 150, 04:00" for a Response fleet out on watch (null otherwise).</summary>
+    public static string? WatchStatus(World w, Fleet f) =>
+        f.WatchUntilHour is double until && until > w.Hour ? $"On watch until {GameTime.Format(until)}, then back to its post" : null;
 
     /// <summary>An answering fleet: keep after the enemy while the call lasts; when it is over (or the fleet pulled back), go back to its post.</summary>
     private static void KeepAt(Simulation sim, Fleet f)
@@ -549,6 +585,8 @@ public static class HelpCalls
         {
             // Its pull-back rule decided: it goes home; the call is someone else's now.
             f.AnsweringCallId = null;
+            f.WatchUntilHour = null;
+            f.WatchPoint = null;
             Restore(f);
             return;
         }
@@ -559,6 +597,10 @@ public static class HelpCalls
                 Aim(sim, f, c, s);
             return;
         }
+        // Out on watch: it stays out until its time is up, even though the call is over.
+        if (f.WatchUntilHour is double until && w.Hour < until && !Heat.InBattle(w, f)) return;
+        f.WatchUntilHour = null;
+        f.WatchPoint = null;
         f.AnsweringCallId = null;
         if (f.Maneuvering) { Restore(f); return; }
         Restore(f);
@@ -599,6 +641,8 @@ public static class HelpCalls
     public static void Dropped(Fleet f)
     {
         f.AnsweringCallId = null;
+        f.WatchUntilHour = null;
+        f.WatchPoint = null;
         f.PostMission = Mission.None;
         f.PostMissionBodyId = null;
     }

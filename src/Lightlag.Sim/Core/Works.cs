@@ -110,6 +110,10 @@ public static class Works
             if (!Heat.InBattle(w, f) && Tech.Has(w, side, "damage-control")) rate += GameData.Research("damage-control").Factor;
             // Every crew patches the other bars a little out of battle (up to Wounds.MendBarsTo); research does more, and mends hull.
             var bars = rate + (Heat.InBattle(w, f) ? 0 : Wounds.D.CrewMendPerDay);
+            // A supply ship in the fleet is a repair tender out of battle: the bars mend faster, and hull is patched up to
+            // MendBarsTo even on crippled ships (enough to get them moving again).
+            var tender = !Heat.InBattle(w, f) && Wounds.HasTender(w, f);
+            if (tender) bars += Wounds.D.TenderMendPerDay;
             // Grown hulls (the Hive) heal by themselves, even in battle, while the ship has food aboard to grow on.
             var grow = Races.Of(w, side).HullHealPerDay;
             foreach (var s in w.ShipsOf(f))
@@ -117,6 +121,7 @@ public static class Works
                 var max = Tech.MaxArmour(w, s);
                 var heal = rate + (grow > 0 && Races.Feeds(w, s) ? grow : 0);
                 if (heal > 0 && s.Armour > 0 && s.Armour < max && !s.Crippled) s.Armour = Math.Min(max, s.Armour + max * heal / 24);
+                if (tender) Wounds.TenderPatch(w, s, Wounds.D.TenderHullPerDay);
                 if (bars > 0) Wounds.FieldMend(w, s, bars * Crews.MendFactor(w, s));
             }
         }

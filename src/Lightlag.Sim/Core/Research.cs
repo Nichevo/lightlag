@@ -352,15 +352,22 @@ public static class Research
         if (!w.Loop) return "There is no research in the battle sandbox";
         if (FieldIndex(field) < 0) return $"Unknown field '{field}'";
         if (Team(w, side, teamId) is not ResearchTeam team) return "No such team";
-        if (Economy.Of(w, side).Teams.Count >= T.Slots) return "No empty team slot";
-        if (team.Scientists < T.MinScientists * 2) return $"Needs at least {T.MinScientists * 2:0} scientists";
+        if (Economy.Of(w, side).Teams.Count >= T.Slots) return $"All {T.Slots} team slots are used";
+        if (team.Scientists < T.MinScientists * 2)
+        {
+            var trainings = (int)Math.Ceiling((T.MinScientists * 2 - team.Scientists - team.TrainingScientists) / Math.Max(1e-9, T.TrainScientists));
+            return $"A split needs at least {T.MinScientists * 2:0} scientists and {team.Name} has {team.Scientists:0}"
+                   + (team.TrainingScientists > 0 ? $" (+{team.TrainingScientists:0} in training)" : "")
+                   + (trainings > 0 ? $": train it {(trainings == 1 ? "once" : $"{trainings} times")} more" : ": wait for the training to finish");
+        }
         return null;
     }
 
     internal static void Found(Simulation sim, Side side, string field)
     {
         var w = sim.World;
-        Budget.Pay(w, side, Pot.Buildings, T.FoundCost, log: sim.Log);
+        Budget.Pay(w, side, Pot.Buildings, T.FoundCost, key: "research", log: sim.Log);
+        Budget.Of(w, side).ResearchSpent += T.FoundCost;
         Economy.Of(w, side).Totals.IndustrySpent += T.FoundCost;
         var team = NewTeam(w, side, T.FoundScientists);
         team.ReadyHour = w.Hour + T.FoundDays * 24;
@@ -373,7 +380,8 @@ public static class Research
     {
         var w = sim.World;
         var team = Team(w, side, teamId)!;
-        Budget.Pay(w, side, Pot.Buildings, TrainCost(w, side), log: sim.Log);
+        Budget.Pay(w, side, Pot.Buildings, TrainCost(w, side), key: "research", log: sim.Log);
+        Budget.Of(w, side).ResearchSpent += TrainCost(w, side);
         Economy.Of(w, side).Totals.IndustrySpent += TrainCost(w, side);
         team.TrainingUntilHour = w.Hour + T.TrainDays * 24 * Tech.Factor(w, side, "scientist-training");
         team.TrainingScientists = T.TrainScientists;

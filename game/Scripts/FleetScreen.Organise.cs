@@ -87,9 +87,16 @@ public partial class FleetScreen
             var est = Transfers.Estimate(w, src, new[] { ship }, f);
             var row = Row(6);
             if (f.Locked)
-                row.AddChild(Ui.Label("Locked: unlock it to add ships", 12, Ui.Danger));
+                row.AddChild(Wrapped("Locked: unlock it to add ships", 12, Ui.Danger));
             else if (est.Problem != null)
-                row.AddChild(Ui.Label($"Can't: {est.Problem}", 12, Ui.Danger));
+            {
+                // Not now, but it can wait with its fleet and go when the trip works (the reason stays on the fleet).
+                var stack = Column(2);
+                stack.AddChild(Ui.SmallButton("Join when possible", () => Plan(from, ship, id, wait: true),
+                    $"Can't go now: {est.Problem}\nPlan it anyway: the ship waits with its fleet and sets off once it can reach this one"));
+                stack.AddChild(Wrapped($"Not now: {Short(est.Problem, 90)}", 11, Warn, est.Problem));
+                row.AddChild(stack);
+            }
             else
             {
                 var text = est.Together ? "Join here · at once" : $"Join here · {Transfers.Dur(est.Hours)} · {est.FuelShare:P0} fuel";
@@ -116,25 +123,36 @@ public partial class FleetScreen
         }
         foreach (var p in _planned.Where(p => p.To == id))
             if (w.FindShip(p.Ship) is Ship coming) col.AddChild(Ui.Label($"+ {coming.Name} (planned, from {w.FindFleet(p.From)?.Name})", 12, Warn));
-        foreach (var line in Transfers.Status(w, f)) col.AddChild(Ui.Label(Short(line, 60), 11, new Color("9fd6ff")));
+        foreach (var line in Transfers.Status(w, f)) col.AddChild(Wrapped(Short(line, 140), 11, new Color("9fd6ff"), line));
         return Box(col, 10);
     }
 
     private static string Short(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
 
+    /// <summary>A note that wraps inside the 250 px fleet column instead of widening it (full text in the tooltip).</summary>
+    private static Label Wrapped(string text, int size, Color color, string? tip = null)
+    {
+        var l = Ui.Label(text, size, color);
+        l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        l.CustomMinimumSize = new Vector2(230, 0);
+        l.TooltipText = tip ?? text;
+        l.MouseFilter = MouseFilterEnum.Pass;
+        return l;
+    }
+
     /// <summary>Picked ship to that fleet: at once when they are together, else onto the planned list.</summary>
-    private void Plan(int from, int ship, int to)
+    private void Plan(int from, int ship, int to, bool wait = false)
     {
         var w = _screen.World;
         _orgPick = null;
         if (w.FindFleet(from) is not Fleet src || w.FindFleet(to) is not Fleet dest) return;
-        if (Transfers.Estimate(w, src, new[] { ship }, dest).Together)
+        if (!wait && Transfers.Estimate(w, src, new[] { ship }, dest).Together)
         {
             _screen.IssueNow(new TransferShipsCommand(from, new List<int> { ship }, to), "moving ships");
             return;
         }
         _planned.RemoveAll(p => p.Ship == ship);
-        _planned.Add(new PlannedMove { From = from, Ship = ship, To = to });
+        _planned.Add(new PlannedMove { From = from, Ship = ship, To = to, Wait = wait });
     }
 
     private Control PlannedBox(World w)
@@ -161,6 +179,7 @@ public partial class FleetScreen
             var text = Ui.Label($"{s.Name}: {src.Name} → {dest.Name}", 14, Ui.Text);
             text.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             top.AddChild(text);
+            if (est.Problem != null) p.Wait = true; // it can't go now: it waits (Join when possible)
             if (est.Long)
             {
                 var wait = new CheckBox { Text = "Wait until closer", ButtonPressed = p.Wait, FocusMode = FocusModeEnum.None,
@@ -173,10 +192,13 @@ public partial class FleetScreen
             var rm = p;
             top.AddChild(Ui.SmallButton("Remove", () => _planned.Remove(rm), "Take this transfer off the list"));
             line.AddChild(top);
-            var detail = est.Problem != null ? $"Can't: {est.Problem}"
-                : $"{Transfers.Dur(est.Hours)} at 70 % speed · {est.FuelShare:P0} of its fuel · {src.Name} keeps {keeps} ship{(keeps == 1 ? "" : "s")}"
+            var detail = est.Problem != null ? $"Waits with {src.Name} and goes once it can. Now: {est.Problem}"
+                : $"{Transfers.Dur(est.Hours)} at {est.Speed:P0} speed · {est.FuelShare:P0} of its fuel · {src.Name} keeps {keeps} ship{(keeps == 1 ? "" : "s")}"
                   + (keeps == 0 ? " (that fleet ends)" : "");
-            line.AddChild(Ui.Label(detail, 12, est.Problem != null ? Ui.Danger : Ui.Dim));
+            var detailLabel = Ui.Label(detail, 12, est.Problem != null ? Warn : Ui.Dim);
+            detailLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            detailLabel.CustomMinimumSize = new Vector2(600, 0);
+            line.AddChild(detailLabel);
             if (est.Long)
                 line.AddChild(Ui.Label(p.Wait
                     ? $"Waits with {src.Name} until {dest.Name} is within a day, then flies over."

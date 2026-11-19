@@ -69,6 +69,13 @@ public sealed class RuleBook
         .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
             .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
+        // Under decapitation the rival must not send the fleet holding its flagship AND every other destroyer to break a
+        // siege (it once lost the game that way: one blow took the flagship and its only successor).
+        .Add("rival-keeps-a-successor", w => !w.Light.On || !w.Light.Decapitation ? Array.Empty<string>() : w.Minds.SelectMany(m =>
+            m.Jobs.Where(j => j.Kind is JobKind.Break or JobKind.Strafe && w.FindFleet(j.FleetId) is Fleet f
+                              && Economy.Of(w, m.Side).FlagshipId is int flag && w.FindShip(flag)?.FleetId == f.Id
+                              && w.Ships.Where(s => s.Side == m.Side && Light.CommandCapable(s)).All(s => s.FleetId == f.Id))
+                .Select(j => $"{m.Side}'s flagship fleet {w.FindFleet(j.FleetId)!.Name} is on a {j.Kind} job with every destroyer of its side")).ToArray())
         // Seeded maps (MapMaker) must always come out sane: a star of some brightness, moons clear of their planets,
         // and planets far enough apart that their moon systems never cross.
         .Add("map-sane", MapSane)

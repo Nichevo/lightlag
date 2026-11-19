@@ -309,7 +309,10 @@ public static class Chases
                 return;
             }
             sim.Log.Info("fleet", $"{f.Name} catches up and joins {into.Name}", new { fleetId = f.Id, intoFleetId = into.Id });
+            var helper = f.Helper;
+            f.Helper = false;
             Fleets.Absorb(w, into, f);
+            if (helper) BattleRules.HelperArrives(sim, into);
             return;
         }
         if (f.Maneuvering) return;
