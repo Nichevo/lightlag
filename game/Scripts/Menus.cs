@@ -58,6 +58,8 @@ public partial class GameMenu : Control
             col.AddChild(concede);
             col.AddChild(sure);
         }
+        else if (Main.Instance.Sim?.World is { Loop: true, Winner: not null })
+            col.AddChild(Ui.Button("After-game report", () => { _screen.CloseMenu(); _screen.OpenEnd(); }, 18));
         col.AddChild(Ui.Button("Quit to title screen", () => _screen.QuitToTitle()));
         col.AddChild(Ui.Label(Main.Instance.Sim?.World.Rules.Ironman == true
             ? "Ironman: the game keeps one save and writes over it as you play (and when you quit). No loading back."

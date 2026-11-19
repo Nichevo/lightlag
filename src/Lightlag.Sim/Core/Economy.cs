@@ -1059,6 +1059,7 @@ public static class Economy
         w.Winner = side;
         w.WinReason = reason;
         w.WinHour = w.Hour;
+        Chronicle.End(w);
         sim.Log.Info("game", $"{side} wins: {reason}", new { winner = side.ToString(), reason, day = w.Day });
     }
 

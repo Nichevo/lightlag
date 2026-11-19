@@ -42,7 +42,7 @@ public partial class Hud : CanvasLayer
     }
     private GroundScreen _ground = null!;
     private FittingPanel _fitting = null!;
-    private EndPanel _end = null!;
+    private AfterGameScreen _end = null!;
     private TermsCard _terms = null!;
     private BattleScreen _battleScreen = null!;
     private ContactsPanel _contacts = null!;
@@ -205,10 +205,8 @@ public partial class Hud : CanvasLayer
         BuildBars(); // over the screens, so the menu bar stays in view
 
         _menu = new GameMenu(_screen) { Visible = false };
-        _end = new EndPanel(_screen);
-        _end.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
-        _end.GrowHorizontal = Control.GrowDirection.Both;
-        _end.GrowVertical = Control.GrowDirection.Both;
+        // The after-game screen: full size under the top bar (it places itself in Refresh).
+        _end = new AfterGameScreen(_screen) { Visible = false };
         AddChild(_end);
         _terms = new TermsCard(_screen) { Visible = false };
         _terms.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
