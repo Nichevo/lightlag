@@ -11,7 +11,8 @@ public sealed record GameResult(
     int Errors, int Warnings, string? Error, string? ReportFolder, string? Winner = null, int? WinDay = null,
     string? WinReason = null, string? PlayerMind = null, string? RivalMind = null, SideEnd? Player = null, SideEnd? Rival = null,
     double? WarshipsMid = null, double[]? WarshipCurve = null, double WorstStepMs = 0, long WorstStepTick = 0,
-    string? PlayerRace = null, string? RivalRace = null, string? ThirdRace = null, SideEnd? Third = null, string? Map = null, bool Swapped = false);
+    string? PlayerRace = null, string? RivalRace = null, string? ThirdRace = null, SideEnd? Third = null, string? Map = null, bool Swapped = false,
+    string? Prizes = null);
 
 /// <summary>One side at the end of a batch game (for the summary).</summary>
 public sealed record SideEnd(int Planets, int Ships, double Power, int ShipsBuilt, int ShipsLost, int Battles, int PlanetsClaimed, double ShipyardArmour,
@@ -66,6 +67,8 @@ public static class Batch
         _noEndings = opts.Has("no-early-endings");
         // --no-research-variety: no leads, hard problems or lost ideas (the same research web every game).
         _noVariety = opts.Has("no-research-variety");
+        // --no-prizes: no contested prizes (to compare games with and without them).
+        _noPrizes = opts.Has("no-prizes");
         // The rival's memory (see Lessons): computer-vs-computer games are written to <data>/rival-memory.json unless
         // --no-memory; --learn has every computer side start from what that memory teaches (off by default, so the
         // overnight comparisons stay random).
@@ -119,6 +122,7 @@ public static class Batch
                               + (r.PlayerMind != null ? $"  [{r.PlayerMind} v {r.RivalMind}]" : "")
                               + (r.PlayerRace != Races.Human || r.RivalRace != Races.Human || r.ThirdRace != null ? $"  ({r.PlayerRace} v {r.RivalRace}{(r.ThirdRace != null ? $" v {r.ThirdRace}" : "")})" : "")
                               + (r.Map != null ? $"  map {r.Map}{(r.Swapped ? " swapped" : "")}" : "")
+                              + (r.Prizes != null ? $"  prizes [{r.Prizes}]" : "")
                               + (r.Error != null ? $"  {r.Error}" : ""));
         }
 
@@ -192,7 +196,7 @@ public static class Batch
     private static (string? Player, string? Rival) _races;
 
     private static GameOptions? OptionsForRules(string pilot) =>
-        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && !_noEndings && _events == null && _orbits == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
+        _light == null && _autonomy == null && _rules == default && !_noHazards && !_noBudget && !_noEndings && !_noPrizes && _events == null && _orbits == null ? BaseOptions(pilot) is GameOptions basic ? basic with { ChoiceSpread = HeadlessSpread } : null
             : (BaseOptions(pilot) ?? new GameOptions()) with
             {
                 ChoiceSpread = HeadlessSpread,
@@ -200,7 +204,7 @@ public static class Batch
                 RandomStarts = _rules.Random ? true : null, StartPopulation = _rules.Spread ? true : null,
                 Happiness = _rules.NoHappiness ? false : null, SupplyLines = _rules.NoSupply ? false : null, FuelTypes = _rules.SingleFuel ? false : null,
                 Hazards = _noHazards ? false : null, Events = _events, Budget = _noBudget ? false : null,
-                PlanetOrbitSlowdown = _orbits, EarlyEndings = _noEndings ? false : null,
+                PlanetOrbitSlowdown = _orbits, EarlyEndings = _noEndings ? false : null, Prizes = _noPrizes ? false : null,
                 ResearchVariety = _noVariety ? false : null,
             };
 
@@ -210,6 +214,7 @@ public static class Batch
     private static bool _noBudget;
     private static bool _noEndings;
     private static bool _noVariety;
+    private static bool _noPrizes;
     private static double? _orbits;
     private static EventRate? _events;
 
@@ -291,7 +296,8 @@ public static class Batch
                 MindName(Side.Player), MindName(Side.Rival), SideEnd.Of(w, Side.Player), SideEnd.Of(w, Side.Rival), mid, curve, Math.Round(worstMs, 1), worstTick,
                 Economy.Of(w, Side.Player).Race, Economy.Of(w, Side.Rival).Race,
                 Sides.Three(w) ? Economy.Of(w, Side.Third).Race : null, Sides.Three(w) ? SideEnd.Of(w, Side.Third) : null,
-                w.Map.Seeded ? w.Map.Code : null, map?.SwapHomes == true);
+                w.Map.Seeded ? w.Map.Code : null, map?.SwapHomes == true,
+                w.Prizes.Count > 0 ? string.Join("; ", w.Prizes.Select(p => $"{p.Kind} d{p.OpenHour / 24:0}: {(p.Holder?.ToString() ?? (p.Open(w) ? "open" : p.Over ? "nobody" : "not yet"))}")) : null);
         }
         catch (Exception ex)
         {

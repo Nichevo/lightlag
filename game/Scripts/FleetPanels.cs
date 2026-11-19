@@ -1283,6 +1283,7 @@ public partial class FleetPanel : PanelContainer
         list.AddRange(Operations.Status(w, f));
         list.AddRange(Transfers.Status(w, f));
         if (HelpCalls.WatchStatus(w, f) is string watch) list.Add(watch);
+        if (Prizes.FleetStatus(w, f) is string prize) list.Add(prize);
         if (Sails.Status(w, f) is string sails) list.Add(sails);
         if (f.SupplyRunFor == null && SupplyLines.RunStatus(w, f) is string supply) list.Add(supply);
         if (f.SupplyRunFor is int servedId && w.FindFleet(servedId) is Fleet served && SupplyLines.RunStatus(w, served) is string run)
@@ -1341,7 +1342,8 @@ public partial class FleetPanel : PanelContainer
         }
         if (f.Flight is Flight fl)
         {
-            var to = Name(fl.TargetBodyId) ?? (fl.TargetFleetId is int tf ? w.FindFleet(tf)?.Name : null) ?? "a point in space";
+            var to = Name(fl.TargetBodyId) ?? (fl.TargetFleetId is int tf ? w.FindFleet(tf)?.Name : null)
+                     ?? (Prizes.Near(w, fl.Target, Prizes.D.ReachMm) is Prize prize ? $"the {prize.Name.ToLowerInvariant()}" : "a point in space");
             var verb = fl.Arrival == ArrivalStyle.FastPass ? "passes" : "reaches";
             var arrive = GameTime.Format(fl.ArriveHour);
             if (!fl.Started)

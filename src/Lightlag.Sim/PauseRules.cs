@@ -4,7 +4,7 @@ namespace Lightlag.Sim;
 public enum PauseEvent
 {
     EnemySpotted, BattleStarts, FarBattle, EnemyClosing, PlanetClaimed, ShipyardAttacked, CommandCall, EventCall,
-    EventAutoPicked, ResearchDone, ShipLaunched, PlanetChangedHands, SupplyNote, EnemyInbound, PlanHeard,
+    EventAutoPicked, ResearchDone, ShipLaunched, PlanetChangedHands, SupplyNote, EnemyInbound, PlanHeard, PrizeNews,
 }
 
 /// <summary>
@@ -46,7 +46,7 @@ public sealed class PauseRules
     {
         Watchful => e switch
         {
-            PauseEvent.ResearchDone or PauseEvent.ShipLaunched or PauseEvent.EventAutoPicked or PauseEvent.PlanHeard => PauseResponse.Notice,
+            PauseEvent.ResearchDone or PauseEvent.ShipLaunched or PauseEvent.EventAutoPicked or PauseEvent.PlanHeard or PauseEvent.PrizeNews => PauseResponse.Notice,
             PauseEvent.SupplyNote or PauseEvent.PlanetChangedHands => PauseResponse.Slow,
             _ => PauseResponse.Pause,
         },
@@ -77,6 +77,7 @@ public sealed class PauseRules
         PauseEvent.EnemyClosing => "Enemy heading for one of your fleets",
         PauseEvent.EnemyInbound => "Enemy heading for one of your planets",
         PauseEvent.PlanHeard => "Rival plan overheard",
+        PauseEvent.PrizeNews => "Contested prize news",
         PauseEvent.PlanetClaimed => "Rival claiming one of your planets",
         PauseEvent.ShipyardAttacked => "Shipyard under attack",
         PauseEvent.CommandCall => "Boarding, landing or after-battle call",

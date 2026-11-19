@@ -62,13 +62,14 @@ public partial class EventBanner : PanelContainer
         foreach (var (label, e) in _times)
         {
             var left = Math.Max(0, e.UntilHour - w.Hour);
-            label.Text = e.Coming ? $"· hits in {Format.Hours(left)}" : $"· {Format.Hours(left)} left";
+            label.Text = !e.Clock ? "" : e.Coming ? $"· {e.ComingWord} {Format.Hours(left)}" : $"· {Format.Hours(left)} left";
         }
     }
 
     private void Go(Events.WideEvent e)
     {
         if (e.BodyId is int b) { _screen.PickBody(b); return; }
+        if (e.At is Vec2 at) { _screen.GoToPoint(at); return; }
         _screen.ShowEmpire = true;
         _screen.EmpireTabWanted = EmpirePanel.Tab.Needs;
     }

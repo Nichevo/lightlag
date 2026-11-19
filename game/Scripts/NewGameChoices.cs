@@ -57,6 +57,7 @@ public static class NewGameChoices
         main.ContactOffersChoice = GetBool("contact_offers", main.ContactOffersChoice);
         main.EarlyEndingsChoice = GetBool("early_endings", main.EarlyEndingsChoice);
         main.ResearchVarietyChoice = GetBool("research_variety", main.ResearchVarietyChoice);
+        main.PrizesChoice = GetBool("contested_prizes", main.PrizesChoice);
         main.IronmanChoice = GetBool("ironman", main.IronmanChoice);
         if (Enum.TryParse<LearnMode>(Get("rivals_learn", main.LearnChoice.ToString()), out var learn)) main.LearnChoice = learn;
         var mapType = Enum.TryParse<MapType>(Get("map_type", main.MapChoice.Type.ToString()), out var mt) ? mt : main.MapChoice.Type;
@@ -91,6 +92,7 @@ public static class NewGameChoices
         Set("contact_offers", main.ContactOffersChoice);
         Set("early_endings", main.EarlyEndingsChoice);
         Set("research_variety", main.ResearchVarietyChoice);
+        Set("contested_prizes", main.PrizesChoice);
         Set("ironman", main.IronmanChoice);
         Set("rivals_learn", main.LearnChoice.ToString());
         Set("map_type", main.MapChoice.Type.ToString());
@@ -165,6 +167,7 @@ public static class NewGameChoices
                     + (main.PlanetOrbitsChoice <= 1 ? "planets at true speed" : $"planets {main.PlanetOrbitsChoice:0}x slower");
         if (!main.EarlyEndingsChoice) rules += " · no early endings";
         if (!main.ResearchVarietyChoice) rules += " · same research every game";
+        if (!main.PrizesChoice) rules += " · no contested prizes";
         if (main.IronmanChoice) rules += " · Ironman";
         who += main.MapChoice.Seeded ? $" · {MapCodes.Name(main.MapChoice.Type)}, {main.MapChoice.Size} map ({MapCodes.SeedText(main.MapChoice.Seed)})" : " · Hesper";
         if (main.LearnChoice != LearnMode.All) who += main.LearnChoice == LearnMode.Off ? " · rivals don't learn" : " · rivals learn from overnight runs only";

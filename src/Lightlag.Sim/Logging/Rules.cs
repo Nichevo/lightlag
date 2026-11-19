@@ -73,6 +73,9 @@ public sealed class RuleBook
         .Add("research-roll-sane", w => w.Sides.SelectMany(s => s.Roll.Leads.Intersect(s.Roll.Hard).Select(id => $"{s.Side}: {id} is both a lead and a hard problem")
                 .Concat(w.Orders.Where(o => o.Side == s.Side && o.Kind == OrderKind.Research && ResearchRolls.Hidden(w, s.Side, o.Key))
                     .Select(o => $"{s.Side} has research order {o.Id} for lost idea {o.Key} it hasn't found"))).ToArray())
+        // Contested prizes: work never negative or past what the prize needs, nobody works on one that is over or not open,
+        // and only a boarded derelict, a held relay or a mined comet has a holder.
+        .Add("prizes-sane", PrizesSane)
         // Overheard plans (Intentions): news is never heard before it was sent, timings run forwards, and a planted plan is aimed at the listener.
         .Add("heard-plans-sane", w => Sides.InPlay(w).SelectMany(s => Intel.Files(w, s).SelectMany(f => f.Intercepts.Where(i =>
                 i.HeardHour < i.SentHour || i.EtaLow > i.EtaHigh || i.Sure is < 0 or > 1 || i.Times < 1
@@ -592,6 +595,20 @@ public sealed class RuleBook
             var r = Vec2.Distance(b.Position, parent.Position);
             if (Math.Abs(r - b.OrbitRadius) > Math.Max(1e-6, b.OrbitRadius * 1e-6))
                 yield return $"body {b.Id} {b.Name} is {r:0.###} Mm from {parent.Name}, orbit says {b.OrbitRadius:0.###}";
+        }
+    }
+
+    private static IEnumerable<string> PrizesSane(World w)
+    {
+        foreach (var p in w.Prizes)
+        {
+            var need = Prizes.NeedHours(p);
+            var bad = p.Hours.Any(h => !(h >= 0) || !double.IsFinite(h))
+                      || p.Kind != PrizeKind.Comet && p.Hours.Any(h => h > need + 1e-6)
+                      || (p.Over || !p.Open(w)) && p.WorkedBy != null
+                      || p.Holder != null && p.Kind == PrizeKind.Derelict && !p.Over
+                      || p.Announced && !p.At.IsFinite;
+            if (bad) yield return $"prize {p.Id} ({p.Kind}) is not sane: hours {string.Join("/", p.Hours.Select(h => Math.Round(h, 1)))}, holder {p.Holder}, worked by {p.WorkedBy}, over {p.Over}";
         }
     }
 

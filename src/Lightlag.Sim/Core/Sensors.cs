@@ -282,6 +282,7 @@ public static class Sensors
             foreach (var b in w.Bodies.Where(b => b.Owner == side))
                 observers.Add((b.Position, PlanetSensorOf(w, side, b, stations.Contains(b.Id)), b.Id));
             if (w.Satellites.Count > 0) observers.AddRange(Satellites.Observers(w, side));
+            if (w.Prizes.Count > 0) observers.AddRange(Prizes.Observers(w, side));
 
             foreach (var enemy in w.Fleets.Where(f => f.Side != side))
             {

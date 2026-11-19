@@ -283,7 +283,7 @@ public partial class AfterGameScreen : PanelContainer
         }
         var older = c.FromHour > 0 ? $" This game began before the after-game record existed, so it starts on {GameTime.Format(c.FromHour)}." : "";
         _storyNote.Text = "Each side's share of control over the game (the 80 % line tips it). Numbered marks are the turning points: "
-                          + "planets changing hands, costly battles, the lead changing, terms and the end." + older;
+                          + "planets changing hands, costly battles, the lead changing, contested prizes won, terms and the end." + older;
 
         // Replay
         _map.World = w;
@@ -307,6 +307,7 @@ public partial class AfterGameScreen : PanelContainer
         _numbers.Text = $"Ships left: you {mine}, rival {theirs}. Planets: you {w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0)}, "
                         + $"rival {w.Bodies.Count(b => b.Owner is Side.Rival or Side.Third && b.Industry > 0)}.\n\n"
                         + Stats.Summary(w)
+                        + (Prizes.Summary(w) is { Length: > 0 } prizes ? "\n\n" + prizes : "")
                         + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{Chronicle.Who(w, m.Side)} was a {m.Personality} on {m.Difficulty}."
                             + (Lessons.Summary(m) is { Length: > 0 } learned ? " " + learned : "")))
                         + (Main.Instance.LearnChoice != LearnMode.Off && w.Minds.Count > 0 ? "\n\nThis game is now in the rivals' memory: they will learn from it next time." : "")

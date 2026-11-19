@@ -21,7 +21,7 @@ public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = n
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
     bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null,
     bool? Ironman = null, string? ThirdRace = null, bool? ContactOffers = null, bool? Budget = null,
-    double? PlanetOrbitSlowdown = null, bool? EarlyEndings = null, Learned? Learned = null, MapSetup? Map = null,
+    double? PlanetOrbitSlowdown = null, bool? EarlyEndings = null, Learned? Learned = null, MapSetup? Map = null, bool? Prizes = null,
     bool? ResearchVariety = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
@@ -76,7 +76,7 @@ public sealed record AutomationData(Dictionary<string, string> Defaults, int Hab
 
 // ---- State (saved with the world) ----------------------------------------------------------------
 
-public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush, Escort, Strafe }
+public enum JobKind { Guard, Claim, Break, Strike, Hunt, Probe, Refit, Ambush, Escort, Strafe, Prize }
 
 /// <summary>What the computer has told one of its fleets to do, and why (shown in the debug view).</summary>
 public sealed class FleetJob
@@ -95,6 +95,9 @@ public sealed class FleetJob
     /// <summary>The supply lane an ambush party lies on; the run an escort guards starts here (BodyId is where it goes).</summary>
     public int? LaneId { get; set; }
     public int? FromBodyId { get; set; }
+
+    /// <summary>The contested prize a Prize job goes for (see Prizes).</summary>
+    public int? PrizeId { get; set; }
 
     /// <summary>A siege paused: the fleet stands off near the planet (out of reach of the relief) until this hour, then goes home; it goes back in when the relief has gone.</summary>
     public double? StandOffUntil { get; set; }
@@ -560,6 +563,7 @@ public static class Mind
             {
                 DefendClaims();
                 StationGuards(); // before strikes and campaigns: its far colonies come first
+                GoForPrizes();
                 if (!Strike())
                 {
                     Campaign();
@@ -962,6 +966,7 @@ public static class Mind
                     JobKind.Guard => body == null || body.Owner != _side,
                     JobKind.Ambush => f.ZoneId == null || _w.Hour - job.Since > AmbushDays * 24 || Supplies(f) < 0.4,
                     JobKind.Escort => body == null || body.Owner != _side || _w.Hour - job.Since > EscortDays * 24 || Supplies(f) < 0.4,
+                    JobKind.Prize => PrizeDone(job),
                     _ => false,
                 };
                 // A flight that ended somewhere else (an order it could not finish): think again.
@@ -1586,6 +1591,72 @@ public static class Mind
             if (_m.JobOf(group.Id) is FleetJob job) job.LaneId = lane.Id;
             Orders(group, Core.Stance.Engage);
             Note($"{group.Name} ({group.ShipIds.Count} ships) lies in wait on the {a.Name}–{b.Name} supply lane");
+        }
+
+        /// <summary>A prize job is over when the prize is gone or settled, or the relay is ours.</summary>
+        private bool PrizeDone(FleetJob job) =>
+            _w.Prizes.Find(p => p.Id == job.PrizeId) is not Prize p || p.Over || p.Kind == PrizeKind.Relay && p.Holder == _side;
+
+        /// <summary>
+        /// Contested prizes, scored as goals: each one coming or open that is not already ours gets a group from the home
+        /// pool, sent so that it gets there about when the prize opens, strong enough for what was last seen near it.
+        /// A group there keeps at it: back to the spot after a fight, and it goes for enemy warships contesting it when
+        /// it is the stronger. A comet nearly gone is not worth the trip.
+        /// </summary>
+        private void GoForPrizes()
+        {
+            if (!Prizes.On(_w) || _home == null) return;
+            foreach (var p in Prizes.Live(_w))
+            {
+                var job = _m.Jobs.Find(j => j.Kind == JobKind.Prize && j.PrizeId == p.Id);
+                if (job != null && _w.FindFleet(job.FleetId) is Fleet there) { KeepAtPrize(there, p); continue; }
+                if (p.Kind == PrizeKind.Relay && p.Holder == _side) continue;
+                if (p.CloseHour is double close && close - Math.Max(_w.Hour, p.OpenHour) < 5 * 24) continue;
+                if (Slip()) continue;
+                var pool = Pool().Where(Ready).ToList();
+                if (pool.Count == 0) continue;
+                var speed = pool.SelectMany(f => _w.ShipsOf(f)).Select(Fleets.ShipSpeed).DefaultIfEmpty(1).Min() * 0.6;
+                var trip = Vec2.Distance(_home.Position, p.At) / Math.Max(1, speed);
+                if (p.OpenHour - _w.Hour > trip + 72) continue;
+                var guard = EnemyNear(p.At, A.DangerRadiusAu * _au, 5 * 24);
+                var need = Math.Max(guard * A.DangerRatio, A.EnemyShipValue * 2);
+                if (pool.Sum(f => War(f)) * (1 - _p.GuardShare) < need) continue;
+                var group = TakeFromPool(need, $"go for the {p.Name.ToLowerInvariant()}");
+                if (group == null) continue;
+                if (!Fly(group, new FlightRequest(null, p.At, Burn(group), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick)))
+                {
+                    GoHome(group, $"cannot fly to the {p.Name.ToLowerInvariant()}");
+                    continue;
+                }
+                Assign(group, JobKind.Prize, null, p.At, $"take the {p.Name.ToLowerInvariant()} ({(p.Coming(_w) ? "opens soon" : "open now")})");
+                if (_m.JobOf(group.Id) is FleetJob added) added.PrizeId = p.Id;
+                Orders(group, Core.Stance.Engage);
+                SetGoal("Prize", $"the {p.Name.ToLowerInvariant()}");
+                Note($"{group.Name} ({group.ShipIds.Count} ships) goes for the {p.Name.ToLowerInvariant()}");
+            }
+        }
+
+        /// <summary>At a prize, or meant to be: fight off a weaker contester, else get back to the spot.</summary>
+        private void KeepAtPrize(Fleet f, Prize p)
+        {
+            if (Busy(f) || f.Chase != null || f.Maneuvering) return;
+            var mine = War(f);
+            var near = Vec2.Distance(f.Position, p.At) <= Prizes.D.ReachMm;
+            if (near && p.Contested && _known.Where(s => s.Visible && Vec2.Distance(s.Guess(_w.Hour), p.At) <= Prizes.D.ReachMm * 2)
+                    .OrderBy(s => Vec2.Distance(s.Guess(_w.Hour), f.Position)).FirstOrDefault() is Sighting foe
+                && mine >= SightingPower(foe) * Fight)
+            {
+                var turn = new FlightRequest(null, foe.Guess(_w.Hour), Burn(f), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick,
+                    TargetFleetId: foe.FleetId, Chase: ChaseMode.GunRange);
+                if (Fly(f, turn))
+                {
+                    Orders(f, Core.Stance.Engage);
+                    Note($"{f.Name} goes for {foe.Name}, which contests the {p.Name.ToLowerInvariant()} ({mine:0} against about {SightingPower(foe):0})");
+                }
+                return;
+            }
+            if (!near && f.Flight == null)
+                Fly(f, new FlightRequest(null, p.At, Burn(f), ArrivalStyle.Brake, HoldStyle.Drift, _w.Tick));
         }
 
         /// <summary>How long an escort stays on a risky run before it comes home.</summary>

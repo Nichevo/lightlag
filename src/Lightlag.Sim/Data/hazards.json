@@ -38,6 +38,28 @@
   "_routesComment": "The rival (and the route planner's warning) count a route's expected hull loss for its worst-hit ship; above slowAbove the rival flies slower.",
   "slowAbove": 0.08,
 
+  "_prizesComment": "Contested prizes (Prizes.cs): minCount to maxCount per game (one of each kind at most: derelict cruiser, helium-3 comet, old relay), the first opening between firstOpenDayMin and firstOpenDayMax, each next one gapDays later. Every side hears of each announceDays before it opens. Armed fleets within reachMm count as there; one side alone works on it, two sides there contest it. Derelict: boardDays of work takes it (a cruiser at derelictArmour of its armour and derelictSupplies of its supplies, no missiles, a thin crew); it drifts off after derelictDays. Comet: while held alone the holder's shipyard gets the goods a day, for cometDays. Relay: relayTakeDays of work takes it (and takes it from its holder); its holder sees relaySensorMm round it (times sensor research).",
+  "prizes": {
+    "minCount": 2,
+    "maxCount": 3,
+    "firstOpenDayMin": 35,
+    "firstOpenDayMax": 50,
+    "gapDaysMin": 22,
+    "gapDaysMax": 35,
+    "announceDays": 20,
+    "reachMm": 250,
+    "boardDays": 3,
+    "derelictDays": 40,
+    "derelictArmour": 0.5,
+    "derelictSupplies": 0.3,
+    "cometDays": 40,
+    "cometFuelPerDay": 4,
+    "cometWaterPerDay": 4,
+    "cometHelium3PerDay": 2,
+    "relayTakeDays": 2,
+    "relaySensorMm": 1200
+  },
+
   "_eventsComment": "Events: each side gets one about every perSideDays (by the game-start setting Off, Rare, Normal, Lively), the first after firstDay, the gap rolled between half and one and a half times that. Weights pick the kind among those that can happen now. askHours is how long a call waits for the player before Auto picks (never later than the event hits).",
   "events": {
     "perSideDays": [0, 50, 25, 12],

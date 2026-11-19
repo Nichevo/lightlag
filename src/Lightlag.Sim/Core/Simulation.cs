@@ -81,6 +81,7 @@ public sealed class Simulation
             world.Rules.Budget = options?.Budget ?? true;
             world.Rules.EarlyEndings = options?.EarlyEndings ?? true;
             world.Rules.ResearchVariety = options?.ResearchVariety ?? true;
+            world.Rules.Prizes = options?.Prizes ?? true;
             Races.Setup(world, options, seed);
             Planets.EnsureStarted(world);
             ResearchRolls.Setup(world, seed);
@@ -208,6 +209,7 @@ public sealed class Simulation
         using (SectionTimer.Time("lanes")) Lanes.Observe(this);
         using (SectionTimer.Time("intel")) Intel.Update(this);
         using (SectionTimer.Time("intel")) Intentions.Update(this);
+        using (SectionTimer.Time("prizes")) Prizes.Update(this);
         using (SectionTimer.Time("contact")) Contact.Update(this);
         using (SectionTimer.Time("weapons"))
         {
