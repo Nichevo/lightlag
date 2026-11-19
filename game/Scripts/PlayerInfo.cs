@@ -24,6 +24,7 @@ public enum MapLayer
     NeedPins = 2048,
     AdvicePins = 4096,
     AutoPins = 8192,
+    NameTags = 16384,
 }
 
 /// <summary>The menu bar (row two of the top bar): always there, slides away when idle, or off (keys only).</summary>
@@ -45,7 +46,7 @@ public static class PlayerInfo
     public static DetailLevel Detail { get; private set; } = DetailLevel.Standard;
     public static MapLayer Layers { get; private set; } = Default;
 
-    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee | MapLayer.NeedPins;
+    public const MapLayer Default = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.Lanes | MapLayer.Wells | MapLayer.OldSightings | MapLayer.Labels | MapLayer.NameTags | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee | MapLayer.NeedPins;
 
     /// <summary>The Needs you layers, which the presets leave as they are (they are about trouble, not the view).</summary>
     public const MapLayer PinLayers = MapLayer.NeedPins | MapLayer.AdvicePins | MapLayer.AutoPins;
@@ -77,10 +78,10 @@ public static class PlayerInfo
     }
 
     public static void SetPinsUrgentOnly(bool on) { if (on != PinsUrgentOnly) { PinsUrgentOnly = on; Save(); } }
-    public const MapLayer Calm = MapLayer.Orbits | MapLayer.Labels;
-    public const MapLayer War = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Lanes | MapLayer.Labels | MapLayer.Hazards;
+    public const MapLayer Calm = MapLayer.Orbits | MapLayer.Labels | MapLayer.NameTags;
+    public const MapLayer War = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Lanes | MapLayer.Labels | MapLayer.NameTags | MapLayer.Hazards;
     public const MapLayer Battle = MapLayer.Orbits | MapLayer.Shadows | MapLayer.LagRing | MapLayer.OldSightings | MapLayer.Hazards | MapLayer.Possible | MapLayer.TheySee;
-    public const MapLayer Trade = MapLayer.Orbits | MapLayer.Lanes | MapLayer.SupplyRuns | MapLayer.Labels;
+    public const MapLayer Trade = MapLayer.Orbits | MapLayer.Lanes | MapLayer.SupplyRuns | MapLayer.Labels | MapLayer.NameTags;
 
     public static readonly (MapLayer Layer, string Name, string Tip)[] LayerList =
     {
@@ -92,6 +93,7 @@ public static class PlayerInfo
         (MapLayer.Wells, "Gravity wells", "Rings round each planet where its pull is stronger than the sun's, closer together towards the planet (Medium and High graphics)"),
         (MapLayer.OldSightings, "Old sightings", "Where rival fleets were last seen, greyed with age, and their tracks"),
         (MapLayer.Labels, "Labels", "Planet and moon names"),
+        (MapLayer.NameTags, "Name tags", "Names in tags with the owner's colour, shipyard and moon count, spread out so they never overlap (off: plain text names; Medium and High graphics)"),
         (MapLayer.Possible, "Where they could be", "Round each enemy fleet out of sight: the area it could have reached since it was last seen, growing with time"),
         (MapLayer.TheySee, "What they see of you", "Round your fleets near the enemy: how far the nearest enemy fleet's sensors would pick them up as they are flying now"),
         (MapLayer.Hazards, "Hazards", "Radiation belts (green), the hot zone close to the sun (orange), battle debris (grey) and the names of rock belts and rings"),
@@ -133,6 +135,8 @@ public static class PlayerInfo
         if (!cfg.HasSectionKey("ui", "hazardsLayer")) Layers |= MapLayer.Hazards;
         // Settings saved before the Needs you pins existed: switch them on once.
         if (!cfg.HasSectionKey("ui", "pinsLayer")) Layers |= MapLayer.NeedPins;
+        // Settings saved before name tags existed: switch them on once.
+        if (!cfg.HasSectionKey("ui", "tagsLayer")) Layers |= MapLayer.NameTags;
         if (Enum.TryParse<MenuBarMode>((string)cfg.GetValue("ui", "menuBar", "Always"), out var mb)) MenuBar = mb;
         MenuIcons = (bool)cfg.GetValue("ui", "menuIcons", true);
         if (Enum.TryParse<TrayMode>((string)cfg.GetValue("ui", "tray", "OnBadge"), out var tm)) Tray = tm;
@@ -152,6 +156,7 @@ public static class PlayerInfo
         cfg.SetValue("ui", "layers", (int)Layers);
         cfg.SetValue("ui", "hazardsLayer", true);
         cfg.SetValue("ui", "pinsLayer", true);
+        cfg.SetValue("ui", "tagsLayer", true);
         cfg.SetValue("ui", "menuBar", MenuBar.ToString());
         cfg.SetValue("ui", "menuIcons", MenuIcons);
         cfg.SetValue("ui", "tray", Tray.ToString());

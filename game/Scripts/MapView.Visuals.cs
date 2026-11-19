@@ -26,7 +26,7 @@ public partial class MapView
         }
         var at = Camera.ToScreen(_drawn[star.Id]);
         var r = (float)ScreenRadius(star);
-        _sun.Visible = Graphics.Fancy && Camera.OnScreen(at, Mathf.Max(r * 5, r + 260));
+        _sun.Visible = Graphics.Fancy && Camera.OnScreen(at, Mathf.Max(r * 5, r + 420));
         if (_sun.Visible) _sun.Set(at, r);
     }
 
@@ -152,7 +152,14 @@ public partial class MapView
             }
             var parent = w.FindBody(belt.ParentId);
             specks.Visible = Graphics.Fancy && parent != null;
-            if (specks.Visible) specks.Place(Camera, _drawn[parent!.Id], parent.Gm, DrawHour);
+            if (!specks.Visible) continue;
+            // A ring is drawn by its planet's shader as a tilted band: only a sprinkle of rocks on top. A belt
+            // thins out as it shrinks on screen, so zoomed out it is a dusty band, not a solid blur.
+            var width = (belt.OuterRadius - belt.InnerRadius) * Camera.Scale;
+            var share = belt.Kind == BeltKind.Ring ? 0.06f : (float)Math.Clamp(width / 250, 0.05, 1);
+            specks.Place(Camera, _drawn[parent!.Id], parent.Gm, DrawHour, share);
+            if (belt.Kind == BeltKind.Ring && _planets.TryGetValue(parent.Id, out var sprite))
+                sprite.SetRing(belt.InnerRadius / parent.Radius, belt.OuterRadius / parent.Radius);
         }
     }
 
@@ -298,12 +305,15 @@ public partial class BeltSpecks : MultiMeshInstance2D
     }
 
     private (Vec2, double, Vector2, Vec2, double) _placed;
+    private float _share = 1f;
     private ulong _placedMs;
 
-    public void Place(MapCamera camera, Vec2 center, double gm, double hours)
+    /// <summary>Place the specks for this frame; share (0..1) is how many of them show, and fainter when fewer.</summary>
+    public void Place(MapCamera camera, Vec2 center, double gm, double hours, float share = 1f)
     {
         // Only when the view or the time moves (paused and still, nothing to do).
         var stamp = (camera.Center, camera.Scale, camera.ScreenSize, center, hours);
+        if (!Mathf.IsEqualApprox(share, _share)) { _share = share; _placed = default; }
         if (stamp == _placed && gm == _gm && !BenchProbe.OldWay) return;
         // With the view still and only time moving, specks creep along their orbits: 15 times a second is plenty.
         var now = Time.GetTicksMsec();
@@ -321,14 +331,16 @@ public partial class BeltSpecks : MultiMeshInstance2D
         // Specks grow a little as you zoom in, but stay specks.
         var grow = (float)Math.Clamp(0.7 + camera.Scale * 600, 0.7, 2.2);
         var shown = 0;
-        for (var i = 0; i < Count; i++)
+        var count = (int)(Count * _share);
+        var fade = 0.45f + 0.55f * _share;
+        for (var i = 0; i < count; i++)
         {
             var a = _phase[i] + Math.Tau * (hours % _period[i]) / _period[i];
             var p = camera.ToScreen(center + new Vec2(Math.Cos(a), Math.Sin(a)) * _radius[i]);
             if (!camera.OnScreen(p, 4)) continue;
             var size = _size[i] * grow;
             mm.SetInstanceTransform2D(shown, new Transform2D(0, new Vector2(size, size), 0, p));
-            mm.SetInstanceColor(shown, _color[i]);
+            mm.SetInstanceColor(shown, new Color(_color[i], _color[i].A * fade));
             shown++;
         }
         mm.VisibleInstanceCount = shown;

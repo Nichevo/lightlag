@@ -22,6 +22,8 @@ uniform float rings = 0.0;           // 1: has rings
 uniform vec4 ring_color : source_color = vec4(0.8, 0.75, 0.65, 1.0);
 uniform float ring_tilt = 0.45;      // how far the ring plane leans away from the viewer (radians)
 uniform float ring_angle = 0.3;      // the rings' turn on screen (radians)
+uniform float ring_inner = 1.35;     // where the ring starts and ends, in planet radii
+uniform float ring_outer = 2.15;
 
 varying vec2 local;
 
@@ -195,8 +197,8 @@ vec4 ring_at(vec2 q, vec3 L, out float depth) {
 	float ct = cos(ring_tilt);
 	float yy = r.y / ct;
 	float rr = length(vec2(r.x, yy));
-	const float inner = 1.35;
-	const float outer = 2.15;
+	float inner = ring_inner;
+	float outer = ring_outer;
 	if (rr < inner || rr > outer) return vec4(0.0);
 	depth = yy * sin(ring_tilt);
 	// Ringlets of uneven density, one clear gap, a dense middle band and a faint outer edge.
@@ -213,7 +215,7 @@ vec4 ring_at(vec2 q, vec3 L, out float depth) {
 	float aa = 1.5 / max(radius_px, 1.0);
 	float edge = smoothstep(inner, inner + aa, rr) * smoothstep(outer, outer - aa, rr);
 	vec3 col = ring_color.rgb * (0.8 + 0.4 * ringlets) * (0.12 + 0.88 * lit);
-	return vec4(col, density * 0.6 * edge);
+	return vec4(col, density * 0.85 * edge);
 }
 
 vec4 fancy(vec2 q, float d, float aa, vec3 L) {

@@ -1,5 +1,5 @@
 // The star (Medium and High): a boiling surface darker at the limb, a corona of soft streamers that
-// slowly churn, and glare streaks across the lens. Colours above 1 bloom on High. SunSprite draws a
+// slowly churn, and a wide warm glow that lights the space round it (round, with no lens streaks). Colours above 1 bloom on High. SunSprite draws a
 // square from -size to +size and sets the uniforms.
 shader_type canvas_item;
 render_mode blend_add;
@@ -9,7 +9,7 @@ uniform float radius_px = 10.0;
 uniform float half_px = 100.0;       // half the square's side
 uniform float boost = 1.0;           // above 1 on High so the core blooms
 uniform float seed = 0.0;
-uniform float glare = 1.0;           // strength of the streaks (fades when zoomed right in)
+uniform float glare = 1.0;           // strength of the wide glow (fades when zoomed right in)
 
 varying vec2 local;
 
@@ -76,13 +76,9 @@ void fragment() {
 	float corona = max(fall * 0.55, minHalo) * smoothstep(half_px, half_px * 0.6, px);
 	col += hot * corona * mix(1.0, boost, 0.5);
 
-	// Glare: thin streaks through the centre (a long level one and four short ones), and a faint ring.
-	vec2 g = local / half_px;
-	float level = exp(-abs(g.y) * 160.0) * exp(-abs(g.x) * 2.2);
-	float cross1 = exp(-abs(g.x - g.y) * 120.0) + exp(-abs(g.x + g.y) * 120.0);
-	cross1 *= exp(-length(g) * 5.0);
-	float halo = exp(-pow((length(g) - 0.32) * 28.0, 2.0)) * 0.05;
-	col += mix(hot, white, 0.5) * (level * 0.55 + cross1 * 0.3 + halo) * glare;
+	// The wide glow: warm light falling softly away over the inner system, fading out before the square's edge.
+	float pool = exp(-pow(px / (half_px * 0.38), 1.3)) * smoothstep(half_px, half_px * 0.5, px);
+	col += hot * vec3(1.0, 0.75, 0.45) * pool * 0.22 * glare;
 
 	COLOR = vec4(col, 1.0);
 }

@@ -4,7 +4,7 @@ using Lightlag.Sim.Core;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The star on Medium and High: a boiling disc, a churning corona and glare streaks (sun.gdshader), added
+/// The star on Medium and High: a boiling disc, a churning corona and a wide warm glow (sun.gdshader), added
 /// onto what is behind it. Sits behind the map's own drawing like the planets do.
 /// </summary>
 public partial class SunSprite : Node2D
@@ -28,9 +28,9 @@ public partial class SunSprite : Node2D
     public void Set(Vector2 at, float radiusPx)
     {
         Position = at;
-        // The corona reaches a few radii out, and never less than a couple of hundred pixels so a far-off
-        // sun still has its glare; zoomed right in the glare would fill the screen, so it fades.
-        var half = Mathf.Min(Mathf.Max(radiusPx * 5f, radiusPx + 260f), radiusPx * 2.2f + 2400f);
+        // The corona reaches a few radii out, and the warm glow a few hundred pixels so a far-off sun still
+        // lights the inner system; zoomed right in the glow would fill the screen, so it fades.
+        var half = Mathf.Min(Mathf.Max(radiusPx * 5f, radiusPx + 420f), radiusPx * 2.2f + 2400f);
         _material.SetShaderParameter("radius_px", radiusPx);
         _material.SetShaderParameter("half_px", half);
         _material.SetShaderParameter("boost", Graphics.Bloom ? 2.2f : 1.0f);
