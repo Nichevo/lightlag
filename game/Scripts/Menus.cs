@@ -182,7 +182,7 @@ public partial class HowToPlay : CenterContainer
         "• Railguns hit hard up close, missiles reach further, point defence shoots missiles down, shields soak what gets through before armour.\n" +
         "• Heat: firing, dodging and burning heat the ships; radiators come in only while under fire. Overheated ships lose guns and shields until they cool. Heat sinks dump heat and can draw off missiles. Run cold to hide, until the cold clock runs out.\n" +
         "• Fleet panel: firing rule (nearest, largest, finish off, engines, split), long-range fire to make a chaser dodge, hold missiles until closer, or drop them to wake later.\n" +
-        "• Click a finished battle in News to watch it again, with the key moments marked.\n\n" +
+        "• Click a finished battle in News to watch it again, with the key moments marked. The Battles tab on the left list (Shift+R) lists every battle you fought and fights you saw, with the ships lost on each side.\n\n" +
         "LIGHT LAG (if on)\n" +
         "• You command from your flagship (the flag mark). Orders and news travel at light speed: fleets inside the command ring are live, far ones show where they were seen, with its age.\n" +
         "• Planets and moons block signals. Build relays to get round them, and sensor stations so held planets see further (Empire panel).\n" +

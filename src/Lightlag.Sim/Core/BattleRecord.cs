@@ -63,7 +63,15 @@ public static class BattleRecords
                     battle.Roster.Add(new RosterShip(s.Id, s.Side, s.Name, s.ClassId, f.Name, Fitting.Spec(s).Armour, flag));
                 }
                 frame.Ships.Add(new FrameShip(s.Id, Round(s.Position.X), Round(s.Position.Y), Math.Round(s.Armour, 1)));
+                battle.EndArmour[s.Id] = Math.Round(s.Armour, 1); // kept after the frames go, for the ship-by-ship fates
             }
+        }
+        // Sides not in the fight that have one of its fleets in sight: the fight shows in their list of battles.
+        foreach (var side in Sides.InPlay(w))
+        {
+            if (battle.For(side).Fleets.Count > 0 || battle.SeenBy.Contains(side)) continue;
+            var names = battle.Sides.SelectMany(x => x.Fleets).ToHashSet();
+            if (w.Fleets.Any(f => names.Contains(f.Name) && Sensors.Find(w, side, f.Id, seat: side == Side.Player)?.Visible == true)) battle.SeenBy.Add(side);
         }
         foreach (var m in w.Missiles) frame.Missiles.Add(new FrameMissile(m.Side, Round(m.Position.X), Round(m.Position.Y)));
         battle.Frames.Add(frame);
@@ -104,9 +112,17 @@ public static class BattleRecords
         b.Marks.Add(new BattleMark(w.Hour, side, kind, text));
     }
 
-    /// <summary>Old battles drop their frames (the report numbers stay).</summary>
+    /// <summary>
+    /// Old battles drop their frames (the report numbers stay). Past <see cref="BattleRecordData.KeepReports"/> the oldest
+    /// go altogether: contacts where nobody fired first, then the oldest battles.
+    /// </summary>
     public static void Trim(World w)
     {
+        while (w.Battles.Count > D.KeepReports)
+        {
+            var i = w.Battles.FindIndex(b => b.EndHour != null && !b.Fought);
+            w.Battles.RemoveAt(i >= 0 && i < w.Battles.Count - 1 ? i : 0);
+        }
         var keep = D.KeepBattles;
         for (var i = 0; i < w.Battles.Count - keep; i++)
         {
@@ -129,5 +145,5 @@ public static class BattleRecords
     private static double Round(double v) => Math.Round(v, 2);
 }
 
-/// <summary>Battle recording settings (ship-classes.json, "recording").</summary>
-public sealed record BattleRecordData(double FrameMinutes = 1, int MaxFrames = 240, int MaxShotsPerFrame = 40, int MaxMarks = 60, int KeepBattles = 6);
+/// <summary>Battle recording settings (ship-classes.json, "recording"): replays kept for the last KeepBattles, reports for the last KeepReports.</summary>
+public sealed record BattleRecordData(double FrameMinutes = 1, int MaxFrames = 240, int MaxShotsPerFrame = 40, int MaxMarks = 60, int KeepBattles = 20, int KeepReports = 200);

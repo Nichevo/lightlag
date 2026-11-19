@@ -708,6 +708,13 @@ public partial class Hud : CanvasLayer
         }
     }
 
+    /// <summary>Open the left list on its Battles tab.</summary>
+    public void ShowBattleList()
+    {
+        _screen.ShowSide = true;
+        _side.ShowBattles = true;
+    }
+
     /// <summary>Open the planet list (for screenshots); false goes back to the fleets.</summary>
     public void ShowBodyMenu(bool open)
     {

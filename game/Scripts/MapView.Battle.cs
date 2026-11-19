@@ -22,6 +22,22 @@ public partial class MapView
     /// <summary>The reach ring lit while a weapon card is hovered.</summary>
     public Color? BattleReach { get; set; }
 
+    /// <summary>The battle opened in the Battles list: where it was fought and its label (a dashed ring on the map).</summary>
+    public (Vec2 Where, string Label)? MarkedBattle { get; set; }
+
+    private void DrawMarkedBattle()
+    {
+        if (MarkedBattle is not var (where, label)) return;
+        var at = Camera.ToScreen(where);
+        var color = new Color("f0a040");
+        DrawDashedCircle(at, 30, color, null);
+        DrawCircle(at, 3, color);
+        var size = _font.GetStringSize(label, HorizontalAlignment.Left, -1, 13);
+        var top = at + new Vector2(-size.X / 2, 38);
+        DrawRect(new Rect2(top - new Vector2(6, 2), size + new Vector2(12, 6)), new Color(0, 0, 0, 0.7f));
+        DrawString(_font, top + new Vector2(0, size.Y - 3), label, HorizontalAlignment.Left, -1, 13, color);
+    }
+
     private static readonly Color Gold = new(1f, 0.83f, 0.47f);
 
     private void DrawBattlePaths(EngagementInfo open)

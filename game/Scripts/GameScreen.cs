@@ -626,7 +626,7 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         var stamp = HashCode.Combine(HashCode.Combine(_camera.Center.X, _camera.Center.Y, _camera.Scale, _camera.ScreenSize, GetViewport().GetMousePosition(), _selected, _map.HoverId, _group.Count),
             HashCode.Combine(w.Tick, w.Sub, Sim.Replay.Commands.Count, _map.Blend, BattleView, RevealAll, Planner?.Plan, _map.BattlePreview),
-            HashCode.Combine(_map.BattleReach, _map.SelectionBox, _map.ZoneDraft, EngagementNow, PlayerInfo.OpenSections.Count, _paused));
+            HashCode.Combine(_map.BattleReach, _map.SelectionBox, _map.ZoneDraft, EngagementNow, PlayerInfo.OpenSections.Count, _paused, MarkedBattle?.Id));
         var uncovered = _wasCovered && !covered;
         _wasCovered = covered;
         if (BenchProbe.OldWay || !covered && (!_paused || stamp != _drawStamp || _inputSeen || uncovered || _sinceDraw >= 0.25))
@@ -1538,6 +1538,23 @@ public partial class GameScreen : Node2D
 
     public void ShowLastReport() => Report = Sim.World.Battles.LastOrDefault();
     public void CloseReport() => Report = null;
+
+    /// <summary>The battle opened in the Battles list, marked on the map where it was fought (null: none).</summary>
+    public Battle? MarkedBattle { get; private set; }
+
+    /// <summary>Mark a battle from the Battles list on the map and glide the view to where it was fought.</summary>
+    public void MarkBattle(Battle? b)
+    {
+        MarkedBattle = b;
+        _map.MarkedBattle = b == null ? null : (b.Where, BattleList.NearestName(Sim.World, b.Where) + ": " + BattleList.Summarise(Sim.World, b).Result);
+        if (b == null) return;
+        SaveView();
+        _follow = null;
+        _camera.Glide(b.Where);
+    }
+
+    /// <summary>Open the left list on its Battles tab (Shift+R).</summary>
+    public void ShowBattleList() => _hud.ShowBattleList();
     public void ShowReportOf(Battle? b) { Replay = null; Report = b; }
 
     /// <summary>The battle being watched again, if any (see ReplayPanel).</summary>
@@ -2027,6 +2044,7 @@ public partial class GameScreen : Node2D
                 });
                 break;
             case Key.F7: ToggleRevealAll(); _main.Toast(RevealAll ? "Debug: showing every fleet (F7 to hide)" : "Showing only what your sensors see"); break;
+            case Key.R when key.ShiftPressed: ShowBattleList(); break;
             case Key.R: if (Report != null) CloseReport(); else ShowLastReport(); break;
             case Key.E when Sim.World.Loop: _hud.OpenScreen("budget"); break;
             case Key.V when Sim.World.Loop: _hud.OpenScreen("shipyard"); break;
