@@ -10,7 +10,9 @@ namespace Lightlag.Game;
 /// yours, and the rival fleets you know of. Planets are listed outward from the star with their moons.
 /// Click a row to select it and centre the map; double-click opens it (your planet's screen, your fleet on the
 /// fleets screen) or, for others, zooms in and follows. Show (all, mine, rival) and sort (as listed, name,
-/// distance from home, needs attention) are kept in ui.cfg. « folds it away (L).
+/// distance from home, needs attention) are kept in ui.cfg. « folds it away (L). The third tab, Battles (Shift+R),
+/// lists every battle you fought and the fights you saw, newest first, with the ships lost on each side; click one to
+/// open it in place and mark it on the map, double-click for the full report.
 /// </summary>
 public partial class SidePanel : PanelContainer
 {
@@ -18,12 +20,21 @@ public partial class SidePanel : PanelContainer
 
     private readonly GameScreen _screen;
     private VBoxContainer _rows = null!;
-    private Button _fleetTab = null!, _planetTab = null!;
-    private bool _planets;
+    private Button _fleetTab = null!, _planetTab = null!, _battleTab = null!;
+    private HBoxContainer _filters = null!, _battleFilters = null!;
+    private Label _hint = null!;
+    private bool _planets, _battles;
 
     /// <summary>Show the planets tab rather than the fleets.</summary>
-    public bool ShowPlanets { get => _planets; set { if (_planets != value) _shape = ""; _planets = value; } }
+    public bool ShowPlanets { get => _planets; set { if (_planets != value || _battles) _shape = ""; _planets = value; _battles = false; } }
+
+    /// <summary>Show the Battles tab.</summary>
+    public bool ShowBattles { get => _battles; set { if (_battles != value) _shape = ""; _battles = value; if (value) _planets = false; } }
     private string _shape = "";
+
+    /// <summary>The Battles tab: which to show (all, mine, seen), the order (newest, oldest, losses) and the battle open in place.</summary>
+    private static string _battleShow = "all", _battleSort = "newest";
+    private int? _openBattle;
 
     public SidePanel() : this(null!) { }
     public SidePanel(GameScreen screen) => _screen = screen;
@@ -36,20 +47,29 @@ public partial class SidePanel : PanelContainer
         AddChild(box);
         var tabs = new HBoxContainer();
         tabs.AddThemeConstantOverride("separation", 4);
-        _fleetTab = Ui.SmallButton("Fleets", () => { _planets = false; _shape = ""; }, "Your fleets, then the rival fleets you know of");
-        _planetTab = Ui.SmallButton("Planets", () => { _planets = true; _shape = ""; }, "Every planet and moon, outward from the star");
+        _fleetTab = Ui.SmallButton("Fleets", () => { _planets = false; _battles = false; _shape = ""; }, "Your fleets, then the rival fleets you know of");
+        _planetTab = Ui.SmallButton("Planets", () => { _planets = true; _battles = false; _shape = ""; }, "Every planet and moon, outward from the star");
+        _battleTab = Ui.SmallButton("Battles", () => ShowBattles = true, "Every battle you fought and the fights you saw, with the ships lost on each side (Shift+R)");
         tabs.AddChild(_fleetTab);
         tabs.AddChild(_planetTab);
+        tabs.AddChild(_battleTab);
         tabs.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         tabs.AddChild(Ui.SmallButton("«", () => _screen.ShowSide = false, "Fold the list away (L)"));
         box.AddChild(tabs);
-        var filters = new HBoxContainer();
+        var filters = _filters = new HBoxContainer();
         filters.AddThemeConstantOverride("separation", 4);
         filters.AddChild(Choice(new[] { ("all", "All"), ("mine", "Mine only"), ("rival", "Rival known") }, PlayerInfo.SideShow,
             k => PlayerInfo.SetSide(k, PlayerInfo.SideSort), "Which rows to show"));
         filters.AddChild(Choice(new[] { ("order", "As listed"), ("name", "By name"), ("distance", "By distance"), ("attention", "Needs attention") }, PlayerInfo.SideSort,
             k => PlayerInfo.SetSide(PlayerInfo.SideShow, k), "Order of the rows (distance from your home world)"));
         box.AddChild(filters);
+        _battleFilters = new HBoxContainer { Visible = false };
+        _battleFilters.AddThemeConstantOverride("separation", 4);
+        _battleFilters.AddChild(Choice(new[] { ("all", "All battles"), ("mine", "Yours only"), ("seen", "Others' fights seen") }, _battleShow,
+            k => _battleShow = k, "Which battles to show"));
+        _battleFilters.AddChild(Choice(new[] { ("newest", "Newest first"), ("oldest", "Oldest first"), ("losses", "Most ships lost") }, _battleSort,
+            k => _battleSort = k, "Order of the battles"));
+        box.AddChild(_battleFilters);
         var scroll = new ScrollContainer
         {
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
@@ -60,7 +80,7 @@ public partial class SidePanel : PanelContainer
         _rows.AddThemeConstantOverride("separation", 4);
         scroll.AddChild(_rows);
         box.AddChild(scroll);
-        var hint = Ui.Label("Click a row to centre the map on it · double-click to open yours (or follow others)", 11, Ui.Dim);
+        var hint = _hint = Ui.Label("Click a row to centre the map on it · double-click to open yours (or follow others)", 11, Ui.Dim);
         hint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         hint.CustomMinimumSize = new Vector2(Width, 0);
         box.AddChild(hint);
@@ -109,8 +129,18 @@ public partial class SidePanel : PanelContainer
         var held = w.Bodies.Count(b => b.Owner == Side.Player);
         _fleetTab.Text = $"Fleets ({mine})";
         _planetTab.Text = $"Planets ({held})";
-        _fleetTab.Modulate = _planets ? new Color(1, 1, 1, 0.6f) : Ui.Player;
-        _planetTab.Modulate = _planets ? Ui.Player : new Color(1, 1, 1, 0.6f);
+        var known = BattleList.Known(w);
+        _battleTab.Text = $"Battles ({known.Count})";
+        var off = new Color(1, 1, 1, 0.6f);
+        _fleetTab.Modulate = !_planets && !_battles ? Ui.Player : off;
+        _planetTab.Modulate = _planets ? Ui.Player : off;
+        _battleTab.Modulate = _battles ? Ui.Player : off;
+        _filters.Visible = !_battles;
+        _battleFilters.Visible = _battles;
+        _hint.Text = _battles ? "Click a battle to open it and mark it on the map · double-click for the full report"
+            : "Click a row to centre the map on it · double-click to open yours (or follow others)";
+        if (_battles) { RefreshBattles(w, known); return; }
+        if (_screen.MarkedBattle != null) { _openBattle = null; _screen.MarkBattle(null); } // left the Battles tab: no marker
 
         var rows = Arrange(_planets ? BodyRows(w) : FleetRows(w));
         var selected = _screen.SelectedId;
@@ -129,6 +159,180 @@ public partial class SidePanel : PanelContainer
             _rows.AddChild(RowControl(r, r.Id == selected));
         }
         if (rows.Count == 0) _rows.AddChild(Ui.Label(_planets ? "No planets to show" : "No fleets to show", 13, Ui.Dim));
+    }
+
+    private void RefreshBattles(World w, List<Battle> known)
+    {
+        IEnumerable<BattleSummary> list = known.Select(b => BattleList.Summarise(w, b));
+        list = _battleShow switch
+        {
+            "mine" => list.Where(s => !s.Seen),
+            "seen" => list.Where(s => s.Seen),
+            _ => list,
+        };
+        list = _battleSort switch
+        {
+            "oldest" => list.OrderBy(s => s.Battle.StartHour),
+            "losses" => list.OrderByDescending(s => s.Us.Lost + s.Them.Lost).ThenByDescending(s => s.Us.Crippled + s.Them.Crippled).ThenByDescending(s => s.Battle.StartHour),
+            _ => list.OrderByDescending(s => s.Battle.StartHour),
+        };
+        var rows = list.ToList();
+        var score = BattleList.Score(w);
+        // Rebuild only when something shown changed (rows hold fates and lengths, which move while a fight goes on).
+        var shape = "B" + score + "#" + _openBattle + "#" + string.Join("|", rows.Select(r => $"{r.Id}{r.Result}{r.When}{r.Us.Lost}{r.Us.Crippled}{r.Them.Lost}{r.Them.Crippled}"
+            + string.Concat(r.Us.Rows.Select(x => x.Text)) + string.Concat(r.Them.Rows.Select(x => x.Text))));
+        if (shape == _shape || Ui.MouseHeld) return;
+        _shape = shape;
+        Ui.ClearChildren(_rows);
+        _rows.AddChild(ScoreBox(score));
+        foreach (var r in rows) _rows.AddChild(BattleRow(r, r.Id == _openBattle));
+        if (rows.Count == 0)
+        {
+            var none = Ui.Label(known.Count == 0 ? "No battles yet. Every fight you have, and fights you see between others, will be listed here." : "No battles to show", 13, Ui.Dim);
+            none.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            none.CustomMinimumSize = new Vector2(Width - 20, 0);
+            _rows.AddChild(none);
+        }
+    }
+
+    private static Control ScoreBox((int Won, int Lost, int Even, int MyLost, int MyCrippled, int TheirLost, int TheirCrippled) s)
+    {
+        var card = new PanelContainer();
+        var style = new StyleBoxFlat { BgColor = new Color("0d1726"), BorderColor = new Color("16263b") };
+        style.SetBorderWidthAll(1);
+        style.SetCornerRadiusAll(5);
+        style.SetContentMarginAll(6);
+        card.AddThemeStyleboxOverride("panel", style);
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 2);
+        var top = new HBoxContainer();
+        var head = Ui.Label("This game", 12, Ui.Dim);
+        head.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        top.AddChild(head);
+        top.AddChild(Ui.Label($"won {s.Won}", 12, BattleList.Won));
+        top.AddChild(Ui.Label($"· lost {s.Lost}", 12, Ui.Danger));
+        top.AddChild(Ui.Label($"· even {s.Even}", 12, Ui.Text));
+        v.AddChild(top);
+        var losses = new HBoxContainer();
+        var mine = Ui.Label($"You lost {s.MyLost}, {s.MyCrippled} crippled", 12, Ui.Player);
+        mine.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        losses.AddChild(mine);
+        losses.AddChild(Ui.Label($"They lost {s.TheirLost}, {s.TheirCrippled} crippled", 12, Ui.Rival));
+        v.AddChild(losses);
+        card.AddChild(v);
+        card.TooltipText = "Your battles that have ended: won when the other side pulled back or was wiped out (or lost more), even when neither did better";
+        return card;
+    }
+
+    private Control BattleRow(BattleSummary r, bool open)
+    {
+        var card = new PanelContainer { MouseFilter = MouseFilterEnum.Stop, MouseDefaultCursorShape = CursorShape.PointingHand };
+        var style = new StyleBoxFlat
+        {
+            BgColor = open ? new Color("16233a") : new Color("0c111a"),
+            BorderColor = open ? Ui.Player : r.Live ? new Color(Ui.Rival, 0.6f) : new Color("1a2230"),
+        };
+        style.SetBorderWidthAll(1);
+        style.SetCornerRadiusAll(5);
+        style.SetContentMarginAll(6);
+        card.AddThemeStyleboxOverride("panel", style);
+        if (r.Seen && !open) card.Modulate = new Color(1, 1, 1, 0.7f);
+        var v = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        v.AddThemeConstantOverride("separation", 2);
+        var head = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        var title = Ui.Label(r.Place, 14, r.Seen ? Ui.Dim : Ui.Text);
+        title.MouseFilter = MouseFilterEnum.Ignore;
+        title.ClipText = true;
+        title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        head.AddChild(title);
+        var badge = Ui.Label(r.Result, 12, r.ResultColor);
+        badge.MouseFilter = MouseFilterEnum.Ignore;
+        head.AddChild(badge);
+        v.AddChild(head);
+        var line = Ui.Label($"{r.When} · {r.Who}", 11, Ui.Dim);
+        line.MouseFilter = MouseFilterEnum.Ignore;
+        line.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        line.CustomMinimumSize = new Vector2(Width - 20, 0);
+        v.AddChild(line);
+        v.AddChild(DotsLine(r.Us, r.FatesKnown));
+        v.AddChild(DotsLine(r.Them, r.FatesKnown));
+
+        if (open)
+        {
+            var ending = Ui.Label(r.Ending, 12, Ui.Text);
+            ending.MouseFilter = MouseFilterEnum.Ignore;
+            ending.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            ending.CustomMinimumSize = new Vector2(Width - 20, 0);
+            v.AddChild(new HSeparator { MouseFilter = MouseFilterEnum.Ignore });
+            v.AddChild(ending);
+            if (!r.Seen && r.FatesKnown)
+            {
+                var grid = new GridContainer { Columns = 2, MouseFilter = MouseFilterEnum.Ignore };
+                grid.AddThemeConstantOverride("h_separation", 10);
+                grid.AddChild(Fates(r.Us));
+                grid.AddChild(Fates(r.Them));
+                v.AddChild(grid);
+            }
+            var buttons = new HBoxContainer();
+            buttons.AddThemeConstantOverride("separation", 6);
+            var battle = r.Battle;
+            buttons.AddChild(Ui.SmallButton("Full report", () => _screen.ShowReportOf(battle), "The whole combat report: ships, weapons, damage (double-click the row)"));
+            if (battle.Frames.Count > 0) buttons.AddChild(Ui.SmallButton("▶ Watch replay", () => _screen.OpenReplay(battle), "Watch the battle again, with the moments that mattered marked"));
+            else buttons.AddChild(Ui.Label($"Replay not kept (only the last {Lightlag.Sim.Core.GameData.Recording.KeepBattles} battles)", 11, Ui.Dim));
+            v.AddChild(buttons);
+        }
+        card.AddChild(v);
+        card.GuiInput += e =>
+        {
+            if (e is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click) return;
+            Main.Instance.RunGuarded("battle list", () =>
+            {
+                if (click.DoubleClick) { _openBattle = r.Id; _screen.ShowReportOf(r.Battle); }
+                else _openBattle = _openBattle == r.Id ? null : r.Id;
+                _screen.MarkBattle(_openBattle is null ? null : r.Battle);
+                _shape = "";
+            });
+            card.AcceptEvent();
+        };
+        return card;
+    }
+
+    private static Control DotsLine(SideSummary s, bool fatesKnown)
+    {
+        var h = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        h.AddThemeConstantOverride("separation", 6);
+        var color = s.Side == Side.Player ? Ui.Player : Ui.SideColor(s.Side);
+        var label = Ui.Label(BattleList.CountLine(s, fatesKnown), 11, color);
+        label.MouseFilter = MouseFilterEnum.Ignore;
+        label.CustomMinimumSize = new Vector2(150, 0);
+        label.ClipText = true;
+        h.AddChild(label);
+        // Estimates: dots for the counts only (names and which ship is which are not known).
+        var fates = s.Estimate
+            ? Enumerable.Repeat(ShipFate.Lost, s.Lost).Concat(Enumerable.Repeat(ShipFate.Crippled, s.Crippled))
+                .Concat(Enumerable.Repeat(ShipFate.Fine, Math.Max(0, s.Ships - s.Lost - s.Crippled))).Reverse().ToList()
+            : s.Rows.Select(x => x.Fate).Reverse().ToList();
+        h.AddChild(new ShipDots(fates, color, s.Estimate));
+        return h;
+    }
+
+    private static Control Fates(SideSummary s)
+    {
+        var v = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore, CustomMinimumSize = new Vector2((Width - 30) / 2, 0) };
+        v.AddThemeConstantOverride("separation", 0);
+        v.AddChild(Ui.Label(s.Label, 12, s.Side == Side.Player ? Ui.Player : Ui.SideColor(s.Side)));
+        foreach (var f in s.Rows)
+        {
+            var h = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+            var n = Ui.Label(f.Name, 11, Ui.Text);
+            n.ClipText = true;
+            n.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            n.MouseFilter = MouseFilterEnum.Ignore;
+            h.AddChild(n);
+            h.AddChild(Ui.Label(f.Text, 11, f.Color));
+            v.AddChild(h);
+        }
+        return v;
     }
 
     private Control RowControl(Row r, bool selected)

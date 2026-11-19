@@ -54,6 +54,39 @@ public class CombatTests
     }
 
     [Fact]
+    public void Battles_keep_each_ships_end_armour_after_their_replay_is_dropped()
+    {
+        var sim = Sandbox(new SandboxSetup(PlayerFrigates: 4, PlayerDestroyers: 0, RivalFrigates: 0, RivalDestroyers: 2,
+            PlayerStance: Stance.Hold, DistanceMm: 45));
+        var battle = Fight(sim);
+        Assert.Equal(battle.Roster.Count, battle.EndArmour.Count);
+        foreach (var r in battle.Roster)
+            Assert.InRange(battle.EndArmour[r.Id], 0, r.MaxArmour + 1e-6);
+        Assert.Contains(battle.Roster, r => battle.EndArmour[r.Id] < r.MaxArmour); // someone was hit
+        battle.Frames.Clear(); // as an old battle's replay is dropped: the fates stay
+        Assert.Equal(battle.Roster.Count, battle.EndArmour.Count);
+        Assert.Empty(battle.SeenBy); // both sides fought in it: nobody only watched
+    }
+
+    [Fact]
+    public void Old_battles_drop_their_replays_after_twenty_and_their_reports_after_two_hundred_contacts_first()
+    {
+        var w = new World();
+        for (var i = 0; i < 230; i++)
+        {
+            var b = new Battle { Id = i + 1, StartHour = i, EndHour = i + 0.5, Frames = { new BattleFrame { Hour = i } } };
+            if (i % 2 == 0) b.For(Side.Player).RailShots = 1; // fought; the odd ones are contacts with no shots
+            w.Battles.Add(b);
+        }
+        BattleRecords.Trim(w);
+        Assert.Equal(GameData.Recording.KeepReports, w.Battles.Count);
+        Assert.Equal(20, GameData.Recording.KeepBattles);
+        Assert.Equal(GameData.Recording.KeepBattles, w.Battles.Count(b => b.Frames.Count > 0));
+        Assert.Equal(1, w.Battles[0].Id); // the oldest real battle stays: contacts went first
+        Assert.True(w.Battles.Count(b => !b.Fought) == 85);
+    }
+
+    [Fact]
     public void Missile_ships_unseen_by_their_target_get_the_first_shots_and_catch_it_unawares()
     {
         // Cold, quiet fleets 55,000 km apart: neither ship's own sensors see that far. The player is told where

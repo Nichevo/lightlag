@@ -196,7 +196,7 @@
     "rivalTech": { "battleTeach": 0.08, "wreckTeach": 0.2, "captureTeach": 0.6, "planetTeachPerDay": 0.01, "studiedAt": 0.3, "unlockedCut": 0.2 }
   },
   "formations": { "blockMm": 0.6, "pdCoverMm": 6, "pdOutsideFactor": 0.5, "shieldCoverMm": 3, "shieldShare": 0.5, "turnRadians": 0.35, "wallMissileShare": 0.5, "wallHeavyArmour": 300, "pdSelfFactor": 1.5, "pdHeatPerMissile": 0.2 },
-  "recording": { "frameMinutes": 1, "maxFrames": 240, "maxShotsPerFrame": 40, "maxMarks": 60, "keepBattles": 6 },
+  "recording": { "frameMinutes": 1, "maxFrames": 240, "maxShotsPerFrame": 40, "maxMarks": 60, "keepBattles": 20, "keepReports": 200 },
   "sensors": {
     "cold": 1,
     "orbit": 3,

@@ -1765,16 +1765,21 @@ public partial class PlannerPanel : PanelContainer
 }
 
 /// <summary>
-/// The combat report: for each side, shots and hits, missiles fired and what became of them (hit, shot
-/// down by point defence, dodged, ran dry), damage done, parts knocked out and ships lost.
+/// The combat report: how it ended and each side's ships with what became of them (lost, crippled, hurt), then for
+/// each side shots and hits, missiles fired and what became of them (hit, shot down by point defence, dodged, ran
+/// dry), damage done and parts knocked out. Older and Newer step through the Battles list.
 /// </summary>
 public partial class ReportPanel : PanelContainer
 {
     private readonly GameScreen _screen;
     private Label _title = null!;
+    private Label _result = null!;
+    private Label _ending = null!;
+    private HBoxContainer _sides = null!;
     private Label _body = null!;
-    private Button _watch = null!;
+    private Button _watch = null!, _older = null!, _newer = null!;
     private Battle? _shown;
+    private string _shape = "";
 
     public ReportPanel() : this(null!) { }
     public ReportPanel(GameScreen screen) => _screen = screen;
@@ -1785,8 +1790,26 @@ public partial class ReportPanel : PanelContainer
         var box = new VBoxContainer { CustomMinimumSize = new Vector2(560, 0) };
         box.AddThemeConstantOverride("separation", 8);
         AddChild(box);
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 10);
         _title = Ui.Label("", 20, Ui.Player);
-        box.AddChild(_title);
+        head.AddChild(_title);
+        _result = Ui.Label("", 16, Ui.Text);
+        head.AddChild(_result);
+        head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        _older = Ui.SmallButton("◀ Older", () => Step(-1), "The battle before this one in your Battles list");
+        _newer = Ui.SmallButton("Newer ▶", () => Step(1), "The battle after this one in your Battles list");
+        head.AddChild(_older);
+        head.AddChild(_newer);
+        box.AddChild(head);
+        _ending = Ui.Label("", 14, Ui.Dim);
+        _ending.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _ending.CustomMinimumSize = new Vector2(560, 0);
+        box.AddChild(_ending);
+        _sides = new HBoxContainer();
+        _sides.AddThemeConstantOverride("separation", 12);
+        box.AddChild(_sides);
+        box.AddChild(Ui.Label("Weapons and damage", 13, Ui.Dim));
         _body = Ui.Label("", 14);
         _body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _body.CustomMinimumSize = new Vector2(560, 0);
@@ -1802,13 +1825,84 @@ public partial class ReportPanel : PanelContainer
     public void Refresh(Battle b)
     {
         _shown = b;
+        var w = Main.Instance.Sim!.World;
         _watch.Disabled = b.Frames.Count == 0;
+        _watch.TooltipText = b.Frames.Count == 0 ? $"Replays are kept for the last {GameData.Recording.KeepBattles} battles only" : "Watch the battle again, with the moments that mattered marked";
         var p = b.For(Side.Player);
         var r = b.Foes(Side.Player);
         var end = b.EndHour is double e ? GameTime.Format(e) : "still going";
-        var length = (b.EndHour ?? Main.Instance.Sim!.World.Hour) - b.StartHour;
-        _title.Text = $"Combat report: {GameTime.Format(b.StartHour)} to {end} ({Format.Hours(length)})";
-        _body.Text = SideText("You", p) + "\n\n" + SideText("Rival", r);
+        var length = (b.EndHour ?? w.Hour) - b.StartHour;
+        var sum = BattleList.Summarise(w, b);
+        _title.Text = $"{sum.Place}: {GameTime.Format(b.StartHour)} to {end} ({Format.Hours(length)})";
+        _result.Text = sum.Result;
+        _result.AddThemeColorOverride("font_color", sum.ResultColor);
+        _ending.Text = sum.Ending;
+        var known = BattleList.Known(w);
+        var at = known.FindIndex(x => x.Id == b.Id);
+        _older.Disabled = at <= 0;
+        _newer.Disabled = at < 0 || at >= known.Count - 1;
+        _body.Text = sum.Seen ? "" : SideText("You", p) + "\n\n" + SideText("Rival", r);
+        var shape = $"{b.Id}|{sum.FatesKnown}|" + string.Join(",", sum.Us.Rows.Concat(sum.Them.Rows).Select(x => x.Text));
+        if (shape == _shape) return;
+        _shape = shape;
+        Ui.ClearChildren(_sides);
+        _sides.AddChild(SideBox(sum.Us, sum.FatesKnown));
+        _sides.AddChild(SideBox(sum.Them, sum.FatesKnown));
+    }
+
+    private void Step(int by)
+    {
+        if (_shown == null) return;
+        var known = BattleList.Known(Main.Instance.Sim!.World);
+        var at = known.FindIndex(x => x.Id == _shown.Id);
+        if (at < 0 || at + by < 0 || at + by >= known.Count) return;
+        _screen.ShowReportOf(known[at + by]);
+    }
+
+    /// <summary>One side's ships lost, in big numbers, and each ship's fate.</summary>
+    private static Control SideBox(SideSummary s, bool fatesKnown)
+    {
+        var card = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var style = new StyleBoxFlat { BgColor = new Color("0d1726"), BorderColor = new Color("16263b") };
+        style.SetBorderWidthAll(1);
+        style.SetCornerRadiusAll(4);
+        style.SetContentMarginAll(10);
+        card.AddThemeStyleboxOverride("panel", style);
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 2);
+        var color = s.Side == Side.Player ? Ui.Player : Ui.SideColor(s.Side);
+        var est = s.Estimate ? "~" : "";
+        v.AddChild(Ui.Label($"{s.Label}: {est}{s.Ships} ship{(s.Ships == 1 ? "" : "s")}", 14, color));
+        if (!fatesKnown) v.AddChild(Ui.Label("Losses not seen yet: the light is on its way", 13, Ui.Dim));
+        else
+        {
+            var big = new HBoxContainer();
+            big.AddThemeConstantOverride("separation", 8);
+            big.AddChild(Ui.Label($"{est}{s.Lost} lost", 22, s.Lost > 0 ? Ui.Danger : Ui.Text));
+            if (s.Crippled > 0) big.AddChild(Ui.Label($"· {est}{s.Crippled} crippled", 16, BattleList.FateColor(ShipFate.Crippled)));
+            v.AddChild(big);
+        }
+        if (s.Estimate) v.AddChild(Ui.Label("Seen from afar: names not known", 12, Ui.Dim));
+        else if (fatesKnown)
+            foreach (var f in s.Rows)
+            {
+                var h = new HBoxContainer();
+                h.AddThemeConstantOverride("separation", 8);
+                var name = Ui.Label(f.Name, 12, Ui.Text);
+                name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                name.ClipText = true;
+                h.AddChild(name);
+                if (f.ClassId != "") h.AddChild(Ui.Label(ClassName(f.ClassId), 12, Ui.Dim));
+                h.AddChild(Ui.Label(f.Text, 12, f.Color));
+                v.AddChild(h);
+            }
+        card.AddChild(v);
+        return card;
+    }
+
+    private static string ClassName(string id)
+    {
+        return GameData.ShipClasses.TryGetValue(id, out var c) ? c.Name : id;
     }
 
     private static string SideText(string who, BattleSide s)

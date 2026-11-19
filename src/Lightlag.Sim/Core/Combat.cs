@@ -168,6 +168,12 @@ public sealed class Battle
     public List<BattleMark> Marks { get; set; } = new();
     public List<FrameShot> PendingShots { get; set; } = new();
     public double FrameEveryHours { get; set; }
+
+    /// <summary>Each ship's armour when last recorded (by ship id): kept after the frames go, for the ship-by-ship fates.</summary>
+    public Dictionary<int, double> EndArmour { get; set; } = new();
+
+    /// <summary>Sides not in the fight that had one of its fleets in sight while it went on (it shows in their battle list).</summary>
+    public List<Side> SeenBy { get; set; } = new();
 }
 
 /// <summary>
@@ -1183,7 +1189,6 @@ public static class Combat
         {
             battle = new Battle { Id = w.NextId++, StartHour = t1, LastActionHour = t1, FightingSinceHour = t1, Where = inContact[0].A.Position };
             w.Battles.Add(battle);
-            if (w.Battles.Count > 20) w.Battles.RemoveAt(0);
             BattleRecords.Trim(w);
             foreach (var side in Sides.InPlay(w)) battle.For(side).LagHours = Light.DelayHours(w, side, battle.Where);
             sim.Log.Info("combat", $"Contact: {inContact[0].A.Name} and {inContact[0].B.Name}", new
