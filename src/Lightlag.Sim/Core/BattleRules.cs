@@ -174,6 +174,31 @@ public static class BattleRules
         return full > 0 ? have / full : 1;
     }
 
+    /// <summary>
+    /// Low ammunition for the pull-back rule: every missile is away and railgun ammunition is under 15 % (a fleet fires all it has
+    /// before it leaves for want of ammunition). A fleet with nothing to fire in the first place is never "low".
+    /// </summary>
+    public static bool OutOfShots(World w, Fleet f)
+    {
+        var ships = w.ShipsOf(f).ToList();
+        var racks = ships.Where(s => Fitting.Spec(s).Missiles > 0).ToList();
+        var rails = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
+        if (racks.Count == 0 && rails.Count == 0) return false;
+        if (racks.Any(s => s.Missiles > 0)) return false;
+        return rails.Count == 0 || rails.Sum(s => Math.Clamp(s.Ammo / SupplyLines.MaxAmmo(s), 0, 1)) / rails.Count < 0.15;
+    }
+
+    /// <summary>Odds at which low ammunition is no reason to leave: the fleet is this many times stronger than every enemy close by.</summary>
+    public const double AmmoStayOdds = 3;
+
+    /// <summary>Is this fleet far stronger than every enemy fleet within contact range (or are they unarmed)?</summary>
+    public static bool FarStronger(World w, Fleet f)
+    {
+        var enemy = w.Fleets.Where(e => e.Side != f.Side && e.ShipIds.Count > 0 && Vec2.Distance(e.Position, f.Position) <= GameData.Combat.ContactRangeMm)
+            .Sum(e => Strength(w, e));
+        return enemy <= 1e-9 || Strength(w, f) >= AmmoStayOdds * enemy;
+    }
+
     /// <summary>Why the rule says pull back now, if it does.</summary>
     public static string? Trigger(World w, Fleet f, PullRule rule)
     {
@@ -181,7 +206,7 @@ public static class BattleRules
         if (rule.StrengthLost < 1 && lost >= rule.StrengthLost) return $"lost {lost:P0} of its strength";
         var down = f.FightLost + w.ShipsOf(f).Count(s => s.Crippled);
         if (rule.ShipsDown > 0 && down >= rule.ShipsDown) return $"{down} ship{(down == 1 ? "" : "s")} down";
-        if (rule.LowAmmo && w.Loop && AmmoShare(w, f) < 0.15) return "low on ammunition";
+        if (rule.LowAmmo && w.Loop && OutOfShots(w, f) && !FarStronger(w, f)) return "out of ammunition";
         if (rule.FlagshipHit && Light.Flagship(w, f.Side) is Ship flag && flag.FleetId == f.Id && Wounds.Share(w, flag, Wounds.Bar.Hull) < 0.9) return "the flagship is hit";
         if (rule.BarBelow > 0)
             foreach (var bar in Wounds.Bars)
@@ -217,6 +242,114 @@ public static class BattleRules
         new SplitFleetCommand(f.Id, ships.Select(s => s.Id).ToList()) { Source = "rule" }.Apply(sim.World, sim);
         var g = sim.World.FleetOf(ships[0]);
         return g == null || g.Id == f.Id ? null : g;
+    }
+
+    /// <summary>A ship worth sending for repair: crippled, or any bar (hull, weapons, engines, defence, crew) under 90 %.</summary>
+    public static bool Hurt(World w, Ship s) => s.Crippled || Wounds.Worst(w, s) < 0.9;
+
+    /// <summary>Why a fleet's ships can't be sent for repair now (null: they can).</summary>
+    public static string? RepairProblem(World w, Fleet f)
+    {
+        var yard = NearestYard(w, f.Side, f.Position);
+        if (yard == null || !Colonies.RepairsHere(w, yard, f.Side)) return "you hold no shipyard, dry dock or starbase that repairs ships";
+        if (Economy.InOrbitAt(f, yard) && f.Flight == null) return $"it is already at {yard.Name}, where it is being repaired";
+        return null;
+    }
+
+    /// <summary>Where and how long: "Verdant shipyard, about 3 d away" for the fleet's nearest repair place.</summary>
+    public static string RepairWhere(World w, Fleet f)
+    {
+        if (NearestYard(w, f.Side, f.Position) is not Body yard || !Colonies.RepairsHere(w, yard, f.Side)) return "no shipyard, dry dock or starbase of yours repairs ships";
+        if (Economy.InOrbitAt(f, yard)) return $"being repaired at {yard.Name} while it holds orbit there";
+        var speed = Math.Max(1e-9, w.ShipsOf(f).Select(Fleets.ShipSpeed).DefaultIfEmpty(0).Min() * 0.5);
+        var days = Vec2.Distance(yard.Position, f.Position) / speed / 24;
+        return $"nearest repairs at {yard.Name}, about {Math.Max(0.1, days):0.#} d away at cruise";
+    }
+
+    /// <summary>A ship that can't get home on its own: crippled, or its engines out.</summary>
+    public static bool NeedsTow(Ship s) => s.Crippled || s.Out(Module.Engines);
+
+    /// <summary>The ship Send help would send: the nearest free ship of the side (a supply ship first, else the smallest
+    /// warship) in a fleet that is stopped, out of battle and not locked, never the last ship of a fleet on a job.</summary>
+    public static (Fleet From, Ship Ship, double Days)? HelperFor(World w, Fleet hurt)
+    {
+        var best = ((Fleet, Ship, double)?)null;
+        var bestScore = double.MaxValue;
+        foreach (var g in w.Fleets.Where(g => g.Side == hurt.Side && g.Id != hurt.Id && g.ShipIds.Count > 0 && !g.Locked && !g.Retreating && !g.Helper
+                                            && g.Flight == null && g.Chase == null && !Heat.InBattle(w, g)).OrderBy(g => g.Id))
+            foreach (var s in w.ShipsOf(g).Where(s => !NeedsTow(s) && Wounds.Worst(w, s) >= 0.5 && Fleets.ShipSpeed(s) > 0).OrderBy(s => s.Id))
+            {
+                var tender = SupplyLines.IsSupplyShip(s);
+                if (!tender && !Planner.Warship(s)) continue;
+                var days = Vec2.Distance(g.Position, hurt.Position) / Math.Max(1e-9, Fleets.ShipSpeed(s)) / 24;
+                var score = days * (tender ? 1 : 1.5) + (tender ? 0 : Fitting.Spec(s).Cost / 1000.0);
+                if (score < bestScore) { bestScore = score; best = (g, s, days); }
+            }
+        return best;
+    }
+
+    /// <summary>Why Send help can't be done for this fleet now (null: it can).</summary>
+    public static string? HelpProblem(World w, Fleet hurt)
+    {
+        if (!w.ShipsOf(hurt).Any(s => Hurt(w, s))) return "none of its ships is damaged";
+        if (Heat.InBattle(w, hurt)) return "it is in battle";
+        if (HelperFor(w, hurt) == null) return "no free ship to send (a stopped fleet out of battle, not locked)";
+        return null;
+    }
+
+    /// <summary>A helper joined: with a ship that can't fly home, the fleet heads for the nearest yard at tow speed (and is mended
+    /// there); otherwise it stays and the tender mends them where they are.</summary>
+    public static void HelperArrives(Simulation sim, Fleet f)
+    {
+        var w = sim.World;
+        if (w.ShipsOf(f).Any(NeedsTow) && NearestYard(w, f.Side, f.Position) is Body yard && Colonies.RepairsHere(w, yard, f.Side))
+        {
+            f.PullReason = "towing a crippled ship home";
+            Combat.Retreat(sim, f, "tows the crippled home", yard, null, War.D.After.TowSpeed);
+            Combat.StandingNote(sim, f, $"{f.Name}: help has arrived and tows the crippled ship to {yard.Name}");
+            return;
+        }
+        Combat.StandingNote(sim, f, Wounds.HasTender(w, f)
+            ? $"{f.Name}: a tender has arrived and helps mend the damage here (up to {Wounds.D.MendBarsTo:P0})"
+            : $"{f.Name}: help has arrived");
+    }
+
+    /// <summary>Send help: the chosen ship splits off its fleet (unless it is alone) and flies at full speed to join the damaged fleet.</summary>
+    public static string? SendHelp(Simulation sim, Fleet hurt)
+    {
+        var w = sim.World;
+        if (HelpProblem(w, hurt) is string problem) return problem;
+        var (from, ship, _) = HelperFor(w, hurt)!.Value;
+        var helper = from;
+        if (from.ShipIds.Count > 1)
+        {
+            new SplitFleetCommand(from.Id, new List<int> { ship.Id }) { Source = "help" }.Apply(w, sim);
+            if (w.FleetOf(ship) is not Fleet g || g.Id == from.Id) return "the helper could not split off";
+            helper = g;
+        }
+        if (Fleets.FlyToJoin(w, helper, hurt, 1.0) is string cant) return cant;
+        helper.JoinFleetId = hurt.Id;
+        helper.Helper = true;
+        sim.Log.Info("fleet", "Helper sent to a damaged fleet", new { fleetId = hurt.Id, helperId = helper.Id, shipId = ship.Id });
+        Combat.StandingNote(sim, hurt, $"{ship.Name} is on its way to help {hurt.Name}");
+        return null;
+    }
+
+    /// <summary>The ships split off (unless they are the whole fleet), fly to the nearest yard, and rejoin once mended.</summary>
+    public static void SendForRepair(Simulation sim, Fleet f, List<Ship> ships)
+    {
+        var w = sim.World;
+        var names = string.Join(", ", ships.Select(s => s.Name));
+        if (ships.Count >= f.ShipIds.Count)
+        {
+            PullBack(sim, f, "sent for repair", toYard: true, alone: true, byHand: true);
+            sim.Log.Info("fleet", "Fleet sent for repair", new { fleetId = f.Id, ships = ships.Select(s => s.Id).ToList() });
+            return;
+        }
+        if (Split(sim, f, ships) is not Fleet g) return;
+        g.RejoinFleetId = f.Id;
+        PullBack(sim, g, ships.Count == 1 ? $"{names} sent for repair" : $"sent for repair ({names})", toYard: true, alone: true, byHand: true);
+        sim.Log.Info("fleet", "Ships sent for repair", new { fleetId = f.Id, groupId = g.Id, ships = ships.Select(s => s.Id).ToList() });
     }
 
     /// <summary>The nearest of the side's yards or dry docks (for crippled and damaged ships), else home.</summary>
@@ -388,6 +521,8 @@ public static class BattleRules
             _ => PullPreset.Standard,
         };
 
+    public const double AutoRuleSettleHours = 24;
+
     /// <summary>The Battle rules area: each fleet not set by hand gets Auto's preset (Advise: suggested; Manual: left as is).</summary>
     public static void Steward(Simulation sim, Side side, OfferFn offer)
     {
@@ -397,6 +532,9 @@ public static class BattleRules
             var situation = Situation(w, f);
             var preset = AutoPick(w, side, situation);
             if (f.Rule.Preset == preset) continue;
+            // Settle: Auto changes a fleet's rule at most every AutoRuleSettleHours (sightings coming and going made it flip
+            // between Cautious and Standard every few hours), except at home or a blockaded colony.
+            if (situation is not ("home" or "colony") && f.AutoRuleHour is double last && w.Hour - last < AutoRuleSettleHours) continue;
             offer(AutoArea.Battle, $"rule:{f.Id}", $"{f.Name}: pull back {PullRule.Name(preset)} ({SituationName(situation)})",
                 new SetPullRuleCommand(f.Id, preset), $"Use {PullRule.Name(preset)}", fleetId: f.Id);
         }
@@ -429,6 +567,7 @@ public sealed record SetPullRuleCommand(int FleetId, PullPreset? Preset, PullRul
         f.Rule = rule;
         f.RetreatWhenDamaged = true;
         if (byHand) f.RuleByHand = true;
+        if (!byHand) f.AutoRuleHour = world.Hour;
         sim.Log.Info("fleet", $"{f.Name} pull-back rule: {PullRule.Name(rule.Preset)}", new { FleetId, preset = rule.Preset.ToString(), byHand, Source });
         // A looser rule set by hand while pulling back for lost strength, ships or ammo: if the new rule would not have
         // pulled back, the fleet fights on.
@@ -457,6 +596,40 @@ public sealed record PullBackNowCommand(int FleetId) : GameCommand, IFleetComman
     {
         if (GetFleet(world, sim, FleetId, "Pull back order") is not Fleet f || f.Retreating) return;
         BattleRules.PullBack(sim, f, "ordered to pull back", byHand: true);
+    }
+}
+
+/// <summary>
+/// Send ships for repair: the picked ships (all of them when none are named, or every hurt one with HurtOnly) split off,
+/// fly to the nearest yard or dry dock and stay until mended, then rejoin the fleet. The whole fleet goes when every ship is sent.
+/// </summary>
+public sealed record SendForRepairCommand(int FleetId, List<int>? ShipIds = null, bool HurtOnly = false) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Repair order") is not Fleet f || f.ShipIds.Count == 0) return;
+        var ships = world.ShipsOf(f).Where(s => ShipIds == null ? !HurtOnly || BattleRules.Hurt(world, s) : ShipIds.Contains(s.Id)).OrderBy(s => s.Id).ToList();
+        if (ships.Count == 0)
+        {
+            Refuse(world, sim, f, "send ships for repair: none of them is damaged", new { FleetId, Source });
+            return;
+        }
+        if (BattleRules.RepairProblem(world, f) is string problem)
+        {
+            Refuse(world, sim, f, $"send ships for repair: {problem}", new { FleetId, Source });
+            return;
+        }
+        BattleRules.SendForRepair(sim, f, ships);
+    }
+}
+
+/// <summary>Send help to a damaged fleet: the nearest free ship flies out to mend it as a tender or tow a crippled ship home.</summary>
+public sealed record SendHelpCommand(int FleetId) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Send help order") is not Fleet f) return;
+        if (BattleRules.SendHelp(sim, f) is string problem) Refuse(world, sim, f, $"send help: {problem}", new { FleetId, problem, Source });
     }
 }
 

@@ -56,6 +56,7 @@ public partial class FleetPanel : PanelContainer
     private const int MissionNone = 1, MissionHold = 2, MissionPatrol = 3, MissionScout = 4, RaidBase = 1000, EscortBase = 100000;
     private HBoxContainer _orders = null!;
     private readonly Dictionary<int, (Button Box, ShipBars Bars, Label Supplies)> _rows = new();
+    private readonly Dictionary<int, Button> _repairButtons = new();
     private string _shipKey = "";
 
     public FleetPanel() : this(null!) { }
@@ -434,6 +435,7 @@ public partial class FleetPanel : PanelContainer
     private Button _needs = null!;
     private MenuButton _more = null!;
     private VBoxContainer _sectionBox = null!;
+    private ScrollContainer _sectionScroll = null!;
     private FoldSection _secOrders = null!, _secRules = null!, _secSupply = null!, _secShips = null!, _secRefit = null!, _secZone = null!, _secDetails = null!;
     private (string? Key, int? ShipId, string? Section) _needAct;
 
@@ -464,8 +466,11 @@ public partial class FleetPanel : PanelContainer
         _secRefit = Make("Refit", "Send the fleet to a yard to refit to the current designs", _rules.RefitBox);
         _secZone = Make("Zone", "Hold or draw a raiding zone, or hunt a spotted supply lane", _rules.ZoneBox);
         _secDetails = Make("Details", "Light lag, speed and closing, signature and everything else known", _info);
-        box.AddChild(_sectionBox);
-        box.MoveChild(_sectionBox, _status.GetIndex() + 1);
+        // The sections scroll when the panel would grow past the top bar (a short screen with Orders open).
+        _sectionScroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _sectionScroll.AddChild(_sectionBox);
+        box.AddChild(_sectionScroll);
+        box.MoveChild(_sectionScroll, _status.GetIndex() + 1);
         box.MoveChild(_buttons, -1);
     }
 
@@ -485,7 +490,7 @@ public partial class FleetPanel : PanelContainer
         _rename.ReleaseFocus();
     }
 
-    private const int MoreRename = 30, MoreLock = 31;
+    private const int MoreRename = 30, MoreLock = 31, MoreRepairHurt = 40, MoreRepairAll = 41, MoreHelp = 42;
     private const int MoreRoute = 1, MoreMerge = 2, MoreEngagement = 3, MoreFittings = 4, MoreSinks = 5, MoreDrone = 6, MorePull = 7,
         MoreSections = 8, MoreMines = 9, MoreSalvo = 20, MoreDrop = 10, MoreJoin = 1000;
 
@@ -540,6 +545,21 @@ public partial class FleetPanel : PanelContainer
             f.DumbSalvos ? "Back to guided missiles (smarter, but can be jammed or hijacked)" : "Brain 1 missiles: can't be hijacked or jammed, but easier to dodge and shoot down");
         if (w.Light.On && Drones.Pending(w, Side.Player, f.Id).Count > 0) Add("Send orders by drone", MoreDrone, true);
         if (w.Loop) Add("Pull back now", MorePull, !f.Retreating, "Break off at once and head for safety");
+        if (w.Loop)
+        {
+            var hurt = w.ShipsOf(f).Count(s => BattleRules.Hurt(w, s));
+            var repairWhy = hurt == 0 ? "none of its ships is damaged" : BattleRules.RepairProblem(w, f);
+            var where = BattleRules.RepairWhere(w, f);
+            if (hurt < f.ShipIds.Count)
+                Add($"Send the {hurt} damaged ship{(hurt == 1 ? "" : "s")} for repair", MoreRepairHurt, repairWhy == null,
+                    repairWhy != null ? $"Can't: {repairWhy}" : $"They split off and fly to the nearest repairs ({where}), stay until mended, then rejoin");
+            Add("Whole fleet to repair", MoreRepairAll, repairWhy == null,
+                repairWhy != null ? $"Can't: {repairWhy}" : $"The fleet flies to the nearest repairs ({where}) and stays until mended");
+            var helpWhy = BattleRules.HelpProblem(w, f);
+            var helper = BattleRules.HelperFor(w, f);
+            Add("Send help", MoreHelp, helpWhy == null, helpWhy != null ? $"Can't: {helpWhy}"
+                : $"{helper!.Value.Ship.Name} (from {helper.Value.From.Name}, about {helper.Value.Days:0.#} d away) flies out to join: a supply ship mends them faster as a tender; a crippled ship or one with its engines out is towed to the nearest yard");
+        }
         if (PlayerInfo.Detail == DetailLevel.Simple)
             Add(_simpleShowSections ? "Hide the sections" : "Show the sections", MoreSections, true, "Simple detail hides the sections; show them for this panel");
     }
@@ -564,6 +584,9 @@ public partial class FleetPanel : PanelContainer
             case MoreSinks: _screen.EjectSinks(); break;
             case MoreDrone: _screen.SendDrone(); break;
             case MorePull: _screen.IssueNow(new PullBackNowCommand(f.Id), "pull back now"); break;
+            case MoreRepairHurt: _screen.IssueNow(new SendForRepairCommand(f.Id, null, HurtOnly: true), "sending damaged ships for repair"); break;
+            case MoreRepairAll: _screen.IssueNow(new SendForRepairCommand(f.Id), "sending the fleet for repair"); break;
+            case MoreHelp: _screen.IssueNow(new SendHelpCommand(f.Id), "sending help"); break;
             case MoreSections: _simpleShowSections = !_simpleShowSections; break;
             case MoreMines: _screen.IssueNow(new LayMinesCommand(f.Id, 2), "lay mines"); break;
             case MoreSalvo: _screen.IssueNow(new SetSalvoGuidanceCommand(f.Id, !f.DumbSalvos), f.DumbSalvos ? "guided salvos" : "dumb salvos"); break;
@@ -573,6 +596,8 @@ public partial class FleetPanel : PanelContainer
     }
 
     /// <summary>The yellow line: an item from Needs you for this fleet, or the worst trouble seen on it.</summary>
+    private const string RepairSection = "repair";
+
     private (string Text, string? Key, int? ShipId, string? Section)? FleetNeed(World w, Fleet f, List<Ship> ships)
     {
         if (f.Side != Side.Player) return null;
@@ -580,14 +605,15 @@ public partial class FleetPanel : PanelContainer
         if (need != null && need.Level <= NeedLevel.Soon)
             return (need.Text + (need.Act != null ? $": {need.ActLabel ?? "do it"}" : ""), need.Act != null ? need.Key : null, null, null);
         if (ships.FirstOrDefault(SupplyLines.Hungry) is Ship hungry) return ($"{hungry.Name} is out of food: send a freighter or bring it home", null, null, "Supply");
-        if (ships.FirstOrDefault(s => s.Crippled) is Ship crippled) return ($"{crippled.Name} is crippled: send for repair", null, crippled.Id, null);
+        if (ships.FirstOrDefault(s => s.Crippled) is Ship crippled && !f.Retreating)
+            return ($"{crippled.Name} is crippled: click to send it for repair ({BattleRules.RepairWhere(w, f)}), or More ▸ Send help to tow it", null, crippled.Id, RepairSection);
         var fuel = ships.Count == 0 ? 1 : ships.Min(s => s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s)));
         if (fuel < 0.25 && !f.Resupplying) return ($"Fuel at {fuel:P0}: head for a planet you hold or call a tanker", null, null, "Supply");
         foreach (var s in ships)
             if (Math.Min(s.Engines, Math.Min(s.Weapons, s.Defence)) < 0.5)
             {
                 var (part, v) = s.Engines <= s.Weapons && s.Engines <= s.Defence ? ("engines", s.Engines) : s.Weapons <= s.Defence ? ("weapons", s.Weapons) : ("defences", s.Defence);
-                return ($"{s.Name}'s {part} at {v:P0}: send for repair", null, s.Id, null);
+                if (!f.Retreating) return ($"{s.Name}'s {part} at {v:P0}: click to send it for repair ({BattleRules.RepairWhere(w, f)})", null, s.Id, RepairSection);
             }
         var armed = ships.Where(s => SupplyLines.MaxAmmo(s) > 0).ToList();
         if (armed.Count > 0 && armed.All(s => s.Ammo <= 0)) return ("Out of railgun ammunition: rearm at a yard or call a tanker", null, null, "Supply");
@@ -602,6 +628,8 @@ public partial class FleetPanel : PanelContainer
     {
         var (key, shipId, section) = _needAct;
         if (key != null) _screen.IssueNow(new AcceptNeedCommand(Side.Player, key), "acting on a need");
+        else if (section == RepairSection && shipId is int hurt && _screen.SelectedFleet is Fleet sf)
+            _screen.IssueNow(new SendForRepairCommand(sf.Id, new List<int> { hurt }), "sending a ship for repair");
         else if (shipId is int id) _screen.ShipCardId = id;
         else if (section != null) PlayerInfo.SetOpen(section, true);
     }
@@ -703,6 +731,15 @@ public partial class FleetPanel : PanelContainer
     /// <summary>Keeps the bottom-right corner where it is while the panel grows or shrinks.</summary>
     private void FitToCorner()
     {
+        // Give the sections all the height they want, up to what fits between the top bar and the bottom of the screen.
+        if (_sectionScroll.Visible)
+        {
+            var want = _sectionBox.GetCombinedMinimumSize().Y;
+            var rest = GetCombinedMinimumSize().Y - _sectionScroll.CustomMinimumSize.Y;
+            var room = GetViewportRect().Size.Y - Hud.ContentTop - 8 - 16 - rest;
+            var height = Mathf.Max(80, Mathf.Min(want, room));
+            if (!Mathf.IsEqualApprox(_sectionScroll.CustomMinimumSize.Y, height)) _sectionScroll.CustomMinimumSize = new Vector2(0, height);
+        }
         var min = GetCombinedMinimumSize();
         if (Mathf.IsEqualApprox(Size.X, min.X) && Mathf.IsEqualApprox(Size.Y, min.Y)) return;
         OffsetLeft = OffsetRight - min.X;
@@ -946,7 +983,7 @@ public partial class FleetPanel : PanelContainer
         {
             _needs.Text = "⚠ " + needText;
             _needAct = (needKey, needShip, needSection);
-            _needs.TooltipText = needKey != null ? "Click to do it" : needShip != null ? "Click for the ship's card" : needSection != null ? $"Click to open {needSection}" : "";
+            _needs.TooltipText = needKey != null ? "Click to do it" : needSection == RepairSection ? "Click to send it for repair" : needShip != null ? "Click for the ship's card" : needSection != null ? $"Click to open {needSection}" : "";
         }
 
         // Rebuild the ship rows only when the fleet's ships change.
@@ -957,6 +994,7 @@ public partial class FleetPanel : PanelContainer
             Ui.ClearChildren(_shipList);
             _rows.Clear();
             _protect.Clear();
+            _repairButtons.Clear();
             foreach (var s in ships)
             {
                 var row = new HBoxContainer();
@@ -989,6 +1027,14 @@ public partial class FleetPanel : PanelContainer
                 var card = new Button { Text = "ⓘ", Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "The ship's card: its bars, crew, fit and history" };
                 card.Pressed += () => _screen.ShipCardId = cardId;
                 row.AddChild(card);
+                if (mine && w.Loop)
+                {
+                    var fix = new Button { Text = "🔧", Flat = true, FocusMode = FocusModeEnum.None, Visible = false,
+                        TooltipText = "Send this ship for repair: it flies to the nearest shipyard, dry dock or starbase, stays until mended, then rejoins" };
+                    fix.Pressed += () => { if (_screen.SelectedFleet is Fleet sf) _screen.IssueNow(new SendForRepairCommand(sf.Id, new List<int> { cardId }), "sending a ship for repair"); };
+                    row.AddChild(fix);
+                    _repairButtons[s.Id] = fix;
+                }
                 if (mine && ships.Count > 1)
                 {
                     var alone = new Button { Text = "⇱", Flat = true, FocusMode = FocusModeEnum.None,
@@ -1004,6 +1050,11 @@ public partial class FleetPanel : PanelContainer
         foreach (var s in ships)
         {
             if (!_rows.TryGetValue(s.Id, out var row)) continue;
+            if (_repairButtons.TryGetValue(s.Id, out var fixB))
+            {
+                fixB.Visible = BattleRules.Hurt(w, s) && !f.Retreating;
+                if (fixB.Visible) fixB.TooltipText = $"Send {s.Name} for repair: {BattleRules.RepairWhere(w, f)}; it stays until mended, then rejoins";
+            }
             var cls = Fitting.Spec(s);
             var share = s.Supplies / Math.Max(1e-9, Fitting.MaxSupplies(w, s));
             var armour = s.Armour / Tech.MaxArmour(w, s);
@@ -1066,6 +1117,7 @@ public partial class FleetPanel : PanelContainer
         _fittings.Visible = mine;
         var sections = open && (PlayerInfo.Detail != DetailLevel.Simple || _simpleShowSections || !mine);
         _sectionBox.Visible = sections;
+        _sectionScroll.Visible = sections;
         _secOrders.Show(mine, $"{MissionText(w, f)} · {Levels.FirstOrDefault(x => x.Level == f.Autonomy).Name} · {Stances.FirstOrDefault(x => x.Stance == f.Stance).Name}");
         _secRules.Show(mine && w.Loop, FleetRules.BattleSummary(w, f));
         _secSupply.Show(mine, SupplySummary(w, f));
@@ -1230,6 +1282,7 @@ public partial class FleetPanel : PanelContainer
         if (f.Refused != null && w.Hour - f.RefusedHour < 24) list.Add($"Can't: {f.Refused}");
         list.AddRange(Operations.Status(w, f));
         list.AddRange(Transfers.Status(w, f));
+        if (HelpCalls.WatchStatus(w, f) is string watch) list.Add(watch);
         if (Sails.Status(w, f) is string sails) list.Add(sails);
         if (f.SupplyRunFor == null && SupplyLines.RunStatus(w, f) is string supply) list.Add(supply);
         if (f.SupplyRunFor is int servedId && w.FindFleet(servedId) is Fleet served && SupplyLines.RunStatus(w, served) is string run)

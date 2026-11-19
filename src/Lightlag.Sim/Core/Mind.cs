@@ -205,6 +205,9 @@ public sealed class MindState
     public int LastNerveDay { get; set; }
     public double LastProbeEndHour { get; set; } = -1e9;
 
+    /// <summary>Fleets that just pulled back from a job, and the hour until which they aren't sent back (fleet id -> hour).</summary>
+    public Dictionary<int, double> RestUntil { get; set; } = new();
+
     /// <summary>Until this hour it is pulling fleets home to gather for a strike, so it starts no new claims.</summary>
     public double GatherUntilHour { get; set; } = -1e9;
 
@@ -816,6 +819,16 @@ public static class Mind
                 if (supply.Count == 0 || supply.Count == f.ShipIds.Count) continue;
                 if (SplitOff(f, supply) is Fleet run) Note($"{run.Name} splits off to run supplies");
             }
+            // Supply ships waiting at home go out as one supply fleet, not one fleet per tanker.
+            var waiting = _w.Fleets.Where(f => f.Side == _side && f.ShipIds.Count > 0 && f.TenderOf == null && f.Flight == null && f.Chase == null
+                                               && _w.ShipsOf(f).All(s => SupplyLines.IsSupplyShip(s) && !SupplyLines.IsFreighter(s)) && AtHome(f))
+                .OrderByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).ToList();
+            foreach (var other in waiting.Skip(1))
+                if (Fleets.CanMerge(waiting[0], other) == null)
+                {
+                    Do(new MergeFleetsCommand(waiting[0].Id, other.Id));
+                    Note($"{other.Name} joins {waiting[0].Name}: one supply fleet");
+                }
             // A fleet holding a siege comes first (supplies keep the siege going), then the largest fleet out on a job.
             var served = Mine().Where(f => _m.JobOf(f.Id) is { Kind: not JobKind.Refit } && !AtHome(f))
                 .OrderByDescending(OnSiege).ThenByDescending(f => f.ShipIds.Count).ThenBy(f => f.Id).FirstOrDefault()
@@ -896,6 +909,32 @@ public static class Mind
 
         /// <summary>Fit enough to go to the help of its own blockaded planet: lighter than Ready, since waiting for a refit loses the planet.</summary>
         private bool FitToRelieve(Fleet f) => Combat.ArmourShare(_w, f) >= 0.75 && Supplies(f) >= 0.5 && Missiles(f) >= 0.4;
+
+        /// <summary>Hours a fleet that pulled back from a job is not sent back into a fight.</summary>
+        private const double RestAfterPullBackHours = 48;
+
+        private bool Resting(Fleet f)
+        {
+            if (!_m.RestUntil.TryGetValue(f.Id, out var until)) return false;
+            if (_w.Hour < until) return true;
+            _m.RestUntil.Remove(f.Id);
+            return false;
+        }
+
+        /// <summary>
+        /// The fleet with the flagship stays out of relief runs and strafes under light lag: always when it holds every
+        /// ship that could take command (decapitation would end the game), and otherwise unless the personality is bold.
+        /// </summary>
+        private bool KeepFlagshipOut(Fleet f)
+        {
+            if (!_w.Light.On || Economy.Of(_w, _side).FlagshipId is not int flag || _w.FindShip(flag)?.FleetId != f.Id) return false;
+            var commanders = _w.Ships.Where(s => s.Side == _side && Light.CommandCapable(s) && s.Id != flag).ToList();
+            if (_w.Light.Decapitation && commanders.All(s => s.FleetId == f.Id)) return true;
+            return _p.FlagshipBoldness < BoldFlagship;
+        }
+
+        /// <summary>A personality at least this bold may send its flagship's fleet on relief runs (when a successor is safe elsewhere).</summary>
+        private const double BoldFlagship = 0.5;
 
         private bool Ready(Fleet f) => Combat.ArmourShare(_w, f) >= 0.9 && Supplies(f) >= 0.7 && Missiles(f) >= 0.7;
 
@@ -1015,6 +1054,7 @@ public static class Mind
             {
                 Note($"{f.Name} pulls back from {Describe(job)}: enemy power about {near:0} nearby against its {mine:0}");
                 _m.Jobs.Remove(job);
+                _m.RestUntil[f.Id] = _w.Hour + RestAfterPullBackHours;
                 if (job.Kind == JobKind.Probe) _m.LastProbeEndHour = _w.Hour;
                 GoHome(f, "outgunned");
             }
@@ -1152,13 +1192,17 @@ public static class Mind
                 var ours = b.Owner == _side;
                 if (!ours && (Easy || _rng.NextDouble() > _p.HuntWeight * 0.5)) continue; // a neutral planet: only some care
                 if (Slip()) continue;
-                var there = Math.Max(EnemyNear(b.Position, 0.05 * _au, 10 * 24), 2 * A.EnemyShipValue);
+                // What is there, measured as a fleet arriving would measure it (else a relief sized on the near sky turned
+                // back on arrival at the wider view, again and again).
+                var there = Math.Max(Math.Max(EnemyNear(b.Position, 0.05 * _au, 10 * 24), EnemyNear(b.Position, A.DangerRadiusAu * _au, 24)), 2 * A.EnemyShipValue);
                 // Its own planets are always worth a fight, even at somewhat worse odds; a neutral one needs better.
                 // The longer one of its own planets is held under blockade, the worse the odds it will go in at:
                 // the planet's people hold out about MinBlockadeDays, and a relief fleet late is no relief.
                 var held = ours ? Math.Clamp(b.BlockadeHours / 24 / Math.Max(1, Planets.D.MinBlockadeDays), 0, 1) : 0;
                 var need = there * (ours ? A.DefendOwnRatio * _m.Lean.Odds * (1 - 0.35 * held) : Math.Max(Want, 1.3));
-                var group = TakeFromPool(need, $"break the enemy claim on {b.Name}");
+                // Never less than a fleet needs not to turn back on arrival.
+                need = Math.Max(need, there / TurnBackRatio * 1.1);
+                var group = TakeFromPool(need, $"break the enemy claim on {b.Name}", minShips: 2);
                 if (group == null)
                 {
                     if (ours && Rally(b, need)) continue;
@@ -1298,7 +1342,7 @@ public static class Mind
             var daysLeft = Math.Max(5, Planets.D.MinBlockadeDays - b.BlockadeHours / 24);
             // Its own people come first: a fleet fit to fight (not only fresh from a refit) goes, and so does one
             // flying home only because its last job ended.
-            var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && FitToRelieve(f) && War(f) > 0)
+            var near = Mine().Where(f => !Busy(f) && !NeedsRefit(f) && FitToRelieve(f) && War(f) > 0 && !Resting(f) && !KeepFlagshipOut(f))
                 .Where(f => _m.JobOf(f.Id) is not { } j
                             || j.Kind is JobKind.Guard or JobKind.Hunt or JobKind.Probe or JobKind.Ambush or JobKind.Escort
                             || j.Kind == JobKind.Refit
@@ -1365,7 +1409,7 @@ public static class Mind
                 Note($"Can't reach {_enemyYard.Name} with enough supplies left to fight");
                 return false;
             }
-            var group = TakeFromPool(strikePower, "strike");
+            var group = TakeFromPool(strikePower, "strike", minShips: 2);
             if (group == null) return false;
             SetGoal("Strike", $"{strikePower:0} power against about {guess:0} guessed at {_enemyYard.Name} (wants {Want:0.00}x)");
             Send(group, _enemyYard, JobKind.Strike, speed.Value, Core.Stance.Engage,

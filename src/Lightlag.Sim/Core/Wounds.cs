@@ -287,6 +287,18 @@ public static class Wounds
         if (s.Armour >= max * 0.5) s.Knocked.RemoveAll(m => Bars.Skip(1).All(b => !PartsOf(s, b).Contains(m) || Share(w, s, b) >= 0.5));
     }
 
+    /// <summary>A supply ship (fuel, food or mixed cargo) that isn't crippled itself: it serves as a repair tender for the fleet.</summary>
+    public static bool HasTender(World w, Fleet f) => w.ShipsOf(f).Any(s => SupplyLines.IsSupplyShip(s) && !s.Crippled);
+
+    /// <summary>A tender's crew patch the hull, up to MendBarsTo of full armour; a crippled ship back over a quarter can move again.</summary>
+    public static void TenderPatch(World w, Ship s, double perDay)
+    {
+        var max = Tech.MaxArmour(w, s);
+        if (s.Armour <= 0 && !s.Crippled || s.Armour >= max * D.MendBarsTo) return;
+        s.Armour = Math.Min(max * D.MendBarsTo, s.Armour + max * perDay / 24);
+        if (s.Crippled && s.Armour >= max * 0.25) { s.Crippled = false; s.CrippleLeft = 0; }
+    }
+
     /// <summary>Damage control in space: bars mend up to MendBarsTo, and parts whose bar is back over a third start again.</summary>
     public static void FieldMend(World w, Ship s, double rate)
     {

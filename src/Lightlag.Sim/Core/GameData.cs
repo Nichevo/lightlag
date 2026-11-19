@@ -91,7 +91,8 @@ public sealed record CombatData(
 /// <summary>Damage bars, crippled ships, wrecks and repairs. See ship-classes.json ("wounds").</summary>
 public sealed record WoundsData(double BarShare = 1.5, double CrippleHold = 0.4, double CrippledSpeed = 0.25, double KnockedSpeed = 0.5,
     double MendBarsTo = 0.6, double BarRepairPerDay = 0.5, double RepairAlloys = 0.4, double RepairElectronics = 0.3, double NoMaterialsPace = 0.25,
-    double WreckShare = 0.4, double WreckDays = 90, double SalvageRangeMm = 100, double CrewMendPerDay = 0.1);
+    double WreckShare = 0.4, double WreckDays = 90, double SalvageRangeMm = 100, double CrewMendPerDay = 0.1,
+    double TenderMendPerDay = 0.1, double TenderHullPerDay = 0.05);
 
 /// <summary>The flagship's fleet fights better (light lag only): faster reloads, linked point defence, better aimed railguns.</summary>
 public sealed record FlagBridgeData(double ReloadFactor = 1, double PointDefenceFactor = 1, double AccuracyFactor = 1);

@@ -90,6 +90,8 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetPullRuleCommand), "setPullRule")]
 [JsonDerivedType(typeof(HoldOnCommand), "holdOn")]
 [JsonDerivedType(typeof(PullBackNowCommand), "pullBackNow")]
+[JsonDerivedType(typeof(SendForRepairCommand), "sendForRepair")]
+[JsonDerivedType(typeof(SendHelpCommand), "sendHelp")]
 [JsonDerivedType(typeof(SetPullDefaultCommand), "setPullDefault")]
 [JsonDerivedType(typeof(SetBudgetShareCommand), "setBudgetShare")]
 [JsonDerivedType(typeof(SetBudgetSharesCommand), "setBudgetShares")]

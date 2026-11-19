@@ -9,7 +9,12 @@ namespace Lightlag.Game;
 public static class FrameTimes
 {
     private const int Size = 600;
-    private static readonly double[] Frame = new double[Size], Process = new double[Size], Hud = new double[Size], Draw = new double[Size], Screen = new double[Size];
+    private static readonly double[] Frame = new double[Size], Process = new double[Size], Hud = new double[Size], Draw = new double[Size], Screen = new double[Size],
+        Gpu = new double[Size], RenderCpu = new double[Size], Gc = new double[Size];
+    private static readonly int[] Nodes = new int[Size];
+    private static Rid _viewport;
+    private static double _gcPauseMs = -1;
+    private static int _gen2 = -1, _gen2Count;
     private static double _drawMs;
 
     /// <summary>Time spent in our own _Draw code (the map, the battle timeline) since the last frame was noted.</summary>
@@ -27,6 +32,22 @@ public static class FrameTimes
         Process[_at] = Performance.GetMonitor(Performance.Monitor.TimeProcess) * 1000;
         Calls[_at] = (int)Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame);
         Hud[_at] = hudMs;
+        // Where the rest of the frame goes: the renderer's own CPU and GPU time for the main view, and .NET garbage
+        // collection pauses (a lag report once showed 90 % of the frame outside everything timed above).
+        if (!_viewport.IsValid && Engine.GetMainLoop() is SceneTree tree)
+        {
+            _viewport = tree.Root.GetViewportRid();
+            RenderingServer.ViewportSetMeasureRenderTime(_viewport, true);
+        }
+        Gpu[_at] = _viewport.IsValid ? RenderingServer.ViewportGetMeasuredRenderTimeGpu(_viewport) : 0;
+        RenderCpu[_at] = _viewport.IsValid ? RenderingServer.ViewportGetMeasuredRenderTimeCpu(_viewport) : 0;
+        var pause = GC.GetTotalPauseDuration().TotalMilliseconds;
+        Gc[_at] = _gcPauseMs < 0 ? 0 : pause - _gcPauseMs;
+        _gcPauseMs = pause;
+        var gen2 = GC.CollectionCount(2);
+        if (_gen2 >= 0 && gen2 > _gen2) _gen2Count += gen2 - _gen2;
+        _gen2 = gen2;
+        Nodes[_at] = (int)Performance.GetMonitor(Performance.Monitor.ObjectNodeCount);
         _at = (_at + 1) % Size;
         _count = Math.Min(Size, _count + 1);
     }
@@ -50,6 +71,11 @@ public static class FrameTimes
                + $"| Panels (ms) | {Avg(Hud):0.00} | {Pct(Hud, 0.95):0.00} | {Pct(Hud, 1):0.00} |\n"
                + $"| Game screen update (ms) | {Avg(Screen):0.00} | {Pct(Screen, 0.95):0.00} | {Pct(Screen, 1):0.00} |\n"
                + $"| Map and timeline drawing (ms) | {Avg(Draw):0.00} | {Pct(Draw, 0.95):0.00} | {Pct(Draw, 1):0.00} |\n"
-               + $"| Draw calls | {Enumerable.Range(0, _count).Average(i => Calls[i]):0} | | {Enumerable.Range(0, _count).Max(i => Calls[i])} |\n";
+               + $"| Renderer CPU (ms) | {Avg(RenderCpu):0.00} | {Pct(RenderCpu, 0.95):0.00} | {Pct(RenderCpu, 1):0.00} |\n"
+               + $"| GPU (ms) | {Avg(Gpu):0.00} | {Pct(Gpu, 0.95):0.00} | {Pct(Gpu, 1):0.00} |\n"
+               + $"| .NET garbage collection pauses (ms) | {Avg(Gc):0.00} | {Pct(Gc, 0.95):0.00} | {Pct(Gc, 1):0.00} |\n"
+               + $"| Draw calls | {Enumerable.Range(0, _count).Average(i => Calls[i]):0} | | {Enumerable.Range(0, _count).Max(i => Calls[i])} |\n"
+               + $"| Nodes | {Enumerable.Range(0, _count).Average(i => Nodes[i]):0} | | {Enumerable.Range(0, _count).Max(i => Nodes[i])} |\n"
+               + $"\nFull .NET collections since the game started: {_gen2Count}; .NET memory in use {GC.GetTotalMemory(false) / 1048576.0:0} MB.\n";
     }
 }

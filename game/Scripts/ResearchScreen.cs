@@ -331,18 +331,36 @@ public partial class ResearchScreen : PanelContainer
 
         var buttons = new HBoxContainer();
         buttons.AddThemeConstantOverride("separation", 6);
-        var train = Ui.SmallButton($"Train (+{Research.T.TrainScientists:0} for {Research.T.TrainCost:0} Industry, {Research.T.TrainDays:0} d)",
-            () => _screen.IssueNow(new TrainTeamCommand(Side.Player, team.Id), "training scientists"), "More scientists: a bigger team works faster (twice the size is about 1.7x)");
-        _live.Add(w2 => train.Disabled = Research.CanTrain(w2, Side.Player, team.Id) != null);
-        buttons.AddChild(train);
-        if (Economy.Of(w, Side.Player).Teams.Count < Research.T.Slots)
+        const string trainTip = "More scientists: a bigger team works faster (twice the size is about 1.7x). Paid at once from the Buildings pot of the Industry budget";
+        var train = Ui.SmallButton("", () => _screen.IssueNow(new TrainTeamCommand(Side.Player, team.Id), "training scientists"), trainTip);
+        _live.Add(w2 =>
         {
-            var split = new MenuButton { Text = "Split team ▾", TooltipText = "Move half the scientists into the empty slot; the new team takes half of each skill and keeps the field you pick", FocusMode = FocusModeEnum.None, Flat = false };
-            for (var i = 0; i < Research.Fields.Length; i++) split.GetPopup().AddItem($"New team keeps {Research.FieldNames[i]}", i);
-            split.GetPopup().IdPressed += id => _screen.IssueNow(new SplitTeamCommand(Side.Player, team.Id, Research.Fields[id]), "splitting a team");
-            split.Disabled = Research.CanSplit(w, Side.Player, team.Id, Research.Fields[0]) != null;
-            buttons.AddChild(split);
-        }
+            var why = Research.CanTrain(w2, Side.Player, team.Id);
+            train.Text = $"Train (+{Research.T.TrainScientists:0} for {Research.TrainCost(w2, Side.Player):0} Industry from Buildings, "
+                         + $"{Research.T.TrainDays * Tech.Factor(w2, Side.Player, "scientist-training"):0} d)";
+            train.Disabled = why != null;
+            train.TooltipText = why != null ? $"Can't: {why}\n{trainTip}" : trainTip;
+        });
+        buttons.AddChild(train);
+        // Split: always shown, with the reason when it can't be done (too few scientists, or no empty slot).
+        const string splitTip = "Move half the scientists into an empty slot; the new team takes half of each skill and keeps the field you pick";
+        var split = new MenuButton { Text = "Split team ▾", TooltipText = splitTip, FocusMode = FocusModeEnum.None, Flat = false };
+        for (var i = 0; i < Research.Fields.Length; i++) split.GetPopup().AddItem($"New team keeps {Research.FieldNames[i]}", i);
+        split.GetPopup().IdPressed += id => _screen.IssueNow(new SplitTeamCommand(Side.Player, team.Id, Research.Fields[id]), "splitting a team");
+        buttons.AddChild(split);
+        v.AddChild(buttons);
+        var cant = Ui.Label("", 11, Ui.Dim);
+        cant.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        cant.CustomMinimumSize = new Vector2(240, 0);
+        v.AddChild(cant);
+        _live.Add(w2 =>
+        {
+            var why = Research.CanSplit(w2, Side.Player, team.Id, Research.Fields[0]);
+            split.Disabled = why != null;
+            split.TooltipText = why != null ? $"Can't split: {why}\n{splitTip}" : splitTip;
+            cant.Text = why != null ? $"Split: {why}" : "";
+            cant.Visible = why != null;
+        });
         v.AddChild(buttons);
         return card;
     }
@@ -445,7 +463,13 @@ public partial class ResearchScreen : PanelContainer
         var found = new MenuButton { Text = $"Found team · {t.FoundCost:0} Industry ▾", FocusMode = FocusModeEnum.None, Flat = false };
         for (var i = 0; i < Research.Fields.Length; i++) found.GetPopup().AddItem($"Speciality: {Research.FieldNames[i]}", i);
         found.GetPopup().IdPressed += id => _screen.IssueNow(new FoundTeamCommand(Side.Player, Research.Fields[id]), "founding a team");
-        _live.Add(w2 => found.Disabled = Research.CanFound(w2, Side.Player, Research.Fields[0]) != null);
+        found.Text = $"Found team · {t.FoundCost:0} Industry from Buildings ▾";
+        _live.Add(w2 =>
+        {
+            var why = Research.CanFound(w2, Side.Player, Research.Fields[0]);
+            found.Disabled = why != null;
+            found.TooltipText = why != null ? $"Can't: {why}" : "Paid at once from the Buildings pot of the Industry budget";
+        });
         row.AddChild(found);
         var split = new MenuButton { Text = "Split from a team ▾", FocusMode = FocusModeEnum.None, Flat = false };
         var choices = new List<(int Team, string Field)>();
