@@ -17,3 +17,4 @@ ci-data/
 smoke-data/
 shot-data/
 screenshots/
+__pycache__/
