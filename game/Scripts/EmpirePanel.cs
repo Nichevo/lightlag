@@ -95,6 +95,7 @@ public partial class EmpirePanel : PanelContainer
         _live.Clear();
         _box.CustomMinimumSize = new Vector2(SupplyTab.Width, 0);
         Header("Supply", "The supply chain: where goods come from and go, routes and their risk, problems with fixes, stock targets and siege mode", "G");
+        _box.AddChild(new PotStrip(Pot.Transport, SupplyTab.Width));
         new EmpireTabs(_screen, _box, _live).Goods(sim.World, SupplyTab.Width);
         SupplyView.Build(sim, _box, _live);
     }
@@ -146,6 +147,9 @@ public partial class EmpirePanel : PanelContainer
         var yards = YardViews.Planets(w);
         Header(yards.Count > 1 ? $"Shipyards · {yards.Count}" : "Shipyard", "Build ships, put the queue in order, and pick the yard each one is built at and the fleet it joins", "V");
         if (yards.Count == 0) Live(13, Ui.Dim, _ => "Destroyed");
+        // The budget lines that pay for the queue: warships from Ships, freighters and settlers from Transport.
+        _box.AddChild(new PotStrip(Pot.Ships, Width));
+        _box.AddChild(new PotStrip(Pot.Transport, Width));
         YardList(w, yards);
         if (Economy.ShipyardOf(w, Side.Player) != null && w.Winner == null)
         {

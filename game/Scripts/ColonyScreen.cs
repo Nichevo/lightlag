@@ -675,6 +675,7 @@ public partial class ColonyScreen : PanelContainer
         var col = Column(6);
         col.CustomMinimumSize = new Vector2(290, 0);
         col.AddChild(Ui.Label("Build", 18));
+        col.AddChild(new PotStrip(Pot.Buildings, 290));
         var filters = Row(6);
         filters.AddChild(Pick(new[] { ("", "All areas") }.Concat(Colonies.Areas.Where(a => a != "shipyard").Select(a => (a, Colonies.AreaName(a)))).ToList(), _area, k => _area = k, "Show one area"));
         filters.AddChild(Pick(BuildSorts.Select(s => (s, "By " + s)).ToList(), _buildSort, k => _buildSort = k, "Order of the list"));
