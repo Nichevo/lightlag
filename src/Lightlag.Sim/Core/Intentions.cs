@@ -1,7 +1,7 @@
 namespace Lightlag.Sim.Core;
 
 /// <summary>What a heard plan is about.</summary>
-public enum PlanKind { Attack, Claim, Relief, Raid, Hunt, Scout, Massing, Research }
+public enum PlanKind { Attack, Claim, Relief, Raid, Hunt, Scout, Massing, Research, Prize }
 
 /// <summary>
 /// One of a rival's plans as overheard in its order traffic: late (the signal travels at light speed, then on to
@@ -17,6 +17,9 @@ public sealed class Intercept
     public string Key { get; set; } = "";
     public int FleetId { get; set; }
     public string FleetName { get; set; } = "";
+
+    /// <summary>For a plan to go for a contested prize: which one (see Prizes).</summary>
+    public int? PrizeId { get; set; }
 
     /// <summary>For overheard research (intel level 4): the idea being researched.</summary>
     public string Idea { get; set; } = "";
@@ -59,7 +62,7 @@ public sealed class Intercept
 public enum PlanOutcome { Pending, CameTrue, CalledOff, Spoofed }
 
 /// <summary>A plan in motion at its source: a fleet going somewhere for a reason, or a side massing at home.</summary>
-public sealed record LivePlan(string Key, PlanKind Kind, Fleet Fleet, Body? Body, double? ArriveHour, Vec2 LeakAt);
+public sealed record LivePlan(string Key, PlanKind Kind, Fleet Fleet, Body? Body, double? ArriveHour, Vec2 LeakAt, Prize? Prize = null);
 
 /// <summary>
 /// Reading the rival's intentions. Every six hours each side may overhear the order traffic of its enemies' plans:
@@ -105,6 +108,7 @@ public static class Intentions
                 JobKind.Strafe or JobKind.Ambush => PlanKind.Raid,
                 JobKind.Hunt => PlanKind.Hunt,
                 JobKind.Probe => PlanKind.Scout,
+                JobKind.Prize => PlanKind.Prize,
                 JobKind.Guard or JobKind.Refit or JobKind.Escort => null,
                 _ => body == null || f.Flight == null ? null
                     : body.Owner is Side owner && owner != side ? PlanKind.Attack
@@ -113,6 +117,13 @@ public static class Intentions
                     : null,
             };
             if (kind == null || !Combat.Armed(w, f)) continue;
+            if (kind == PlanKind.Prize)
+            {
+                if (w.Prizes.Find(p => p.Id == job!.PrizeId) is not Prize prize) continue;
+                var due = f.Flight is Flight pf && pf.ArriveHour > w.Hour ? pf.ArriveHour : (double?)null;
+                list.Add(new LivePlan($"{f.Id}:Prize:{prize.Id}", PlanKind.Prize, f, null, due, f.Position, prize));
+                continue;
+            }
             // A raid or hunt with no planet: name the planet nearest where it is going.
             if (body == null && job != null && job.Point.IsFinite && kind is PlanKind.Raid or PlanKind.Hunt or PlanKind.Scout)
                 body = Nearest(w, job.Point);
@@ -299,6 +310,12 @@ public static class Intentions
             SentHour = w.Hour,
             Sure = Math.Round(Math.Clamp((0.35 + 0.12 * level) * (0.5 + 0.5 * cover), 0.1, 0.9), 2),
         };
+        // A prize is common knowledge: which one is always caught.
+        if (plan.Prize != null)
+        {
+            i.PrizeId = plan.Prize.Id;
+            i.BodyName = plan.Prize.Name.ToLowerInvariant();
+        }
         if (plan.Body != null && Roll(w, window, listener, plan.Key, 3) < 0.35 + 0.15 * level)
         {
             i.BodyId = plan.Body.Id;
@@ -362,6 +379,14 @@ public static class Intentions
             if (i.Kind == PlanKind.Massing)
             {
                 if (live.All(p => p.Key != i.Key)) (i.Outcome, i.OutcomeHour) = (PlanOutcome.CameTrue, w.Hour);
+                continue;
+            }
+            if (i.Kind == PlanKind.Prize)
+            {
+                if (fleet != null && w.Prizes.Find(p => p.Id == i.PrizeId) is Prize prize && Vec2.Distance(fleet.Position, prize.At) <= Prizes.D.ReachMm * 2)
+                    (i.Outcome, i.OutcomeHour) = (PlanOutcome.CameTrue, w.Hour);
+                else if (live.All(p => p.Key != i.Key))
+                    (i.Outcome, i.OutcomeHour) = (PlanOutcome.CalledOff, w.Hour);
                 continue;
             }
             if (fleet != null && body != null && Vec2.Distance(fleet.Position, body.Position) <= ArriveAu * Physics.MmPerAu)
@@ -448,6 +473,7 @@ public static class Intentions
         PlanKind.Scout => "Scouting",
         PlanKind.Massing => "Massing fleets",
         PlanKind.Research => "Researching",
+        PlanKind.Prize => "Going for a prize",
         _ => k.ToString(),
     };
 
@@ -456,6 +482,7 @@ public static class Intentions
     {
         PlanKind.Massing => i.BodyName.Length > 0 ? $"Massing fleets at {i.BodyName}" : "Massing fleets",
         PlanKind.Research => $"Researching {i.BodyName}",
+        PlanKind.Prize => $"Going for the {i.BodyName}",
         _ when i.BodyName.Length == 0 => $"{KindText(i.Kind)} (target not caught)",
         PlanKind.Claim => $"Claim {i.BodyName}",
         PlanKind.Scout => $"Scouting near {i.BodyName}",

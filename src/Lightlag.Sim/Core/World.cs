@@ -65,6 +65,10 @@ public sealed class World
     public List<Debris> Debris { get; set; } = new();
     public List<GameEvent> Events { get; set; } = new();
 
+    /// <summary>Contested prizes both sides see coming (see Prizes); planned once, on the first hour of a full game.</summary>
+    public List<Prize> Prizes { get; set; } = new();
+    public bool PrizesPlanned { get; set; }
+
     /// <summary>A solar flare: every side's sensors are dazzled until this hour (see Events).</summary>
     public double FlareUntilHour { get; set; } = -1e9;
 
@@ -242,6 +246,9 @@ public sealed class GameRules
     /// stalled war gets more events. Off: none of that. Switchable mid-game in Options.
     /// </summary>
     public bool EarlyEndings { get; set; } = true;
+
+    /// <summary>Contested prizes: two or three shared mid-game prizes both sides see coming (see Prizes).</summary>
+    public bool Prizes { get; set; } = true;
 }
 
 public enum EventRate { Off, Rare, Normal, Lively }

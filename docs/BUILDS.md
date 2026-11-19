@@ -142,3 +142,10 @@ Early endings are on in batches too (see `Endings.cs`): when a computer-run side
 ends there with a reason like "took the rival's surrender at 84 % of the system". The sides behind a
 leader lose heart (planets give up sooner, crews aim a little worse) and a stalled war gets more events.
 `--no-early-endings` plays a batch with none of this, to compare game lengths with the old rules.
+
+## Contested prizes in batches
+
+Contested prizes are on in batches too (see `Prizes.cs`, numbers in `hazards.json` under "prizes"): two or
+three per game, each announced to every side 20 days before it opens. Each game's line ends with
+`prizes [...]`: each prize, the day it opens and who won it (`nobody` if it went unclaimed, `open` if it was
+still to play for). `--no-prizes` plays a batch without them, to compare.

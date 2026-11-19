@@ -7,6 +7,9 @@ namespace Lightlag.Sim.Core;
 /// <summary>Hazard numbers. See the comments in hazards.json for what each means.</summary>
 public sealed class HazardsData
 {
+    /// <summary>Contested prizes (see Prizes).</summary>
+    public PrizesData Prizes { get; set; } = new();
+
     public double RockHitsPerDay { get; set; } = 0.04;
     public double RockSpeedMmPerHour { get; set; } = 300;
     public double RockHitHull { get; set; } = 0.04;

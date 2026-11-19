@@ -85,7 +85,7 @@ public static class Reports
         Try(problems, "choices.csv", () => File.WriteAllText(Path.Combine(dir, "choices.csv"), Choices.ToCsv(sim.World)));
         if (sim.World.Minds.Count > 0)
             Try(problems, "rival-mind.md", () => File.WriteAllText(Path.Combine(dir, "rival-mind.md"), Mind.Describe(sim.World)));
-        Try(problems, "intel.md", () => File.WriteAllText(Path.Combine(dir, "intel.md"), Intel.Describe(sim.World) + "\n\n" + Intentions.Describe(sim.World)));
+        Try(problems, "intel.md", () => File.WriteAllText(Path.Combine(dir, "intel.md"), Intel.Describe(sim.World) + "\n\n" + Intentions.Describe(sim.World) + "\n\n" + Prizes.Describe(sim.World)));
     }
 
     private static void AppendFacts(StringBuilder md, GameLog log, Simulation? sim)

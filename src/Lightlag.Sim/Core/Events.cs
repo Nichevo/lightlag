@@ -134,7 +134,8 @@ public static class Events
     /// An event or hazard with wide impact, for the banner under the top bar: what it is, what it does, until when
     /// (Coming: the hour it hits). Local trouble (one planet, one ship) stays in Needs you.
     /// </summary>
-    public sealed record WideEvent(string Key, string Title, string Effect, double UntilHour, bool Coming, int? BodyId, int? EventId);
+    public sealed record WideEvent(string Key, string Title, string Effect, double UntilHour, bool Coming, int? BodyId, int? EventId,
+        Vec2? At = null, string ComingWord = "hits in", bool Clock = true);
 
     /// <summary>The wide events this side knows of now, soonest ending first. Read-only.</summary>
     public static List<WideEvent> Wide(World w, Side side)
@@ -161,6 +162,17 @@ public static class Events
                     : mining ? $"miners at {where} bring in water and fuel while it lasts" : "passing; not being mined",
                 e.Hit ? e.UntilHour : e.HitsHour, !e.Hit, e.BodyId, e.Id));
         }
+        // Contested prizes: coming, and open ones still to play for (the relay only until someone holds it, or while yours is threatened).
+        if (Prizes.On(w))
+            foreach (var p in Prizes.Live(w))
+            {
+                if (p.Coming(w))
+                    list.Add(new WideEvent($"prize:{p.Id}:coming", $"{p.Name} coming", Prizes.Short(p.Kind), p.OpenHour, true, null, null, p.At, "opens in"));
+                else if (p.CloseHour is double close)
+                    list.Add(new WideEvent($"prize:{p.Id}", p.Name, Prizes.Status(w, p, side, times: false), close, false, null, null, p.At));
+                else if (p.Holder == null || p.Contested && Prizes.There(w, p, side).Any() || p.Hours[(int)side] > 0 && p.Holder != side)
+                    list.Add(new WideEvent($"prize:{p.Id}", p.Name, Prizes.Status(w, p, side, times: false), w.Hour + 1e6, false, null, null, p.At, Clock: false));
+            }
         return list.OrderBy(x => x.UntilHour).ToList();
     }
 

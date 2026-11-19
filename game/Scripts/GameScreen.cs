@@ -354,6 +354,8 @@ public partial class GameScreen : Node2D
     private long _inboundCheckedTick = -1;
     private readonly Dictionary<(Side About, int Id), int> _plansHeard = new();
     private long _plansCheckedTick = -1;
+    private long _prizesCheckedTick = -1;
+    private readonly Dictionary<int, string> _prizeStage = new();
     private bool _plansPrimed;
 
     /// <summary>The rival plans heard that still count, refreshed each hour (for the contacts panel and the map).</summary>
@@ -564,6 +566,7 @@ public partial class GameScreen : Node2D
             WatchChasers();
             WatchInbound();
             WatchPlans();
+            WatchPrizes();
             WatchEconomy();
             if (Sim.World.Loop) RivalAdvisor.Tick(Sim, _main);
             WatchEndings();
@@ -999,6 +1002,15 @@ public partial class GameScreen : Node2D
         _camera.FitRadius(Math.Max(spread * 2.5, 300));
         var theirs = fleets.FirstOrDefault(f => f.Side != Side.Player && Sensors.Find(Sim.World, Side.Player, f.Id, seat: true) != null);
         if (mine != null) OpenEngagement(mine.Id, theirs?.Id);
+    }
+
+    /// <summary>Fly the view to a point in space (a contested prize) and stop following anything.</summary>
+    public void GoToPoint(Vec2 at, double radiusMm = 3000)
+    {
+        SaveView();
+        _follow = null;
+        _camera.Glide(at);
+        _camera.FitRadius(radiusMm);
     }
 
     public void FocusSandbox()
@@ -1531,6 +1543,38 @@ public partial class GameScreen : Node2D
         }
     }
 
+    /// <summary>
+    /// Once an hour: contested prizes announced, opening, contested where your warships are, taken or gone (see Prizes).
+    /// A loaded game takes what it finds as known.
+    /// </summary>
+    private void WatchPrizes()
+    {
+        var w = Sim.World;
+        if (w.Tick == _prizesCheckedTick || !Prizes.On(w)) return;
+        var first = _prizesCheckedTick < 0;
+        _prizesCheckedTick = w.Tick;
+        foreach (var p in Prizes.Known(w))
+        {
+            var mineThere = Prizes.There(w, p, Side.Player).Any();
+            var stage = p.Over ? "over" : p.Coming(w) ? "coming" : $"open:{p.Holder}:{(p.Contested && mineThere ? "contested" : "")}";
+            if (_prizeStage.TryGetValue(p.Id, out var was) && was == stage) continue;
+            _prizeStage[p.Id] = stage;
+            if (first) continue;
+            var at = p.At;
+            Action go = () => GoToPoint(at);
+            var text = stage switch
+            {
+                "coming" => $"{p.Name} sighted, opens in {Format.Hours(p.OpenHour - w.Hour)}: {Prizes.What(p.Kind)}. Every side knows",
+                "over" => p.Outcome,
+                _ when was == "coming" => $"{p.Name} is open: {Prizes.Status(w, p, Side.Player)}",
+                _ when p.Contested && mineThere => $"{p.Name} is contested: {Prizes.Status(w, p, Side.Player)}",
+                _ when p.Holder != null && p.Kind == PrizeKind.Relay => p.Outcome,
+                _ => null,
+            };
+            if (text != null) Alert(PauseEvent.PrizeNews, text, go);
+        }
+    }
+
     /// <summary>Says when ships are launched, research finishes, planets change hands, and when the game ends.</summary>
     private void WatchEconomy()
     {
@@ -1809,7 +1853,8 @@ public partial class GameScreen : Node2D
     public void StartPlanning(int? bodyId, Vec2 point, int? enemyFleetId = null)
     {
         if (MyFleet is not Fleet f) return;
-        var name = bodyId is int b && Sim.World.FindBody(b) is Body body ? body.Name : "this point";
+        var name = bodyId is int b && Sim.World.FindBody(b) is Body body ? body.Name
+            : Prizes.Near(Sim.World, point, 1) is Prize prize ? $"the {prize.Name.ToLowerInvariant()}" : "this point";
         if (enemyFleetId is int e && Sim.World.FindFleet(e) is Fleet enemy) { name = enemy.Name; bodyId = null; }
         var same = Planner?.FleetId == f.Id ? Planner : null; // a new target keeps the waypoints
         Planner = new PlannerState(f.Id, bodyId, point, name) { TargetFleetId = enemyFleetId, Editing = same?.Editing ?? false };
@@ -2234,7 +2279,9 @@ public partial class GameScreen : Node2D
             return;
         }
         var bodyId = _map.HitTestBody(at);
-        var point = bodyId is int b ? Sim.World.FindBody(b)!.Position : _camera.ToWorld(at);
+        // A contested prize under the cursor: fly to it exactly, so the fleet counts as there.
+        var prize = bodyId == null ? _map.HitTestPrize(at) : null;
+        var point = bodyId is int b ? Sim.World.FindBody(b)!.Position : prize?.At ?? _camera.ToWorld(at);
         StartPlanning(bodyId, point);
         if (goNow) ConfirmPlan();
     }
