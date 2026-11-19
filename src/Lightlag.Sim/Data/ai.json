@@ -49,7 +49,7 @@
       "name": "Raider",
       "budget": [40, 15, 10, 15, 10, 10], "frigateShare": 0.75, "ratio": 0.9, "claimWeight": 0.9, "huntWeight": 1.6, "guardShare": 0.2,
       "probeEarly": 0.7, "takeHeldWeight": 1.4, "claimGroups": 2, "flagshipBoldness": 0.6,
-      "research": ["fast-railguns", "escort-hull", "quiet-drives", "tanker-hull", "freighter-hull", "efficient-drives", "long-sensors", "heavy-armour", "automation", "point-defence-2", "command-uplink", "missile-brain-2", "satellites", "deflector-grid", "tight-beam", "damage-control", "railgun-mk3", "capacitor-banks", "electronics-fabs", "fleet-data-links", "engine-mk3", "picket-hull", "precision-strikes", "railgun-mk4", "stealth-drones", "jamming", "heavy-warheads", "defensive-mines", "signals-analysis", "missile-hijack", "long-sensors-2", "crew-drills"]
+      "research": ["fast-railguns", "escort-hull", "quiet-drives", "tanker-hull", "freighter-hull", "efficient-drives", "long-sensors", "heavy-armour", "automation", "point-defence-2", "command-uplink", "missile-brain-2", "satellites", "deflector-grid", "tight-beam", "damage-control", "railgun-mk3", "capacitor-banks", "electronics-fabs", "fleet-data-links", "engine-mk3", "picket-hull", "precision-strikes", "railgun-mk4", "stealth-drones", "jamming", "heavy-warheads", "defensive-mines", "signals-analysis", "false-traffic", "missile-hijack", "long-sensors-2", "crew-drills"]
     },
     "expander": {
       "profile": {"aggression": 0.5, "expansion": 0.95, "defence": 0.4, "risk": 0.5, "raiding": 0.3, "research": 0.6}, "pullBack": "standard", "fireAt": "split", "missiles": "mid",
@@ -78,7 +78,7 @@
       "name": "Hunter",
       "budget": [35, 15, 10, 25, 5, 10], "frigateShare": 0.7, "ratio": 0.95, "claimWeight": 0.8, "huntWeight": 1.8, "guardShare": 0.2,
       "probeEarly": 0.7, "takeHeldWeight": 1.2, "claimGroups": 2, "flagshipBoldness": 0.7,
-      "research": ["long-sensors", "fast-railguns", "engine-mk2", "efficient-drives", "escort-hull", "tanker-hull", "freighter-hull", "picket-hull", "command-uplink", "fleet-data-links", "deep-space-telescopes", "signals-analysis", "satellites", "heavy-armour", "point-defence-2", "missile-brain-2", "railgun-mk3", "engine-mk3", "quiet-drives", "capacitor-banks", "precision-strikes", "damage-control", "railgun-mk4", "jamming", "free-electron-lasers", "radiator-fins", "pulse-lance", "iff-codes", "long-sensors-2", "crew-drills", "shore-leave"]
+      "research": ["long-sensors", "fast-railguns", "engine-mk2", "efficient-drives", "escort-hull", "tanker-hull", "freighter-hull", "picket-hull", "command-uplink", "fleet-data-links", "deep-space-telescopes", "signals-analysis", "false-traffic", "satellites", "heavy-armour", "point-defence-2", "missile-brain-2", "railgun-mk3", "engine-mk3", "quiet-drives", "capacitor-banks", "precision-strikes", "damage-control", "railgun-mk4", "jamming", "free-electron-lasers", "radiator-fins", "pulse-lance", "iff-codes", "long-sensors-2", "crew-drills", "shore-leave"]
     },
     "opportunist": {
       "profile": {"aggression": 0.6, "expansion": 0.6, "defence": 0.5, "risk": 0.6, "raiding": 0.5, "research": 0.5}, "pullBack": "standard", "fireAt": "roll", "missiles": "mid",

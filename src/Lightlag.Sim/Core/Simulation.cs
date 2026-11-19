@@ -205,6 +205,7 @@ public sealed class Simulation
         using (SectionTimer.Time("autonomy")) Autonomy.Update(this);
         using (SectionTimer.Time("lanes")) Lanes.Observe(this);
         using (SectionTimer.Time("intel")) Intel.Update(this);
+        using (SectionTimer.Time("intel")) Intentions.Update(this);
         using (SectionTimer.Time("contact")) Contact.Update(this);
         using (SectionTimer.Time("weapons"))
         {

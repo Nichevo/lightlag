@@ -337,6 +337,25 @@ public partial class AfterGameScreen : PanelContainer
                 AddMindBlock(w, side, days.GetRange(i, j - i + 1));
                 i = j + 1;
             }
+            AddHeardPlans(w, side);
+        }
+    }
+
+    /// <summary>The plans you overheard from this side, each against the truth: came true, called off, or planted by False order traffic.</summary>
+    private void AddHeardPlans(World w, Side side)
+    {
+        var heard = Intel.Of(w, Side.Player, side).Intercepts.Where(i => i.HeardHour <= w.Hour).OrderBy(i => i.FirstHeardHour).ToList();
+        if (heard.Count == 0) return;
+        var trueOnes = heard.Count(i => i.Outcome == PlanOutcome.CameTrue);
+        var fakes = heard.Count(i => i.False);
+        _mindList.AddChild(Ui.Label($"What you overheard of its plans: {heard.Count}, of which {trueOnes} came true and {fakes} were planted", 18, Ui.SideColor(side)));
+        foreach (var i in heard.TakeLast(30))
+        {
+            var real = i.TrueBodyId is int b && b != i.BodyId && w.FindBody(b) is Body body ? $" (really {body.Name})" : "";
+            var colour = i.False ? new Color("ff8a7a") : i.Outcome == PlanOutcome.CameTrue ? Ui.Text : Ui.Dim;
+            var l = Ui.Label($"Day {(int)(i.FirstHeardHour / 24)}: {Intentions.What(i)}{real}, heard {i.Times} time{(i.Times == 1 ? "" : "s")} at up to {i.Sure:P0} · {Intentions.OutcomeText(i.Outcome)}", 13, colour);
+            l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            _mindList.AddChild(l);
         }
     }
 
