@@ -236,6 +236,28 @@ public static class GameData
         return d;
     }
 
+    /// <summary>The data files whose numbers set the balance (see BalanceStamp).</summary>
+    public static readonly string[] BalanceFiles = { "ai.json", "economy.json", "races.json", "ship-classes.json", "stations.json", "transport.json", "hazards.json" };
+
+    private static readonly Lazy<string> _balance = new(() =>
+    {
+        // FNV-1a over the files' text (line ends ignored, so a checkout on either system gives the same stamp).
+        var h = 14695981039346656037UL;
+        foreach (var f in BalanceFiles)
+            foreach (var ch in ReadText(f))
+            {
+                if (ch == '\r') continue;
+                h = unchecked((h ^ ch) * 1099511628211UL);
+            }
+        return h.ToString("x16");
+    });
+
+    /// <summary>
+    /// A fingerprint of the balance: changes whenever a number in the ship, economy, AI, race, station, transport or
+    /// hazard data changes. The rival's memory counts lessons from another balance for less (see Lessons).
+    /// </summary>
+    public static string BalanceStamp => _balance.Value;
+
     public static string ReadText(string fileName)
     {
         var asm = typeof(GameData).Assembly;

@@ -64,6 +64,12 @@ public static class Batch
         _noBudget = opts.Has("no-budget");
         // --no-early-endings: no terms, no losing heart, no extra events in a stalled war (games end as before).
         _noEndings = opts.Has("no-early-endings");
+        // The rival's memory (see Lessons): computer-vs-computer games are written to <data>/rival-memory.json unless
+        // --no-memory; --learn has every computer side start from what that memory teaches (off by default, so the
+        // overnight comparisons stay random).
+        _remember = !opts.Has("no-memory") && pilot is "ai" or "easy" or "easy-v-normal";
+        _learn = opts.Has("learn");
+        _dataRoot = data.Root;
         // --orbits 1|3|5: how many times slower than true time planets go round (default 5; moons are always 5).
         _orbits = opts.Get("orbits") is string orb ? double.Parse(orb, System.Globalization.CultureInfo.InvariantCulture) : null;
         _events = opts.Get("events") is string ev ? Enum.Parse<EventRate>(ev, ignoreCase: true) : null;
@@ -161,6 +167,8 @@ public static class Batch
             };
 
     private static bool _noHazards;
+    private static bool _remember, _learn;
+    private static string _dataRoot = "data";
     private static bool _noBudget;
     private static bool _noEndings;
     private static double? _orbits;
@@ -202,6 +210,8 @@ public static class Batch
         try
         {
             var options = OptionsFor(pilotKind);
+            if (_learn && options?.Ai != null)
+                options = options with { Learned = Lessons.Learn(RivalMemory.Load(_dataRoot), LearnMode.Overnight, GameData.BalanceStamp) };
             sim = Simulation.NewGame(scenario, seed, log, build, options: options);
             sim.StrictRules = strict;
             sim.RuleCheckEveryTicks = 1;
@@ -232,6 +242,7 @@ public static class Batch
                 }
             Overnight.Collect(w);
             Audit.Collect(w);
+            if (_remember) RivalMemory.Remember(_dataRoot, Lessons.Of(sim, GameLesson.Overnight, build.ToString()));
             var (mid, curve) = Overnight.Warships(w, days);
             string? MindName(Side side) => Mind.Of(w, side) is MindState m ? $"{m.Personality} {m.BaseRatio:0.00}" : null;
             return new GameResult(index, seed, "ok", w.Tick, timer.Elapsed.TotalSeconds, sim.RuleViolations,

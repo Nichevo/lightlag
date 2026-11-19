@@ -21,7 +21,7 @@ public sealed record GameOptions(List<AiSetup>? Ai = null, LightSetup? Light = n
     bool? Happiness = null, bool? SupplyLines = null, bool? StartPopulation = null, bool? RandomStarts = null, double? ChoiceSpread = null,
     bool? FuelTypes = null, bool? Hazards = null, EventRate? Events = null, string? PlayerRace = null, string? RivalRace = null,
     bool? Ironman = null, string? ThirdRace = null, bool? ContactOffers = null, bool? Budget = null,
-    double? PlanetOrbitSlowdown = null, bool? EarlyEndings = null)
+    double? PlanetOrbitSlowdown = null, bool? EarlyEndings = null, Learned? Learned = null)
 {
     public static GameOptions VsRival(Difficulty difficulty) => new(new List<AiSetup> { new(Side.Rival, difficulty) });
 
@@ -146,6 +146,13 @@ public sealed class Leanings
         yield return Odds < 0.95 ? "bold odds" : Odds > 1.05 ? "careful odds" : "usual odds";
         yield return $"pull back {pull}";
     }
+
+    /// <summary>The bands by name (keys as in Lessons.StyleKeys), for the rival's memory.</summary>
+    public Dictionary<string, string> Style(PullPreset pull)
+    {
+        var bands = Bands(pull).ToList();
+        return Lessons.StyleKeys.Select((k, i) => (k, i)).ToDictionary(x => x.k, x => bands[x.i]);
+    }
 }
 
 /// <summary>One computer-run side: its settings, its rolled temperament, its fleets' jobs and what it believes.</summary>
@@ -176,6 +183,17 @@ public sealed class MindState
 
     /// <summary>This game's leanings (see Leanings).</summary>
     public Leanings Lean { get; set; } = new();
+
+    /// <summary>The leaning bands it started this game with (they drift later), for the rival's memory.</summary>
+    public Dictionary<string, string> Style { get; set; } = new();
+
+    /// <summary>
+    /// What it brought in from past games (see Lessons): how many games, the lessons in words, and the shifts that
+    /// answer the person's habits (added to its personality's profile all game).
+    /// </summary>
+    public int LearnedGames { get; set; }
+    public List<string> LearnedNotes { get; set; } = new();
+    public Counters? Counter { get; set; }
 
     /// <summary>How far below the best score an option may be and still be picked (0.1: within 10 %).</summary>
     public double Spread { get; set; } = Mind.NormalSpread;
@@ -269,7 +287,9 @@ public static class Mind
         foreach (var setup in setups)
         {
             var rng = new SimRandom(Mix(seed) ^ Mix((ulong)setup.Side + 0xC0FFEEUL), stream: 11 + (ulong)setup.Side);
-            var personality = setup.Personality ?? Roll(rng, Races.Of(w, setup.Side));
+            var learned = options.Learned;
+            var race = Races.Of(w, setup.Side);
+            var personality = setup.Personality ?? Roll(rng, race, LearnedWeights(learned, race.Id));
             var pd = DataFor(personality);
             var ratio = rng.Range(A.AttackRatio.Min, A.AttackRatio.Max) * pd.Ratio
                         + (setup.Difficulty == Difficulty.Easy ? A.Easy.ExtraRatio : 0);
@@ -292,9 +312,36 @@ public static class Mind
             var lean = rng.NextDouble();
             mind.PullLeaning = lean < 0.7 ? PresetOf(pd.PullBack) : lean < 0.8 ? PullPreset.Cautious : lean < 0.9 ? PullPreset.Standard : PullPreset.FightOn;
             mind.Lean = Leanings.Roll(rng);
+            // Past games (see Lessons): two leanings in three take the band that has done best, the rest stay random.
+            if (learned?.Style is { Count: > 0 } style)
+            {
+                var pull = mind.PullLeaning;
+                foreach (var key in Lessons.StyleKeys)
+                    if (style.TryGetValue(key, out var band) && rng.NextDouble() >= Lessons.Explore)
+                        Lessons.ApplyStyle(mind.Lean, ref pull, key, band, rng);
+                mind.PullLeaning = pull;
+            }
+            if (learned?.Odds is double odds && rng.NextDouble() >= Lessons.Explore) mind.Lean.Odds = odds;
+            // Counters to the person's habits: only against a person (a side the computer doesn't run).
+            var person = Sides.InPlay(w).Any(s => setups.All(a => a.Side != s));
+            if (learned?.Counters is Counters c && person)
+            {
+                mind.Counter = c;
+                mind.Lean.Escorts = Math.Round(Math.Clamp(mind.Lean.Escorts + c.Escorts, 0.4, 1.6), 3);
+            }
+            if (learned != null)
+            {
+                mind.LearnedGames = learned.Games;
+                mind.LearnedNotes = (learned.Notes ?? new List<string>())
+                    .Concat(person ? learned.CounterNotes ?? new List<string>() : new List<string>()).ToList();
+            }
+            mind.Style = mind.Lean.Style(mind.PullLeaning);
             mind.Spread = setup.Difficulty == Difficulty.Easy ? 0 : options.ChoiceSpread ?? NormalSpread;
             // Research taste: how much this game's side cares for each broad aim, on top of its personality.
             mind.ResearchTaste = ResearchValue.Broad.Select(_ => Math.Round(rng.Range(0.75, 1.3), 3)).ToArray();
+            if (mind.Counter?.ResearchAim is string aim && ResearchValue.BroadIndex(aim) is var ai && ai >= 0) mind.ResearchTaste[ai] = 1.3;
+            if (learned != null)
+                Choices.Note(w, setup.Side, "learned", $"{learned.Games} past games", "", string.Join("; ", mind.LearnedNotes));
             Choices.Note(w, setup.Side, "lean", $"personality {personality}");
             Choices.Note(w, setup.Side, "lean", $"race {Races.Of(w, setup.Side).Id}");
             foreach (var band in mind.Lean.Bands(mind.PullLeaning)) Choices.Note(w, setup.Side, "lean", band);
@@ -306,12 +353,19 @@ public static class Mind
         }
     }
 
-    /// <summary>Rolls a personality, each as likely as its weight in ai.json.</summary>
-    private static Personality Roll(SimRandom rng, RaceData race)
+    /// <summary>The learned weight multipliers for a race's personalities (that race's own, else every race's).</summary>
+    private static Dictionary<string, double>? LearnedWeights(Learned? learned, string race) =>
+        learned?.Personalities is { } p ? p.TryGetValue(race, out var r) ? r : p.TryGetValue("*", out var any) ? any : null : null;
+
+    /// <summary>The profile it plays by before any focus or nudge: the personality's, shifted by counters to the person's habits.</summary>
+    public static PersonalityProfile BaseProfile(MindState m) => Lessons.Shift(ProfileOf(m.Personality), m.Counter);
+
+    /// <summary>Rolls a personality, each as likely as its weight in ai.json (times what past games taught, if any).</summary>
+    private static Personality Roll(SimRandom rng, RaceData race, Dictionary<string, double>? learned = null)
     {
         var all = Enum.GetValues<Personality>();
         // Each race leans to some personalities (a trading Hive is rare: see races.json).
-        double Weight(Personality p) => DataFor(p).Weight * race.PersonalityWeight(p);
+        double Weight(Personality p) => DataFor(p).Weight * race.PersonalityWeight(p) * (learned != null && learned.TryGetValue(p.ToString(), out var f) ? f : 1);
         var total = all.Sum(Weight);
         var roll = rng.NextDouble() * total;
         foreach (var p in all)
@@ -349,7 +403,7 @@ public static class Mind
         {
             sb.AppendLine($"# {m.Side}: {m.Personality}, {m.Difficulty}");
             sb.AppendLine();
-            sb.AppendLine($"- Profile: {string.Join(", ", ProfileOf(m.Personality).Axes().Select(a => $"{a.Axis} {a.Value:0.00}"))}");
+            sb.AppendLine($"- Profile: {string.Join(", ", BaseProfile(m).Axes().Select(a => $"{a.Axis} {a.Value:0.00}"))}");
             if (m.Focus != "") sb.AppendLine($"- Focus now: {m.Focus}");
             if (m.Advice != "" && w.Hour < m.AdviceUntilHour)
                 sb.AppendLine($"- Advisor nudge: {m.Advice} for {(m.AdviceUntilHour - w.Hour) / 24:0} more days" + (m.AdviceWhy != "" ? $" ({m.AdviceWhy})" : ""));
@@ -469,7 +523,7 @@ public static class Mind
             _side = mind.Side;
             _enemy = Sides.MainEnemy(_w, mind.Side);
             _p = DataFor(mind.Personality);
-            _profile = ProfileOf(mind.Personality);
+            _profile = BaseProfile(mind);
             _home = Economy.ShipyardOf(_w, _side);
             _enemyYard = Economy.ShipyardOf(_w, _enemy);
         }
@@ -633,7 +687,7 @@ public static class Mind
                 _m.Focus = pick;
                 _m.FocusUntilHour = _w.Hour + A.FocusDays * 24;
             }
-            var b0 = ProfileOf(_m.Personality);
+            var b0 = BaseProfile(_m);
             _profile = _m.Focus switch
             {
                 "take" => b0 with { Aggression = 0.9, Risk = 0.7 },

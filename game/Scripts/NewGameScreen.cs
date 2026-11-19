@@ -22,6 +22,11 @@ public partial class NewGameScreen : MarginContainer
 
     private static Main M => Main.Instance;
 
+    private static readonly (LearnMode Mode, string Name)[] LearnChoices =
+    {
+        (LearnMode.All, "Overnight runs and my games"), (LearnMode.Overnight, "Overnight runs only"), (LearnMode.Off, "Nothing (off)"),
+    };
+
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -164,6 +169,33 @@ public partial class NewGameScreen : MarginContainer
             _levelButtons.Add((l, b));
         }
         col.AddChild(levels);
+
+        col.AddChild(Ui.Label("What the rivals learn", 14, Ui.Dim));
+        var learnRow = new HBoxContainer();
+        learnRow.AddThemeConstantOverride("separation", 6);
+        var learn = new OptionButton { FocusMode = FocusModeEnum.None,
+            TooltipText = "Rivals remember how past games went and lean towards what worked: their personality, leanings and the odds they want. "
+                          + "From your games they also learn your habits (early attacks, missiles, raids, taking colonies) and counter them. "
+                          + "They never learn where anyone starts, and every lean stays within what a normal roll could give. Games from an older balance count for less" };
+        foreach (var (mode, name) in LearnChoices) learn.AddItem(name);
+        learn.Selected = Math.Max(0, Array.FindIndex(LearnChoices, c => c.Mode == M.LearnChoice));
+        learn.ItemSelected += i => { M.LearnChoice = LearnChoices[(int)i].Mode; Changed(); };
+        learnRow.AddChild(learn);
+        Button? forget = null;
+        var sure = false;
+        string ForgetTip() => $"The rivals' memory holds {RivalMemory.Load(M.Paths.Root).Games.Count} finished games. Forget them all and start learning again";
+        forget = Ui.SmallButton("Forget", () =>
+        {
+            if (!sure) { sure = true; forget!.Text = "Sure?"; return; }
+            RivalMemory.Forget(M.Paths.Root);
+            sure = false;
+            forget!.Text = "Forget";
+            forget.TooltipText = ForgetTip();
+            M.Toast("The rivals have forgotten every past game");
+        }, ForgetTip());
+        forget.MouseExited += () => { sure = false; forget.Text = "Forget"; };
+        learnRow.AddChild(forget);
+        col.AddChild(learnRow);
 
         col.AddChild(new Control { SizeFlagsVertical = SizeFlags.ExpandFill, CustomMinimumSize = new Vector2(0, 12) });
         _summary = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(280, 0) };

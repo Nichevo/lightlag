@@ -57,6 +57,7 @@ public static class NewGameChoices
         main.ContactOffersChoice = GetBool("contact_offers", main.ContactOffersChoice);
         main.EarlyEndingsChoice = GetBool("early_endings", main.EarlyEndingsChoice);
         main.IronmanChoice = GetBool("ironman", main.IronmanChoice);
+        if (Enum.TryParse<LearnMode>(Get("rivals_learn", main.LearnChoice.ToString()), out var learn)) main.LearnChoice = learn;
     }
 
     /// <summary>Write the current choices. Does nothing until Load has named the file (a normal launch).</summary>
@@ -84,6 +85,7 @@ public static class NewGameChoices
         Set("contact_offers", main.ContactOffersChoice);
         Set("early_endings", main.EarlyEndingsChoice);
         Set("ironman", main.IronmanChoice);
+        Set("rivals_learn", main.LearnChoice.ToString());
         if (cfg.Save(_file) != Error.Ok) main.Log.Warn("ui", "Could not save the new game choices", new { file = _file });
     }
 
@@ -152,6 +154,7 @@ public static class NewGameChoices
                     + (main.PlanetOrbitsChoice <= 1 ? "planets at true speed" : $"planets {main.PlanetOrbitsChoice:0}x slower");
         if (!main.EarlyEndingsChoice) rules += " · no early endings";
         if (main.IronmanChoice) rules += " · Ironman";
+        if (main.LearnChoice != LearnMode.All) who += main.LearnChoice == LearnMode.Off ? " · rivals don't learn" : " · rivals learn from overnight runs only";
         return who + "\n" + rules;
     }
 }

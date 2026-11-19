@@ -146,6 +146,9 @@ public partial class Main : Node
     /// <summary>Early endings for the next new game (on by default; also switchable in the game menu).</summary>
     public bool EarlyEndingsChoice { get; set; } = true;
 
+    /// <summary>What the rivals of new games learn from past games (see Lessons): overnight runs and your games, overnight runs only, or nothing.</summary>
+    public LearnMode LearnChoice { get; set; } = LearnMode.All;
+
     /// <summary>How many times slower than true time planets go round in the next new game (moons are always 5x).</summary>
     public double PlanetOrbitsChoice { get; set; } = Orbits.DefaultPlanetSlowdown;
 
@@ -177,11 +180,41 @@ public partial class Main : Node
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
-                PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice,
+                PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice, Learned = LearnedForNewGame(),
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());
         });
+    }
+
+    /// <summary>What the rivals take into a new game from their memory (none if learning is off or the memory can't be read).</summary>
+    private Learned? LearnedForNewGame()
+    {
+        try { return Lessons.Learn(RivalMemory.Load(Paths.Root), LearnChoice, GameData.BalanceStamp); }
+        catch (Exception ex)
+        {
+            Log.Warn("ai", "Could not read the rivals' memory", new { error = ex.Message });
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A game just ended: add it to the rivals' memory (unless learning is off), once. Games quit before the end
+    /// are not kept, nor the sandbox.
+    /// </summary>
+    public void RememberGame(Simulation sim)
+    {
+        if (LearnChoice == LearnMode.Off || !sim.World.Loop || sim.World.Minds.Count == 0 || sim.World.Winner == null) return;
+        try
+        {
+            var lesson = Lessons.Of(sim, GameLesson.Played, Build.ToString());
+            if (RivalMemory.Remember(Paths.Root, lesson))
+                Log.Info("ai", "Game added to the rivals' memory", new { lesson.Id, lesson.Winner, lesson.Days, lesson.Balance });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("ai", "Could not write the rivals' memory", new { error = ex.Message });
+        }
     }
 
     /// <summary>The last battle sandbox set-up, so "Restart battle" can run it again.</summary>

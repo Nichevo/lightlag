@@ -435,7 +435,9 @@ public partial class EndPanel : PanelContainer
                      + $"Ships left: you {mine}, rival {theirs}. Planets: you {w.Bodies.Count(b => b.Owner == Side.Player && b.Industry > 0)}, "
                      + $"rival {w.Bodies.Count(b => b.Owner is Side.Rival or Side.Third && b.Industry > 0)}.\n\n"
                      + Stats.Summary(w)
-                     + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{(Sides.Three(w) ? Races.Of(w, m.Side).Name : "The rival")} was a {m.Personality} on {m.Difficulty}."));
+                     + string.Concat(w.Minds.Where(m => m.Side != Side.Player).Select(m => $"\n\n{(Sides.Three(w) ? Races.Of(w, m.Side).Name : "The rival")} was a {m.Personality} on {m.Difficulty}."
+                         + (Lessons.Summary(m) is { Length: > 0 } learned ? " " + learned : "")))
+                     + (Main.Instance.LearnChoice != LearnMode.Off && w.Minds.Count > 0 ? "\n\nThis game is now in the rivals' memory: they will learn from it next time." : "");
     }
 }
 
