@@ -120,6 +120,8 @@ public partial class ResearchScreen : PanelContainer
         _suggested = ResearchValue.Rank(w, Side.Player, ResearchValue.For(w, Side.Player), available).Take(3).Select(x => x.Id).ToList();
 
         _root.AddChild(Header(w));
+        // The budget line that pays for training and founding teams, also shown on the Budget screen.
+        _root.AddChild(new PotStrip(Pot.Buildings, 900));
 
         var body = new HBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
         body.AddThemeConstantOverride("separation", 12);

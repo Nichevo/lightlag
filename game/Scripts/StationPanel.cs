@@ -36,6 +36,7 @@ public static class StationPanel
             return col;
         }
         if (b.Owner != Side.Player) return col;
+        col.AddChild(new PotStrip(Pot.Stations, 300));
         if (st == null)
         {
             col.AddChild(Wrap($"No station over {b.Name}. A station guards the orbit, serves your fleets holding low orbit under it (refuel, rearm, repairs from tier 3), and its slipway lets this world build longer hulls.", Ui.Dim));

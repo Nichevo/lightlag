@@ -199,4 +199,54 @@ public class FleetNameTests
         Assert.True(spots.Max(p => p.X) - spots.Min(p => p.X) > zone.RadiusMm * 0.3 || spots.Max(p => p.Y) - spots.Min(p => p.Y) > zone.RadiusMm * 0.3,
             "covers part of the zone");
     }
+
+    [Fact]
+    public void The_fleet_carrying_the_flagship_is_the_flagship_fleet()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var flagship = Light.Flagship(w, Side.Player)!;
+        var home = w.FleetOf(flagship)!;
+        Assert.Equal(FleetNames.FlagshipKind, home.Name);
+        Assert.Single(w.Fleets, f => f.Side == Side.Player && f.Name == FleetNames.FlagshipKind);
+
+        // Split the flagship off: the name goes with it, and the fleet left behind is named for its ships.
+        var others = home.ShipIds.Where(id => id != flagship.Id).ToList();
+        if (others.Count == 0) home.ShipIds.Add(Economy.NewShip(w, Side.Player, "gun-frigate").Id);
+        sim.Issue(new SplitFleetCommand(home.Id, new List<int> { flagship.Id }));
+        sim.ApplyPending();
+        var carrier = w.FleetOf(flagship)!;
+        Assert.NotEqual(home.Id, carrier.Id);
+        Assert.Equal(FleetNames.FlagshipKind, carrier.Name);
+        Assert.NotEqual(FleetNames.KindOf(home.Name), FleetNames.FlagshipKind);
+        var names = w.Fleets.Where(f => f.Side == Side.Player).Select(f => f.Name).ToList();
+        Assert.Equal(names.Count, names.Distinct().Count());
+    }
+
+    [Fact]
+    public void The_flagship_fleet_name_follows_command_and_keeps_a_name_you_gave()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var flagship = Light.Flagship(w, Side.Player)!;
+        var home = w.FleetOf(flagship)!;
+        var other = NewFleet(sim, Side.Player, OpenSpace(sim), "missile-destroyer");
+
+        // Command passes to a destroyer in another fleet: that fleet becomes the Flagship fleet.
+        Economy.Of(w, Side.Player).FlagshipId = other.ShipIds[0];
+        FleetNames.RefreshAll(w);
+        Assert.Equal(FleetNames.FlagshipKind, other.Name);
+        Assert.NotEqual(FleetNames.FlagshipKind, FleetNames.KindOf(home.Name));
+
+        // A name the player typed stays, even on the flagship's fleet.
+        sim.Issue(new RenameFleetCommand(Side.Player, other.Id, "Grand Fleet"));
+        sim.ApplyPending();
+        FleetNames.RefreshAll(w);
+        Assert.Equal("Grand Fleet", other.Name);
+
+        // Auto takes the flagship name back.
+        sim.Issue(new RenameFleetCommand(Side.Player, other.Id, ""));
+        sim.ApplyPending();
+        Assert.Equal(FleetNames.FlagshipKind, other.Name);
+    }
 }

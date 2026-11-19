@@ -44,6 +44,7 @@ public partial class FittingPanel : PanelContainer
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         head.AddChild(Ui.SmallButton("Close (Esc)", () => _screen.FittingFleetId = null, "Back to the map"));
         _box.AddChild(head);
+        _box.AddChild(new PotStrip(Pot.Refits, 720));
         var refit = ships.Count > 0 ? Fitting.CanRefit(w, Side.Player, ships[0]) : "No ships";
         _box.AddChild(Ui.Label(refit == null
             ? $"At the shipyard: click a slot to swap its module (paid in Industry, you have {Economy.Of(w, Side.Player).Industry:0})."

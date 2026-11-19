@@ -227,7 +227,7 @@ public sealed class BudgetTab
     }
 
     /// <summary>The line under a pot: its goal, its first item, or what it pays for.</summary>
-    private static string PotLine(World w, Pot pot)
+    public static string PotLine(World w, Pot pot)
     {
         var bs = Budget.Of(w, Side.Player);
         var ps = bs.Pots[(int)pot];
