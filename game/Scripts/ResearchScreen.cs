@@ -178,6 +178,14 @@ public partial class ResearchScreen : PanelContainer
         return l;
     }
 
+    /// <summary>A label drawn over a painted picture: a dark outline keeps it readable on bright skies and planets.</summary>
+    private static Label OnPicture(Label l)
+    {
+        l.AddThemeConstantOverride("outline_size", 5);
+        l.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.85f));
+        return l;
+    }
+
     /// <summary>A label that wraps onto more lines rather than widening the screen.</summary>
     private static Label Wrap(Label l)
     {
@@ -675,17 +683,18 @@ public partial class ResearchScreen : PanelContainer
             Texture = Art.IdeaPicture(r.Id, r.Picture),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
             CustomMinimumSize = new Vector2(width, width * 12 / 35), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore,
+            TextureFilter = TextureFilterEnum.LinearWithMipmaps,
         };
         if (state == IdeaState.Locked) pic.Modulate = new Color(0.4f, 0.45f, 0.55f);
         // The field, and pips for how far along its line the idea is (tier).
-        var tag = Ui.Label($"{Research.FieldName(r.Field)}  {new string('●', Math.Clamp(r.Tier, 1, 5))}", 11, new Color("aab4c3"));
+        var tag = OnPicture(Ui.Label($"{Research.FieldName(r.Field)}  {new string('●', Math.Clamp(r.Tier, 1, 5))}", 11, new Color("c4ccd8")));
         tag.Position = new Vector2(8, 6);
         tag.TooltipText = $"Tier {r.Tier}";
         pic.AddChild(tag);
         if (Economy.Of(w, Side.Player).Sparked.Contains(r.Id))
         {
             // A spark: something that happened in the game (a find, a hardship, a capture) brought this idea on.
-            var spark = Ui.Label("✦ sparked", 11, new Color("ffd27a"));
+            var spark = OnPicture(Ui.Label("✦ sparked", 11, new Color("ffd27a")));
             spark.Position = new Vector2(width - 74, 6);
             spark.TooltipText = Economy.Of(w, Side.Player).SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "Something in the game brought this idea on";
             spark.MouseFilter = MouseFilterEnum.Pass;
@@ -693,7 +702,7 @@ public partial class ResearchScreen : PanelContainer
         }
         if (Intel.Counters(w, Side.Player).FirstOrDefault(c => c.Idea == r.Id) is { Idea: not null } counter)
         {
-            var hint = Ui.Label("⚔ counter", 11, new Color("ffd27a"));
+            var hint = OnPicture(Ui.Label("⚔ counter", 11, new Color("ffd27a")));
             hint.Position = new Vector2(8, width * 12 / 35 - 20);
             hint.TooltipText = $"Intel: {counter.Why}. This idea answers it";
             hint.MouseFilter = MouseFilterEnum.Pass;
@@ -702,7 +711,7 @@ public partial class ResearchScreen : PanelContainer
         if (RivalTech.StageOf(w, Side.Player, r.Id) is var stage and not RivalStage.None)
         {
             // Learned from the rival (board 26): Studied shows its name; Unlocked skips its prerequisites and is quicker.
-            var theirs = Ui.Label($"◆ theirs: {RivalTech.StageName(stage)}", 11, Ui.Rival);
+            var theirs = OnPicture(Ui.Label($"◆ theirs: {RivalTech.StageName(stage)}", 11, Ui.Rival));
             theirs.Position = new Vector2(width - 130, width * 12 / 35 - 20);
             theirs.TooltipText = stage == RivalStage.Unlocked
                 ? $"Learned from the rival: queue it without its prerequisites, {GameData.Weapons.R.UnlockedCut:P0} quicker"

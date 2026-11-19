@@ -185,4 +185,14 @@ public class ScreensOptionsTests
         }
         Assert.True(own >= GameData.Economy.Research.Count - 6, $"only {own} ideas have their own picture");
     }
+
+    [Fact]
+    public void Every_idea_has_a_painted_picture()
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "Lightlag.sln"))) root = Path.GetDirectoryName(root)!;
+        var ideas = Path.Combine(root, "game", "Art", "Ideas");
+        var missing = GameData.Economy.Research.Where(r => !File.Exists(Path.Combine(ideas, r.Id + ".webp"))).Select(r => r.Id).ToList();
+        Assert.True(missing.Count == 0, $"no painting (run tools/idea-art/paint_ideas.py) for: {string.Join(", ", missing)}");
+    }
 }
