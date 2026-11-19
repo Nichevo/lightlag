@@ -155,12 +155,35 @@ public partial class ResearchPopup : PanelContainer
         progress.AddChild(days);
         if (first != null) text.AddChild(progress);
 
-        var next = queue.Skip(1).Select(o => GameData.Research(o.Key).Name).ToList();
-        var more = Ui.Label(next.Count > 0 ? "then " + string.Join(" · ", next) : "", 11, Ui.Dim);
-        more.ClipText = true;
-        more.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
-        more.MouseFilter = MouseFilterEnum.Ignore;
-        if (next.Count > 0) text.AddChild(more);
+        // What comes next on this team's queue: up to three ideas, each with the days until it would be done.
+        if (first != null)
+        {
+            var next = queue.Skip(1).ToList();
+            var nextHead = Ui.Label(next.Count == 0 ? "Next: nothing queued after this" : "NEXT", 11, next.Count == 0 ? Ui.Warn : Ui.Dim);
+            nextHead.MouseFilter = MouseFilterEnum.Ignore;
+            text.AddChild(nextHead);
+            foreach (var order in next.Take(3))
+            {
+                var r = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+                var n = Ui.Label(GameData.Research(order.Key).Name, 12, Ui.Text);
+                n.ClipText = true;
+                n.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+                n.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                n.MouseFilter = MouseFilterEnum.Ignore;
+                r.AddChild(n);
+                var d = Ui.Label("", 11, Ui.Dim);
+                d.MouseFilter = MouseFilterEnum.Ignore;
+                r.AddChild(d);
+                _live.Add(w2 => d.Text = $"done in {Research.DaysUntilDone(w2, order):0} d");
+                text.AddChild(r);
+            }
+            if (next.Count > 3)
+            {
+                var rest = Ui.Label($"+{next.Count - 3} more", 11, Ui.Dim);
+                rest.MouseFilter = MouseFilterEnum.Ignore;
+                text.AddChild(rest);
+            }
+        }
         var training = Ui.Label("", 11, Ui.Dim);
         training.MouseFilter = MouseFilterEnum.Ignore;
         text.AddChild(training);
