@@ -55,6 +55,10 @@ public sealed class ResearchTeam
     public double? TrainingUntilHour { get; set; }
     public double TrainingScientists { get; set; }
 
+    /// <summary>More trainings queued after the current one: each starts by itself once the last is done and the
+    /// Buildings pot can pay for it.</summary>
+    public int TrainingQueued { get; set; }
+
     /// <summary>Ideas this team has finished.</summary>
     public int Ideas { get; set; }
 }
@@ -241,6 +245,11 @@ public static class Research
                 team.TrainingUntilHour = null;
                 team.TrainingScientists = 0;
             }
+            if (team.TrainingQueued > 0 && team.TrainingUntilHour == null && CanTrain(w, side, team.Id) == null)
+            {
+                team.TrainingQueued--;
+                Train(sim, side, team.Id);
+            }
             Fade(team);
             if (!Ready(w, team)) continue;
             var order = QueueOf(w, side, team.Id).FirstOrDefault();
@@ -347,6 +356,24 @@ public static class Research
         return null;
     }
 
+    /// <summary>Most trainings a team can have waiting after the current one.</summary>
+    public const int MaxTrainingQueued = 5;
+
+    /// <summary>Why a training can't be queued (null: it can). A queued training waits for the one before it and for Industry.</summary>
+    public static string? CanQueueTraining(World w, Side side, int teamId)
+    {
+        if (!w.Loop) return "There is no research in the battle sandbox";
+        if (Team(w, side, teamId) is not ResearchTeam team) return "No such team";
+        if (team.TrainingQueued >= MaxTrainingQueued) return $"{MaxTrainingQueued} trainings are already queued";
+        return null;
+    }
+
+    /// <summary>Why the next queued training hasn't started (null: none queued, or it is about to start).</summary>
+    public static string? TrainingWaiting(World w, Side side, ResearchTeam team) =>
+        team.TrainingQueued == 0 ? null
+        : team.TrainingUntilHour != null ? "after the current training"
+        : Budget.Problem(w, side, Pot.Buildings, TrainCost(w, side));
+
     public static string? CanSplit(World w, Side side, int teamId, string field)
     {
         if (!w.Loop) return "There is no research in the battle sandbox";
@@ -422,19 +449,45 @@ public sealed record FoundTeamCommand(Side Side, string Field) : GameCommand
     }
 }
 
-/// <summary>Train more scientists for a team: paid now, they join after the training time.</summary>
+/// <summary>Train more scientists for a team: paid now, they join after the training time. If the team is already
+/// training, or the Buildings pot can't pay yet, the training is queued and starts by itself when it can.</summary>
 public sealed record TrainTeamCommand(Side Side, int TeamId) : GameCommand
 {
     public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
 
     public override void Apply(World world, Simulation sim)
     {
-        if (Research.CanTrain(world, Side, TeamId) is string problem)
+        var now = Research.CanTrain(world, Side, TeamId);
+        if (now == null && Research.Team(world, Side, TeamId)!.TrainingQueued == 0)
+        {
+            Research.Train(sim, Side, TeamId);
+            return;
+        }
+        if (Research.CanQueueTraining(world, Side, TeamId) is string problem)
         {
             sim.Log.Warn("research", $"Can't train: {problem}", new { side = Side.ToString(), TeamId, Source });
             return;
         }
-        Research.Train(sim, Side, TeamId);
+        var team = Research.Team(world, Side, TeamId)!;
+        team.TrainingQueued++;
+        sim.Log.Info("research", $"{Side} queues training", new { side = Side.ToString(), team = TeamId, queued = team.TrainingQueued, waiting = now, Source });
+    }
+}
+
+/// <summary>Take one queued training off a team's list (one already under way carries on).</summary>
+public sealed record CancelTrainingCommand(Side Side, int TeamId) : GameCommand
+{
+    public override (Side Side, Vec2 At)? Destination(World world) => null; // a home order: at once, even while paused
+
+    public override void Apply(World world, Simulation sim)
+    {
+        if (Research.Team(world, Side, TeamId) is not ResearchTeam team || team.TrainingQueued == 0)
+        {
+            sim.Log.Warn("research", "No queued training to cancel", new { side = Side.ToString(), TeamId, Source });
+            return;
+        }
+        team.TrainingQueued--;
+        sim.Log.Info("research", $"{Side} cancels a queued training", new { side = Side.ToString(), team = TeamId, queued = team.TrainingQueued, Source });
     }
 }
 

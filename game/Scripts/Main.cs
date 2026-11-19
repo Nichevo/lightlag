@@ -1034,7 +1034,23 @@ public partial class Main : Node
             empire.ShowEmpire = false;
             empire.ShowResearch = true;
             await Shoot("17b-research");
+            // One field open, an idea picked; then the web on one field; then a team in the right-hand pane.
+            ResearchScreen.OpenFieldForShots("drives");
+            ResearchScreen.SelectForShots(Tech.EngineMk2);
+            await Shoot("17e-research-detail");
+            ResearchScreen.OpenWebForShots(true);
+            await Shoot("17f-research-web");
+            ResearchScreen.OpenWebForShots(false);
+            ResearchScreen.OpenTeamForShots(Economy.Of(Sim.World, Lightlag.Sim.Core.Side.Player).Teams[0].Id);
+            await Shoot("17g-research-team");
+            ResearchScreen.OpenTeamForShots(null);
+            ResearchScreen.OpenFieldForShots(null);
+            ResearchScreen.SelectForShots(null);
             empire.ShowResearch = false;
+            // The small teams panel under the Research tab.
+            empire.ShowResearchPopup(true);
+            await Shoot("17h-research-popup");
+            empire.ShowResearchPopup(false);
 
             // The planet list: pick one to fly there and follow it.
             empire.ShowEmpire = false;

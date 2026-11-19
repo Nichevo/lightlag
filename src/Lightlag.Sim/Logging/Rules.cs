@@ -602,6 +602,7 @@ public sealed class RuleBook
                 if (team.Skill.Length != Research.Fields.Length || team.Skill.Any(k => !(k >= 1 - 1e-9 && k <= t.MaxSkill + 1e-9)))
                     yield return $"{side.Side} {team.Name} has skills {string.Join(",", team.Skill)}";
                 if (!(team.Scientists > 0) || team.Kept.Count > 2) yield return $"{side.Side} {team.Name} has {team.Scientists} scientists and keeps {team.Kept.Count} fields";
+                if (team.TrainingQueued is < 0 or > Research.MaxTrainingQueued) yield return $"{side.Side} {team.Name} has {team.TrainingQueued} trainings queued";
             }
         }
         foreach (var o in w.Orders.Where(o => o.Kind == OrderKind.Research && o.TeamId is int id && Research.Team(w, o.Side, id) == null))

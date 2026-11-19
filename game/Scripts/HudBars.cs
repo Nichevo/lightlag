@@ -26,6 +26,7 @@ public partial class Hud
     private MenuButton _viewMenu = null!, _gameMenu = null!;
     private Button _listButton = null!;
     private readonly List<MenuTab> _tabs = new();
+    private ResearchPopup _researchPopup = null!;
     private double _menuSlide; // 0 shown, 1 slid away
     private ulong _menuActiveMs;
     private ulong _lastBarsMs;
@@ -135,7 +136,8 @@ public partial class Hud
         foreach (var (id, name, key, tip) in Screens)
         {
             var screenId = id;
-            var tab = new MenuTab(id, name, key, $"{name} ({key}): {tip}", () => OpenScreen(screenId));
+            // Research: the tab opens a small panel of the teams first; a second click (or T, or the panel) opens the full screen.
+            var tab = new MenuTab(id, name, key, $"{name} ({key}): {tip}", () => { if (screenId == "research") ResearchTabPressed(); else OpenScreen(screenId); });
             _tabs.Add(tab);
             _menuTabs.AddChild(tab);
         }
@@ -153,7 +155,23 @@ public partial class Hud
         _menuRight.AddChild(_gameMenu);
         inner.AddChild(_menuRight);
         AddChild(_menuBar);
+        _researchPopup = new ResearchPopup(_screen) { Visible = false };
+        var researchTab = _tabs.First(t => t.Id == "research");
+        _researchPopup.TabRect = () => researchTab.GetGlobalRect();
+        AddChild(_researchPopup);
     }
+
+    /// <summary>The Research tab: the teams panel first; with it open (or the research screen open) it does what T does.</summary>
+    private void ResearchTabPressed()
+    {
+        _menuActiveMs = Time.GetTicksMsec();
+        if (_researchPopup.Visible || OpenScreenId() == "research") { _researchPopup.Visible = false; OpenScreen("research"); return; }
+        _screen.CloseMenuScreens();
+        _researchPopup.Visible = true;
+    }
+
+    /// <summary>For the screenshots: show or hide the research teams panel.</summary>
+    public void ShowResearchPopup(bool show) => _researchPopup.Visible = show;
 
     /// <summary>A screen key or tab: open that screen (or close it when it is the one showing).</summary>
     public void OpenScreen(string id)
@@ -261,7 +279,7 @@ public partial class Hud
                 extra = "\n\n" + line.TrimEnd(' ', '▸');
                 if (line.Contains("WAITING") && worst is null or > NeedLevel.Soon) worst = NeedLevel.Soon;
             }
-            tab.Set(open == tab.Id, worst, list?.Count ?? 0, icons, tip + extra);
+            tab.Set(open == tab.Id || tab.Id == "research" && _researchPopup.Visible, worst, list?.Count ?? 0, icons, tip + extra);
         }
         _battleView.Visible = true;
         _battleView.Text = battleView ? "Menus back  U" : "Battle view  U";
@@ -291,6 +309,17 @@ public partial class Hud
         _menuTabs.Position = new Vector2(tabsX, (barHeight - 6 - tabsSize.Y) / 2);
 
         ContentTop = _menuBar.Visible && _menuSlide < 0.5 ? barY + barHeight + 4 : row1Bottom + 4;
+
+        // The research teams panel hangs under its tab.
+        if (_researchPopup.Visible && (!w.Loop || battleView || !_menuBar.Visible || open != null)) _researchPopup.Visible = false;
+        if (_researchPopup.Visible)
+        {
+            _menuActiveMs = now;
+            _researchPopup.Refresh(w);
+            var tabRect = _tabs.First(t => t.Id == "research").GetGlobalRect();
+            var x = Mathf.Clamp(tabRect.Position.X + tabRect.Size.X / 2 - _researchPopup.Size.X / 2, 8, view.X - _researchPopup.Size.X - 8);
+            _researchPopup.Position = new Vector2(x, barY + barHeight + 4);
+        }
         _row1Back.Visible = FullScreenOpen;
         _row1Back.Position = Vector2.Zero;
         _row1Back.Size = new Vector2(view.X, ContentTop);
