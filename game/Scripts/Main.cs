@@ -168,20 +168,54 @@ public partial class Main : Node
     /// <summary>How strong the rivals of the next new game play (every rival alike).</summary>
     public Difficulty DifficultyChoice { get; set; } = Difficulty.Normal;
 
+    /// <summary>The map for the next new game: Hesper or a seeded one (see MapMaker), with its size and seed.</summary>
+    public MapSetup MapChoice { get; set; } = new(MapType.SunLike, MapSize.Standard, NewMapSeed());
+
+    /// <summary>Roll a new map seed after each game started from the New game screen.</summary>
+    public bool NewMapSeedChoice { get; set; } = true;
+
+    /// <summary>A fresh map seed (eight digits).</summary>
+    public static ulong NewMapSeed() => MapCodes.Fit((ulong)Random.Shared.NextInt64(0, long.MaxValue));
+
     /// <summary>Start a new game with the choices on the title screen, and keep them for next time.</summary>
     public void StartChosenGame()
     {
+        var map = MapChoice;
+        // The next game gets a new map unless the player keeps this one (the seed box shows it when they come back).
+        if (NewMapSeedChoice && map.Seeded) MapChoice = map with { Seed = NewMapSeed() };
         NewGameChoices.Save(this);
-        StartNewGame(difficulty: DifficultyChoice);
+        StartNewGame(difficulty: DifficultyChoice, map: map);
     }
 
-    public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal)
+    /// <summary>
+    /// After a game on a seeded map: play the same map again (same rules and races, a new start: new start date and
+    /// homes shuffled), or swap sides (the same start, with your home and the rival's swapped).
+    /// </summary>
+    public void PlayMapAgain(bool swapSides)
+    {
+        if (Sim == null) return;
+        var replay = Sim.Replay;
+        var options = replay.Options ?? GameOptions.VsRival(DifficultyChoice);
+        var map = Sim.World.Map.Setup;
+        var seed = swapSides ? replay.Seed : (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
+        options = options with { Map = map with { SwapHomes = swapSides ? !map.SwapHomes : map.SwapHomes }, Learned = LearnedForNewGame() };
+        Log.Info("ui", swapSides ? "Swap sides on the same map" : "Play the same map again", new { map = map.Code, seed });
+        RunGuarded("starting a new game", () =>
+        {
+            Sim = Simulation.NewGame(Scenarios.TestSystem, seed, Log, Build, options: options);
+            if (options.Ironman == true) SaveSlots.WriteIronman(Paths, Sim);
+            SetScreen(new GameScreen());
+        });
+    }
+
+    public void StartNewGame(ulong? seed = null, Difficulty difficulty = Difficulty.Normal, MapSetup? map = null)
     {
         var s = seed ?? (ulong)Random.Shared.NextInt64(1, 1_000_000_000);
         RunGuarded("starting a new game", () =>
         {
             Sim = Simulation.NewGame(Scenarios.TestSystem, s, Log, Build, options: GameOptions.VsRival(difficulty) with
             {
+                Map = map is { Seeded: true } ? map : null,
                 Light = LightChoice, Decapitation = DecapitationChoice, Happiness = HappinessChoice, SupplyLines = SupplyLinesChoice,
                 StartPopulation = SpreadPeopleChoice, RandomStarts = RandomStartsChoice, FuelTypes = FuelTypesChoice,
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
