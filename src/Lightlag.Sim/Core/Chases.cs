@@ -36,12 +36,15 @@ public static class Chases
     /// A quarry holding orbit, or barely moving, is heading nowhere.
     /// </summary>
     /// <remarks>A planet and its moon both lie on the track: prefer, when it is one of them, the body the asking fleet is at.</remarks>
-    public static (Body Body, double Hours)? HeadingFor(World w, Side side, Sighting s, int? preferBodyId = null)
+    /// <remarks>Seat: the sighting is from command's picture (light lag), so predict from that picture too.
+    /// NearestPass: of several bodies on the track, the one it passes closest (a planet rather than its moon), not the first.</remarks>
+    public static (Body Body, double Hours)? HeadingFor(World w, Side side, Sighting s, int? preferBodyId = null, bool seat = false, bool nearestPass = false)
     {
         if (s.OrbitBodyId != null || s.Velocity.Length < 1e-3) return null;
-        var at = Sensors.Predict(w, side, s.FleetId, w.Hour) ?? s.Guess(w.Hour);
+        var at = Sensors.Predict(w, side, s.FleetId, w.Hour, seat) ?? s.Guess(w.Hour);
         var v = s.Velocity;
         (Body, double)? best = null;
+        var bestMiss = double.PositiveInfinity;
         foreach (var b in w.Bodies.Where(b => b.Owner == side).OrderBy(b => b.Id))
         {
             var rel = b.Position - at;
@@ -51,9 +54,10 @@ public static class Chases
             var then = FlightPlanner.PredictBody(w, b, w.Hour + t);
             rel = then - at;
             t = (rel.X * v.X + rel.Y * v.Y) / (v.X * v.X + v.Y * v.Y);
-            if (t <= 0 || Vec2.Distance(at + v * t, FlightPlanner.PredictBody(w, b, w.Hour + t)) > MeetMm) continue;
+            var miss = Vec2.Distance(at + v * t, FlightPlanner.PredictBody(w, b, w.Hour + t));
+            if (t <= 0 || miss > MeetMm) continue;
             if (b.Id == preferBodyId) return (b, t);
-            if (best is not var (_, bt) || t < bt) best = (b, t);
+            if (nearestPass ? miss < bestMiss : best is not var (_, bt) || t < bt) { best = (b, t); bestMiss = miss; }
         }
         return best;
     }
