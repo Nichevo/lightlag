@@ -172,6 +172,51 @@ public class ResearchTests
     }
 
     [Fact]
+    public void Training_can_be_queued_and_each_starts_when_the_one_before_is_done()
+    {
+        var sim = NewGame();
+        Hour(sim);
+        var w = sim.World;
+        Player(sim).Industry = 5000;
+        Budget.Of(w, Side.Player).Pots[(int)Pot.Buildings].Saved += 5000;
+        var team = Player(sim).Teams[0];
+        for (var i = 0; i < 3; i++) sim.Issue(new TrainTeamCommand(Side.Player, team.Id));
+        sim.ApplyPending();
+        Assert.NotNull(team.TrainingUntilHour);
+        Assert.Equal(2, team.TrainingQueued);
+        Assert.Equal("after the current training", Research.TrainingWaiting(w, Side.Player, team));
+        sim.Issue(new CancelTrainingCommand(Side.Player, team.Id));
+        sim.ApplyPending();
+        Assert.Equal(1, team.TrainingQueued);
+        Days(sim, Research.T.TrainDays * 2 * Tech.Factor(w, Side.Player, "scientist-training") + 0.5);
+        Assert.Equal(0, team.TrainingQueued);
+        Assert.Equal(Research.T.StartScientists + 2 * Research.T.TrainScientists, team.Scientists);
+    }
+
+    [Fact]
+    public void A_queued_training_waits_for_the_buildings_pot()
+    {
+        var sim = NewGame();
+        Hour(sim);
+        var w = sim.World;
+        var pot = Budget.Of(w, Side.Player).Pots[(int)Pot.Buildings];
+        pot.Saved = 0;
+        Player(sim).Industry = 0;
+        var team = Player(sim).Teams[0];
+        Assert.NotNull(Research.CanTrain(w, Side.Player, team.Id));
+        sim.Issue(new TrainTeamCommand(Side.Player, team.Id));
+        sim.ApplyPending();
+        Assert.Null(team.TrainingUntilHour);
+        Assert.Equal(1, team.TrainingQueued);
+        Assert.NotNull(Research.TrainingWaiting(w, Side.Player, team));
+        Player(sim).Industry = 5000;
+        pot.Saved += 5000;
+        Hour(sim);
+        Assert.NotNull(team.TrainingUntilHour);
+        Assert.Equal(0, team.TrainingQueued);
+    }
+
+    [Fact]
     public void All_slots_full_refuses_a_new_team()
     {
         var sim = NewGame();

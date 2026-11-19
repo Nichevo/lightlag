@@ -5,10 +5,11 @@ using Side = Lightlag.Sim.Core.Side;
 namespace Lightlag.Game;
 
 /// <summary>
-/// The research screen (T), layout A: a strip of compact team cards along the top (each unfolds to its
-/// skills, kept fields, queue, train and split), the ideas as picture cards filling the screen, and the
-/// discovery web as a slide-out on the right. Buttons issue commands; the screen rebuilds only when
-/// something it shows changes shape, and updates numbers live.
+/// The research screen (T). Teams sit in a slim column on the left, each showing what it works on and what comes
+/// next. The middle has two tabs: Ideas (a calm first look: three suggested ideas, then every field folded to one
+/// line that opens to its cards; Filters brings back the full filter rows) and Web (the discovery web, one field at
+/// a time or all). The right-hand pane shows the picked idea in full, or a team's skills, queue and training.
+/// Buttons issue commands; the screen rebuilds only when something it shows changes shape, and updates numbers live.
 /// </summary>
 public partial class ResearchScreen : PanelContainer
 {
@@ -23,29 +24,44 @@ public partial class ResearchScreen : PanelContainer
     private readonly HashSet<IdeaState> _states = new() { IdeaState.Available, IdeaState.Queued, IdeaState.Researching, IdeaState.Locked };
     private string? _unlocks;                  // null: everything
     private Sort _sort = Sort.Quickest;
-    private string? _selected;                 // idea lit up in the discovery web
     private ScrollContainer? _ideaScroll;
-    private bool _revealPicked;                // an idea was picked in the web: show and scroll to its card in Ideas
-    private Control? _pickedCard;
-    private string? _webPick;                  // the idea last picked in the web (kept in Ideas while it stays picked)
-    private (int Ideas, int WebV, int WebH)? _keepScroll; // scroll places to put back after a rebuild
-    private static bool _allSkills;            // team cards show every field's skill, not only the kept ones (folded by default)
-    private static int? _openTeam;             // the team whose full card (skills, queue, train, split) is unfolded
-    private static bool _webOpen;              // the discovery web slid out on the right
+    private int? _keepScroll;                  // the Ideas scroll place to put back after a rebuild
+    private List<string> _suggested = new();
+    private static string? _selected;          // the idea shown in the right-hand pane (null: the first suggested)
+    private static bool _allSkills;            // the team pane shows every field's skill, not only the kept ones
+    private static int? _openTeam;             // the team shown in the right-hand pane instead of an idea
+    private static bool _webOpen;              // the Web tab rather than Ideas
+    private static bool _showFilters;          // the full filter rows and a flat list of cards
+    private static string? _webField;          // the web shows one field (null: all)
+    private static readonly HashSet<string> _openFields = new();
 
     public enum IdeaState { Available, Queued, Researching, Done, Locked }
     private enum Sort { Quickest, Cheapest, Name }
 
     private static readonly string[] UnlockGroups = { "hulls", "engines", "weapons", "defence", "supply", "sensors", "industry" };
 
+    private const float TeamsWidth = 268;
+    private float DetailWidth => Mathf.Clamp(GetViewportRect().Size.X * 0.25f, 330, 420);
+    /// <summary>Room inside the middle box for cards (window less the margins, the team column, the pane and a scroll bar).</summary>
+    private float CentreWidth => GetViewportRect().Size.X - 40 - TeamsWidth - DetailWidth - 24 - 32 - 16;
+
     public ResearchScreen() : this(null!) { }
     internal static void OpenWebForShots(bool open) => _webOpen = open;
     internal static void OpenTeamForShots(int? team) => _openTeam = team;
+    internal static void SelectForShots(string? idea) => _selected = idea;
+    internal static void OpenFieldForShots(string? field)
+    {
+        _openFields.Clear();
+        if (field != null) _openFields.Add(field);
+        _webField = field;
+    }
+    /// <summary>The popup on the game screen opens the full screen on one team.</summary>
+    public static void ShowTeam(int team) { _openTeam = team; _webOpen = false; }
     public ResearchScreen(GameScreen screen) => _screen = screen;
 
     public override void _Ready()
     {
-        var box = new StyleBoxFlat { BgColor = new Color(0.02f, 0.03f, 0.045f, 0.97f) };
+        var box = new StyleBoxFlat { BgColor = new Color(0.02f, 0.03f, 0.045f) }; // solid: the news strip and scale bar showed through
         box.SetContentMarginAll(20);
         AddThemeStyleboxOverride("panel", box);
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -68,21 +84,13 @@ public partial class ResearchScreen : PanelContainer
         {
             _shape = shape;
             // A rebuild (clicking a card, queueing an idea) used to jump the lists back to the top.
-            if (_ideaScroll != null && IsInstanceValid(_ideaScroll))
-                _keepScroll = (_ideaScroll.ScrollVertical, 0, 0);
+            if (_ideaScroll != null && IsInstanceValid(_ideaScroll)) _keepScroll = _ideaScroll.ScrollVertical;
             Rebuild(w);
         }
-        else if (_revealPicked && _pickedCard != null && IsInstanceValid(_pickedCard) && _ideaScroll != null && IsInstanceValid(_ideaScroll))
-        {
-            // Picked in the discovery web: bring its card into view in Ideas (a frame after the rebuild, once laid out).
-            _ideaScroll.EnsureControlVisible(_pickedCard);
-            _revealPicked = false;
-            _keepScroll = null;
-        }
-        else if (_keepScroll is var (ideas, _, _) && _ideaScroll != null && IsInstanceValid(_ideaScroll))
+        else if (_keepScroll is int place && _ideaScroll != null && IsInstanceValid(_ideaScroll))
         {
             // Put the scroll place back once the new list has its size (a frame after the rebuild).
-            _ideaScroll.ScrollVertical = ideas;
+            _ideaScroll.ScrollVertical = place;
             _keepScroll = null;
         }
         foreach (var update in _live) update(w);
@@ -92,11 +100,12 @@ public partial class ResearchScreen : PanelContainer
     {
         var me = Economy.Of(w, Side.Player);
         return string.Join(",", w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research).Select(o => $"{o.Id}:{o.TeamId}:{o.Paid}"))
-               + "|" + string.Join(",", me.Researched) + "|" + string.Join(",", me.Cuts)
-               + "|" + string.Join(",", me.Teams.Select(t => $"{t.Id}:{string.Join("+", t.Kept)}:{t.TrainingUntilHour != null}:{Research.Ready(w, t)}:{t.Scientists}:{string.Join("/", Research.KeptFields(t))}"))
+               + "|" + string.Join(",", me.Researched) + "|" + string.Join(",", me.Cuts) + "|" + string.Join(",", me.Sparked)
+               + "|" + string.Join(",", me.Teams.Select(t => $"{t.Id}:{string.Join("+", t.Kept)}:{t.TrainingUntilHour != null}:{t.TrainingQueued}:{Research.Ready(w, t)}:{t.Scientists}:{string.Join("/", Research.KeptFields(t))}"))
                + "|" + string.Join(",", Intel.Counters(w, Side.Player).Select(c => c.Idea))
                + "|" + string.Join(",", RivalTech.Learning(w, Side.Player).Select(l => $"{l.Id}:{l.Stage}"))
-               + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{_allSkills}|{_openTeam}|{_webOpen}|{GetViewportRect().Size}|{w.Winner}";
+               + $"|{_search}|{_field}|{string.Join(",", _states.Order())}|{_unlocks}|{_sort}|{_selected}|{_allSkills}|{_openTeam}|{_webOpen}"
+               + $"|{_showFilters}|{_webField}|{string.Join(",", _openFields.Order())}|{GetViewportRect().Size}|{w.Winner}";
     }
 
     // ---- Layout --------------------------------------------------------------------------------
@@ -105,68 +114,91 @@ public partial class ResearchScreen : PanelContainer
     {
         Ui.ClearChildren(_root);
         _live.Clear();
+        var me = Economy.Of(w, Side.Player);
+        if (_openTeam is int open && me.Teams.All(t => t.Id != open)) _openTeam = null;
+        var available = GameData.Economy.Research.Where(r => Discovered(w, r) && StateOf(w, r.Id) == IdeaState.Available).Select(r => r.Id).ToList();
+        _suggested = ResearchValue.Rank(w, Side.Player, ResearchValue.For(w, Side.Player), available).Take(3).Select(x => x.Id).ToList();
 
+        _root.AddChild(Header(w));
+        // The budget line that pays for training and founding teams, also shown on the Budget screen.
+        _root.AddChild(new PotStrip(Pot.Buildings, 900));
+
+        var body = new HBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
+        body.AddThemeConstantOverride("separation", 12);
+
+        // Left: the teams, always in view.
+        var teams = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled, CustomMinimumSize = new Vector2(TeamsWidth, 0) };
+        teams.AddChild(TeamsColumn(w));
+        body.AddChild(teams);
+
+        // Middle: Ideas or the web.
+        var middle = Box(16);
+        middle.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        middle.AddChild(_webOpen ? WebPanel(w) : IdeasPanel(w));
+        body.AddChild(middle);
+
+        // Right: the picked idea, or a team's skills, queue and training.
+        var pane = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled, CustomMinimumSize = new Vector2(DetailWidth, 0) };
+        var paneWidth = DetailWidth - 14;
+        if (_openTeam is int t && Research.Team(w, Side.Player, t) is ResearchTeam team) pane.AddChild(TeamCard(w, team, paneWidth));
+        else if (Shown(w) is ResearchData idea) pane.AddChild(IdeaDetail(w, idea, paneWidth));
+        else pane.AddChild(Wrap(Ui.Label("Pick an idea to see it in full here.", 13, Ui.Dim)));
+        body.AddChild(pane);
+        _root.AddChild(body);
+    }
+
+    /// <summary>The idea in the right-hand pane: the one picked, else the first suggested, else one under way.</summary>
+    private ResearchData? Shown(World w)
+    {
+        var id = _selected ?? _suggested.FirstOrDefault()
+                 ?? w.Orders.Where(o => o.Side == Side.Player && o.Kind == OrderKind.Research).Select(o => o.Key).FirstOrDefault();
+        return id != null && GameData.ResearchById.TryGetValue(id, out var r) ? r : null;
+    }
+
+    private Control Header(World w)
+    {
         var top = new HBoxContainer();
-        top.AddThemeConstantOverride("separation", 16);
+        top.AddThemeConstantOverride("separation", 10);
         top.AddChild(Ui.Label("Research", 26, new Color("f2f5fa")));
-        var note = Ui.Label($"{Research.T.Slots} team slots · speed = skill × size · fields a team doesn't keep fade over time", 13, Ui.Dim);
-        note.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        top.AddChild(note);
+        top.AddChild(new Control { CustomMinimumSize = new Vector2(TeamsWidth - 150, 0) });
+        top.AddChild(Tab("Ideas", !_webOpen, () => _webOpen = false, "The ideas you know of: suggested ones first, then each field"));
+        top.AddChild(Tab("Web", _webOpen, () => _webOpen = true, "The discovery web: what leads to what, one field at a time"));
         top.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        if (!_webOpen)
+        {
+            var search = new LineEdit { Text = _search, PlaceholderText = "Search ideas (Enter)", CustomMinimumSize = new Vector2(220, 32) };
+            search.TextSubmitted += text => _search = text.Trim();
+            top.AddChild(search);
+            if (_search.Length > 0) top.AddChild(Ui.SmallButton("✕", () => _search = "", "Clear the search"));
+            var filtered = _field != null || _unlocks != null || _sort != Sort.Quickest || _states.Count != 4 || _states.Contains(IdeaState.Done);
+            var filters = Ui.SmallButton(_showFilters ? "Filters ▴" : filtered ? "Filters ● ▾" : "Filters ▾", () => _showFilters = !_showFilters,
+                _showFilters ? "Hide the filters and go back to the calm view" : "Filter by field, status and what an idea unlocks, and sort");
+            filters.Modulate = _showFilters || filtered ? Ui.Player : new Color(1, 1, 1, 0.8f);
+            top.AddChild(filters);
+        }
         var industry = Ui.Label("", 14, Ui.Text);
         industry.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         _live.Add(w2 => industry.Text = $"Industry {Economy.Of(w2, Side.Player).Industry:0}");
         top.AddChild(industry);
         top.AddChild(Ui.SmallButton("Back to map", () => _screen.ShowResearch = false, "Close the research screen (T or Esc)"));
-        _root.AddChild(top);
-        // The budget line that pays for training and founding teams, also shown on the Budget screen.
-        _root.AddChild(new PotStrip(Pot.Buildings, 900));
-
-        // Team strip: one compact card per slot; "Skills and queue" unfolds a team's full card.
-        var teams = new HBoxContainer();
-        teams.AddThemeConstantOverride("separation", 12);
-        var me = Economy.Of(w, Side.Player);
-        if (_openTeam is int open && me.Teams.All(t => t.Id != open)) _openTeam = null;
-        for (var i = 0; i < Research.T.Slots; i++)
-        {
-            Control card = i < me.Teams.Count ? (_openTeam == me.Teams[i].Id ? TeamCard(w, me.Teams[i]) : TeamStrip(w, me.Teams[i]))
-                : i == me.Teams.Count ? EmptySlot(w) : LockedSlot();
-            card.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-            card.SizeFlagsStretchRatio = 1;
-            // An unfolded team card no longer stretches its neighbours to its own height.
-            card.SizeFlagsVertical = SizeFlags.ShrinkBegin;
-            teams.AddChild(card);
-        }
-        _root.AddChild(teams);
-
-        // Ideas fill the screen; the discovery web slides out from a tab on the right.
-        var bottom = new HBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
-        bottom.AddThemeConstantOverride("separation", 12);
-        var ideas = Box(16);
-        ideas.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        ideas.AddChild(IdeasPanel(w));
-        bottom.AddChild(ideas);
-        if (_webOpen)
-        {
-            var web = Box(12);
-            web.CustomMinimumSize = new Vector2(WebWidth, 0);
-            web.AddChild(WebPanel(w));
-            bottom.AddChild(web);
-        }
-        else
-        {
-            var tab = new Button { Text = "◂\nDiscovery\nweb", FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(TabWidth, 0),
-                TooltipText = "Open the discovery web: every idea you know of and what leads to what" };
-            tab.AddThemeFontSizeOverride("font_size", 12);
-            tab.AddThemeColorOverride("font_color", new Color("7cc4ff"));
-            tab.Pressed += () => _webOpen = true;
-            bottom.AddChild(tab);
-        }
-        _root.AddChild(bottom);
+        return top;
     }
 
-    private const float TabWidth = 76;
-    private float WebWidth => Mathf.Max(560, GetViewportRect().Size.X * 0.55f);
+    private static Button Tab(string text, bool on, Action press, string tip)
+    {
+        var b = Ui.SmallButton(text, press, tip);
+        b.CustomMinimumSize = new Vector2(90, 34);
+        b.AddThemeFontSizeOverride("font_size", 16);
+        b.AddThemeColorOverride("font_color", on ? Ui.Player : Ui.Dim);
+        if (on)
+        {
+            var line = new StyleBoxFlat { BgColor = new Color("0f1a28"), BorderColor = Ui.Player };
+            line.BorderWidthBottom = 2;
+            line.SetContentMarginAll(6);
+            b.AddThemeStyleboxOverride("normal", line);
+        }
+        return b;
+    }
 
     /// <summary>A label that cuts its text to the room it gets (whole text in the tooltip), so it never widens the screen.</summary>
     private static Label Fit(Label l)
@@ -177,6 +209,14 @@ public partial class ResearchScreen : PanelContainer
         l.HorizontalAlignment = HorizontalAlignment.Right;
         l.TooltipText = l.Text;
         l.MouseFilter = MouseFilterEnum.Pass;
+        return l;
+    }
+
+    /// <summary>A label cut to its room on the left (whole text in the tooltip).</summary>
+    private static Label Clip(Label l)
+    {
+        Fit(l);
+        l.HorizontalAlignment = HorizontalAlignment.Left;
         return l;
     }
 
@@ -216,11 +256,127 @@ public partial class ResearchScreen : PanelContainer
         return back;
     }
 
+    private static TextureRect Picture(ResearchData r, float width)
+    {
+        return new TextureRect
+        {
+            Texture = Art.IdeaPicture(r.Id, r.Picture),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            CustomMinimumSize = new Vector2(width, width * 12 / 35), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore,
+            TextureFilter = TextureFilterEnum.LinearWithMipmaps,
+        };
+    }
+
+    /// <summary>What a team's first idea shows: days left, or why it is held up.</summary>
+    private static (string Text, bool Stuck) Progress(World w, WorkOrder? first)
+    {
+        if (first == null) return ("idle", false);
+        var stuck = !first.Paid && first.Waiting != null;
+        return (first.Paid ? $"{Research.DaysUntilDone(w, first):0.#} d" : stuck ? $"WAITING: {first.Waiting}" : "starts next hour", stuck);
+    }
+
+    /// <summary>"Training +4 in 3.2 d · 2 more queued": empty when nothing is training or queued.</summary>
+    public static string TrainingText(World w, ResearchTeam team)
+    {
+        var parts = new List<string>();
+        if (team.TrainingUntilHour is double h) parts.Add($"Training +{team.TrainingScientists:0} in {(h - w.Hour) / 24:0.#} d");
+        if (team.TrainingQueued > 0)
+        {
+            var waiting = Research.TrainingWaiting(w, Side.Player, team);
+            parts.Add($"{team.TrainingQueued} {(team.TrainingUntilHour != null ? "more " : "")}training{(team.TrainingQueued == 1 ? "" : "s")} queued"
+                      + (waiting != null && team.TrainingUntilHour == null ? $" (WAITING: {waiting})" : ""));
+        }
+        return string.Join(" · ", parts);
+    }
+
     // ---- Teams ---------------------------------------------------------------------------------
 
-    private Control TeamCard(World w, ResearchTeam team)
+    private Control TeamsColumn(World w)
     {
-        var card = Box(14, new Color("12324a"));
+        var v = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        v.AddThemeConstantOverride("separation", 10);
+        var me = Economy.Of(w, Side.Player);
+        var head = new HBoxContainer();
+        head.AddChild(Ui.Label("TEAMS", 11, Ui.Dim));
+        head.AddChild(Fit(Ui.Label($"{me.Teams.Count} of {Research.T.Slots} slots", 11, Ui.Dim)));
+        v.AddChild(head);
+        foreach (var team in me.Teams) v.AddChild(TeamTile(w, team));
+        if (me.Teams.Count < Research.T.Slots) v.AddChild(EmptySlot(w));
+        var locked = Research.T.Slots - me.Teams.Count - 1;
+        if (locked > 0)
+            v.AddChild(Wrap(Ui.Label($"{locked} more slot{(locked == 1 ? "" : "s")} {(locked == 1 ? "opens" : "open")} once the one before is filled", 11, Ui.Dim)));
+        v.AddChild(Wrap(Ui.Label("Speed = skill × size. Fields a team doesn't keep fade over time.", 11, new Color("566275"))));
+        return v;
+    }
+
+    /// <summary>A team in the left column: what it works on now (with its picture), what comes next, and training.</summary>
+    private Control TeamTile(World w, ResearchTeam team)
+    {
+        var open = _openTeam == team.Id;
+        var card = Box(10, open ? Ui.Player : new Color("12324a"));
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 5);
+        card.AddChild(v);
+        var inner = TeamsWidth - 34;
+
+        var head = new HBoxContainer();
+        head.AddChild(Ui.Label(team.Name, 15, Ui.Player));
+        var size = Fit(Ui.Label("", 12, Ui.Dim));
+        _live.Add(w2 => size.Text = $"{team.Scientists:0} scientists" + (!Research.Ready(w2, team) ? $" · ready in {(team.ReadyHour - w2.Hour) / 24:0.#} d" : ""));
+        head.AddChild(size);
+        v.AddChild(head);
+
+        var queue = Research.QueueOf(w, Side.Player, team.Id).ToList();
+        var first = queue.FirstOrDefault();
+        if (first != null)
+        {
+            var data = GameData.Research(first.Key);
+            var pic = Picture(data, inner);
+            pic.MouseFilter = MouseFilterEnum.Stop;
+            pic.TooltipText = "Show this idea on the right";
+            pic.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) { _selected = first.Key; _openTeam = null; } };
+            v.AddChild(pic);
+            v.AddChild(Clip(Ui.Label(data.Name, 13, new Color("f2f5fa"))));
+        }
+        else v.AddChild(Wrap(Ui.Label("Nothing queued: pick an idea and Queue it", 12, Ui.Dim)));
+        var now = new HBoxContainer();
+        now.AddThemeConstantOverride("separation", 8);
+        var bar = Bar(80, Ui.Player, () => first == null ? 0 : 1 - first.HoursLeft / Math.Max(1e-6, first.TotalHours), _live);
+        bar.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        now.AddChild(bar);
+        var left = Fit(Ui.Label("", 12, Ui.Dim));
+        left.SizeFlagsStretchRatio = 0.9f;
+        _live.Add(w2 =>
+        {
+            var (text, stuck) = Progress(w2, first);
+            left.Text = text;
+            left.TooltipText = text;
+            left.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
+        });
+        now.AddChild(left);
+        if (first != null) v.AddChild(now);
+
+        foreach (var o in queue.Skip(1).Take(3)) v.AddChild(Clip(Ui.Label("then " + GameData.Research(o.Key).Name, 12, Ui.Text)));
+        if (queue.Count > 4) v.AddChild(Ui.Label($"+{queue.Count - 4} more", 11, Ui.Dim));
+
+        var training = Wrap(Ui.Label("", 11, Ui.Dim));
+        _live.Add(w2 => { training.Text = TrainingText(w2, team); training.Visible = training.Text.Length > 0; });
+        v.AddChild(training);
+
+        var more = Ui.SmallButton(open ? "◂ Shown on the right" : "Skills, queue, train ▸", () => _openTeam = open ? null : team.Id,
+            open ? "Show the picked idea on the right again" : "Show this team on the right: skills, kept fields, queue order, train and split");
+        more.AddThemeFontSizeOverride("font_size", 13);
+        more.CustomMinimumSize = new Vector2(0, 28);
+        if (open) more.Modulate = Ui.Player;
+        v.AddChild(more);
+        return card;
+    }
+
+    /// <summary>A team in full, in the right-hand pane: skills and kept fields, the queue in order, training and splitting.</summary>
+    private Control TeamCard(World w, ResearchTeam team, float width)
+    {
+        var card = Box(14, Ui.Player);
+        card.CustomMinimumSize = new Vector2(width, 0);
         var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 6);
         card.AddChild(v);
@@ -228,24 +384,26 @@ public partial class ResearchScreen : PanelContainer
         var head = new HBoxContainer();
         head.AddChild(Ui.Label(team.Name, 18, Ui.Player));
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
-        var size = Ui.Label("", 13, Ui.Text);
-        _live.Add(w2 => size.Text = $"{team.Scientists:0} scientists"
-            + (team.TrainingUntilHour is double h ? $" (+{team.TrainingScientists:0} in {(h - w2.Hour) / 24:0.#} d)" : "")
-            + (!Research.Ready(w2, team) ? $" · ready in {(team.ReadyHour - w2.Hour) / 24:0.#} d" : ""));
-        head.AddChild(size);
-        head.AddChild(Ui.SmallButton("▴ Fold", () => _openTeam = null, "Fold this team back to its compact card"));
+        head.AddChild(Ui.SmallButton("✕", () => _openTeam = null, "Close the team and show the picked idea again"));
         v.AddChild(head);
+        var size = Wrap(Ui.Label("", 13, Ui.Text));
+        _live.Add(w2 => size.Text = $"{team.Scientists:0} scientists · {team.Ideas} ideas finished"
+            + (!Research.Ready(w2, team) ? $" · ready in {(team.ReadyHour - w2.Hour) / 24:0.#} d" : ""));
+        v.AddChild(size);
 
-        // Folded by default to the kept (primary) fields, so the Ideas below get the room; one click shows them all.
+        // Folded by default to the kept (primary) fields; one click shows them all.
         var kept = Research.KeptFields(team).ToList();
         var skillHead = new HBoxContainer();
-        skillHead.AddChild(Ui.Label(_allSkills ? "SKILL  (★ kept · ↓ fading · click ★ to keep a field)" : "SKILL", 11, Ui.Dim));
+        skillHead.AddChild(Ui.Label("SKILL", 11, Ui.Dim));
         skillHead.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var hidden = Research.Fields.Length - kept.Count;
         var fadingCount = Enumerable.Range(0, Research.Fields.Length).Count(i => !kept.Contains(i) && team.Skill[i] > 1.0001);
-        skillHead.AddChild(Ui.SmallButton(_allSkills ? "▴ Kept only" : $"▸ All fields ({hidden} more{(fadingCount > 0 ? $", {fadingCount} fading" : "")})",
-            () => _allSkills = !_allSkills, _allSkills ? "Show only the kept fields" : "Show every field's skill, and pick which to keep"));
+        var allButton = Ui.SmallButton(_allSkills ? "▴ Kept only" : $"▸ All fields ({hidden} more{(fadingCount > 0 ? $", {fadingCount} fading" : "")})",
+            () => _allSkills = !_allSkills, _allSkills ? "Show only the kept fields" : "Show every field's skill, and pick which to keep");
+        allButton.AddThemeFontSizeOverride("font_size", 12);
+        skillHead.AddChild(allButton);
         v.AddChild(skillHead);
+        if (_allSkills) v.AddChild(Ui.Label("★ kept · ↓ fading · click ☆ to keep a field (up to 2)", 11, Ui.Dim));
         for (var i = 0; i < Research.Fields.Length; i++)
         {
             if (!_allSkills && !kept.Contains(i)) continue;
@@ -258,9 +416,9 @@ public partial class ResearchScreen : PanelContainer
             keep.Modulate = kept.Contains(i) ? Ui.Player : new Color(1, 1, 1, 0.5f);
             row.AddChild(keep);
             var name = Ui.Label(Research.FieldNames[i], 13, Ui.Text);
-            name.CustomMinimumSize = new Vector2(150, 0);
+            name.CustomMinimumSize = new Vector2(140, 0);
             row.AddChild(name);
-            var bar = Bar(120, kept.Contains(i) ? Ui.Player : new Color("8a96a8"), () => (team.Skill[fi] - 1) / Math.Max(0.01, Research.T.MaxSkill - 1), _live);
+            var bar = Bar(60, kept.Contains(i) ? Ui.Player : new Color("8a96a8"), () => (team.Skill[fi] - 1) / Math.Max(0.01, Research.T.MaxSkill - 1), _live);
             bar.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             row.AddChild(bar);
             var value = Ui.Label("", 13, Ui.Text);
@@ -276,42 +434,26 @@ public partial class ResearchScreen : PanelContainer
             v.AddChild(row);
         }
 
+        v.AddChild(new Control { CustomMinimumSize = new Vector2(0, 4) });
         v.AddChild(Ui.Label("QUEUE", 11, Ui.Dim));
         var queue = Research.QueueOf(w, Side.Player, team.Id).ToList();
-        if (queue.Count == 0) v.AddChild(Ui.Label("Nothing queued: add ideas from the cards below", 12, Ui.Dim));
-        // A long queue scrolls inside the card, so an unfolded team never pushes Ideas and the web off the bottom.
-        var queueRows = new VBoxContainer();
-        queueRows.AddThemeConstantOverride("separation", 4);
-        var queueScroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
-        queueScroll.CustomMinimumSize = new Vector2(0, Mathf.Min(queue.Count * 40, Mathf.Max(80, GetViewportRect().Size.Y * 0.16f)));
-        queueRows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        queueScroll.AddChild(queueRows);
-        if (queue.Count > 0) v.AddChild(queueScroll);
+        if (queue.Count == 0) v.AddChild(Wrap(Ui.Label("Nothing queued: pick an idea and Queue it", 12, Ui.Dim)));
+        var others = Economy.Of(w, Side.Player).Teams.Where(t => t.Id != team.Id).ToList();
         for (var q = 0; q < queue.Count; q++)
         {
             var order = queue[q];
             var first = q == 0;
             var data = GameData.Research(order.Key);
             var row = new HBoxContainer();
-            row.AddThemeConstantOverride("separation", 6);
-            var name = Ui.Label(data.Name, 13, q == 0 ? new Color("f2f5fa") : Ui.Text);
-            name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-            name.ClipText = true;
+            row.AddThemeConstantOverride("separation", 4);
+            var name = Clip(Ui.Label($"{q + 1}. {data.Name}", 13, first ? new Color("f2f5fa") : Ui.Text));
             row.AddChild(name);
-            var days = Ui.Label("", 13, Ui.Dim);
-            // A long reason ("WAITING: needs ...") is cut to fit the card (the whole reason is in the tooltip), so the
-            // queue never pushes the team cards off the screen.
-            days.ClipText = true;
-            days.MouseFilter = MouseFilterEnum.Pass;
-            days.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-            days.SizeFlagsStretchRatio = 0.8f;
-            days.HorizontalAlignment = HorizontalAlignment.Right;
+            var days = Fit(Ui.Label("", 12, Ui.Dim));
+            days.SizeFlagsStretchRatio = 0.5f;
             _live.Add(w2 =>
             {
-                // The first idea is paid for when the team starts it: say plainly when it is held up for Industry.
                 var stuck = !order.Paid && first && order.Waiting != null;
-                days.Text = order.Paid || !first ? $"{Research.DaysUntilDone(w2, order):0.#} d"
-                    : stuck ? $"WAITING: {order.Waiting}" : "starts next hour";
+                days.Text = order.Paid || !first ? $"{Research.DaysUntilDone(w2, order):0.#} d" : stuck ? $"WAITING: {order.Waiting}" : "starts next hour";
                 days.TooltipText = days.Text;
                 days.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
             });
@@ -321,12 +463,13 @@ public partial class ResearchScreen : PanelContainer
                 var id = order.Id;
                 var up = Ui.SmallButton("▲", () => _screen.IssueNow(new MoveResearchOrderCommand(Side.Player, id, -1), "moving research up"), "Move up the queue (progress is kept)");
                 up.Disabled = q == 0;
+                up.CustomMinimumSize = new Vector2(30, 28);
                 row.AddChild(up);
                 var down = Ui.SmallButton("▼", () => _screen.IssueNow(new MoveResearchOrderCommand(Side.Player, id, 1), "moving research down"), "Move down the queue (progress is kept)");
                 down.Disabled = q == queue.Count - 1;
+                down.CustomMinimumSize = new Vector2(30, 28);
                 row.AddChild(down);
             }
-            var others = Economy.Of(w, Side.Player).Teams.Where(t => t.Id != team.Id).ToList();
             if (others.Count > 0)
             {
                 var move = new MenuButton { Text = "⇄", TooltipText = "Move to another team (progress is kept)", FocusMode = FocusModeEnum.None, Flat = false };
@@ -334,34 +477,54 @@ public partial class ResearchScreen : PanelContainer
                 move.GetPopup().IdPressed += id => _screen.IssueNow(new SetOrderTeamCommand(Side.Player, order.Id, (int)id), "moving research");
                 row.AddChild(move);
             }
-            row.AddChild(Ui.SmallButton("✕", () => _screen.CancelOrder(order.Id), "Take off the queue"));
-            queueRows.AddChild(row);
-            if (q == 0) queueRows.AddChild(Bar(200, Ui.Player, () => 1 - order.HoursLeft / Math.Max(1e-6, order.TotalHours), _live));
+            var cancel = Ui.SmallButton("✕", () => _screen.CancelOrder(order.Id), "Take off the queue");
+            cancel.CustomMinimumSize = new Vector2(30, 28);
+            row.AddChild(cancel);
+            v.AddChild(row);
+            if (first) v.AddChild(Bar(200, Ui.Player, () => 1 - order.HoursLeft / Math.Max(1e-6, order.TotalHours), _live));
         }
 
-        var buttons = new HBoxContainer();
-        buttons.AddThemeConstantOverride("separation", 6);
-        const string trainTip = "More scientists: a bigger team works faster (twice the size is about 1.7x). Paid at once from the Buildings pot of the Industry budget";
+        // Training: one batch at a time; more can be queued and each starts by itself when it can be paid for.
+        v.AddChild(new Control { CustomMinimumSize = new Vector2(0, 4) });
+        v.AddChild(Ui.Label("TRAINING", 11, Ui.Dim));
+        var status = Wrap(Ui.Label("", 12, Ui.Text));
+        v.AddChild(status);
+        var trainRow = new HBoxContainer();
+        trainRow.AddThemeConstantOverride("separation", 6);
+        const string trainTip = "More scientists: a bigger team works faster (twice the size is about 1.7x). Paid from the Buildings pot of the Industry budget when "
+                                + "the training starts. Queue more and each starts by itself after the one before";
         var train = Ui.SmallButton("", () => _screen.IssueNow(new TrainTeamCommand(Side.Player, team.Id), "training scientists"), trainTip);
+        train.AddThemeFontSizeOverride("font_size", 13);
+        train.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        train.ClipText = true;
+        trainRow.AddChild(train);
+        var less = Ui.SmallButton("− one", () => _screen.IssueNow(new CancelTrainingCommand(Side.Player, team.Id), "cancelling a training"),
+            "Take one queued training off (one under way carries on)");
+        less.AddThemeFontSizeOverride("font_size", 13);
+        trainRow.AddChild(less);
+        v.AddChild(trainRow);
         _live.Add(w2 =>
         {
-            var why = Research.CanTrain(w2, Side.Player, team.Id);
-            train.Text = $"Train (+{Research.T.TrainScientists:0} for {Research.TrainCost(w2, Side.Player):0} Industry from Buildings, "
-                         + $"{Research.T.TrainDays * Tech.Factor(w2, Side.Player, "scientist-training"):0} d)";
+            var text = TrainingText(w2, team);
+            status.Text = text.Length > 0 ? text : $"+{Research.T.TrainScientists:0} scientists for {Research.TrainCost(w2, Side.Player):0} Industry, "
+                                                   + $"{Research.T.TrainDays * Tech.Factor(w2, Side.Player, "scientist-training"):0} days";
+            status.AddThemeColorOverride("font_color", text.Contains("WAITING") ? Ui.Danger : Ui.Text);
+            var now = Research.CanTrain(w2, Side.Player, team.Id) == null && team.TrainingQueued == 0;
+            var why = Research.CanQueueTraining(w2, Side.Player, team.Id);
+            train.Text = now ? $"Train (+{Research.T.TrainScientists:0} for {Research.TrainCost(w2, Side.Player):0} Industry)"
+                : $"Queue a training (+{Research.T.TrainScientists:0}, {Research.TrainCost(w2, Side.Player):0} Industry when it starts)";
             train.Disabled = why != null;
             train.TooltipText = why != null ? $"Can't: {why}\n{trainTip}" : trainTip;
+            less.Visible = team.TrainingQueued > 0;
         });
-        buttons.AddChild(train);
+
         // Split: always shown, with the reason when it can't be done (too few scientists, or no empty slot).
         const string splitTip = "Move half the scientists into an empty slot; the new team takes half of each skill and keeps the field you pick";
         var split = new MenuButton { Text = "Split team ▾", TooltipText = splitTip, FocusMode = FocusModeEnum.None, Flat = false };
         for (var i = 0; i < Research.Fields.Length; i++) split.GetPopup().AddItem($"New team keeps {Research.FieldNames[i]}", i);
         split.GetPopup().IdPressed += id => _screen.IssueNow(new SplitTeamCommand(Side.Player, team.Id, Research.Fields[id]), "splitting a team");
-        buttons.AddChild(split);
-        v.AddChild(buttons);
-        var cant = Ui.Label("", 11, Ui.Dim);
-        cant.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        cant.CustomMinimumSize = new Vector2(240, 0);
+        v.AddChild(split);
+        var cant = Wrap(Ui.Label("", 11, Ui.Dim));
         v.AddChild(cant);
         _live.Add(w2 =>
         {
@@ -371,76 +534,6 @@ public partial class ResearchScreen : PanelContainer
             cant.Text = why != null ? $"Split: {why}" : "";
             cant.Visible = why != null;
         });
-        v.AddChild(buttons);
-        return card;
-    }
-
-    /// <summary>A team folded to one compact card: kept skills, what it works on now and what comes next.</summary>
-    private Control TeamStrip(World w, ResearchTeam team)
-    {
-        var card = Box(10, new Color("12324a"));
-        var v = new VBoxContainer();
-        v.AddThemeConstantOverride("separation", 5);
-        card.AddChild(v);
-
-        var head = new HBoxContainer();
-        head.AddThemeConstantOverride("separation", 10);
-        head.AddChild(Ui.Label(team.Name, 16, Ui.Player));
-        var size = Ui.Label("", 12, Ui.Dim);
-        size.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        _live.Add(w2 => size.Text = $"{team.Scientists:0} scientists"
-            + (team.TrainingUntilHour is double h ? $" (+{team.TrainingScientists:0} in {(h - w2.Hour) / 24:0.#} d)" : "")
-            + (!Research.Ready(w2, team) ? $" · ready in {(team.ReadyHour - w2.Hour) / 24:0.#} d" : ""));
-        head.AddChild(size);
-        head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
-        var skills = Ui.Label("", 12, Ui.Text);
-        skills.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        _live.Add(_ => skills.Text = "★ " + string.Join(" · ", Research.KeptFields(team).Select(i => $"{Research.FieldNames[i].Split(' ')[0]} {team.Skill[i]:0.0}x")));
-        head.AddChild(skills);
-        v.AddChild(head);
-
-        var queue = Research.QueueOf(w, Side.Player, team.Id).ToList();
-        var now = new HBoxContainer();
-        now.AddThemeConstantOverride("separation", 10);
-        var first = queue.FirstOrDefault();
-        var nowName = Ui.Label(first == null ? "Nothing queued" : GameData.Research(first.Key).Name, 13, first == null ? Ui.Dim : new Color("f2f5fa"));
-        nowName.ClipText = true;
-        nowName.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        nowName.TooltipText = nowName.Text;
-        nowName.MouseFilter = MouseFilterEnum.Pass;
-        now.AddChild(nowName);
-        var bar = Bar(80, Ui.Player, () => first == null ? 0 : 1 - first.HoursLeft / Math.Max(1e-6, first.TotalHours), _live);
-        bar.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        bar.SizeFlagsStretchRatio = 0.6f;
-        now.AddChild(bar);
-        var left = Ui.Label("", 12, Ui.Dim);
-        // Cut to fit (whole text in the tooltip): a long WAITING reason used to push the team strip off the screen.
-        left.ClipText = true;
-        left.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        left.HorizontalAlignment = HorizontalAlignment.Right;
-        left.MouseFilter = MouseFilterEnum.Pass;
-        _live.Add(w2 =>
-        {
-            var stuck = first != null && !first.Paid && first.Waiting != null;
-            left.Text = first == null ? "idle" : first.Paid ? $"{Research.DaysUntilDone(w2, first):0.#} d" : stuck ? $"WAITING: {first.Waiting}" : "starts next hour";
-            left.TooltipText = left.Text;
-            left.AddThemeColorOverride("font_color", stuck ? Ui.Danger : Ui.Dim);
-        });
-        now.AddChild(left);
-        v.AddChild(now);
-
-        var next = new HBoxContainer();
-        next.AddThemeConstantOverride("separation", 6);
-        var after = queue.Skip(1).Select(o => GameData.Research(o.Key).Name).ToList();
-        var nextText = Ui.Label(after.Count > 0 ? "Next: " + string.Join(" · ", after) : first == null ? "Pick an idea below: Queue on a card" : "Next: nothing yet", 12, Ui.Dim);
-        nextText.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        nextText.ClipText = true;
-        nextText.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
-        nextText.TooltipText = nextText.Text;
-        nextText.MouseFilter = MouseFilterEnum.Pass;
-        next.AddChild(nextText);
-        next.AddChild(Ui.SmallButton("▾ Skills and queue", () => _openTeam = team.Id, "Unfold this team: skills, kept fields, queue order, train and split"));
-        v.AddChild(next);
         return card;
     }
 
@@ -456,24 +549,23 @@ public partial class ResearchScreen : PanelContainer
         _screen.IssueNow(new SetTeamKeptCommand(Side.Player, team.Id, kept), "choosing kept fields");
     }
 
+    /// <summary>The next empty slot, folded to one small box: found a team, or split one off.</summary>
     private Control EmptySlot(World w)
     {
         var card = Box(10, new Color("2a3446"), dashed: true);
-        var v = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 6);
         card.AddChild(v);
-        var title = Ui.Label("Empty team slot", 15, new Color("aab4c3"));
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        v.AddChild(title);
+        v.AddChild(Ui.Label("Empty team slot", 13, new Color("aab4c3")));
         var t = Research.T;
         card.TooltipText = $"Found a new team: {t.FoundScientists:0} scientists, {t.FoundSkill:0.#}x in the speciality you pick, ready in {t.FoundDays:0} days. "
                            + "Or split one off an existing team (it takes half of each skill).";
-        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        row.AddThemeConstantOverride("separation", 8);
-        var found = new MenuButton { Text = $"Found team · {t.FoundCost:0} Industry ▾", FocusMode = FocusModeEnum.None, Flat = false };
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 6);
+        var found = new MenuButton { Text = $"+ Found · {t.FoundCost:0} Industry ▾", FocusMode = FocusModeEnum.None, Flat = false };
+        found.AddThemeFontSizeOverride("font_size", 13);
         for (var i = 0; i < Research.Fields.Length; i++) found.GetPopup().AddItem($"Speciality: {Research.FieldNames[i]}", i);
         found.GetPopup().IdPressed += id => _screen.IssueNow(new FoundTeamCommand(Side.Player, Research.Fields[id]), "founding a team");
-        found.Text = $"Found team · {t.FoundCost:0} Industry from Buildings ▾";
         _live.Add(w2 =>
         {
             var why = Research.CanFound(w2, Side.Player, Research.Fields[0]);
@@ -481,7 +573,8 @@ public partial class ResearchScreen : PanelContainer
             found.TooltipText = why != null ? $"Can't: {why}" : "Paid at once from the Buildings pot of the Industry budget";
         });
         row.AddChild(found);
-        var split = new MenuButton { Text = "Split from a team ▾", FocusMode = FocusModeEnum.None, Flat = false };
+        var split = new MenuButton { Text = "Split ▾", FocusMode = FocusModeEnum.None, Flat = false, TooltipText = "Split a new team off one you have" };
+        split.AddThemeFontSizeOverride("font_size", 13);
         var choices = new List<(int Team, string Field)>();
         foreach (var team in Economy.Of(w, Side.Player).Teams)
             for (var i = 0; i < Research.Fields.Length; i++)
@@ -492,20 +585,6 @@ public partial class ResearchScreen : PanelContainer
         split.GetPopup().IdPressed += id => _screen.IssueNow(new SplitTeamCommand(Side.Player, choices[(int)id].Team, choices[(int)id].Field), "splitting a team");
         row.AddChild(split);
         v.AddChild(row);
-        return card;
-    }
-
-    private static Control LockedSlot()
-    {
-        var card = Box(10, new Color("2a3446"), dashed: true);
-        var v = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        var title = Ui.Label("Empty team slot", 15, new Color("aab4c3"));
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        v.AddChild(title);
-        var text = Ui.Label("Opens once the slot before it is filled.", 12, Ui.Dim);
-        text.HorizontalAlignment = HorizontalAlignment.Center;
-        v.AddChild(text);
-        card.AddChild(v);
         return card;
     }
 
@@ -532,32 +611,16 @@ public partial class ResearchScreen : PanelContainer
         return (team, Research.BaseHours(w, Side.Player, id) / 24 / Math.Max(1e-6, Research.Speed(team, GameData.Research(id).Field)));
     }
 
+    private static int Order(World w, ResearchData r) =>
+        StateOf(w, r.Id) switch { IdeaState.Researching => 0, IdeaState.Queued => 1, IdeaState.Available => 2, IdeaState.Locked => 3, _ => 4 };
+
     private Control IdeasPanel(World w)
     {
-        var v = new VBoxContainer();
-        v.AddThemeConstantOverride("separation", 8);
+        var scroll = _ideaScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var v = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        v.AddThemeConstantOverride("separation", 10);
+        scroll.AddChild(v);
 
-        // Only ideas the side has come across: ones it can work on now, has done or queued, or whose needs
-        // are partly done. Undiscovered ideas (the old "????") and ideas for a later build stay hidden.
-        var all = GameData.Economy.Research.Where(r => Discovered(w, r)).ToList();
-        var shown = all.Where(r => (_field == null || r.Field == _field) && (_unlocks == null || r.Unlocks == _unlocks)
-                                   && _states.Contains(StateOf(w, r.Id))
-                                   && (_search.Length == 0 || r.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
-                                       || r.Effect.Contains(_search, StringComparison.OrdinalIgnoreCase))).ToList();
-        // An idea picked in the discovery web always shows in Ideas, first, even if the filters would hide it.
-        var pinned = _selected != null && _webPick == _selected && shown.All(r => r.Id != _selected) ? all.Find(r => r.Id == _selected) : null;
-        shown = _sort switch
-        {
-            Sort.Cheapest => shown.OrderBy(r => r.Days * Research.Pace(r.Tier)).ThenBy(r => r.Name).ToList(),
-            Sort.Name => shown.OrderBy(r => r.Name).ToList(),
-            _ => shown.OrderBy(r => StateOf(w, r.Id) switch { IdeaState.Researching => 0, IdeaState.Queued => 1, IdeaState.Available => 2, IdeaState.Locked => 3, _ => 4 })
-                .ThenBy(r => Quickest(w, r.Id).Days).ToList(),
-        };
-
-        var head = new HBoxContainer();
-        head.AddChild(Ui.Label("Ideas", 16, new Color("f2f5fa")));
-        head.AddChild(Fit(Ui.Label($"{shown.Count} of {all.Count} shown · days are for the team that would finish first", 12, Ui.Dim)));
-        v.AddChild(head);
         // Intelligence hints: what the rival has been seen to field, and the idea that answers it.
         var counters = Intel.Counters(w, Side.Player).GroupBy(c => c.Idea).Select(g => g.First()).Take(3).ToList();
         if (counters.Count > 0)
@@ -567,76 +630,182 @@ public partial class ResearchScreen : PanelContainer
             v.AddChild(Wrap(Ui.Label("Their research we are learning: " + string.Join(" · ", learning.Select(l =>
                 l.Stage == RivalStage.Seen ? $"something unknown ({l.Progress:P0})" : $"{GameData.Research(l.Id).Name} ({RivalTech.StageName(l.Stage)})")), 12, Ui.Rival)));
 
-        // Filters: search, field, sort; then status and what an idea unlocks.
-        // Flow rows wrap when Ideas is narrow (web open, small window), instead of pushing the screen past the window's edge.
-        var row1 = new HFlowContainer();
-        row1.AddThemeConstantOverride("h_separation", 6);
-        row1.AddThemeConstantOverride("v_separation", 6);
-        var search = new LineEdit { Text = _search, PlaceholderText = "Search ideas (Enter)", CustomMinimumSize = new Vector2(200, 30) };
-        search.TextSubmitted += t => _search = t.Trim();
-        row1.AddChild(search);
-        row1.AddChild(Chip("All fields", _field == null, () => _field = null));
+        if (_showFilters || _search.Length > 0) Filtered(w, v);
+        else Calm(w, v);
+        return scroll;
+    }
+
+    /// <summary>The first look: three suggested ideas, big; then every field folded to one line that opens to its cards.</summary>
+    private void Calm(World w, VBoxContainer v)
+    {
+        var width = CentreWidth;
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 10);
+        head.AddChild(Ui.Label("Suggested next", 18, new Color("f2f5fa")));
+        var why = ResearchValue.Pressing(ResearchValue.Read(w, Side.Player));
+        var note = Clip(Ui.Label(why is var (_, reason) ? $"picked for what your empire needs now: {reason}" : "picked for what your empire needs now", 12, Ui.Dim));
+        note.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        head.AddChild(note);
+        v.AddChild(head);
+        if (_suggested.Count == 0) v.AddChild(Ui.Label("Every idea you can start is already queued.", 13, Ui.Dim));
+        else
+        {
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 12);
+            var cardWidth = (width - 24) / 3;
+            foreach (var id in _suggested) row.AddChild(IdeaCard(w, GameData.Research(id), cardWidth));
+            v.AddChild(row);
+        }
+
+        v.AddChild(new Control { CustomMinimumSize = new Vector2(0, 6) });
+        var allHead = new HBoxContainer();
+        allHead.AddChild(Ui.Label("Every idea, by field", 16, new Color("f2f5fa")));
+        allHead.AddChild(Fit(Ui.Label("click a field to open it · Filters for the full list", 12, Ui.Dim)));
+        v.AddChild(allHead);
+        var all = GameData.Economy.Research.Where(r => Discovered(w, r)).ToList();
         for (var i = 0; i < Research.Fields.Length; i++)
         {
-            var f = Research.Fields[i];
-            row1.AddChild(Chip($"{Research.FieldNames[i]} {all.Count(r => r.Field == f)}", _field == f, () => _field = _field == f ? null : f));
+            var field = Research.Fields[i];
+            var ideas = all.Where(r => r.Field == field).ToList();
+            if (ideas.Count == 0) continue;
+            var open = _openFields.Contains(field);
+            v.AddChild(Shelf(w, i, ideas, open, width));
+            if (!open) continue;
+            var grid = Grid(width);
+            var cardWidth = width / grid.Columns - 12;
+            foreach (var r in ideas.Where(r => StateOf(w, r.Id) != IdeaState.Done).OrderBy(r => Order(w, r)).ThenBy(r => Quickest(w, r.Id).Days))
+                grid.AddChild(IdeaCard(w, r, cardWidth));
+            v.AddChild(grid);
+            var done = ideas.Where(r => StateOf(w, r.Id) == IdeaState.Done).Select(r => r.Name + " ✓").ToList();
+            if (done.Count > 0) v.AddChild(Wrap(Ui.Label("Done: " + string.Join(" · ", done), 12, Ui.Dim)));
         }
-        var sort = new OptionButton { FocusMode = FocusModeEnum.None };
-        sort.AddItem("Quickest first", (int)Sort.Quickest);
-        sort.AddItem("Shortest first", (int)Sort.Cheapest);
-        sort.AddItem("By name", (int)Sort.Name);
-        sort.Select((int)_sort);
-        sort.ItemSelected += i => _sort = (Sort)(int)i;
-        row1.AddChild(sort);
+    }
 
-        var row2 = new HFlowContainer();
-        row2.AddThemeConstantOverride("h_separation", 6);
-        row2.AddThemeConstantOverride("v_separation", 6);
-        row2.AddChild(Ui.Label("Status", 12, Ui.Dim));
-        foreach (var s in Enum.GetValues<IdeaState>())
+    /// <summary>A field folded to one line: its name, how many ideas are ready, under way and done, and a few small pictures.</summary>
+    private Control Shelf(World w, int fieldIndex, List<ResearchData> ideas, bool open, float width)
+    {
+        var field = Research.Fields[fieldIndex];
+        var color = DiscoveryWeb.FieldColors[fieldIndex % DiscoveryWeb.FieldColors.Length];
+        var b = new Button { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(0, 56),
+            TooltipText = open ? "Fold this field away" : "Open this field: every idea in it" };
+        b.Pressed += () => { if (!_openFields.Remove(field)) _openFields.Add(field); };
+        var row = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        row.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        row.OffsetLeft = 14;
+        row.OffsetRight = -10;
+        row.AddThemeConstantOverride("separation", 12);
+        b.AddChild(row);
+        var name = Ui.Label($"{(open ? "▾" : "▸")}  {Research.FieldNames[fieldIndex]}", 15, color);
+        name.CustomMinimumSize = new Vector2(210, 0);
+        name.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        name.MouseFilter = MouseFilterEnum.Ignore;
+        row.AddChild(name);
+        int Count(IdeaState s) => ideas.Count(r => StateOf(w, r.Id) == s);
+        var ready = Count(IdeaState.Available);
+        var busy = Count(IdeaState.Queued) + Count(IdeaState.Researching);
+        var parts = new List<string> { $"{ready} ready" };
+        if (busy > 0) parts.Add($"{busy} under way");
+        parts.Add($"{Count(IdeaState.Done)} done");
+        if (Count(IdeaState.Locked) is var locked and > 0) parts.Add($"{locked} later");
+        var counts = Ui.Label(string.Join(" · ", parts), 12, ready > 0 ? Ui.Text : Ui.Dim);
+        counts.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        counts.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        counts.ClipText = true;
+        counts.MouseFilter = MouseFilterEnum.Ignore;
+        row.AddChild(counts);
+        if (!open)
         {
-            var st = s;
-            row2.AddChild(Chip($"{s} {all.Count(r => StateOf(w, r.Id) == s)}", _states.Contains(s), () => { if (!_states.Remove(st)) _states.Add(st); }));
+            var thumbs = ideas.Where(r => StateOf(w, r.Id) == IdeaState.Available).OrderBy(r => Quickest(w, r.Id).Days).Take(width > 900 ? 4 : 3);
+            foreach (var r in thumbs)
+            {
+                var pic = Picture(r, 112);
+                pic.CustomMinimumSize = new Vector2(112, 38);
+                pic.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+                row.AddChild(pic);
+            }
         }
-        row2.AddChild(new Control { CustomMinimumSize = new Vector2(12, 0) });
-        row2.AddChild(Ui.Label("Unlocks", 12, Ui.Dim));
-        foreach (var g in UnlockGroups)
-            row2.AddChild(Chip(char.ToUpperInvariant(g[0]) + g[1..], _unlocks == g, () => _unlocks = _unlocks == g ? null : g));
-        // With a team unfolded or the web out the filters scroll with the cards, so Ideas never needs more height than the window has.
-        var tight = _openTeam != null || (_webOpen && GetViewportRect().Size.Y < 1000);
-        var filters = new VBoxContainer();
-        filters.AddThemeConstantOverride("separation", 8);
-        filters.AddChild(row1);
-        filters.AddChild(row2);
-        if (!tight) v.AddChild(filters);
+        return b;
+    }
 
-        var scroll = _ideaScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
-            CustomMinimumSize = new Vector2(0, 140) };
-        var width = GetViewportRect().Size.X - (_webOpen ? WebWidth : TabWidth) - 110;
-        var grid = new GridContainer { Columns = Math.Max(1, (int)(width / 300)) };
+    private GridContainer Grid(float width)
+    {
+        var grid = new GridContainer { Columns = Math.Max(1, (int)(width / 270)) };
         grid.AddThemeConstantOverride("h_separation", 12);
         grid.AddThemeConstantOverride("v_separation", 12);
+        return grid;
+    }
+
+    /// <summary>The full list: filter rows (when Filters is open) and every idea that matches, as cards.</summary>
+    private void Filtered(World w, VBoxContainer v)
+    {
+        var all = GameData.Economy.Research.Where(r => Discovered(w, r)).ToList();
+        var shown = all.Where(r => (_field == null || r.Field == _field) && (_unlocks == null || r.Unlocks == _unlocks)
+                                   && _states.Contains(StateOf(w, r.Id))
+                                   && (_search.Length == 0 || r.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                                       || r.Effect.Contains(_search, StringComparison.OrdinalIgnoreCase))).ToList();
+        shown = _sort switch
+        {
+            Sort.Cheapest => shown.OrderBy(r => r.Days * Research.Pace(r.Tier)).ThenBy(r => r.Name).ToList(),
+            Sort.Name => shown.OrderBy(r => r.Name).ToList(),
+            _ => shown.OrderBy(r => Order(w, r)).ThenBy(r => Quickest(w, r.Id).Days).ToList(),
+        };
+
+        var head = new HBoxContainer();
+        head.AddChild(Ui.Label(_search.Length > 0 ? $"Ideas matching “{_search}”" : "All ideas", 16, new Color("f2f5fa")));
+        head.AddChild(Fit(Ui.Label($"{shown.Count} of {all.Count} shown · days are for the team that would finish first", 12, Ui.Dim)));
+        v.AddChild(head);
+
+        if (_showFilters)
+        {
+            // Flow rows wrap when the middle is narrow, instead of pushing the screen past the window's edge.
+            var row1 = new HFlowContainer();
+            row1.AddThemeConstantOverride("h_separation", 6);
+            row1.AddThemeConstantOverride("v_separation", 6);
+            row1.AddChild(Chip("All fields", _field == null, () => _field = null));
+            for (var i = 0; i < Research.Fields.Length; i++)
+            {
+                var f = Research.Fields[i];
+                row1.AddChild(Chip($"{Research.FieldNames[i]} {all.Count(r => r.Field == f)}", _field == f, () => _field = _field == f ? null : f));
+            }
+            var sort = new OptionButton { FocusMode = FocusModeEnum.None };
+            sort.AddItem("Quickest first", (int)Sort.Quickest);
+            sort.AddItem("Shortest first", (int)Sort.Cheapest);
+            sort.AddItem("By name", (int)Sort.Name);
+            sort.Select((int)_sort);
+            sort.ItemSelected += i => _sort = (Sort)(int)i;
+            row1.AddChild(sort);
+            v.AddChild(row1);
+
+            var row2 = new HFlowContainer();
+            row2.AddThemeConstantOverride("h_separation", 6);
+            row2.AddThemeConstantOverride("v_separation", 6);
+            row2.AddChild(Ui.Label("Status", 12, Ui.Dim));
+            foreach (var s in Enum.GetValues<IdeaState>())
+            {
+                var st = s;
+                row2.AddChild(Chip($"{s} {all.Count(r => StateOf(w, r.Id) == s)}", _states.Contains(s), () => { if (!_states.Remove(st)) _states.Add(st); }));
+            }
+            row2.AddChild(new Control { CustomMinimumSize = new Vector2(12, 0) });
+            row2.AddChild(Ui.Label("Unlocks", 12, Ui.Dim));
+            foreach (var g in UnlockGroups)
+                row2.AddChild(Chip(char.ToUpperInvariant(g[0]) + g[1..], _unlocks == g, () => _unlocks = _unlocks == g ? null : g));
+            row2.AddChild(Ui.SmallButton("Reset", () =>
+            {
+                _field = null;
+                _unlocks = null;
+                _sort = Sort.Quickest;
+                _states.Clear();
+                _states.UnionWith(new[] { IdeaState.Available, IdeaState.Queued, IdeaState.Researching, IdeaState.Locked });
+            }, "Back to every field, every status but Done, quickest first"));
+            v.AddChild(row2);
+        }
+
+        var width = CentreWidth;
+        var grid = Grid(width);
         var cardWidth = width / grid.Columns - 12;
-        _pickedCard = null;
-        if (pinned != null) shown.Insert(0, pinned);
-        foreach (var r in shown)
-        {
-            var c = IdeaCard(w, r, cardWidth);
-            if (r.Id == _selected) _pickedCard = c;
-            grid.AddChild(c);
-        }
+        foreach (var r in shown) grid.AddChild(IdeaCard(w, r, cardWidth));
         if (shown.Count == 0) grid.AddChild(Ui.Label("No ideas match these filters", 13, Ui.Dim));
-        if (tight)
-        {
-            var inner = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-            inner.AddThemeConstantOverride("separation", 8);
-            inner.AddChild(filters);
-            inner.AddChild(grid);
-            scroll.AddChild(inner);
-        }
-        else scroll.AddChild(grid);
-        v.AddChild(scroll);
-        return v;
+        v.AddChild(grid);
     }
 
     private Button Chip(string text, bool on, Action toggle)
@@ -648,64 +817,35 @@ public partial class ResearchScreen : PanelContainer
         return b;
     }
 
-    private Control IdeaCard(World w, ResearchData r, float width)
+    /// <summary>The marks on a picture: field and tier at the top left; sparked, counter and theirs where they apply.</summary>
+    private static void Badges(World w, ResearchData r, TextureRect pic, float width)
     {
-        var state = StateOf(w, r.Id);
-        var border = _selected == r.Id ? Ui.Player : state switch
-        {
-            IdeaState.Researching => new Color("12324a"),
-            IdeaState.Available when Economy.Of(w, Side.Player).Cuts.Contains(r.Id) => new Color("5a4620"),
-            _ => new Color("161d29"),
-        };
-        var card = Box(0, border);
-        card.CustomMinimumSize = new Vector2(width, 0);
-        if (state == IdeaState.Locked) card.Modulate = new Color(1, 1, 1, 0.55f);
-        card.TooltipText = state == IdeaState.Available ? "Click to light up its path in the web · double-click to queue it with the team that finishes it first"
-            : "Click to light up its path in the web";
-        card.GuiInput += e =>
-        {
-            if (e is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click) return;
-            if (click.DoubleClick)
-            {
-                // Double-click: queue it with the team that would finish it first (a home order, so it works paused).
-                _selected = r.Id;
-                if (StateOf(Main.Instance.Sim!.World, r.Id) == IdeaState.Available && Main.Instance.Sim.World.Winner == null)
-                    _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id), "queueing research");
-                card.AcceptEvent();
-                return;
-            }
-            _selected = _selected == r.Id ? null : r.Id;
-        };
-        var v = new VBoxContainer();
-        v.AddThemeConstantOverride("separation", 0);
-        card.AddChild(v);
-
-        var pic = new TextureRect
-        {
-            Texture = Art.IdeaPicture(r.Id, r.Picture),
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
-            CustomMinimumSize = new Vector2(width, width * 12 / 35), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore,
-            TextureFilter = TextureFilterEnum.LinearWithMipmaps,
-        };
-        if (state == IdeaState.Locked) pic.Modulate = new Color(0.4f, 0.45f, 0.55f);
-        // The field, and pips for how far along its line the idea is (tier).
+        var height = width * 12 / 35;
         var tag = OnPicture(Ui.Label($"{Research.FieldName(r.Field)}  {new string('●', Math.Clamp(r.Tier, 1, 5))}", 11, new Color("c4ccd8")));
         tag.Position = new Vector2(8, 6);
         tag.TooltipText = $"Tier {r.Tier}";
         pic.AddChild(tag);
-        if (Economy.Of(w, Side.Player).Sparked.Contains(r.Id))
+        // Top right: what makes this idea special in this game (a spark, a survey find). Bottom: war (counter, theirs).
+        var topRight = new List<(string Text, Color Color, string Tip)>();
+        var me = Economy.Of(w, Side.Player);
+        if (me.Sparked.Contains(r.Id))
+            topRight.Add(("✦ sparked", new Color("ffd27a"), me.SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "Something in the game brought this idea on"));
+        if (me.Finds.Find(f => f.Idea == r.Id) is SurveyFind find)
+            topRight.Add(("⌖ survey", new Color("6fe08a"), $"{w.FindBody(find.BodyId)?.Name} survey: −{Research.T.SurveyCut * 100:0} % time"));
+        var y = 6f;
+        foreach (var (text, color, tip) in topRight)
         {
-            // A spark: something that happened in the game (a find, a hardship, a capture) brought this idea on.
-            var spark = OnPicture(Ui.Label("✦ sparked", 11, new Color("ffd27a")));
-            spark.Position = new Vector2(width - 74, 6);
-            spark.TooltipText = Economy.Of(w, Side.Player).SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "Something in the game brought this idea on";
-            spark.MouseFilter = MouseFilterEnum.Pass;
-            pic.AddChild(spark);
+            var l = OnPicture(Ui.Label(text, 11, color));
+            l.Position = new Vector2(width - 8 - 7 * text.Length, y);
+            l.TooltipText = tip;
+            l.MouseFilter = MouseFilterEnum.Pass;
+            pic.AddChild(l);
+            y += 16;
         }
         if (Intel.Counters(w, Side.Player).FirstOrDefault(c => c.Idea == r.Id) is { Idea: not null } counter)
         {
             var hint = OnPicture(Ui.Label("⚔ counter", 11, new Color("ffd27a")));
-            hint.Position = new Vector2(8, width * 12 / 35 - 20);
+            hint.Position = new Vector2(8, height - 20);
             hint.TooltipText = $"Intel: {counter.Why}. This idea answers it";
             hint.MouseFilter = MouseFilterEnum.Pass;
             pic.AddChild(hint);
@@ -714,28 +854,19 @@ public partial class ResearchScreen : PanelContainer
         {
             // Learned from the rival (board 26): Studied shows its name; Unlocked skips its prerequisites and is quicker.
             var theirs = OnPicture(Ui.Label($"◆ theirs: {RivalTech.StageName(stage)}", 11, Ui.Rival));
-            theirs.Position = new Vector2(width - 130, width * 12 / 35 - 20);
+            theirs.Position = new Vector2(width - 130, height - 20);
             theirs.TooltipText = stage == RivalStage.Unlocked
                 ? $"Learned from the rival: queue it without its prerequisites, {GameData.Weapons.R.UnlockedCut:P0} quicker"
                 : $"Learning it from the rival: {RivalTech.Progress(w, Side.Player, r.Id):P0} (unlocked at 100 %). Battles, wrecks, captures and looks at their colonies teach it";
             theirs.MouseFilter = MouseFilterEnum.Pass;
             pic.AddChild(theirs);
         }
-        v.AddChild(pic);
+    }
 
-        var body = new MarginContainer();
-        foreach (var side in new[] { "left", "right", "top", "bottom" }) body.AddThemeConstantOverride($"margin_{side}", 10);
-        var t = new VBoxContainer();
-        t.AddThemeConstantOverride("separation", 4);
-        body.AddChild(t);
-        v.AddChild(body);
-
-        var head = new HBoxContainer();
-        var name = Ui.Label(r.Name, 14, new Color("f2f5fa"));
-        name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        name.ClipText = true;
-        head.AddChild(name);
-        var status = Ui.Label("", 12, Ui.Dim);
+    /// <summary>"Available · 9 d", "Queued · First team · 12 d": the idea's state, kept up to date.</summary>
+    private Label StatusLabel(ResearchData r, IdeaState state, int size)
+    {
+        var status = Ui.Label("", size, Ui.Dim);
         _live.Add(w2 =>
         {
             var order = w2.Orders.Find(o => o.Side == Side.Player && o.Kind == OrderKind.Research && o.Key == r.Id);
@@ -750,26 +881,66 @@ public partial class ResearchScreen : PanelContainer
             };
             status.AddThemeColorOverride("font_color", color);
         });
-        head.AddChild(status);
-        t.AddChild(head);
+        return status;
+    }
+
+    private Control IdeaCard(World w, ResearchData r, float width)
+    {
+        var state = StateOf(w, r.Id);
+        var picked = Shown(w)?.Id == r.Id && _openTeam == null;
+        var border = picked ? Ui.Player : state switch
+        {
+            IdeaState.Researching => new Color("12324a"),
+            IdeaState.Available when Economy.Of(w, Side.Player).Cuts.Contains(r.Id) => new Color("5a4620"),
+            _ => new Color("161d29"),
+        };
+        var card = Box(0, border);
+        card.CustomMinimumSize = new Vector2(width, 0);
+        if (state == IdeaState.Locked) card.Modulate = new Color(1, 1, 1, 0.55f);
+        card.TooltipText = state == IdeaState.Available ? "Click to see it in full on the right · double-click to queue it with the team that finishes it first"
+            : "Click to see it in full on the right";
+        card.GuiInput += e =>
+        {
+            if (e is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click) return;
+            _selected = r.Id;
+            _openTeam = null;
+            if (click.DoubleClick)
+            {
+                // Double-click: queue it with the team that would finish it first (a home order, so it works paused).
+                if (StateOf(Main.Instance.Sim!.World, r.Id) == IdeaState.Available && Main.Instance.Sim.World.Winner == null)
+                    _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id), "queueing research");
+                card.AcceptEvent();
+            }
+        };
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 0);
+        card.AddChild(v);
+
+        var pic = Picture(r, width);
+        if (state == IdeaState.Locked) pic.Modulate = new Color(0.4f, 0.45f, 0.55f);
+        Badges(w, r, pic, width);
+        v.AddChild(pic);
+
+        var body = new MarginContainer();
+        foreach (var side in new[] { "left", "right", "top", "bottom" }) body.AddThemeConstantOverride($"margin_{side}", 10);
+        var t = new VBoxContainer();
+        t.AddThemeConstantOverride("separation", 4);
+        body.AddChild(t);
+        v.AddChild(body);
+
+        var name = Ui.Label(r.Name, 14, new Color("f2f5fa"));
+        name.ClipText = true;
+        name.CustomMinimumSize = new Vector2(width - 24, 0);
+        t.AddChild(name);
+        t.AddChild(StatusLabel(r, state, 12));
 
         var effect = Ui.Label(r.Effect, 12, new Color("aab4c3"));
         effect.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         effect.CustomMinimumSize = new Vector2(width - 24, 34);
         t.AddChild(effect);
-
-        var foot = new HBoxContainer();
-        var meta = new List<string> { $"about {Research.BaseHours(w, Side.Player, r.Id) / 24:0} days" };
-        if (Research.Missing(w, Side.Player, r.Id) is string missing) meta.Add(missing);
-        else if (r.Needs is { Count: > 0 }) meta.Add("needs " + string.Join(", ", r.Needs.Select(n => GameData.Research(n).Name)));
-        if (Economy.Of(w, Side.Player).Finds.Find(f => f.Idea == r.Id) is SurveyFind find)
-            meta.Add($"{w.FindBody(find.BodyId)?.Name} survey: −{Research.T.SurveyCut * 100:0} % time");
-        var m = Ui.Label(string.Join(" · ", meta), 11, Ui.Dim);
-        m.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        m.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        foot.AddChild(m);
-        t.AddChild(foot);
         if (state == IdeaState.Available && w.Winner == null && QueueButtons(w, r) is Control queue) t.AddChild(queue);
+        else if (state == IdeaState.Locked && Research.Missing(w, Side.Player, r.Id) is string missing)
+            t.AddChild(Wrap(Ui.Label(missing, 11, Ui.Dim)));
         return card;
     }
 
@@ -780,7 +951,6 @@ public partial class ResearchScreen : PanelContainer
         if (best == null) return null;
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 4);
-        row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var quick = Ui.SmallButton($"Queue → {best.Name} · {Quickest(w, r.Id).Days:0.#} d",
             () => _screen.IssueNow(new QueueOrderCommand(Side.Player, OrderKind.Research, r.Id, TeamId: best.Id), "queueing research"),
             $"Queue with {best.Name}, the team that would finish it first (double-clicking the card does the same)");
@@ -805,6 +975,99 @@ public partial class ResearchScreen : PanelContainer
         return row;
     }
 
+    // ---- The picked idea -----------------------------------------------------------------------
+
+    /// <summary>The idea in full: big picture with its marks, what it does, needs, leads to, time for each team, and Queue.</summary>
+    private Control IdeaDetail(World w, ResearchData r, float width)
+    {
+        var state = StateOf(w, r.Id);
+        var box = Box(0, new Color("1e2a3a"));
+        box.CustomMinimumSize = new Vector2(width, 0);
+        var outer = new VBoxContainer();
+        outer.AddThemeConstantOverride("separation", 0);
+        box.AddChild(outer);
+        var pic = Picture(r, width - 2);
+        if (state == IdeaState.Locked) pic.Modulate = new Color(0.5f, 0.55f, 0.65f);
+        Badges(w, r, pic, width - 2);
+        outer.AddChild(pic);
+        var body = new MarginContainer();
+        foreach (var side in new[] { "left", "right", "top", "bottom" }) body.AddThemeConstantOverride($"margin_{side}", 14);
+        outer.AddChild(body);
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 8);
+        body.AddChild(v);
+
+        v.AddChild(Wrap(Ui.Label(r.Name, 20, new Color("f2f5fa"))));
+        var meta = new HBoxContainer();
+        meta.AddThemeConstantOverride("separation", 10);
+        var fi = Math.Max(0, Research.FieldIndex(r.Field));
+        meta.AddChild(Ui.Label($"{Research.FieldName(r.Field)} · tier {r.Tier}", 12, DiscoveryWeb.FieldColors[fi % DiscoveryWeb.FieldColors.Length]));
+        meta.AddChild(StatusLabel(r, state, 12));
+        v.AddChild(meta);
+        v.AddChild(Wrap(Ui.Label(r.Effect, 14, new Color("cfd8e3"))));
+
+        // Why it stands out in this game: a spark, a survey find, a counter, learning it from the rival.
+        var me = Economy.Of(w, Side.Player);
+        if (me.Sparked.Contains(r.Id))
+            v.AddChild(Wrap(Ui.Label("✦ Sparked: " + (me.SparkNotes.LastOrDefault(n => n.Idea == r.Id)?.Why ?? "something in the game brought it on"), 12, new Color("ffd27a"))));
+        if (me.Finds.Find(f => f.Idea == r.Id) is SurveyFind find)
+            v.AddChild(Wrap(Ui.Label($"⌖ {w.FindBody(find.BodyId)?.Name} survey: −{Research.T.SurveyCut * 100:0} % time", 12, new Color("6fe08a"))));
+        if (Intel.Counters(w, Side.Player).FirstOrDefault(c => c.Idea == r.Id) is { Idea: not null } counter)
+            v.AddChild(Wrap(Ui.Label($"⚔ Counter: {counter.Why}", 12, new Color("ffd27a"))));
+        if (RivalTech.StageOf(w, Side.Player, r.Id) is var stage and not RivalStage.None)
+            v.AddChild(Wrap(Ui.Label(stage == RivalStage.Unlocked
+                ? $"◆ Learned from the rival: no prerequisites needed, {GameData.Weapons.R.UnlockedCut:P0} quicker"
+                : $"◆ Learning it from the rival: {RivalTech.Progress(w, Side.Player, r.Id):P0}, {RivalTech.StageName(stage)}", 12, Ui.Rival)));
+
+        string Mark(string id) => GameData.Research(id).Name + (Tech.Has(w, Side.Player, id) ? " ✓" : "");
+        if (r.Needs is { Count: > 0 }) v.AddChild(Section("NEEDS", string.Join(" · ", r.Needs.Select(Mark))));
+        if (state == IdeaState.Locked && Research.Missing(w, Side.Player, r.Id) is string missing)
+            v.AddChild(Wrap(Ui.Label(missing, 12, Ui.Warn)));
+        var opens = GameData.Economy.Research.Where(o => Discovered(w, o) && (o.Needs?.Contains(r.Id) ?? false))
+            .Select(o => o.Name + ((o.Needs!.Where(n => n != r.Id && !Tech.Has(w, Side.Player, n)).Select(n => GameData.Research(n).Name).ToList() is { Count: > 0 } also)
+                ? $" (also needs {string.Join(", ", also)})" : "")).ToList();
+        var hidden = GameData.Economy.Research.Count(o => !o.Later && !Discovered(w, o) && (o.Needs?.Contains(r.Id) ?? false));
+        if (opens.Count > 0 || hidden > 0)
+            v.AddChild(Section("LEADS TO", string.Join(" · ", opens) + (hidden > 0 ? $"{(opens.Count > 0 ? " · " : "")}{hidden} idea{(hidden == 1 ? "" : "s")} not yet guessed at" : "")));
+
+        if (state is IdeaState.Available or IdeaState.Locked && me.Teams.Count > 0)
+        {
+            v.AddChild(Ui.Label("WORK FOR EACH TEAM", 11, Ui.Dim));
+            var best = Research.BestTeamFor(w, Side.Player, r.Id);
+            foreach (var team in me.Teams)
+            {
+                var days = Research.BaseHours(w, Side.Player, r.Id) / 24 / Math.Max(1e-6, Research.Speed(team, r.Field));
+                var row = new HBoxContainer();
+                row.AddChild(Ui.Label(team.Name, 13, team == best ? Ui.Player : Ui.Text));
+                row.AddChild(Fit(Ui.Label($"{days:0.#} d of work{(team == best ? " · finishes first" : "")}", 12, team == best ? Ui.Player : Ui.Dim)));
+                v.AddChild(row);
+            }
+        }
+        if (state == IdeaState.Available && w.Winner == null && QueueButtons(w, r) is Control queue) v.AddChild(queue);
+        if (state is IdeaState.Queued or IdeaState.Researching
+            && w.Orders.Find(o => o.Side == Side.Player && o.Kind == OrderKind.Research && o.Key == r.Id) is WorkOrder order)
+        {
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 6);
+            if (order.TeamId is int tid && Research.Team(w, Side.Player, tid) is ResearchTeam team)
+                row.AddChild(Ui.SmallButton($"{team.Name}'s queue ▸", () => _openTeam = team.Id, "Show the team's queue, to put it in order"));
+            row.AddChild(Ui.SmallButton("Take off the queue", () => _screen.CancelOrder(order.Id), "Take this idea off its team's queue"));
+            v.AddChild(row);
+        }
+        if (!_webOpen)
+            v.AddChild(Ui.SmallButton("Show in the web", () => { _webOpen = true; _webField = null; }, "Open the discovery web with this idea's path lit up"));
+        return box;
+    }
+
+    private static Control Section(string title, string text)
+    {
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 2);
+        v.AddChild(Ui.Label(title, 11, Ui.Dim));
+        v.AddChild(Wrap(Ui.Label(text, 13, Ui.Text)));
+        return v;
+    }
+
     // ---- Discovery web -------------------------------------------------------------------------
 
     private Control WebPanel(World w)
@@ -814,54 +1077,25 @@ public partial class ResearchScreen : PanelContainer
         var head = new HBoxContainer();
         head.AddThemeConstantOverride("separation", 8);
         head.AddChild(Ui.Label("Discovery web", 16, new Color("f2f5fa")));
+        var fields = new OptionButton { FocusMode = FocusModeEnum.None, TooltipText = "Show one field (with the ideas just outside it that link in), or all" };
+        fields.AddItem("All fields", 0);
+        for (var i = 0; i < Research.Fields.Length; i++) fields.AddItem(Research.FieldNames[i], i + 1);
+        fields.Select(_webField == null ? 0 : Research.FieldIndex(_webField) + 1);
+        fields.ItemSelected += i => { _webField = i == 0 ? null : Research.Fields[i - 1]; DiscoveryWeb.Refit(); };
+        head.AddChild(fields);
         var how = Ui.Label("drag to pan · wheel to zoom · click an idea", 11, Ui.Dim);
         how.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         head.AddChild(how);
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         head.AddChild(Ui.SmallButton("Fit", DiscoveryWeb.Refit, "Fit the whole web in view"));
-        head.AddChild(Ui.SmallButton("▸ Hide", () => _webOpen = false, "Slide the web away so the ideas get the room"));
         v.AddChild(head);
-        var web = new DiscoveryWeb(w, _selected, id => { _selected = _selected == id ? null : id; _webPick = _selected; _revealPicked = _selected != null; })
+        var web = new DiscoveryWeb(w, Shown(w)?.Id, id => { _selected = id; _openTeam = null; }, _webField)
         {
             SizeFlagsVertical = SizeFlags.ExpandFill, SizeFlagsHorizontal = SizeFlags.ExpandFill, ClipContents = true,
         };
         v.AddChild(web);
         v.AddChild(DiscoveryWeb.Legend());
-        if (_selected != null && GameData.Economy.Research.Find(r => r.Id == _selected) is ResearchData sel) v.AddChild(Picked(w, sel));
         return v;
-    }
-
-    /// <summary>The idea picked in the web: what it does, what it needs and what it opens the way to.</summary>
-    private Control Picked(World w, ResearchData r)
-    {
-        var box = Box(10, Ui.Player);
-        var v = new VBoxContainer();
-        v.AddThemeConstantOverride("separation", 4);
-        box.AddChild(v);
-        var state = StateOf(w, r.Id);
-        var head = new HBoxContainer();
-        head.AddThemeConstantOverride("separation", 10);
-        head.AddChild(Ui.Label(r.Name, 15, new Color("f2f5fa")));
-        var meta = Ui.Label($"{Research.FieldName(r.Field)} · tier {r.Tier} · {state}", 12, Ui.Dim);
-        meta.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        head.AddChild(meta);
-        v.AddChild(head);
-        var effect = Ui.Label(r.Effect, 12, new Color("aab4c3"));
-        effect.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        v.AddChild(effect);
-        string Mark(string id) => GameData.Research(id).Name + (Tech.Has(w, Side.Player, id) ? " ✓" : "");
-        if (r.Needs is { Count: > 0 }) v.AddChild(Ui.Label("Needs: " + string.Join(", ", r.Needs.Select(Mark)), 12, Ui.Text));
-        var opens = GameData.Economy.Research.Where(o => Discovered(w, o) && (o.Needs?.Contains(r.Id) ?? false))
-            .Select(o => o.Name + ((o.Needs!.Where(n => n != r.Id && !Tech.Has(w, Side.Player, n)).Select(n => GameData.Research(n).Name).ToList() is { Count: > 0 } also)
-                ? $" (also needs {string.Join(", ", also)})" : "")).ToList();
-        if (opens.Count > 0)
-        {
-            var o = Ui.Label("Opens the way to: " + string.Join(" · ", opens), 12, Ui.Text);
-            o.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-            v.AddChild(o);
-        }
-        if (state == IdeaState.Available && w.Winner == null && QueueButtons(w, r) is Control queue) v.AddChild(queue);
-        return box;
     }
 }
 
@@ -895,7 +1129,9 @@ public partial class DiscoveryWeb : Control
 
     public DiscoveryWeb() { }
 
-    public DiscoveryWeb(World w, string? selected, Action<string> pick)
+    /// <summary>The web of ideas you know of. With a field, only that field's ideas show, plus the ideas just outside
+    /// it that link in or out (so its links still lead somewhere).</summary>
+    public DiscoveryWeb(World w, string? selected, Action<string> pick, string? field = null)
     {
         _pick = pick;
         MouseFilter = MouseFilterEnum.Stop;
@@ -904,6 +1140,12 @@ public partial class DiscoveryWeb : Control
         // One step beyond: ideas that something you know leads to, shown blurred and nameless.
         var beyond = all.Where(r => !known.Contains(r.Id) && (r.Needs ?? new()).Any(known.Contains)).Select(r => r.Id).ToHashSet();
         var shown = all.Where(r => known.Contains(r.Id) || beyond.Contains(r.Id)).ToList();
+        if (field != null)
+        {
+            var inField = shown.Where(r => r.Field == field).Select(r => r.Id).ToHashSet();
+            shown = shown.Where(r => inField.Contains(r.Id) || (r.Needs ?? new()).Any(inField.Contains)
+                                     || shown.Any(o => inField.Contains(o.Id) && (o.Needs ?? new()).Contains(r.Id))).ToList();
+        }
 
         var lit = new HashSet<string>();
         if (selected != null)

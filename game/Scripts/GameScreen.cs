@@ -1118,6 +1118,9 @@ public partial class GameScreen : Node2D
     }
 
     /// <summary>Close every menu screen (empire, supply, planets, fleets, ships, research, intel, progress, the planet and ground boards, fittings), so one shows at a time.</summary>
+    /// <summary>For the screenshots: the research teams panel under the menu bar.</summary>
+    public void ShowResearchPopup(bool show) => _hud.ShowResearchPopup(show);
+
     public void CloseMenuScreens()
     {
         ShowEmpire = false;
