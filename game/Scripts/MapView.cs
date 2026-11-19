@@ -260,7 +260,7 @@ public partial class MapView : Node2D
             RecordTracks();
             if (PlayerInfo.Has(MapLayer.OldSightings)) DrawTracks();
             DrawEngagement();
-            if (PlayerInfo.Has(MapLayer.OldSightings)) { DrawOldIntel(); DrawLastSeen(); }
+            if (PlayerInfo.Has(MapLayer.OldSightings)) { DrawOldIntel(); DrawLastSeen(); DrawHeardPlans(); }
             if (PlayerInfo.Has(MapLayer.Possible)) DrawPossible();
             if (PlayerInfo.Has(MapLayer.TheySee)) DrawTheySee();
             if (RevealAll) DrawMindJobs();

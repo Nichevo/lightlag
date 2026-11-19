@@ -69,6 +69,11 @@ public sealed class RuleBook
         .Add("bodies-on-their-orbits", w => w.Bodies.Where(b => b.ParentId != null && Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)) > 1e-6)
             .Select(b => $"{b.Name} is {Vec2.Distance(b.Position, FlightPlanner.PredictBody(w, b, w.Hour)):0.###} Mm off its orbit at hour {w.Hour:0.###}").ToArray())
         .Add("research-teams-sane", ResearchTeamsSane)
+        // Overheard plans (Intentions): news is never heard before it was sent, timings run forwards, and a planted plan is aimed at the listener.
+        .Add("heard-plans-sane", w => Sides.InPlay(w).SelectMany(s => Intel.Files(w, s).SelectMany(f => f.Intercepts.Where(i =>
+                i.HeardHour < i.SentHour || i.EtaLow > i.EtaHigh || i.Sure is < 0 or > 1 || i.Times < 1
+                || i.False && i.BodyId is int b && w.FindBody(b) is Body fb && fb.Owner != s && i.Outcome == PlanOutcome.Pending && i.SentHour >= w.Hour - 1)
+            .Select(i => $"{s} heard plan {i.Id} ({i.Kind}) is not sane: sent {i.SentHour:0.#}, heard {i.HeardHour:0.#}, eta {i.EtaLow:0.#}-{i.EtaHigh:0.#}, sure {i.Sure}"))).ToArray())
         // Under decapitation the rival must not send the fleet holding its flagship AND every other destroyer to break a
         // siege (it once lost the game that way: one blow took the flagship and its only successor).
         .Add("rival-keeps-a-successor", w => !w.Light.On || !w.Light.Decapitation ? Array.Empty<string>() : w.Minds.SelectMany(m =>

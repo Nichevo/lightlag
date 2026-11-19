@@ -26,7 +26,10 @@ public partial class IntelScreen : PanelContainer
     private int? _askBody;
     private bool _broadcast;
 
-    public enum Tab { Overview, Fleets, Planets, Technology, Lanes, TheirFile, Contact }
+    public enum Tab { Overview, Plans, Fleets, Planets, Technology, Lanes, TheirFile, Contact }
+
+    /// <summary>A tab to open on the next refresh (an alert's click), then cleared.</summary>
+    public static Tab? Ask;
 
     private static readonly Color Old = new(0.55f, 0.6f, 0.68f, 0.55f);
     private static readonly Color Gold = new("ffd27a");
@@ -53,7 +56,8 @@ public partial class IntelScreen : PanelContainer
         if (_about is not Side pick || pick == Side.Player || !Sides.InPlay(w).Contains(pick)) _about = Sides.MainEnemy(w, Side.Player);
         var about = _about!.Value;
         var f = Intel.Of(w, Side.Player, about);
-        var shape = $"{_tab}|{about}|{(_tab == Tab.Contact ? $"{Contact.Score(w, Side.Player, about):0}|{w.Offers.Count(o => o.Known[0])}|{w.Offers.Count(o => o.Landed)}|{_gift}{_idea}{_amount}{_ask}{_askBody}{_broadcast}|{GameTime.DayOf(w.Tick)}" : "")}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
+        if (Ask is Tab asked) { _tab = asked; Ask = null; }
+        var shape = $"{_tab}|{f.Intercepts.Count(i => i.HeardHour <= w.Hour)}|{f.Intercepts.Sum(i => i.Times)}|{about}|{(_tab == Tab.Contact ? $"{Contact.Score(w, Side.Player, about):0}|{w.Offers.Count(o => o.Known[0])}|{w.Offers.Count(o => o.Landed)}|{_gift}{_idea}{_amount}{_ask}{_askBody}{_broadcast}|{GameTime.DayOf(w.Tick)}" : "")}|{GameTime.DayOf(w.Tick)}|{f.Points:0}|{f.Fleets.Count}|{f.Tech.Count}|{f.Reach.Count}|{Economy.Of(w, Side.Player).RivalIdeas.Count}|{GetViewportRect().Size}";
         if (shape == _shape || Ui.MouseHeld) return;
         _shape = shape;
         Ui.ClearChildren(_box);
@@ -96,6 +100,7 @@ public partial class IntelScreen : PanelContainer
         switch (_tab)
         {
             case Tab.Overview: Overview(w, f, level); break;
+            case Tab.Plans: PlansTab(w, f, level); break;
             case Tab.Fleets: Fleets(w, f, level); break;
             case Tab.Planets: PlanetsTab(w, f); break;
             case Tab.Technology: Technology(w, f, level); break;
@@ -107,6 +112,7 @@ public partial class IntelScreen : PanelContainer
 
     private static string TabName(Tab t) => t switch
     {
+        Tab.Plans => "Their plans",
         Tab.Lanes => "Lanes and raids",
         Tab.TheirFile => "Their file on you",
         Tab.Contact => "Contact",
@@ -158,6 +164,11 @@ public partial class IntelScreen : PanelContainer
             Line($"Next level needs about {need:0} more points: {days:0} days of sensor time on one of its fleets, or {Math.Ceiling(need / Intel.BattlePoints):0} battles, "
                  + "or salvage, prisoners and captures. Knowledge fades without contact.", Gold, 13);
         }
+        Section("Likely next move");
+        if (Intentions.Likeliest(w, Side.Player, f.About) is Intercept next)
+            Line($"{Intentions.What(next)}, {Intentions.When(w, next)} · {Intentions.SureNow(w, next):P0} sure · heard {Ago(w, next.HeardHour)} ago", Gold, 14,
+                "Overheard in its order traffic: see Their plans for everything heard");
+        else Line("Nothing overheard lately: see Their plans for how to hear more", Ui.Dim, 13);
         Section("Estimate");
         var (low, high) = Intel.EstimatedWarships(w, Side.Player, f.About);
         var (planets, industry) = Intel.EstimatedHoldings(w, Side.Player, f.About);
@@ -189,6 +200,51 @@ public partial class IntelScreen : PanelContainer
             Section("Notes");
             foreach (var n in Enumerable.Reverse(f.Notes).Take(8)) Line($"{GameTime.Format(n.Hour)} · {n.Source}: {n.Text}", Ui.Dim, 12);
         }
+    }
+
+    /// <summary>
+    /// The rival's plans as overheard in its order traffic: what, where, when, how sure, and how old the news is.
+    /// Late (light lag plus decoding) and partial; old ones fade. Below, how to hear more.
+    /// </summary>
+    private void PlansTab(World w, IntelFile f, int level)
+    {
+        Section("Heard in its order traffic: late and partial, never certain");
+        var heard = Intentions.Heard(w, Side.Player, f.About);
+        if (heard.Count == 0) Line("Nothing that still counts. Plans are overheard when your fleets or planets are near its fleets or its command.", Ui.Dim, 13);
+        else
+        {
+            var g = Table("PLAN", "WHEN", "FLEET", "SURE", "HEARD");
+            foreach (var i in heard)
+            {
+                var sure = Intentions.SureNow(w, i);
+                var color = Fade(sure);
+                Cell(g, Intentions.What(i), i.Kind is PlanKind.Attack or PlanKind.Massing ? (sure >= 0.5 ? Gold : color) : color);
+                Cell(g, Intentions.When(w, i), color);
+                Cell(g, (i.FleetName.Length > 0 ? i.FleetName : "?") + (i.Ships > 0 ? $" · {i.Ships} ships" : ""), color);
+                Cell(g, $"{sure:P0}", color);
+                Cell(g, $"{Ago(w, i.HeardHour)} ago" + (i.Times > 1 ? $" · {i.Times} times" : ""), color);
+            }
+        }
+        var faded = Intentions.Heard(w, Side.Player, f.About, old: true).Where(i => Intentions.SureNow(w, i) <= 0).Take(6).ToList();
+        if (faded.Count > 0)
+        {
+            Section("Older: too old to count");
+            foreach (var i in faded) Line($"{GameTime.Format(i.HeardHour)} · {Intentions.What(i)}", Old, 12);
+        }
+        var pending = f.Intercepts.Count(i => i.HeardHour > w.Hour);
+        if (pending > 0) Line($"{pending} more caught and still being made sense of.", Ui.Dim, 12);
+        Section("How to hear more");
+        var ears = Intentions.Ears(w, Side.Player);
+        var seat = Intentions.Cover(ears, Light.Seat(w, f.About)).Cover;
+        Line($"Each six hours, a plan is caught with up to {Intentions.Chance(w, Side.Player, level):P0} odds: higher with your intel level ({level}) "
+             + (Tech.Has(w, Side.Player, Tech.SignalsAnalysis) ? "and Signals analysis (researched). " : "and with Signals analysis (not researched). ")
+             + $"Only near your ships and planets: in full within {Intentions.ListenFullAu} AU of its fleet or its command, none past {Intentions.ListenMaxAu} AU.", Ui.Text, 13);
+        Line(seat > 0 ? $"Its command is within reach of your ears ({seat:P0} cover): its plans can be heard even when its fleets are far from you."
+                      : "Its command is out of reach: put a fleet or a planet within reach of it to hear plans before its fleets come near.", Ui.Dim, 13);
+        Line($"Making sense of a catch takes about {Intentions.DecodeHours(w, Side.Player, level):0} hours at your level"
+             + (w.Light.On ? ", on top of the light time from where it was caught." : "."), Ui.Dim, 13);
+        Line("What is caught is partial: the target, the timing or the fleet's size may be missing; more comes through as your intel level rises. "
+             + "A plan heard more than once is surer. A rival with False order traffic can plant plans that never come, so weigh what you hear.", Ui.Dim, 13);
     }
 
     private void Fleets(World w, IntelFile f, int level)

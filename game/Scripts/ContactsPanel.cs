@@ -11,7 +11,7 @@ namespace Lightlag.Game;
 /// </summary>
 public partial class ContactsPanel : PanelContainer
 {
-    private const int MaxRows = 6, MaxInbound = 4;
+    private const int MaxRows = 6, MaxInbound = 4, MaxPlans = 2;
     private readonly GameScreen _screen;
     private VBoxContainer _rows = null!;
     private string _key = "";
@@ -34,9 +34,12 @@ public partial class ContactsPanel : PanelContainer
         var list = _screen.Engagements.Where(p => p.ContactHours != null)
             .OrderBy(p => p.ContactHours).ThenBy(p => p.Gap).Take(MaxRows).ToList();
         var inbound = _screen.InboundToPlanets.Take(MaxInbound).ToList();
-        Visible = list.Count > 0 || inbound.Count > 0;
+        var w = Main.Instance.Sim!.World;
+        var plans = _screen.PlansHeard.Where(i => i.Kind is not (PlanKind.Scout or PlanKind.Hunt)).Take(MaxPlans).ToList();
+        Visible = list.Count > 0 || inbound.Count > 0 || plans.Count > 0;
         if (!Visible) return;
-        var key = string.Join(";", list.Select(p => $"{p.Mine}:{p.Enemy}")) + "|" + string.Join(";", inbound.Select(t => $"{t.FleetId}:{t.BodyId}"));
+        var key = string.Join(";", list.Select(p => $"{p.Mine}:{p.Enemy}")) + "|" + string.Join(";", inbound.Select(t => $"{t.FleetId}:{t.BodyId}"))
+                  + "|" + string.Join(";", plans.Select(i => $"{i.Id}:{i.Times}:{Intentions.When(w, i)}:{Intentions.SureNow(w, i):P0}"));
         if (key != _key && !Ui.MouseHeld)
         {
             _key = key;
@@ -78,6 +81,16 @@ public partial class ContactsPanel : PanelContainer
                 row.AddChild(when);
                 _rows.AddChild(row);
                 _liveInbound.Add((when, t));
+            }
+            if (plans.Count > 0) _rows.AddChild(Ui.Label("Overheard plans", 13, Ui.Dim));
+            foreach (var i in plans)
+            {
+                var b = Ui.SmallButton($"{Intentions.What(i)}, {Intentions.When(w, i)} · {Intentions.SureNow(w, i):P0}",
+                    () => { IntelScreen.Ask = IntelScreen.Tab.Plans; _screen.ShowIntel = true; },
+                    $"Overheard in the rival's order traffic {Format.Hours(Math.Max(0, w.Hour - i.HeardHour))} ago: late and partial, never certain. Open Their plans");
+                b.AddThemeFontSizeOverride("font_size", 12);
+                b.Modulate = new Color(1, 1, 1, 0.5f + 0.5f * (float)Intentions.SureNow(w, i));
+                _rows.AddChild(b);
             }
         }
         foreach (var (when, t) in _liveInbound)

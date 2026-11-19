@@ -91,7 +91,7 @@ public static class PlayerInfo
         (MapLayer.Lanes, "Lanes and zones", "Rival supply lanes you have worked out, and your raiding and guard zones"),
         (MapLayer.SupplyRuns, "Supply runs", "Tankers and freighters on supply runs, and settlers on their way"),
         (MapLayer.Wells, "Gravity wells", "Rings round each planet where its pull is stronger than the sun's, closer together towards the planet (Medium and High graphics)"),
-        (MapLayer.OldSightings, "Old sightings", "Where rival fleets were last seen, greyed with age, and their tracks"),
+        (MapLayer.OldSightings, "Old sightings", "Where rival fleets were last seen, greyed with age, their tracks, and rival plans overheard"),
         (MapLayer.Labels, "Labels", "Planet and moon names"),
         (MapLayer.NameTags, "Name tags", "Names in tags with the owner's colour, shipyard and moon count, spread out so they never overlap (off: plain text names; Medium and High graphics)"),
         (MapLayer.Possible, "Where they could be", "Round each enemy fleet out of sight: the area it could have reached since it was last seen, growing with time"),

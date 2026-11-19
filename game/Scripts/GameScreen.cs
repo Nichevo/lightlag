@@ -352,6 +352,12 @@ public partial class GameScreen : Node2D
     private long _chaseCheckedTick = -1;
     private readonly Dictionary<(int Enemy, int Body), double> _inboundListed = new();
     private long _inboundCheckedTick = -1;
+    private readonly Dictionary<(Side About, int Id), int> _plansHeard = new();
+    private long _plansCheckedTick = -1;
+    private bool _plansPrimed;
+
+    /// <summary>The rival plans heard that still count, refreshed each hour (for the contacts panel and the map).</summary>
+    public List<Intercept> PlansHeard { get; private set; } = new();
 
     /// <summary>Enemy fleets whose course points at one of your planets, refreshed each hour (for the warning and the contacts panel).</summary>
     public List<Inbound.ToPlanet> InboundToPlanets { get; private set; } = new();
@@ -557,6 +563,7 @@ public partial class GameScreen : Node2D
             WatchNotes();
             WatchChasers();
             WatchInbound();
+            WatchPlans();
             WatchEconomy();
             if (Sim.World.Loop) RivalAdvisor.Tick(Sim, _main);
             WatchEndings();
@@ -1482,6 +1489,33 @@ public partial class GameScreen : Node2D
             var fleetId = t.FleetId;
             Alert(PauseEvent.EnemyInbound, $"{t.Name} ({t.Ships} ships) looks headed for {t.BodyName}: there in about {Format.Hours(t.Hours)}" + LastSeen(t.InSight, t.SeenHoursAgo),
                 () => GoToSighting(fleetId));
+        }
+    }
+
+    /// <summary>
+    /// Once an hour: tell the player when a rival plan is overheard (see Intentions), or heard again with more in it.
+    /// Attacks, claims, raids and massing pop up (by the Pause settings); scouting and hunts go to the News only.
+    /// </summary>
+    private void WatchPlans()
+    {
+        var w = Sim.World;
+        if (w.Tick == _plansCheckedTick || !w.Loop) return;
+        _plansCheckedTick = w.Tick;
+        var first = !_plansPrimed;
+        _plansPrimed = true;
+        PlansHeard = Sides.Enemies(w, Side.Player).SelectMany(r => Intentions.Heard(w, Side.Player, r)).OrderByDescending(i => Intentions.SureNow(w, i)).ToList();
+        foreach (var r in Sides.Enemies(w, Side.Player))
+        foreach (var i in Intentions.Heard(w, Side.Player, r))
+        {
+            var key = (r, i.Id);
+            if (_plansHeard.TryGetValue(key, out var times) && times >= i.Times) continue;
+            _plansHeard[key] = i.Times;
+            if (first) continue; // a loaded game: what was already heard is not news
+            var who = Sides.Three(w) ? Races.Of(w, r).Name : "Rival";
+            var again = i.Times > 1 ? " (heard again)" : "";
+            var quiet = i.Kind is PlanKind.Scout or PlanKind.Hunt ? PauseResponse.Ignore : (PauseResponse?)null;
+            Action open = i.BodyId is int b ? GoToBody(b) : () => { IntelScreen.Ask = IntelScreen.Tab.Plans; ShowIntel = true; };
+            Alert(PauseEvent.PlanHeard, $"{who} plan overheard{again}: {Intentions.Line(w, i)}", open, atMost: quiet);
         }
     }
 

@@ -29,6 +29,46 @@ public partial class MapView
         }
     }
 
+    /// <summary>
+    /// Rival plans overheard (see Intentions) that still count: at the planet named, a dashed ring and what was heard
+    /// with when and how sure; from the fleet named, when it is on file, a faint dashed line to that planet and the
+    /// plan written by the fleet. Fainter as the news gets old.
+    /// </summary>
+    private void DrawHeardPlans()
+    {
+        var w = Sim.World;
+        if (!w.Loop) return;
+        var atBody = new Dictionary<int, int>();
+        foreach (var rival in Sides.Enemies(w, Side.Player))
+        foreach (var i in Intentions.Heard(w, Side.Player, rival).Take(8))
+        {
+            var sure = (float)Intentions.SureNow(w, i);
+            var tint = new Color(Ui.SideColor(rival), 0.3f + 0.6f * sure);
+            var body = i.BodyId is int b ? w.FindBody(b) : null;
+            Vector2? target = null;
+            if (body != null)
+            {
+                var at = Camera.ToScreen(body.Position);
+                target = at;
+                var row = atBody.TryGetValue(body.Id, out var n) ? n : 0;
+                atBody[body.Id] = row + 1;
+                if (Camera.OnScreen(at, 200) && row < 3)
+                {
+                    if (row == 0) DrawDashedCircle(at, 26, tint, null);
+                    DrawString(_font, at + new Vector2(-60, 40 + 13 * row), $"Heard: {Intentions.What(i)} · {Intentions.When(w, i)} · {sure:P0}",
+                        HorizontalAlignment.Left, -1, 11, tint);
+                }
+            }
+            if (Sensors.Find(w, Side.Player, i.FleetId, seat: Lagging) is Sighting s && i.Kind != PlanKind.Massing)
+            {
+                var from = Camera.ToScreen(s.Visible ? s.Position : s.Guess(DrawHour));
+                if (target is Vector2 to && from.DistanceTo(to) > 30) DrawDashedLine(from, to, new Color(tint, tint.A * 0.5f), 1, 9);
+                if (Camera.OnScreen(from, 100))
+                    DrawString(_font, from + new Vector2(12, 22), $"heard: {Intentions.What(i)}", HorizontalAlignment.Left, -1, 11, tint);
+            }
+        }
+    }
+
     /// <summary>How fast an unseen fleet's possible area grows beyond its own drift (Mm per hour), and the share of its speed it could turn.</summary>
     private const double PossibleSpreadMmPerHour = 2, PossibleTurnShare = 0.3;
 

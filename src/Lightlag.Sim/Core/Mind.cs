@@ -1155,15 +1155,26 @@ public static class Mind
         /// <summary>How old a sighting near home still counts as a threat (and as a fleet worth hunting).</summary>
         private const double ThreatAgeHours = 2 * 24;
 
+        /// <summary>An overheard attack on home counts when due within these hours and at least this sure; ships assumed when not caught.</summary>
+        private const double HeardWithinHours = 4 * 24, HeardSure = 0.5;
+        private const int HeardShipsGuess = 3;
+
         /// <summary>Is the enemy near home? covered: what is at home already outguns it.</summary>
         private bool DefendHome(out bool covered)
         {
             covered = false;
             if (Slip()) return false;
             var threat = EnemyNear(_home!.Position, A.ThreatRadiusAu * _au, ThreatAgeHours);
-            if (threat <= 0) return false;
             var guard = Mine().Where(f => AtHome(f)).Sum(f => War(f));
-            SetGoal("Defend home", $"enemy power about {threat:0} within {A.ThreatRadiusAu} AU of {_home.Name}; {guard:0} at home");
+            if (threat <= 0)
+            {
+                // Nothing seen near home, but an attack on it overheard in the enemy's order traffic (see Intentions).
+                var heard = Intentions.Against(_w, _side, _home.Id, HeardWithinHours, HeardSure).ToList();
+                if (heard.Count == 0) return false;
+                threat = heard.Max(i => (i.Ships > 0 ? i.Ships : HeardShipsGuess) * A.EnemyShipValue);
+                SetGoal("Defend home", $"overheard plans of an attack on {_home.Name} ({Intentions.When(_w, heard[0])}); {guard:0} at home");
+            }
+            else SetGoal("Defend home", $"enemy power about {threat:0} within {A.ThreatRadiusAu} AU of {_home.Name}; {guard:0} at home");
             if (guard >= threat * 1.1) { covered = true; return true; }
             // Call back fleets that are not far away.
             foreach (var f in Mine().Where(f => !AtHome(f) && !Busy(f)))

@@ -79,6 +79,10 @@ public sealed class IntelFile
 
     /// <summary>Rival fleets' weapon reach as seen in fights (see RivalTech.Guess).</summary>
     public List<ReachFact> Reach { get; set; } = new();
+
+    /// <summary>The rival's plans overheard in its order traffic (see Intentions), and the last id given.</summary>
+    public List<Intercept> Intercepts { get; set; } = new();
+    public int LastInterceptId { get; set; }
 }
 
 /// <summary>
