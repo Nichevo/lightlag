@@ -346,6 +346,11 @@ public partial class GameScreen : Node2D
     private readonly HashSet<int> _claimsWarned = new();
     private readonly Dictionary<(int Enemy, int Mine), double> _chaseWarned = new();
     private long _chaseCheckedTick = -1;
+    private readonly Dictionary<(int Enemy, int Body), double> _inboundListed = new();
+    private long _inboundCheckedTick = -1;
+
+    /// <summary>Enemy fleets whose course points at one of your planets, refreshed each hour (for the warning and the contacts panel).</summary>
+    public List<Inbound.ToPlanet> InboundToPlanets { get; private set; } = new();
 
     /// <summary>The route planner's choices, kept between plans.</summary>
     public PlanSettings Settings { get; } = new();
@@ -546,6 +551,7 @@ public partial class GameScreen : Node2D
             WatchSightings();
             WatchNotes();
             WatchChasers();
+            WatchInbound();
             WatchEconomy();
             if (Sim.World.Loop) RivalAdvisor.Tick(Sim, _main);
             WatchEndings();
@@ -861,7 +867,11 @@ public partial class GameScreen : Node2D
             if (contactsKey != _contactsKey)
             {
                 _contactsKey = contactsKey;
-                _main.RunGuarded("contacts", () => Engagements = Engagement_.All(Sim.World, Side.Player));
+                _main.RunGuarded("contacts", () =>
+                {
+                    Engagements = Engagement_.All(Sim.World, Side.Player);
+                    InboundToPlanets = Inbound.Planets(Sim.World, Side.Player);
+                });
             }
         }
         if (Engagement is not (int mineId, int enemyId)) { _map.Engagement = null; return; }
@@ -1429,7 +1439,8 @@ public partial class GameScreen : Node2D
         var w = Sim.World;
         if (w.Tick == _chaseCheckedTick) return;
         _chaseCheckedTick = w.Tick;
-        foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && s.Visible))
+        // A fleet gone out of sight still counts for a while: its last seen course is the best guess.
+        foreach (var s in Sensors.Known(w, seat: true).Where(s => !s.Own && s.SeenBy == Side.Player && Inbound.FreshForFleets(w, s)))
             foreach (var mine in w.Fleets.Where(f => f.Side == Side.Player))
             {
                 if (Sensors.HeadingFor(s, mine, w.Hour) is not double eta) continue;
@@ -1438,9 +1449,35 @@ public partial class GameScreen : Node2D
                 _chaseWarned[key] = w.Hour;
                 var enemyId = s.FleetId;
                 var mineId = mine.Id;
-                Alert(PauseEvent.EnemyClosing, $"{s.Name} ({s.Ships} ships) is heading for {mine.Name}: about {Format.Hours(eta)} away at {Format.Speed((s.Velocity - mine.Velocity).Length)} closing",
+                Alert(PauseEvent.EnemyClosing, $"{s.Name} ({s.Ships} ships) is heading for {mine.Name}: about {Format.Hours(eta)} away at {Format.Speed((s.Velocity - mine.Velocity).Length)} closing"
+                                                + LastSeen(s.Visible, w.Hour - s.Hour),
                     () => OpenEngagement(mineId, enemyId));
             }
+    }
+
+    /// <summary>", last seen 2 days ago" for a course worked out from a fleet now out of sight, else nothing.</summary>
+    private static string LastSeen(bool inSight, double hoursAgo) => inSight ? "" : $" (out of sight: last seen {Format.Hours(Math.Max(0, hoursAgo))} ago)";
+
+    /// <summary>
+    /// Once an hour: warn when a known enemy fleet's course points at one of your planets. Each fleet and planet
+    /// warns once; again only after the course has stopped pointing there for a day.
+    /// </summary>
+    private void WatchInbound()
+    {
+        var w = Sim.World;
+        if (w.Tick == _inboundCheckedTick) return;
+        _inboundCheckedTick = w.Tick;
+        InboundToPlanets = Inbound.Planets(w, Side.Player);
+        foreach (var t in InboundToPlanets)
+        {
+            var key = (t.FleetId, t.BodyId);
+            var warned = _inboundListed.TryGetValue(key, out var last) && w.Hour - last < 24;
+            _inboundListed[key] = w.Hour;
+            if (warned) continue;
+            var fleetId = t.FleetId;
+            Alert(PauseEvent.EnemyInbound, $"{t.Name} ({t.Ships} ships) looks headed for {t.BodyName}: there in about {Format.Hours(t.Hours)}" + LastSeen(t.InSight, t.SeenHoursAgo),
+                () => GoToSighting(fleetId));
+        }
     }
 
     /// <summary>Says when ships are launched, research finishes, planets change hands, and when the game ends.</summary>
