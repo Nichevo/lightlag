@@ -257,6 +257,7 @@ public static class Combat
         foreach (var f in w.Fleets.ToList())
         {
             f.CombatBurning = false;
+            f.SteerThrust = -1;
             var enemy = NearestEnemyFleet(w, f, C.ContactRangeMm);
             BattleRules.Check(sim, f, enemy);
             // A fleet sent after this enemy was ordered to fight it: its Avoid or Return home stance waits.
@@ -285,6 +286,7 @@ public static class Combat
             var headOn = wantsToClose || missileStand || enemy != null ? null : HeadOnMeeting(w, f);
             var closeOn = wantsToClose || missileStand ? enemy : headOn;
             var tooClose = closeOn != null ? null : RailHoldTooClose(w, f);
+            if (closeOn == null) f.HardApproach = false;
             if (closeOn == null && !f.Maneuvering && tooClose == null) continue;
 
             var perf = FleetPerformance.Of(w, f);
@@ -309,7 +311,18 @@ public static class Combat
                 }
                 var gap = closeOn.Position - f.Position;
                 var excess = gap.Length - (missileStand ? Heat.LaunchRange(f) * MissileStandShare : C.EngageRangeMm * 0.75);
-                desired = closeOn.Velocity + gap.Normalized() * ApproachSpeed(excess, perf.MaxSpeed, accel);
+                desired = closeOn.Velocity + gap.Normalized() * ApproachSpeed(excess, perf.MaxSpeed, perf.Accel);
+                // Normal thrust can't make that change in time (a head-on meeting, turning back after a pass): combat
+                // burn, kept up until the fleet is close to the speed it wants.
+                var hard = closeOn.Velocity + gap.Normalized() * ApproachSpeed(excess, perf.MaxSpeed, accel);
+                f.HardApproach = burnHard && ((desired - f.Velocity).Length >= perf.MaxSpeed * CombatBurnNeed
+                                              || f.HardApproach && (hard - f.Velocity).Length >= perf.MaxSpeed * CombatBurnNeed / 4);
+                if (f.HardApproach) desired = hard;
+                else
+                {
+                    burnHard = false;
+                    accel = perf.Accel;
+                }
             }
             else if (tooClose != null)
             {
@@ -339,10 +352,17 @@ public static class Combat
                 desired = OrbitHome(w, f) is Body left ? BodyVelocity(w, left) : Vec2.Zero;
             }
             var change = desired - f.Velocity;
+            // The combat burn is for big changes (a head-on meeting, turning back after a pass), not for keeping station.
+            if (burnHard && closeOn == null && change.Length < perf.MaxSpeed * CombatBurnNeed)
+            {
+                burnHard = false;
+                accel = perf.Accel;
+            }
             var maxChange = accel * dt;
             if (change.Length > maxChange) change = change.Normalized() * maxChange;
             // Only a change beyond normal thrust is a combat burn (its heat and crew strain follow; see Heat and War).
             f.CombatBurning = burnHard && change.Length > perf.Accel * dt + 1e-9;
+            f.SteerThrust = dt > 0 && perf.Accel > 0 ? change.Length / (perf.Accel * dt) : 0;
             var cost = change.Length;
             if (cost > perf.DeltaVLeft) change = change.Normalized() * Math.Max(0, perf.DeltaVLeft);
             f.Velocity += change;
@@ -663,9 +683,17 @@ public static class Combat
     /// <summary>
     /// Combat burn in a fight (balance pass): a fleet closing, braking or turning in a fight may burn
     /// FlightPlanner.CombatBurnFactor times as hard, at the combat burn's engine heat and crew strain. On unless the
-    /// fleet's Combat burn is switched off, and only while it has fuel to spare (supplies at DodgeStopsBelow or more).
+    /// fleet's Combat burn is switched off, and only while it has fuel to spare (supplies at DodgeStopsBelow or more)
+    /// and no ship is running hot (past CombatBurnHeatLimit of its heat capacity).
     /// </summary>
-    public static bool CombatBurnAllowed(World w, Fleet f) => !f.NoCombatBurn && SupplyShare(w, f) >= C.DodgeStopsBelow;
+    public static bool CombatBurnAllowed(World w, Fleet f) => !f.NoCombatBurn && SupplyShare(w, f) >= C.DodgeStopsBelow
+        && !w.ShipsOf(f).Any(s => s.Overheated || s.Heat > Heat.Capacity(s) * CombatBurnHeatLimit);
+
+    /// <summary>The combat burn eases off while any ship is past this share of its heat capacity, so it doesn't cook the guns.</summary>
+    public const double CombatBurnHeatLimit = 0.8;
+
+    /// <summary>The combat burn is used only for a change of speed bigger than this share of top speed.</summary>
+    public const double CombatBurnNeed = 0.25;
 
     /// <summary>
     /// How fast to close the gap (Mm/h, negative: open it) when it is this much more than wanted: at most 60 % of top

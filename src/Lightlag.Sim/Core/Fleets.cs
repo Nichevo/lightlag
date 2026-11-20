@@ -264,6 +264,15 @@ public sealed class Fleet
     /// <summary>Burning past normal thrust in a fight this step (set by Combat.Steer): engine heat and crew strain follow.</summary>
     public bool CombatBurning { get; set; }
 
+    /// <summary>
+    /// How hard fight steering burned this step, as a share of normal thrust (up to the combat burn's factor), or -1
+    /// when steering didn't move it. Engine heat follows the thrust used, so small corrections near gun range stay cool.
+    /// </summary>
+    public double SteerThrust { get; set; } = -1;
+
+    /// <summary>A combat-burn approach under way (Combat.Steer): kept until the fleet is near the speed it wants, so it doesn't flick on and off.</summary>
+    public bool HardApproach { get; set; }
+
     /// <summary>A combat burn under way: a chase flight's last stretch, or steering in a fight.</summary>
     public bool BurningHard => Flight?.CombatBurn == true || CombatBurning;
 

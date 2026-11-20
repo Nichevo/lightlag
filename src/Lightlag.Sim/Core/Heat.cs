@@ -147,7 +147,7 @@ public static class Heat
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
-                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (f.BurningHard ? FlightPlanner.CombatBurnHeat : 1) : 0);
+                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * (f.SteerThrust >= 0 ? Math.Min(1, f.SteerThrust) : BurnShare(f)) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (f.BurningHard ? FlightPlanner.CombatBurnHeat : 1) : 0);
                 var shed = s.Overheated || f.Radiators == RadiatorMode.Out || f.Radiators == RadiatorMode.Auto && !underFire ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 // Past twice its capacity the hull and crew take the heat instead: it stops climbing, so a ship
                 // can always cool down again in reasonable time.
