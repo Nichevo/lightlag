@@ -75,11 +75,11 @@ public class ResearchTests
     }
 
     [Fact]
-    public void Twice_the_scientists_is_about_one_and_two_thirds_the_speed()
+    public void Twice_the_scientists_is_about_one_and_four_fifths_the_speed()
     {
         Assert.Equal(1, Research.SizeFactor(Research.T.BaseScientists), 9);
         var two = Research.SizeFactor(Research.T.BaseScientists * 2);
-        Assert.InRange(two, 1.6, 1.75);
+        Assert.InRange(two, 1.75, 1.9);
     }
 
     [Fact]

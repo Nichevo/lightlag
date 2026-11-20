@@ -2188,6 +2188,9 @@ public static class Mind
         /// to spare after the next ship, each in the field its best open ideas are in (one no team keeps yet); then scientists trained for
         /// the smallest team, up to a total set by how research-minded the personality is.
         /// </summary>
+        /// <summary>Industry the computer keeps in hand beyond a training's cost before it trains (balance pass: was 80, which left most games untrained).</summary>
+        private const double TrainHeadroom = 30;
+
         private void Teams(List<WorkOrder> orders)
         {
             var state = Economy.Of(_w, _side);
@@ -2208,7 +2211,7 @@ public static class Mind
                 return;
             }
             var cap = 40 + 40 * P.Research;
-            if (state.Teams.Sum(t => t.Scientists + t.TrainingScientists) >= cap || spare < Research.TrainCost(_w, _side) + 80) return;
+            if (state.Teams.Sum(t => t.Scientists + t.TrainingScientists) >= cap || spare < Research.TrainCost(_w, _side) + TrainHeadroom) return;
             if (state.Teams.Where(t => t.TrainingUntilHour == null && Research.Ready(_w, t)).OrderBy(t => t.Scientists).ThenBy(t => t.Id).FirstOrDefault() is ResearchTeam team
                 && Research.CanTrain(_w, _side, team.Id) == null)
                 Do(new TrainTeamCommand(_side, team.Id));

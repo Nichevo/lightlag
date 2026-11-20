@@ -6,8 +6,8 @@ namespace Lightlag.Sim.Core;
 
 /// <summary>
 /// Research team rules. A side starts with one general team and empty slots up to Slots. Speed on an
-/// idea is the team's skill in the idea's field times a size factor: (scientists / baseScientists)^0.75,
-/// so twice the scientists gives about 1.7x the speed. Finishing an idea raises the team's skill in its
+/// idea is the team's skill in the idea's field times a size factor: (scientists / baseScientists)^0.875,
+/// so twice the scientists gives about 1.8x the speed. Finishing an idea raises the team's skill in its
 /// field by skillPerIdea up to maxSkill; skills a team doesn't keep fade back towards 1 by fadePer30Days.
 /// A side surveys a body by holding orbit there for surveyHours the first time, and the survey takes
 /// surveyCut off one random idea it hasn't researched. TierPace stretches each idea's listed days by its
@@ -78,12 +78,13 @@ public static class Research
 
     public static ResearchTeam? Team(World w, Side side, int id) => Economy.Of(w, side).Teams.Find(t => t.Id == id);
 
-    /// <summary>Speed from size: (scientists / base)^0.75, so twice the size is about 1.7x as fast.</summary>
+    /// <summary>Speed from size: (scientists / base)^0.875, so twice the size is about 1.8x as fast.</summary>
     public static double SizeFactor(double scientists)
     {
         var r = Math.Max(0, scientists) / T.BaseScientists;
         var root = Math.Sqrt(r);
-        return root * Math.Sqrt(root);
+        var fourth = Math.Sqrt(root);
+        return root * fourth * Math.Sqrt(fourth); // r^(1/2 + 1/4 + 1/8), square roots only (the same on every machine)
     }
 
     /// <summary>How many base days of an idea in this field the team gets through per day.</summary>

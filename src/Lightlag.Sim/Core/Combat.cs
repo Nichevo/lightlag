@@ -256,6 +256,7 @@ public static class Combat
         var dt = t1 - t0;
         foreach (var f in w.Fleets.ToList())
         {
+            f.CombatBurning = false;
             var enemy = NearestEnemyFleet(w, f, C.ContactRangeMm);
             BattleRules.Check(sim, f, enemy);
             // A fleet sent after this enemy was ordered to fight it: its Avoid or Return home stance waits.
@@ -280,8 +281,11 @@ public static class Combat
             OrbitSlide(sim, f, enemy, dt);
 
             var wantsToClose = enemy != null && WouldEngage(w, f, enemy) && !HoldsOrbit(w, f) && f.OrbitSlide == 0;
-            var tooClose = wantsToClose ? null : RailHoldTooClose(w, f);
-            if (!wantsToClose && !f.Maneuvering && tooClose == null) continue;
+            var missileStand = !wantsToClose && enemy != null && WouldStandAtMissileRange(w, f, enemy) && !HoldsOrbit(w, f) && f.OrbitSlide == 0;
+            var headOn = wantsToClose || missileStand || enemy != null ? null : HeadOnMeeting(w, f);
+            var closeOn = wantsToClose || missileStand ? enemy : headOn;
+            var tooClose = closeOn != null ? null : RailHoldTooClose(w, f);
+            if (closeOn == null && !f.Maneuvering && tooClose == null) continue;
 
             var perf = FleetPerformance.Of(w, f);
             if (perf.DeltaVLeft <= 1e-6)
@@ -289,8 +293,10 @@ public static class Combat
                 f.Maneuvering = false; // out of fuel: it drifts on as it is
                 continue;
             }
+            var burnHard = (closeOn != null || tooClose != null) && CombatBurnAllowed(w, f);
+            var accel = perf.Accel * (burnHard ? FlightPlanner.CombatBurnFactor : 1);
             Vec2 desired;
-            if (wantsToClose)
+            if (closeOn != null)
             {
                 if (!f.Maneuvering)
                 {
@@ -298,12 +304,12 @@ public static class Combat
                     f.Flight = null;          // engaging overrides the flight
                     LeaveOrbitToFight(sim, f);
                     Fleets.EnterDrift(f);
-                    sim.Log.Info("combat", $"{f.Name} closes in on {enemy!.Name}", new { fleetId = f.Id, enemyId = enemy.Id });
+                    var what = missileStand ? "holds at missile range of" : headOn != null ? "brakes to meet" : "closes in on";
+                    sim.Log.Info("combat", $"{f.Name} {what} {closeOn.Name}", new { fleetId = f.Id, enemyId = closeOn.Id, combatBurn = burnHard });
                 }
-                var gap = enemy!.Position - f.Position;
-                var excess = gap.Length - C.EngageRangeMm * 0.75;
-                var closing = Math.Clamp(excess / 0.05, -perf.MaxSpeed * 0.3, perf.MaxSpeed * 0.6);
-                desired = enemy.Velocity + gap.Normalized() * closing;
+                var gap = closeOn.Position - f.Position;
+                var excess = gap.Length - (missileStand ? Heat.LaunchRange(f) * MissileStandShare : C.EngageRangeMm * 0.75);
+                desired = closeOn.Velocity + gap.Normalized() * ApproachSpeed(excess, perf.MaxSpeed, accel);
             }
             else if (tooClose != null)
             {
@@ -333,13 +339,15 @@ public static class Combat
                 desired = OrbitHome(w, f) is Body left ? BodyVelocity(w, left) : Vec2.Zero;
             }
             var change = desired - f.Velocity;
-            var maxChange = perf.Accel * dt;
+            var maxChange = accel * dt;
             if (change.Length > maxChange) change = change.Normalized() * maxChange;
+            // Only a change beyond normal thrust is a combat burn (its heat and crew strain follow; see Heat and War).
+            f.CombatBurning = burnHard && change.Length > perf.Accel * dt + 1e-9;
             var cost = change.Length;
             if (cost > perf.DeltaVLeft) change = change.Normalized() * Math.Max(0, perf.DeltaVLeft);
             f.Velocity += change;
             sim.BurnFuel(f, change.Length);
-            if (!wantsToClose && tooClose == null && (f.Velocity - desired).Length < 1e-6)
+            if (closeOn == null && tooClose == null && (f.Velocity - desired).Length < 1e-6)
             {
                 f.Velocity = desired;
                 f.Maneuvering = false;
@@ -621,14 +629,89 @@ public static class Combat
     /// Would this fleet close in to fight that enemy? (Engage stance, sees it, has railguns and fuel, isn't
     /// retreating.) An Engage fleet breaks off a flight to fight; a Hold fleet keeps its course.
     /// </summary>
-    public static bool WouldEngage(World w, Fleet f, Fleet enemy, double strongerBy = StrongerBy) =>
+    public static bool WouldEngage(World w, Fleet f, Fleet enemy, double strongerBy = StrongerBy, double? within = null) =>
         (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && !f.Resupplying && Chases.LetsEngage(f)
         // A fleet pulling back is let go unless this fleet was told to chase that one (MayFireAt holds fire the same
         // way): closing on a fleet it may not shoot would shadow it for ever and keep the battle going.
         && (!enemy.Retreating || f.Chase?.TargetFleetId == enemy.Id)
-        && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
+        && Vec2.Distance(f.Position, enemy.Position) <= (within ?? C.ContactRangeMm) && Sensors.Sees(w, f.Side, enemy)
         && HasWorking(w, f, Module.Railguns) && HasRailAmmo(w, f) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
         && (f.Stance == Stance.Engage || Stronger(w, f, strongerBy));
+
+    /// <summary>
+    /// A fleet with missiles but no working railguns, set to engage: it doesn't close to gun range, it keeps the enemy
+    /// at MissileStandShare of its launch range (closing in, or backing off when they come nearer). Not while it chases.
+    /// </summary>
+    public static bool WouldStandAtMissileRange(World w, Fleet f, Fleet enemy) =>
+        (f.Stance == Stance.Engage || f.Stance == Stance.EngageIfStronger) && !f.Retreating && !f.Resupplying && f.Chase == null
+        && !enemy.Retreating && Vec2.Distance(f.Position, enemy.Position) <= C.ContactRangeMm && Sensors.Sees(w, f.Side, enemy)
+        && !HasWorking(w, f, Module.Railguns) && HasWorking(w, f, Module.Missiles) && FleetPerformance.Of(w, f).DeltaVLeft > 1e-3
+        && (f.Stance == Stance.Engage || Stronger(w, f, StrongerBy));
+
+    /// <summary>A missile-only fleet keeps the enemy at this share of its launch range.</summary>
+    public const double MissileStandShare = 0.85;
+
+    /// <summary>Head-on meetings are looked for out to this far (Mm).</summary>
+    public const double HeadOnScanMm = 20000;
+
+    /// <summary>Closing slower than this (Mm/h), the usual close-in at contact range is soon enough.</summary>
+    public const double HeadOnMinClosing = 30;
+
+    /// <summary>Braking plans on this share of the thrust, leaving room for the enemy's own moves.</summary>
+    public const double BrakeMargin = 0.8;
+
+    /// <summary>
+    /// Combat burn in a fight (balance pass): a fleet closing, braking or turning in a fight may burn
+    /// FlightPlanner.CombatBurnFactor times as hard, at the combat burn's engine heat and crew strain. On unless the
+    /// fleet's Combat burn is switched off, and only while it has fuel to spare (supplies at DodgeStopsBelow or more).
+    /// </summary>
+    public static bool CombatBurnAllowed(World w, Fleet f) => !f.NoCombatBurn && SupplyShare(w, f) >= C.DodgeStopsBelow;
+
+    /// <summary>
+    /// How fast to close the gap (Mm/h, negative: open it) when it is this much more than wanted: at most 60 % of top
+    /// speed, and no faster than the fleet can brake from in the room left, so it arrives at the gap it wants instead
+    /// of flying straight through the fight. Too close, it backs off at up to 30 % of top speed.
+    /// </summary>
+    public static double ApproachSpeed(double excess, double maxSpeed, double accel)
+    {
+        if (excess < 0) return Math.Max(-maxSpeed * 0.3, excess / 0.05);
+        return Math.Min(maxSpeed * 0.6, Math.Min(excess / 0.05, Math.Sqrt(2 * accel * BrakeMargin * excess)));
+    }
+
+    /// <summary>
+    /// An enemy coming head-on that this fleet would fight: their tracks pass within contact range and the gap is
+    /// down to what it takes to shed the closing speed (at the combat burn, if allowed) plus an hour's travel, so
+    /// the fleet starts braking now and meets them at gun range and matched speed, not in a pass of a few minutes.
+    /// Not for a fleet that chases (the chase plans its own matched arrival), holds orbit or is pulling back.
+    /// </summary>
+    public static Fleet? HeadOnMeeting(World w, Fleet f)
+    {
+        if (f.Chase != null || f.Retreating || f.Resupplying || HoldsOrbit(w, f) || f.OrbitSlide != 0
+            || f.Stance is not (Stance.Engage or Stance.EngageIfStronger)) return null;
+        var perf = FleetPerformance.Of(w, f);
+        if (perf.DeltaVLeft <= 1e-3 || perf.Accel <= 1e-9) return null;
+        var accel = perf.Accel * (CombatBurnAllowed(w, f) ? FlightPlanner.CombatBurnFactor : 1);
+        Fleet? best = null;
+        var bestD = double.MaxValue;
+        foreach (var o in w.Fleets)
+        {
+            if (o.Side == f.Side) continue;
+            var gap = o.Position - f.Position;
+            var d = gap.Length;
+            if (d <= C.ContactRangeMm || d > HeadOnScanMm || d >= bestD) continue;
+            var rel = o.Velocity - f.Velocity;
+            var closing = -Vec2.Dot(gap, rel) / d;
+            if (closing < HeadOnMinClosing) continue;
+            var t = -Vec2.Dot(gap, rel) / Vec2.Dot(rel, rel);
+            if ((gap + rel * t).Length > C.ContactRangeMm) continue; // passing wide: no meeting
+            var stop = closing * closing / (2 * accel * BrakeMargin) + closing * GameTime.HoursPerTick + C.EngageRangeMm * 0.75;
+            if (d > stop) continue;
+            if (!Sensors.Sees(w, f.Side, o) || !WouldEngage(w, f, o, within: double.MaxValue)) continue;
+            best = o;
+            bestD = d;
+        }
+        return best;
+    }
 
     /// <summary>The fleet has missiles to launch at an enemy it can see (it may hold fire, but it gets the chance).</summary>
     private static bool CouldLaunch(World w, Fleet f, Fleet enemy) =>

@@ -747,7 +747,7 @@ public static partial class FlightPlanner
 
     /// <summary>Does a chase of this fleet after that one use the combat burn (hostile, and close enough)?</summary>
     public static bool UsesCombatBurn(Fleet fleet, Fleet enemy, ChaseMode mode, double gapMm)
-        => enemy.Side != fleet.Side && mode != ChaseMode.Join && gapMm <= CombatBurnRangeMm;
+        => enemy.Side != fleet.Side && mode != ChaseMode.Join && gapMm <= CombatBurnRangeMm && !fleet.NoCombatBurn;
 
     public static FlightPlan PlanChase(World w, Fleet fleet, Fleet enemy, ChaseMode mode, double speedFraction, FleetPerformance perf, double? standoffMm = null)
     {

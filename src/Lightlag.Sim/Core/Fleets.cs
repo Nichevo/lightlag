@@ -256,6 +256,18 @@ public sealed class Fleet
     public MissileLaunch MissileLaunch { get; set; }
 
     /// <summary>
+    /// Combat burn switched off: the fleet closes, brakes and turns in a fight (and on a chase's last stretch) at normal
+    /// thrust only. Off by default, so the combat burn is used when needed (see Combat.CombatBurnAllowed).
+    /// </summary>
+    public bool NoCombatBurn { get; set; }
+
+    /// <summary>Burning past normal thrust in a fight this step (set by Combat.Steer): engine heat and crew strain follow.</summary>
+    public bool CombatBurning { get; set; }
+
+    /// <summary>A combat burn under way: a chase flight's last stretch, or steering in a fight.</summary>
+    public bool BurningHard => Flight?.CombatBurn == true || CombatBurning;
+
+    /// <summary>
     /// Let an enemy fleet that pulls back go without shooting at it (unless chasing it). Off by default: the
     /// guns keep firing at a retreating fleet while it is still in reach, but the fleet doesn't close on it.
     /// </summary>

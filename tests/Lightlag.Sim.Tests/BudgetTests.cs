@@ -17,6 +17,9 @@ public class BudgetTests
         var sim = Starts.Classic(Simulation.NewGame(Scenarios.TestSystem, seed, GameLog.Memory(), options: options ?? new GameOptions { Events = EventRate.Off }));
         sim.RuleCheckEveryTicks = 1;
         sim.StrictRules = true;
+        // These tests check the budget's own workings from the sides' usual shares, not the opening's.
+        sim.World.Rules.OpeningBudget = false;
+        if (Budget.On(sim.World)) foreach (var s in sim.World.Sides) Budget.Reset(sim.World, s.Side);
         return sim;
     }
 

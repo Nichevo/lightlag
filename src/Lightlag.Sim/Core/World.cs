@@ -235,6 +235,9 @@ public sealed class GameRules
     /// <summary>The Industry budget: pots with shares, goals and an order inside each pot (off: one pool, first come first served).</summary>
     public bool Budget { get; set; } = true;
 
+    /// <summary>The opening budget (balance pass): fewer warships in the first days, more on buildings and settling (see Budget.Opening).</summary>
+    public bool OpeningBudget { get; set; } = true;
+
     /// <summary>
     /// How many times slower than true Kepler time planets (and anything else round the sun) go round: 1, 3 or 5
     /// (see Orbits). Moons are always slowed by Orbits.MoonSlowdown. Old saves keep the periods they were made with.

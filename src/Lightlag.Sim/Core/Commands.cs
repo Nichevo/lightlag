@@ -67,6 +67,7 @@ namespace Lightlag.Sim.Core;
 [JsonDerivedType(typeof(SetHeatCommand), "setHeat")]
 [JsonDerivedType(typeof(EjectHeatSinksCommand), "ejectHeatSinks")]
 [JsonDerivedType(typeof(SetFireControlCommand), "setFireControl")]
+[JsonDerivedType(typeof(SetCombatBurnCommand), "setCombatBurn")]
 [JsonDerivedType(typeof(SetLetRetreatGoCommand), "setLetRetreatGo")]
 [JsonDerivedType(typeof(DropMissilesCommand), "dropMissiles")]
 [JsonDerivedType(typeof(BuildOnPlanetCommand), "buildOnPlanet")]

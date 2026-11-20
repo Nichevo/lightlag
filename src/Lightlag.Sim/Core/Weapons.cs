@@ -5,7 +5,7 @@ namespace Lightlag.Sim.Core;
 // ---- Data (ship-classes.json, "weapons") -----------------------------------------------------
 
 /// <summary>Pulse lance numbers. See the comment in ship-classes.json.</summary>
-public sealed record LanceData(double RangeMm = 25, double ReloadSeconds = 45, double Accuracy = 0.8, double Damage = 9,
+public sealed record LanceData(double RangeMm = 25, double ReloadSeconds = 135, double Accuracy = 0.8, double Damage = 9,
     double HeatToTarget = 5, double HeatPerShot = 4, double ShieldHeatFactor = 2);
 
 /// <summary>Minefield numbers. See the comment in ship-classes.json.</summary>
