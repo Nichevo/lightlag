@@ -16,6 +16,7 @@
 .PARAMETER Rollback      Swap back to the previous build, then play.
 .PARAMETER NoUpdate      Play the current build without checking for a new one.
 .PARAMETER NoLaunch      Update only (used by the nightly run).
+.PARAMETER NoWait        Don't wait for a build still being made on GitHub (the CI dry run).
 .PARAMETER Force         Download the newest build even if it is already installed.
 #>
 [CmdletBinding()]
@@ -24,6 +25,7 @@ param(
     [switch]$NoUpdate,
     [switch]$NoLaunch,
     [switch]$Force,
+    [switch]$NoWait,
     [string]$InstallDir,
     [string]$Repo = "Nichevo/lightlag"
 )
@@ -89,7 +91,7 @@ try {
                 $runs = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/actions/runs?branch=main&event=push&per_page=5" `
                     -Headers $headers -TimeoutSec 20
                 $building = @($runs.workflow_runs | Where-Object { $_.status -ne "completed" -and "$($_.id)" -ne "$env:GITHUB_RUN_ID" })
-                if ($building.Count -eq 0) { break }
+                if ($building.Count -eq 0 -or $NoWait) { break }
                 $minutes = [math]::Round(((Get-Date) - $waitedSince).TotalMinutes, 1)
                 if ($minutes -ge 15) { Say "Still building after 15 minutes; playing what is installed." Yellow; break }
                 if ($minutes -eq 0) { Say "A new build is being made on GitHub (usually about 4 minutes). Waiting for it... (Ctrl+C to stop)" Yellow }

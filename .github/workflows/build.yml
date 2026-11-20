@@ -36,7 +36,7 @@ jobs:
       - name: Update and Play dry run (no release yet is fine)
         shell: powershell
         run: |
-          & tools\UpdateAndPlay.ps1 -NoLaunch -InstallDir "$env:RUNNER_TEMP\play"
+          & tools\UpdateAndPlay.ps1 -NoLaunch -NoWait -InstallDir "$env:RUNNER_TEMP\play"
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Host "Updater exited $LASTEXITCODE" }
 
   build:
