@@ -104,6 +104,7 @@ public sealed class Simulation
         else if (world.Map.Seeded) scenario = MapMaker.Name;
         var replay = new ReplayFile { Build = build.ToString(), Scenario = scenario, Seed = seed, Sandbox = sandbox, Options = options };
         var sim = new Simulation(world, rng, log, build, replay);
+        if (sandbox == null && options?.StartResearch == true) StartResearch(sim);
         Sensors.Update(sim);
         Light.Relay(sim);
         Stats.RecordDay(world);
@@ -113,6 +114,22 @@ public sealed class Simulation
         foreach (var m in world.Minds)
             log.Info("ai", $"{m.Side} is run by the computer", new { side = m.Side.ToString(), difficulty = m.Difficulty.ToString(), personality = m.Personality.ToString(), m.BaseRatio, m.FirstProbeDay });
         return sim;
+    }
+
+    /// <summary>
+    /// Each side the computer does not run starts with its first team on the idea research automation would
+    /// pick, so no game opens with scientists idle (it can be changed on the Research screen at once). New games
+    /// from the title screen ask for this (GameOptions.StartResearch); tests and headless runs start idle.
+    /// </summary>
+    private static void StartResearch(Simulation sim)
+    {
+        var w = sim.World;
+        foreach (var side in Sides.InPlay(w).Where(s => w.Minds.All(m => m.Side != s)))
+        {
+            if (w.Orders.Any(o => o.Side == side && o.Kind == OrderKind.Research)) continue;
+            if (Planner.NextIdea(w, side, Economy.Of(w, side).Teams.FirstOrDefault()) is not string idea) continue;
+            sim.Issue(new QueueOrderCommand(side, OrderKind.Research, idea) { Source = "start" });
+        }
     }
 
     public static Simulation FromSave(SaveGame save, GameLog log, BuildInfo? build = null)

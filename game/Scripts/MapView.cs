@@ -968,6 +968,9 @@ public partial class MapView : Node2D
         }
     }
 
+    /// <summary>How long a lost fleet's course is guessed on the map; after that only a faint cross marks where it was.</summary>
+    private const double GuessHours = 3 * 24;
+
     /// <summary>Enemy fleets out of sight: a faint mark where they were last seen, and a dashed guess of where they went.</summary>
     private void DrawLastSeen()
     {
@@ -980,6 +983,20 @@ public partial class MapView : Node2D
             var guess = Camera.ToScreen(s.Guess(DrawHour));
             if (!Camera.OnScreen(at, 300) && !Camera.OnScreen(guess, 300)) continue;
             var tint = Ui.SideColor(s.Owner(w));
+            if (DrawHour - s.Hour > GuessHours)
+            {
+                // Old news: a guess of where it went days ago means little (it has likely turned, joined another
+                // fleet or gone home), so only a faint cross where it was, named when hovered or selected.
+                var faint = new Color(tint, 0.25f);
+                DrawLine(at + new Vector2(-4, -4), at + new Vector2(4, 4), faint, 1);
+                DrawLine(at + new Vector2(-4, 4), at + new Vector2(4, -4), faint, 1);
+                if (s.FleetId == SelectedId || s.FleetId == HoverId)
+                {
+                    DrawString(_font, at + new Vector2(10, -6), $"{s.Name} ({s.Ships} ships): last seen {Format.Hours(Math.Max(0, DrawHour - s.Hour))} ago", HorizontalAlignment.Left, -1, 12, new Color(tint, 0.6f));
+                    DrawArc(at, 12, 0, Mathf.Tau, 32, tint, 1.5f, true);
+                }
+                continue;
+            }
             var color = new Color(tint, 0.45f);
             if (at.DistanceTo(guess) > 4) Dashed(at, guess, new Color(tint, 0.3f), 1, 5);
             DrawArc(at, 9, 0, Mathf.Tau, 20, color, 1.2f, true);

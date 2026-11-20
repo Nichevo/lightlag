@@ -216,7 +216,7 @@
     "moonCapShare": 0.3,
     "homeCap": 200,
     "homeStartK": 100,
-    "homeBuildings": ["shipyard", "farm", "farm", "mine", "mine", "workshop", "smelter", "power-plant", "solar-field", "storehouse"],
+    "homeBuildings": ["shipyard", "farm", "farm", "mine", "mine", "workshop", "smelter", "power-plant", "solar-field", "storehouse", "solar-field"],
     "outpostStartK": 3,
     "outpostBuildings": ["mine", "solar-field"],
     "spreadStartK": 6,

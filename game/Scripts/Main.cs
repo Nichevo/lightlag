@@ -226,7 +226,7 @@ public partial class Main : Node
                 Hazards = HazardsChoice, Events = EventsChoice, PlayerRace = PlayerRaceChoice, RivalRace = RivalRaceChoice,
                 Ironman = IronmanChoice, ContactOffers = ContactOffersChoice, Budget = BudgetChoice, ThirdRace = ThirdRaceChoice == Races.None ? null : ThirdRaceChoice,
                 PlanetOrbitSlowdown = PlanetOrbitsChoice, EarlyEndings = EarlyEndingsChoice, Prizes = PrizesChoice, Learned = LearnedForNewGame(),
-                ResearchVariety = ResearchVarietyChoice,
+                ResearchVariety = ResearchVarietyChoice, StartResearch = true,
             });
             if (IronmanChoice) SaveSlots.WriteIronman(Paths, Sim);
             SetScreen(new GameScreen());
