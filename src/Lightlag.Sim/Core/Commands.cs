@@ -208,7 +208,7 @@ public sealed record PlanFlightCommand(int FleetId, FlightRequest Request) : Gam
             && foeFleet.Side != fleet.Side && Request.Chase is ChaseMode.GunRange or ChaseMode.MissileRange or ChaseMode.RailRange or ChaseMode.Overtake)
             BattleRules.CallOff(sim, fleet, $"ordered after {foeFleet.Name}");
         // A chase against a fleet on its way to one of our planets: wait for it there (or go there first).
-        if (Request.TargetFleetId is int quarry && Chases.MeetAt(world, fleet, quarry, Request.Chase, Request.SpeedFraction) is var (meet, meetFlight))
+        if (!Request.GoNow && Request.TargetFleetId is int quarry && Chases.MeetAt(world, fleet, quarry, Request.Chase, Request.SpeedFraction) is var (meet, meetFlight))
         {
             fleet.Refused = null;
             fleet.JoinFleetId = null;
