@@ -54,7 +54,7 @@ public partial class MapView
             WorkOutShadows();
         }
         foreach (var (r, c) in _shadowRuns) DrawRect(r, c);
-        foreach (var (a, b) in _shadowEdges) DrawDashedLine(a, b, ShadowEdge, 1, 6);
+        foreach (var (a, b) in _shadowEdges) Dashed(a, b, ShadowEdge, 1, 6);
         foreach (var (at, r) in _burnRings) DrawDashedCircle(at, r);
         if (Sight == SightView.Coverage)
             // Along the bottom, above the key hint: at the top it sat under the top bar.

@@ -137,7 +137,7 @@ public partial class MapView
             DrawPolyline(d, color, 1, true);
             if (s.LostHour != null) DrawCross(at, 5, Ui.Danger, 1.2f);
             if (!s.Arrived && s.LostHour == null && w.FindBody(s.BodyId) is Body b)
-                DrawDashedLine(at, Camera.ToScreen(Satellites.SpotAt(w, b, s.Spot, s.Id)), new Color(color, 0.3f), 1, 3);
+                Dashed(at, Camera.ToScreen(Satellites.SpotAt(w, b, s.Spot, s.Id)), new Color(color, 0.3f), 1, 3);
             if (Camera.Scale * Physics.MmPerAu > 300 || s.LostHour != null)
                 DrawString(_font, at + new Vector2(6, -4), Satellites.KindOf(s.Kind)?.Short + (s.LostHour != null ? " (lost)" : mine && s.Seen ? " (seen)" : ""),
                     HorizontalAlignment.Left, -1, 10, new Color(color, 0.8f));
@@ -164,7 +164,7 @@ public partial class MapView
             var at = Camera.ToScreen(d.Position);
             DrawCircle(at, 3, Ui.Player);
             if (w.FindFleet(d.TargetFleetId) is Fleet tf && _drawn.TryGetValue(tf.Id, out var tp))
-                DrawDashedLine(at, Camera.ToScreen(tp), new Color(Ui.Player, 0.35f), 1, 3);
+                Dashed(at, Camera.ToScreen(tp), new Color(Ui.Player, 0.35f), 1, 3);
             DrawString(_font, at + new Vector2(6, -4), "drone", HorizontalAlignment.Left, -1, 10, new Color(Ui.Player, 0.8f));
         }
         // Enemy fleets taken to carry the rival flagship: a red flag, with a question mark while it is only a guess.
@@ -196,7 +196,7 @@ public partial class MapView
             var now = Camera.ToScreen(s.Guess(w.Hour));
             if (at.DistanceTo(now) > 6)
             {
-                DrawDashedLine(at, now, new Color(color, 0.3f), 1, 4);
+                Dashed(at, now, new Color(color, 0.3f), 1, 4);
                 DrawArc(now, 6, 0, Mathf.Tau, 16, new Color(color, 0.45f), 1, true);
             }
             // The light delay itself, and the age of the picture: the picture is taken once a game hour,

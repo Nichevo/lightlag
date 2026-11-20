@@ -199,6 +199,38 @@ public partial class MapView : Node2D
 
     private readonly System.Diagnostics.Stopwatch _drawClock = new();
 
+    /// <summary>
+    /// A dashed line cut to the screen (plus a margin) first. Zoomed in, a route or track can be a million pixels long:
+    /// Godot makes one dash every few pixels of it, on screen or not, and that was most of each frame (lag at 8x+).
+    /// The cut keeps the dashes in step with the full line, so they don't crawl as the map moves.
+    /// </summary>
+    private void Dashed(Vector2 from, Vector2 to, Color color, float width = -1, float dash = 2)
+    {
+        var size = GetViewportRect().Size;
+        const float margin = 64;
+        var d = to - from;
+        float t0 = 0, t1 = 1;
+        bool Clip(float p, float q)
+        {
+            if (Mathf.Abs(p) < 1e-9f) return q >= 0;
+            var r = q / p;
+            if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+            else { if (r < t0) return false; if (r < t1) t1 = r; }
+            return true;
+        }
+        if (!Clip(-d.X, from.X + margin) || !Clip(d.X, size.X + margin - from.X)
+            || !Clip(-d.Y, from.Y + margin) || !Clip(d.Y, size.Y + margin - from.Y)) return;
+        var length = d.Length();
+        if (length < 1e-3f) return;
+        // Start on a whole dash period from the line's own start.
+        var period = Mathf.Max(1, dash * 2);
+        var startPx = Mathf.Floor(t0 * length / period) * period;
+        var a = from + d * (startPx / length);
+        var b = from + d * t1;
+        if (a.DistanceSquaredTo(b) < 1) return;
+        DrawDashedLine(a, b, color, width, dash);
+    }
+
     public override void _Draw()
     {
         _drawClock.Restart();
@@ -359,7 +391,7 @@ public partial class MapView : Node2D
                     DrawLine(to, from, new Color(1f, 0.7f, 0.3f, 0.4f * fade), 1);
                     break;
                 case EffectKind.PointDefenceKill:
-                    DrawDashedLine(from, to, new Color(mine, 0.7f * fade), 1, 3);
+                    Dashed(from, to, new Color(mine, 0.7f * fade), 1, 3);
                     DrawArc(to, 3 + 6 * (1 - fade), 0, Mathf.Tau, 12, new Color(1, 1, 1, 0.9f * fade), 1.5f, true);
                     break;
                 case EffectKind.Volley:
@@ -407,7 +439,7 @@ public partial class MapView : Node2D
                 var dir = (to - from).Normalized();
                 var across = new Vector2(-dir.Y, dir.X);
                 for (var i = -1; i <= 1; i++)
-                    DrawDashedLine(from + across * i * 4, to + across * i * 4, new Color(mine, 0.6f * fade), 1.2f, 5);
+                    Dashed(from + across * i * 4, to + across * i * 4, new Color(mine, 0.6f * fade), 1.2f, 5);
                 break;
         }
     }
@@ -726,7 +758,7 @@ public partial class MapView : Node2D
                     : job.EnemyFleetId is int e && w.FindFleet(e) is Fleet enemy ? enemy.Position : job.Point;
                 var at = Camera.ToScreen(p);
                 var to = Camera.ToScreen(target);
-                if (at.DistanceTo(to) > 6) DrawDashedLine(at, to, new Color(color, 0.35f), 1, 8);
+                if (at.DistanceTo(to) > 6) Dashed(at, to, new Color(color, 0.35f), 1, 8);
                 DrawString(_font, at + new Vector2(12, 36), $"[{job.Kind}]", HorizontalAlignment.Left, -1, 11, new Color(Ui.Text, 0.75f));
             }
         }
@@ -913,7 +945,7 @@ public partial class MapView : Node2D
             {
                 // Its course for the next day if nothing changes.
                 var ahead = Camera.ToScreen(world + f.Velocity * 24);
-                DrawDashedLine(at, ahead, new Color(Ui.Rival, 0.4f), 1, 6);
+                Dashed(at, ahead, new Color(Ui.Rival, 0.4f), 1, 6);
             }
             if (Sensors.StateOf(f) == SignatureState.Burn && Graphics.Fancy)
             {
@@ -949,7 +981,7 @@ public partial class MapView : Node2D
             if (!Camera.OnScreen(at, 300) && !Camera.OnScreen(guess, 300)) continue;
             var tint = Ui.SideColor(s.Owner(w));
             var color = new Color(tint, 0.45f);
-            if (at.DistanceTo(guess) > 4) DrawDashedLine(at, guess, new Color(tint, 0.3f), 1, 5);
+            if (at.DistanceTo(guess) > 4) Dashed(at, guess, new Color(tint, 0.3f), 1, 5);
             DrawArc(at, 9, 0, Mathf.Tau, 20, color, 1.2f, true);
             DrawLine(at + new Vector2(-5, -5), at + new Vector2(5, 5), color, 1.2f);
             DrawLine(at + new Vector2(-5, 5), at + new Vector2(5, -5), color, 1.2f);
@@ -1120,7 +1152,7 @@ public partial class MapView : Node2D
         if (!flight.Started && _drawn.TryGetValue(f.Id, out var here))
         {
             // Still waiting to leave: a dotted line from here to the departure point.
-            DrawDashedLine(Camera.ToScreen(here), Camera.ToScreen(flight.Legs[0].P0), new Color(baseColor, alpha * 0.6f), 1, 3);
+            Dashed(Camera.ToScreen(here), Camera.ToScreen(flight.Legs[0].P0), new Color(baseColor, alpha * 0.6f), 1, 3);
         }
         foreach (var leg in flight.Legs)
         {
@@ -1171,7 +1203,7 @@ public partial class MapView : Node2D
             var last = flight.Legs[^1];
             var v = last.VelocityAt(last.End);
             if (v.Length > 1e-9)
-                DrawDashedLine(end, Camera.ToScreen(flight.Target + v * 24 * 3), new Color(baseColor, alpha * 0.4f), 1, 6);
+                Dashed(end, Camera.ToScreen(flight.Target + v * 24 * 3), new Color(baseColor, alpha * 0.4f), 1, 6);
         }
         if (flight.FlybyBodyId is int flybyId && flight.FlybyHour > DrawHour && Sim.World.FindBody(flybyId) is Body swing)
         {

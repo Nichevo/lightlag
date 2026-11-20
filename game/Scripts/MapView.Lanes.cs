@@ -36,7 +36,7 @@ public partial class MapView
             if (w.FindBody(l.FromBodyId) is Body fa && w.FindBody(l.ToBodyId) is Body fb && w.Hour > 20 * 24)
             {
                 var then = w.Hour - 20 * 24;
-                DrawDashedLine(Camera.ToScreen(FlightPlanner.PredictBody(w, fa, then)), Camera.ToScreen(FlightPlanner.PredictBody(w, fb, then)),
+                Dashed(Camera.ToScreen(FlightPlanner.PredictBody(w, fa, then)), Camera.ToScreen(FlightPlanner.PredictBody(w, fb, then)),
                     new Color(tint, 0.22f), 1, 10);
             }
             DrawBand(a, b, width, new Color(tint, 0.1f + 0.25f * sure));

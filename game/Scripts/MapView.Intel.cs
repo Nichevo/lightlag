@@ -62,7 +62,7 @@ public partial class MapView
             if (Sensors.Find(w, Side.Player, i.FleetId, seat: Lagging) is Sighting s && i.Kind != PlanKind.Massing)
             {
                 var from = Camera.ToScreen(s.Visible ? s.Position : s.Guess(DrawHour));
-                if (target is Vector2 to && from.DistanceTo(to) > 30) DrawDashedLine(from, to, new Color(tint, tint.A * 0.5f), 1, 9);
+                if (target is Vector2 to && from.DistanceTo(to) > 30) Dashed(from, to, new Color(tint, tint.A * 0.5f), 1, 9);
                 if (Camera.OnScreen(from, 100))
                     DrawString(_font, from + new Vector2(12, 22), $"heard: {Intentions.What(i)}", HorizontalAlignment.Left, -1, 11, tint);
             }
@@ -151,7 +151,7 @@ public partial class MapView
             var a = Camera.ToScreen(from);
             var b = Camera.ToScreen(target);
             if (!Camera.OnScreen(a, 400) && !Camera.OnScreen(b, 400)) continue;
-            DrawDashedLine(a, b, color, 1.2f, 6);
+            Dashed(a, b, color, 1.2f, 6);
             var mid = (a + b) / 2;
             DrawString(_font, mid + new Vector2(4, -4), f.SupplyRunFor != null ? "supply run" : "settlers", HorizontalAlignment.Left, -1, 10, color);
         }
