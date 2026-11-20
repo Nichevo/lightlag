@@ -678,10 +678,10 @@ public static class Fleets
     public static double ClearanceFor(Body b) => Math.Max(OrbitRadiusFor(b), b.Radius * 2);
 
     /// <summary>
-    /// Fleets holding orbit go round at most once in this many hours. Real low orbits take hours, which looked like spinning
+    /// Fleets holding orbit go round at most once in this many hours (four days; two still looked fast). Real low orbits take hours, which looked like spinning
     /// at 4x-8x once planets and moons were slowed; the orbit's height is unchanged (see OrbitRadiusFor).
     /// </summary>
-    public const double FleetOrbitHours = 48;
+    public const double FleetOrbitHours = 96;
 
     public static double OrbitPeriodHours(Body b, double radius) =>
         Math.Max(FleetOrbitHours, Physics.OrbitPeriodHours(radius, b.Gm));

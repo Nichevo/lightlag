@@ -49,10 +49,10 @@ public class FleetTests
         sim.StepMany(30);
         Assert.InRange(Vec2.Distance(fleet.Position, home.Position), fleet.OrbitRadius - 1e-6, fleet.OrbitRadius + 1e-6);
         Assert.NotEqual(angle, fleet.OrbitAngle);
-        // A low orbit: half a planet radius up, a full circle in about a day.
+        // A low orbit: half a planet radius up, a full circle slowed to FleetOrbitHours so it doesn't spin at speed.
         Assert.InRange(fleet.OrbitRadius, home.Radius * 1.4, home.Radius * 1.6);
         var period = Fleets.OrbitPeriodHours(home, fleet.OrbitRadius);
-        Assert.InRange(period, 12, 48);
+        Assert.Equal(Fleets.FleetOrbitHours, period, 6);
     }
 
     [Fact]
