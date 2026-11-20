@@ -1776,6 +1776,24 @@ public partial class PlannerPanel : PanelContainer
 
         var plan = p.Plan;
         _go.Disabled = plan is not { Ok: true };
+        if (chasing && p.Meet is MeetPreview meet)
+        {
+            // The quarry passes one of our planets: wait for it there rather than burn out to match its speed.
+            var pass = Math.Max(0, meet.PassHour - w.Hour);
+            var meetLines = new List<string>
+            {
+                $"{p.TargetName} is heading past {meet.BodyName}: it gets there in about {Format.Hours(pass)} ({GameTime.Format(meet.PassHour)}).",
+                meet.Flight == null
+                    ? $"Go: the fleet stays in orbit at {meet.BodyName} and waits for it, then closes in when it is near."
+                    : $"Go: the fleet flies to {meet.BodyName} first (arrives {GameTime.Format(meet.Flight.ArriveHour)}, in {Format.Hours(meet.Flight.ArriveHour - w.Hour)}), waits there, then closes in when it is near.",
+                "If it turns elsewhere, the fleet chases it as usual.",
+            };
+            if (meet.Flight != null) meetLines.Add($"Fuel: {Format.Speed(meet.Flight.DeltaV)} of speed change to get there");
+            _result.Text = string.Join("\n", meetLines);
+            _result.AddThemeColorOverride("font_color", Ui.Text);
+            _go.Disabled = false;
+            return;
+        }
         if (plan?.Flight is not Flight f)
         {
             _result.Text = (plan?.Problem ?? "Working it out...")

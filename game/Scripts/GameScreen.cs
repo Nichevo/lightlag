@@ -1901,6 +1901,16 @@ public partial class GameScreen : Node2D
         _main.RunGuarded("planning a route", () =>
         {
             p.Plan = FlightPlanner.PlanRoute(Sim.World, f, Request(p));
+            p.Meet = null;
+            // A quarry on its way past one of our planets: the order waits for it there (Chases.MeetAt), so the preview
+            // shows that, not the chase the planner would fly (which may burn away first to match the quarry's speed).
+            if (p.TargetFleetId is int quarry && Chases.MeetAt(Sim.World, f, quarry, Settings.Chase, Settings.Speed) is var (meetBody, meetFlight)
+                && Sensors.Find(Sim.World, f.Side, quarry) is Sighting seen && Chases.HeadingFor(Sim.World, f.Side, seen, f.OrbitBodyId) is var (_, hours))
+            {
+                p.Meet = new MeetPreview(meetBody.Id, meetBody.Name, Sim.World.Hour + hours, meetFlight);
+                var dvLeft = FleetPerformance.Of(Sim.World, f).DeltaVLeft;
+                p.Plan = new FlightPlan(true, null, meetFlight, meetFlight?.DeltaV ?? 0, dvLeft);
+            }
             p.ChaseProblems.Clear();
             if (p.TargetFleetId != null)
                 foreach (var mode in ChaseModes)
@@ -1966,6 +1976,13 @@ public partial class GameScreen : Node2D
 
     public void ConfirmPlan()
     {
+        if (Planner is PlannerState meeting && meeting.Meet != null)
+        {
+            // Waiting for the quarry at our planet: the command itself works out the wait (and any flight there).
+            Sim.Issue(new PlanFlightCommand(meeting.FleetId, Request(meeting)));
+            Planner = null;
+            return;
+        }
         if (Planner is not PlannerState p || p.Plan is not { Ok: true, Flight: Flight flight }) return;
         var depart = Settings.Route == RouteKind.Wait && p.TargetFleetId == null ? Math.Max(Sim.World.Tick, (long)Math.Round(flight.DepartHour)) : Sim.World.Tick;
         var request = Request(p) with { DepartTick = depart, FlybyBodyId = flight.FlybyBodyId };
@@ -2316,6 +2333,9 @@ public sealed class PlannerState(int fleetId, int? targetBodyId, Vec2 point, str
     public int? TargetFleetId { get; init; }
     public FlightPlan? Plan { get; set; }
 
+    /// <summary>The chase waits for its quarry at one of our planets it is passing (null: it flies the planned chase).</summary>
+    public MeetPreview? Meet { get; set; }
+
     /// <summary>For a chase: why each chase mode would not work right now (null: it would).</summary>
     public Dictionary<ChaseMode, string?> ChaseProblems { get; } = new();
 
@@ -2325,6 +2345,9 @@ public sealed class PlannerState(int fleetId, int? targetBodyId, Vec2 point, str
 }
 
 /// <summary>A waypoint being set up in the planner (becomes a sim Waypoint when the route is sent).</summary>
+/// <summary>A chase that waits at a planet of ours: where, when the quarry passes it, and the flight there (null: already in orbit there).</summary>
+public sealed record MeetPreview(int BodyId, string BodyName, double PassHour, Flight? Flight);
+
 public sealed class WaypointDraft
 {
     public Vec2 Point;
