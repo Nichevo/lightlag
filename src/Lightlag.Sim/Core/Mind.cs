@@ -1709,6 +1709,8 @@ public static class Mind
         {
             if (_enemyYard == null || _w.Day < _m.FirstProbeDay || _m.Jobs.Any(j => j.Kind == JobKind.Probe)) return;
             if (_w.Hour - _m.LastProbeEndHour < 10 * 24 || Slip()) return;
+            // A side with a scout leaves the looking to it (Scouts): a lone frigate sent as well was one more one-ship fleet.
+            if (_w.Fleets.Any(f => f.Side == _side && f.ShipIds.Count > 0 && f.Role == FleetRole.Scout)) return;
             var pool = Pool().Where(Ready).ToList();
             var from = pool.Where(f => f.ShipIds.Count >= 2).OrderByDescending(f => f.ShipIds.Count).FirstOrDefault();
             if (from == null) return;
@@ -2360,6 +2362,9 @@ public static class Mind
                 .ThenBy(s => spareFirst && Light.CommandCapable(s) && s.Id != Economy.Of(_w, _side).FlagshipId ? 0 : 1)
                 .ThenBy(s => small ? (Planner.Warship(s) ? 0 : 1) : 0)
                 .ThenBy(s => small ? WarShip(s) : -WarShip(s)).ThenByDescending(s => small ? s.MaxSpeed : 0).ToList();
+            // No lone warships while the home fleet has ships to spare: a job that one ship would do gets two,
+            // so the rival is not strewn about in one-ship fleets that are easy to pick off.
+            if (ships.Count >= 3) minShips = Math.Max(minShips, 2);
             var picked = new List<Ship>();
             double sum = 0;
             foreach (var s in ships)
