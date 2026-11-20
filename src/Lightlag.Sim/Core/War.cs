@@ -428,7 +428,7 @@ public static class Crews
             var patrol = !inPort && (f.Mission != Mission.None || f.ZoneId != null) && !Heat.InBattle(w, f);
             var academy = inPort && Colonies.Built(at!).Any(p => p.Kind == "academy");
             // A combat burn wears on the crew while the engines run hard.
-            if (w.Loop && f.Thrusting && f.Flight?.CombatBurn == true)
+            if (w.Loop && f.Thrusting && f.BurningHard)
                 foreach (var s in w.ShipsOf(f).Where(s => Crewed(s)))
                     s.Strain = Math.Min(1, s.Strain + FlightPlanner.CombatBurnStrainPerHour * Races.Of(w, s.Side).Strain * GameTime.HoursPerTick);
             // Strain eases off out of battle, faster in port.

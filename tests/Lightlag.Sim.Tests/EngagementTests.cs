@@ -83,7 +83,7 @@ public class EngagementTests
         var sidestepSpread = Combat.DodgeFactor(DodgeMode.Sidestep, FireMode.Spread, far);
         var hardSpread = Combat.DodgeFactor(DodgeMode.HardBurn, FireMode.Spread, far);
         Assert.True(sidestepFocused < 0.6);
-        Assert.True(sidestepSpread > 0.85);
+        Assert.True(sidestepSpread > 0.7); // a fan still cuts a sidestep's worth (balance pass: 0.75)
         Assert.True(hardSpread < sidestepSpread);
         Assert.Equal(1, Combat.DodgeFactor(DodgeMode.Off, FireMode.Focused, far));
     }

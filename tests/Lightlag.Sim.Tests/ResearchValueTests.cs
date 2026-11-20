@@ -67,10 +67,10 @@ public class ResearchValueTests
         var w = sim.World;
         var done = Economy.Of(w, Side.Player).Researched;
         done.AddRange(new[] { Tech.Automation, Tech.LongSensors, Tech.DeflectorGrid, Tech.PointDefence2 });
-        Assert.Equal(1.1, Tech.IndustryFactor(w, Side.Player), 6);
+        Assert.Equal(1.15, Tech.IndustryFactor(w, Side.Player), 6);
         Assert.Equal(1.5, Tech.SensorReach(w, Side.Player), 6);
         done.AddRange(new[] { Tech.Automation2, Tech.Automation3, Tech.LongSensors2, Tech.ShieldHarmonics, Tech.TrackingRadars });
-        Assert.InRange(Tech.IndustryFactor(w, Side.Player), 1.3, 1.34);
+        Assert.InRange(Tech.IndustryFactor(w, Side.Player), 1.48, 1.54); // three steps of 15 % (balance pass)
         Assert.InRange(Tech.SensorReach(w, Side.Player), 2.0, 2.1);
         Assert.InRange(Tech.ShieldFactor(w, Side.Player), 1.49, 1.51);
         Assert.InRange(Tech.PointDefence(w, Side.Player, 2), 1.29, 1.31);
@@ -87,8 +87,8 @@ public class ResearchValueTests
         var (happy, _) = Planets.TargetHappiness(w, home);
         Economy.Of(w, Side.Player).Researched.AddRange(new[] { Tech.Hydroponics, Tech.NutritionScience, Tech.CivicPlanning });
         Tech.Refresh(w);
-        Assert.Equal(food * 1.1, Planets.FoodMadePerDay(home), 6);
-        Assert.Equal(eat * 0.9, Planets.FoodNeedPerDay(home), 6);
+        Assert.Equal(food * 1.15, Planets.FoodMadePerDay(home), 6);
+        Assert.Equal(eat * 0.85, Planets.FoodNeedPerDay(home), 6);
         Assert.True(Planets.TargetHappiness(w, home).Target >= Math.Min(100, happy + 5) - 1e-6);
     }
 
@@ -117,7 +117,7 @@ public class ResearchValueTests
             var state = Economy.Of(w, side);
             Assert.True(state.Teams.Count >= 2, $"{side} has {state.Teams.Count} teams");
             Assert.True(state.Teams.Sum(t => t.Scientists + t.TrainingScientists) > Research.T.StartScientists + Research.T.FoundScientists,
-                $"{side} trained no scientists");
+                $"{side} trained no scientists: {string.Join(", ", state.Teams.Select(t => $"{t.Scientists}+{t.TrainingScientists}"))}");
         }
         // The two sides do not research the same ideas in the same order.
         var mine = w.Choices.Where(c => c.Side == Side.Player && c.Kind == "research").Select(c => c.What).ToList();

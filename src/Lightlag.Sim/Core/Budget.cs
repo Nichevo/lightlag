@@ -14,7 +14,8 @@ public enum PlaceMode { Roll, ShareOut, Hold }
 /// the rest overflows, the least move Auto bothers with, how far Auto leans to what is queued, and how many
 /// points a threat moves towards ships and stations.
 /// </summary>
-public sealed record BudgetData(List<double>? Shares = null, double FullDays = 12, double MinMove = 3, double DemandWeight = 0.4, double ThreatShift = 10);
+public sealed record BudgetData(List<double>? Shares = null, double FullDays = 12, double MinMove = 3, double DemandWeight = 0.4, double ThreatShift = 10,
+    double OpeningDays = 0, double OpeningShips = 1);
 
 /// <summary>One pot: its name, share of the day's Industry, what it has saved, its lock and goal, and what it has spent.</summary>
 public sealed class PotState
@@ -153,6 +154,8 @@ public static class Budget
         if (state.Budget is not { Pots.Count: Count } bs)
         {
             bs = state.Budget = New(StartShares(w, side));
+            var open = Opening(w, bs.BaseShares.ToArray());
+            foreach (var p in All) bs.Pots[(int)p].Share = open[(int)p];
             foreach (var p in All) bs.Pots[(int)p].Saved = Math.Max(0, state.Industry) * bs.Pots[(int)p].Share / 100;
         }
         Sync(state, bs);
@@ -173,13 +176,47 @@ public static class Budget
         return D.Shares is { Count: Count } s ? Normal(s.ToArray()) : (double[])BuiltInShares.Clone();
     }
 
+    /// <summary>
+    /// The opening (balance pass): for the first OpeningDays the Ships share is cut to OpeningShips of itself and the
+    /// rest goes half to Buildings and half to Transport (which pays for settler ships), so the early game goes on
+    /// building up and settling, not on a rush of warships. A side under threat
+    /// still moves shares to ships as usual (see Propose).
+    /// </summary>
+    public static double[] Opening(World w, double[] shares, bool force = false)
+    {
+        if (!force && !InOpening(w) || shares.Length != Count) return shares;
+        var cut = Math.Round(shares[(int)Pot.Ships] * (1 - D.OpeningShips));
+        shares[(int)Pot.Ships] -= cut;
+        shares[(int)Pot.Buildings] += cut / 2;
+        shares[(int)Pot.Transport] += cut / 2; // settler ships are paid from Transport
+        return shares;
+    }
+
+    /// <summary>Still in the opening days (see Opening)?</summary>
+    public static bool InOpening(World w) => w.Rules.OpeningBudget && D.OpeningDays > 0 && D.OpeningShips < 1 && w.Day < D.OpeningDays;
+
+    /// <summary>
+    /// The day the opening ends: shares still as the opening set them go back to the side's own (Auto would move them
+    /// back anyway; this also covers a side whose budget is on Advise or Manual and was never touched). Locked pots stay.
+    /// </summary>
+    private static void EndOpening(World w, Side side, BudgetState bs, GameLog log)
+    {
+        if (!w.Rules.OpeningBudget || D.OpeningDays <= 0 || D.OpeningShips >= 1 || w.Day != (int)Math.Ceiling(D.OpeningDays)) return;
+        if (bs.BaseShares.Count != Count || bs.Pots.Any(p => p.Locked)) return;
+        var open = Opening(w, bs.BaseShares.ToArray(), force: true);
+        if (Enumerable.Range(0, Count).Any(i => Math.Abs(bs.Pots[i].Share - open[i]) > 0.5)) return; // changed since: leave it
+        for (var i = 0; i < Count; i++) bs.Pots[i].Share = bs.BaseShares[i];
+        log.Info("budget", "Opening over: shares back to normal", new { side = side.ToString(), shares = bs.BaseShares.Select(s => Math.Round(s)).ToArray() });
+    }
+
     /// <summary>Back to the starting shares (a new rival mind), keeping what is saved.</summary>
     public static void Reset(World w, Side side)
     {
         var bs = Of(w, side);
         var shares = StartShares(w, side);
         bs.BaseShares = shares.ToList();
-        foreach (var p in All) bs.Pots[(int)p].Share = shares[(int)p];
+        var open = Opening(w, shares.ToArray());
+        foreach (var p in All) bs.Pots[(int)p].Share = open[(int)p];
     }
 
     /// <summary>Industry changed outside the budget (a test, an old save): more is shared out by share, less comes from Reserve first.</summary>
@@ -607,6 +644,7 @@ public static class Budget
         if (Mind.Of(w, side) != null && w.Tick % 6 == 0) Sweep(w, side, bs, sim.Log);
         if (w.Day == bs.Day) return;
         bs.Day = w.Day;
+        EndOpening(w, side, bs, sim.Log);
         foreach (var ps in bs.Pots)
         {
             ps.Days.Add(ps.SpentToday);
@@ -738,7 +776,7 @@ public static class Budget
     {
         var bs = Of(w, side);
         var now = bs.Pots.Select(p => p.Share).ToArray();
-        var target = bs.BaseShares.Count == Count ? bs.BaseShares.ToArray() : StartShares(w, side);
+        var target = Opening(w, bs.BaseShares.Count == Count ? bs.BaseShares.ToArray() : StartShares(w, side));
         var items = Items(w, side);
         var demand = new double[Count];
         foreach (var it in items) if (!it.Paused && !it.Blocked && it.Pot != Pot.Reserve) demand[(int)it.Pot] += it.Cost;

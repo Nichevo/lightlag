@@ -147,7 +147,7 @@ public static class Heat
             {
                 var cap = Capacity(s);
                 if (cap <= 0) continue;
-                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * BurnShare(f) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (f.Flight?.CombatBurn == true ? FlightPlanner.CombatBurnHeat : 1) : 0);
+                var gain = D.IdlePerHour + Hazards.SunHeat(w, f.Position) + (f.Thrusting ? D.BurnPerHour * (f.SteerThrust >= 0 ? Math.Min(1, f.SteerThrust) : BurnShare(f)) * Fitting.BurnHeatFactor(s) * Fuels.BurnHeat(w, s) * (f.BurningHard ? FlightPlanner.CombatBurnHeat : 1) : 0);
                 var shed = s.Overheated || f.Radiators == RadiatorMode.Out || f.Radiators == RadiatorMode.Auto && !underFire ? D.RadiateOutPerHour * (w.Loop && !InBattle(w, f) ? Tech.Factor(w, f.Side, "radiator-fins") : 1) : D.RadiateInPerHour;
                 // Past twice its capacity the hull and crew take the heat instead: it stops climbing, so a ship
                 // can always cool down again in reasonable time.
@@ -341,6 +341,17 @@ public sealed record SetFireControlCommand(int FleetId, bool LongShots, MissileL
         fleet.LongShots = LongShots;
         fleet.MissileLaunch = Launch;
         sim.Log.Info("fleet", $"{fleet.Name} long shots {LongShots}, launch {Launch}", new { FleetId, LongShots, Launch, Source });
+    }
+}
+
+/// <summary>Combat burn on (the default: used when closing, braking or turning in a fight needs it) or off.</summary>
+public sealed record SetCombatBurnCommand(int FleetId, bool On) : GameCommand, IFleetCommand
+{
+    public override void Apply(World world, Simulation sim)
+    {
+        if (GetFleet(world, sim, FleetId, "Combat burn") is not Fleet fleet) return;
+        fleet.NoCombatBurn = !On;
+        sim.Log.Info("fleet", "Combat burn set", new { FleetId, fleet = fleet.Name, On, Source });
     }
 }
 

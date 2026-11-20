@@ -56,6 +56,13 @@ public sealed class MoveCard : BattleCard
             },
             (c, f) => c.Pending<SetStanceCommand>(f)?.Stance ?? f.Stance,
             (f, s) => new SetStanceCommand(f.Id, s, f.RetreatWhenDamaged), "stance");
+        b.SameRow();
+        b.Toggle("Combat burn",
+            $"On (the default): when closing, braking or turning in a fight needs it, the engines burn up to {FlightPlanner.CombatBurnFactor:0}x as hard, so the fleet can stop at gun range or turn back for another pass instead of flying through. "
+            + $"It costs {FlightPlanner.CombatBurnHeat:0}x the engine heat and wears on the crews while it lasts, and stops when supplies fall below {GameData.Combat.DodgeStopsBelow:P0}. Off: normal thrust only.",
+            (c, f) => c.Pending<SetCombatBurnCommand>(f)?.On ?? !f.NoCombatBurn,
+            (f, on) => new SetCombatBurnCommand(f.Id, on), "combat burn");
+        b.Line(c => c.Fleets.Any(f => f.BurningHard) ? "Combat burn: engines burning hard now (extra heat, crew strain)" : "", Ui.Warn);
         var grid = new ApproachGrid();
         b.Custom(grid, grid.Refresh);
         b.Line(c => c.Info == null ? "No enemy in sight or on record: nothing to close on." : "", Ui.Dim);
