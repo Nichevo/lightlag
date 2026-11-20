@@ -1470,6 +1470,8 @@ public partial class PlannerPanel : PanelContainer
     private Label _title = null!;
     private Button _direct = null!, _wait = null!, _sling = null!, _brake = null!, _pass = null!, _orbit = null!, _drift = null!, _go = null!;
     private Button _together = null!, _ahead = null!;
+    private Button _meetWait = null!, _meetGo = null!;
+    private HBoxContainer _meetRow = null!;
     private Button _addEnd = null!, _addMid = null!;
     private HBoxContainer _shipsRow = null!, _routeRow = null!, _arriveRow = null!, _thenRow = null!, _ctrlRow = null!, _chaseRow = null!, _keyRow = null!;
     private OptionButton _chase = null!;
@@ -1514,6 +1516,11 @@ public partial class PlannerPanel : PanelContainer
         _chaseRow.AddChild(RowLabel("Chase"));
         _chaseRow.AddChild(_chase);
         box.AddChild(_chaseRow);
+        // When the quarry is passing one of our planets: wait for it there, or go after it now.
+        _meetWait = Choice("Wait for it", "Stay at (or fly to) the planet it is passing and fight it there when it comes near", () => s.ChaseGoNow = false);
+        _meetGo = Choice("Go now", "Set off now and chase it with the setting above (it may burn away first to match its speed)", () => s.ChaseGoNow = true);
+        _meetRow = Row("Intercept", _meetWait, _meetGo);
+        box.AddChild(_meetRow);
         _chaseInfo = Ui.Label("", 13, Ui.Dim);
         _chaseInfo.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _chaseInfo.CustomMinimumSize = new Vector2(360, 0);
@@ -1747,6 +1754,13 @@ public partial class PlannerPanel : PanelContainer
         _keyRow.Visible = !chasing;
         _chaseRow.Visible = chasing;
         _chaseInfo.Visible = chasing;
+        _meetRow.Visible = chasing && p.Meet != null;
+        if (p.Meet is MeetPreview offer)
+        {
+            Mark(_meetWait, !s.ChaseGoNow);
+            Mark(_meetGo, s.ChaseGoNow);
+            _meetWait.Text = $"Wait at {offer.BodyName}";
+        }
         if (chasing)
         {
             _updating = true;
@@ -1776,7 +1790,7 @@ public partial class PlannerPanel : PanelContainer
 
         var plan = p.Plan;
         _go.Disabled = plan is not { Ok: true };
-        if (chasing && p.Meet is MeetPreview meet)
+        if (chasing && p.Meet is MeetPreview meet && !s.ChaseGoNow)
         {
             // The quarry passes one of our planets: wait for it there rather than burn out to match its speed.
             var pass = Math.Max(0, meet.PassHour - w.Hour);
@@ -1786,7 +1800,7 @@ public partial class PlannerPanel : PanelContainer
                 meet.Flight == null
                     ? $"Go: the fleet stays in orbit at {meet.BodyName} and waits for it, then closes in when it is near."
                     : $"Go: the fleet flies to {meet.BodyName} first (arrives {GameTime.Format(meet.Flight.ArriveHour)}, in {Format.Hours(meet.Flight.ArriveHour - w.Hour)}), waits there, then closes in when it is near.",
-                "If it turns elsewhere, the fleet chases it as usual.",
+                "If it turns elsewhere, the fleet chases it as usual. Go now (above) sets off at once instead.",
             };
             if (meet.Flight != null) meetLines.Add($"Fuel: {Format.Speed(meet.Flight.DeltaV)} of speed change to get there");
             _result.Text = string.Join("\n", meetLines);

@@ -1908,8 +1908,8 @@ public partial class GameScreen : Node2D
                 && Sensors.Find(Sim.World, f.Side, quarry) is Sighting seen && Chases.HeadingFor(Sim.World, f.Side, seen, f.OrbitBodyId) is var (_, hours))
             {
                 p.Meet = new MeetPreview(meetBody.Id, meetBody.Name, Sim.World.Hour + hours, meetFlight);
-                var dvLeft = FleetPerformance.Of(Sim.World, f).DeltaVLeft;
-                p.Plan = new FlightPlan(true, null, meetFlight, meetFlight?.DeltaV ?? 0, dvLeft);
+                // Wait (the default) shows the wait; Go now keeps the chase plan worked out above.
+                if (!Settings.ChaseGoNow) p.Plan = new FlightPlan(true, null, meetFlight, meetFlight?.DeltaV ?? 0, FleetPerformance.Of(Sim.World, f).DeltaVLeft);
             }
             p.ChaseProblems.Clear();
             if (p.TargetFleetId != null)
@@ -1924,7 +1924,7 @@ public partial class GameScreen : Node2D
 
     private FlightRequest Request(PlannerState p) => p.TargetFleetId != null
         ? new(null, p.Point, Settings.Speed, ArrivalStyle.Brake, HoldStyle.Drift, Sim.World.Tick, RouteKind.Direct, p.TargetFleetId,
-            Chase: Settings.Chase)
+            Chase: Settings.Chase, GoNow: Settings.ChaseGoNow)
         : new(p.TargetBodyId, p.Point, Settings.Speed, Settings.Arrival, Settings.Hold, Sim.World.Tick, Settings.Route == RouteKind.Slingshot && p.Waypoints.Count > 0 ? RouteKind.Direct : Settings.Route, p.TargetFleetId,
             p.Waypoints.Count > 0 ? p.Waypoints.Select(d => new Waypoint(d.Point, d.Stop, d.Speed, d.Stop ? d.WaitHours : 0)).ToList() : null);
 
@@ -1976,7 +1976,7 @@ public partial class GameScreen : Node2D
 
     public void ConfirmPlan()
     {
-        if (Planner is PlannerState meeting && meeting.Meet != null)
+        if (Planner is PlannerState meeting && meeting.Meet != null && !Settings.ChaseGoNow)
         {
             // Waiting for the quarry at our planet: the command itself works out the wait (and any flight there).
             Sim.Issue(new PlanFlightCommand(meeting.FleetId, Request(meeting)));
@@ -2318,6 +2318,9 @@ public sealed class PlanSettings
 
     /// <summary>How to chase when the target is an enemy fleet.</summary>
     public ChaseMode Chase = ChaseMode.GunRange;
+
+    /// <summary>A chase after a fleet passing one of our planets: go now (true) or wait for it at the planet (false).</summary>
+    public bool ChaseGoNow;
 
     /// <summary>Ctrl+right-click sets a new destination (true) or adds a waypoint on the way (false).</summary>
     public bool AddAtEnd = true;

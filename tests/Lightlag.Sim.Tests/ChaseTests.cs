@@ -122,6 +122,30 @@ public class ChaseTests
     }
 
     [Fact]
+    public void Go_now_chases_at_once_instead_of_waiting_at_the_planet()
+    {
+        var sim = Simulation.NewGame(Scenarios.TestSystem, 8, GameLog.Memory());
+        var w = sim.World;
+        w.Minds.Clear();
+        var mine = w.Fleets.First(f => f.Side == Side.Player && f.OrbitBodyId != null);
+        var home = w.FindBody(mine.OrbitBodyId!.Value)!;
+        var theirs = w.Fleets.First(f => f.Side == Side.Rival);
+        theirs.Flight = null;
+        theirs.Chase = null;
+        Fleets.EnterDrift(theirs);
+        theirs.Position = home.Position + new Vec2(3000, 0);
+        theirs.Velocity = (FlightPlanner.PredictBody(w, home, w.Hour + 30) - theirs.Position) * (1.0 / 30);
+        foreach (var sh in w.ShipsOf(theirs)) sh.Position = theirs.Position + sh.FormationOffset;
+        Sensors.Reveal(w, Side.Player, theirs);
+        sim.Issue(new PlanFlightCommand(mine.Id, new FlightRequest(null, theirs.Position, 1.0, ArrivalStyle.Brake, HoldStyle.Drift, w.Tick,
+            TargetFleetId: theirs.Id, Chase: ChaseMode.GunRange, GoNow: true)));
+        sim.Step();
+        Assert.NotNull(mine.Chase);
+        Assert.Null(mine.Chase!.WaitBodyId);
+        Assert.NotNull(mine.Flight);
+    }
+
+    [Fact]
     public void Too_slow_to_chase_says_which_ship_holds_it_back()
     {
         var (sim, mine, theirs) = Setup(1, 1, new Vec2(500, 0));

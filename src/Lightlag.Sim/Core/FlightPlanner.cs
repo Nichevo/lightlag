@@ -13,7 +13,8 @@ public sealed record FlightRequest(
     int? TargetFleetId = null,
     List<Waypoint>? Waypoints = null,
     ChaseMode Chase = ChaseMode.None,
-    int? FlybyBodyId = null);
+    int? FlybyBodyId = null,
+    bool GoNow = false); // a chase that goes at once rather than waiting at a planet of ours the quarry is passing
 
 /// <summary>
 /// A point the route goes through on the way. The fleet flies through it and turns towards the next
