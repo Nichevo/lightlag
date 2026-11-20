@@ -699,7 +699,9 @@ public static class Budget
         var bs = Of(w, side);
         var ps = bs.Pots[(int)pot];
         var items = Items(w, side).Where(i => i.Pot == pot && !i.Paused).Sum(i => i.Cost);
-        return Math.Max(Math.Max(PerDay(w, side, pot) * D.FullDays, ps.GoalCost), items) + bs.Earmarks.Where(e => e.Pot == pot).Sum(e => e.Amount);
+        // What the computer wanted from the pot counts too: else Reserve sent it there and it overflowed straight back.
+        var wanted = bs.Wanted.Count == Count ? bs.Wanted[(int)pot] : 0;
+        return Math.Max(Math.Max(PerDay(w, side, pot) * D.FullDays, ps.GoalCost), items + wanted) + bs.Earmarks.Where(e => e.Pot == pot).Sum(e => e.Amount);
     }
 
     private static void Overflow(World w, Side side, BudgetState bs, List<BudgetItem> items, GameLog log)
@@ -815,7 +817,9 @@ public static class Budget
     internal static void Steward(Simulation sim, Side side, Func<AutoArea, string, string, GameCommand, string, int?, int?, NeedLevel, bool> offer)
     {
         var w = sim.World;
-        if (!On(w) || w.Hour < Of(w, side).LastMoveHour + 24 || Propose(w, side) is not double[] shares) return;
+        if (!On(w)) return;
+        TopUp(w, side, offer);
+        if (w.Hour < Of(w, side).LastMoveHour + 24 || Propose(w, side) is not double[] shares) return;
         var text = "Budget shares: " + Describe(w, side, shares);
         if (offer(AutoArea.Budget, "budget:shares", text, new SetBudgetSharesCommand(side, shares.ToList()), "Use these shares", null, null, NeedLevel.Advice))
         {
@@ -823,6 +827,32 @@ public static class Budget
             bs.LastMove = text;
             bs.LastMoveHour = w.Hour;
         }
+    }
+
+    /// <summary>
+    /// The player's Reserve: what it holds above KeepDays of income (twice that under threat) goes to the pot
+    /// whose waiting items are shortest of Industry, as "Send" would (Auto does it, Advise offers it), so
+    /// overflow does not pile up in Reserve while orders wait.
+    /// </summary>
+    private static void TopUp(World w, Side side, Func<AutoArea, string, string, GameCommand, string, int?, int?, NeedLevel, bool> offer)
+    {
+        var bs = Of(w, side);
+        var reserve = bs.Pots[(int)Pot.Reserve];
+        if (reserve.GoalKey != null) return;
+        var keep = Economy.IncomePerDay(w, side) * (Threat(w, side) > 0 ? 2 * KeepDays : KeepDays);
+        var spare = reserve.Saved - keep;
+        if (spare < 1) return;
+        var items = Items(w, side);
+        // Per pot, the first live item it can't pay for yet, and how much it is short.
+        var shortest = All.Where(p => p != Pot.Reserve && bs.Pots[(int)p].GoalKey == null)
+            .Select(p => items.FirstOrDefault(i => i.Pot == p && !i.Paused && !i.Blocked && i.Stall == null && !Afford(w, side, p, i.Cost, i.Key)))
+            .Where(i => i != null).Select(i => (Item: i!, Need: i!.Cost - Free(w, side, i.Pot, i.Key)))
+            .Where(x => x.Need >= 1).OrderByDescending(x => x.Need).ThenBy(x => x.Item.Pot).ToList();
+        if (shortest.Count == 0) return;
+        var (first, need) = shortest[0];
+        var send = Math.Ceiling(Math.Min(spare, need));
+        offer(AutoArea.Budget, $"budget:reserve:{first.Pot}", $"Reserve sends {send:0} Industry to {bs.Pots[(int)first.Pot].Name}: {first.What} waits for it",
+            new MoveIndustryCommand(side, Pot.Reserve, first.Pot, send), "Send it", first.BodyId, null, NeedLevel.Advice);
     }
 
     /// <summary>Sets one pot's share; the other unlocked pots make up the rest in proportion.</summary>

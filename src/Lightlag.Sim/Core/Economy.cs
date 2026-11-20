@@ -645,7 +645,12 @@ public static class Economy
                 if (anywhere.Count == 0)
                     o.Waiting = o.YardPinned && w.FindBody(o.YardBodyId ?? -1) is Body pin ? $"no berth at {pin.Name} takes it now"
                         : GameData.ShipClasses.TryGetValue(o.Key, out var cls) ? Starbases.NeedsYard(cls) : "No yard takes it";
-                else if (!o.YardPinned) o.YardBodyId = anywhere[0].Body.Id;
+                else
+                {
+                    if (!o.YardPinned) o.YardBodyId = anywhere[0].Body.Id;
+                    // Every berth that takes it is busy: say so, not an old reason from before the hull ahead started.
+                    o.Waiting = $"waits for a free berth at {anywhere[0].Body.Name}";
+                }
                 continue;
             }
             var open = choices.Where(b => !Blockaded(w, b.Body)).ToList();

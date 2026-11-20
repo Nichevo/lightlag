@@ -261,6 +261,38 @@ public class BudgetTests
     }
 
     [Fact]
+    public void Auto_sends_spare_Reserve_to_a_pot_whose_order_waits_and_Advise_offers_it()
+    {
+        var sim = NewGame();
+        var w = sim.World;
+        var cost = GameData.ShipClass("gun-frigate").Cost;
+        var keep = Economy.IncomePerDay(w, Side.Player) * Budget.KeepDays * 2; // twice, in case the rival counts as a threat
+        w.Sides.Single(s => s.Side == Side.Player).Auto[AutoArea.Budget] = AutoLevel.Advise;
+        Fill(sim, (Pot.Ships, 0), (Pot.Reserve, keep + cost * 2));
+        sim.Issue(new QueueOrderCommand(Side.Player, OrderKind.Ship, "gun-frigate"));
+        Days(sim, 1);
+        var order = w.Orders.Single(o => o.Side == Side.Player && o.Kind == OrderKind.Ship);
+        Assert.False(order.Paid);
+        Assert.Contains(Economy.Of(w, Side.Player).Needs, n => n.Key == "budget:reserve:Ships" && n.Act is MoveIndustryCommand);
+        w.Sides.Single(s => s.Side == Side.Player).Auto[AutoArea.Budget] = AutoLevel.Auto;
+        Days(sim, 1);
+        Assert.True(order.Paid || !w.Orders.Contains(order));
+        Assert.True(Book(sim).Pots[(int)Pot.Reserve].Saved >= keep - 1); // Reserve keeps its few days of income
+        Assert.Empty(sim.CheckRules());
+    }
+
+    [Fact]
+    public void Industry_the_rival_wanted_from_a_pot_is_not_overflowed_straight_back_to_Reserve()
+    {
+        var sim = NewGame(options: new GameOptions(new List<AiSetup> { new(Side.Rival, Difficulty.Normal) }) { Events = EventRate.Off });
+        var w = sim.World;
+        var bs = Budget.Of(w, Side.Rival);
+        var full = Budget.FullAt(w, Side.Rival, Pot.Stations);
+        Budget.Want(w, Side.Rival, Pot.Stations, full + 100);
+        Assert.True(Budget.FullAt(w, Side.Rival, Pot.Stations) >= full + 100 - 1e-9);
+    }
+
+    [Fact]
     public void The_rival_starts_from_its_personalitys_shares()
     {
         var sim = NewGame(options: new GameOptions(new List<AiSetup> { new(Side.Rival, Difficulty.Normal, Personality.Turtle) }));

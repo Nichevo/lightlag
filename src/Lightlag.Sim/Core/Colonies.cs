@@ -508,6 +508,15 @@ public static class Colonies
                 : null;
             if (iron != null) AddPiece(w, b, data, iron.X, iron.Y, false, built: true);
             else if (BestSpot(b, data) is var (x, y, turned)) AddPiece(w, b, data, x, y, turned, built: true);
+            // A power building with no room in its shape (a solar field needs 2 x 2) is swapped for the other kind,
+            // so a home always starts with its spare power.
+            else if (data.Power < 0)
+                foreach (var other in new[] { "solar-field", "power-plant" }.Where(k => k != kind))
+                    if (Planets.BuildingKind(other) is BuildingData alt && BestSpot(b, alt) is var (ax, ay, aturned))
+                    {
+                        AddPiece(w, b, alt, ax, ay, aturned, built: true);
+                        break;
+                    }
         }
         foreach (var (good, amount) in C.HomeStock ?? new Dictionary<string, double>()) b.Stock[good] = amount;
         SyncBuildings(b);
